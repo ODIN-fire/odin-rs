@@ -1,0 +1,8 @@
+Cargo.lock
+target/
+book/
+local/
+.vscode/
+rustc-ice*.txt
+odin_book/external/
+

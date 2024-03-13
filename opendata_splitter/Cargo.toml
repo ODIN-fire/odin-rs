@@ -1,0 +1,19 @@
+[package]
+name = "opendata_splitter"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# our ODIN crates
+odin_common = { workspace = true }
+
+chrono = { version = "*", features = ["serde"] }
+geojson = "*"
+lazy_static = "*"
+serde_json = "*"
+structopt = "*"
+serde = "*"
+uom = { version = "*", features = ["serde", "i64"] }
+indexmap = { version = "*", features = ["serde"] }

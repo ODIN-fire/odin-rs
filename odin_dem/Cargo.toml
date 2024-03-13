@@ -1,0 +1,36 @@
+[package]
+name = "odin_dem"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "odin_dem"
+path = "src/bin/odin_dem.rs"
+
+[[bin]]
+name = "getdem"
+path = "src/bin/getdem.rs"
+
+[dependencies]
+
+# our ODIN crates
+odin_common = { workspace = true }
+odin_gdal = { workspace = true }
+
+lazy_static = "*"
+structopt = "*"
+tokio = { version = "*", features = ["full"] }
+tokio-util = { version = "*", features = ["full"] }
+tower-http = { version = "*", features = ["full"] }
+tracing = "*"
+tracing-subscriber = { version = "*", features = ["env-filter"] }
+http = "*"
+axum = "*"
+serde = "*"
+serde_derive = "*"
+thiserror = "*"
+gdal = "*"
+gdal-sys = "*"
+

@@ -1,0 +1,20 @@
+[package]
+name = "odin_macro"
+version = "0.2.0"
+license-file = "LICENSE.txt"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "odin_macro"
+path = "src/lib.rs"
+proc-macro = true
+
+[dependencies]
+quote = "*"
+syn = { version = "*", features = ["full","extra-traits","visit"] }
+proc-macro2 = { version = "*" }
+
+[dev-dependencies]
+serde = { version = "*", features = ["derive"] }

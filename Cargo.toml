@@ -1,0 +1,39 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "odin_common",  
+  "odin_config",  
+  "odin_job",
+  "odin_actor",
+  "odin_macro",
+  "odin_server",
+  "odin_gdal",
+  "odin_dem",
+  "odin_hrrr",
+  "odin_windninja",
+
+  "odin_sentinel",
+
+  "gpshub",
+
+  "opendata_splitter",
+  "mkslides",
+  "servedoc",
+  "webrun"
+]
+
+[workspace.dependencies]
+
+odin_common = { version = "*", path = "odin_common" }
+odin_config = { version = "*", path = "odin_config" }
+odin_macro  = { version = "*", path = "odin_macro" }
+odin_gdal   = { version = "*", path = "odin_gdal" }
+odin_actor  = { version = "*", path = "odin_actor" }
+odin_job    = { version = "*", path = "odin_job" }
+
+[profile.release]
+
+codegen-units = 1
+lto = "fat"

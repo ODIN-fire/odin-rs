@@ -1,0 +1,33 @@
+cargo-features = ["edition2024"]
+
+[package]
+name = "odin_server"
+version = "0.1.0"
+edition = "2024"
+
+[build]
+rustflags = ["--cfg", "tokio_unstable", "-Ctarget-cpu=native"]
+
+
+[dependencies]
+tokio = { version = "*", features = ["full", "tracing"] }
+thiserror = "*"
+anyhow = "*"
+ron = "*"
+axum = { version = "*", features = [ "ws" ] }
+axum-extra = { version = "*", features = ["typed-header"] }
+axum-macros = "*"
+headers = "*"
+tower = { version = "*", features = ["full"] }
+tower-http = { version = "*", features = ["full"] }
+futures-util = { version = "*", features = ["sink"] }
+xattr = "*"
+serde = { version = "*", features = ["derive"] }
+
+odin_macro = { workspace = true }
+odin_config = { workspace = true }
+odin_actor = { workspace = true }
+
+
+
+

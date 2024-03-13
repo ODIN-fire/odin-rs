@@ -1,0 +1,43 @@
+[package]
+name = "odin_sentinel"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "get_sentinels"
+path = "src/bin/get_sentinels.rs"
+
+[[bin]]
+name = "monitor_ws"
+path = "src/bin/monitor_ws.rs"
+
+[dependencies]
+# our ODIN crates
+odin_actor = { workspace = true }
+odin_common = { workspace = true }
+odin_config = { workspace = true }
+odin_macro = { workspace = true }
+
+anyhow = "*"
+thiserror = "*"
+chrono = { version = "*", features = ["serde"] }
+serde_json = "*"
+ron = "*"
+serde = { version = "*", features = ["rc"] }
+serde_with = "*" 
+uom = { version = "*", features = ["serde", "i64"] }
+tokio = { version = "*", features = ["full"] }
+futures = "*"
+async-stream = "*"
+reqwest = { version = "*", features = ["json", "stream"] }
+http = "*"
+url = "*"
+tokio-tungstenite = { version = "*", features = ["native-tls"] }
+lazy_static = "*"
+structopt = "*"
+displaydoc = "*"
+strum = { version = "*", features = ["derive"]}
+paste = "*"
+

@@ -1,0 +1,10 @@
+// config template for odin_sentinel
+
+SentinelConfig (
+  base_uri: {{http_uri}},                         // string literal starting with http:// or https://, including port
+  ws_uri: {{ws_uri}},                             // string literal starting with ws:// or wss://, including port
+  access_token: {{access_token}},                 // string literal
+  max_history_len: {{max_history_len}},           // maximum number of sensor records to store per capability per device
+  max_age: {{max_age}},                           // maximum age Duration of sensor records and image files
+  ping_interval: Some( {{ping_interval}} ),       // optional string literal with timer interval for sending websocket Ping messages
+)
