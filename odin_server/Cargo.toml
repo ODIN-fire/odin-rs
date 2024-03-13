@@ -5,10 +5,6 @@ name = "odin_server"
 version = "0.1.0"
 edition = "2024"
 
-[build]
-rustflags = ["--cfg", "tokio_unstable", "-Ctarget-cpu=native"]
-
-
 [dependencies]
 tokio = { version = "*", features = ["full", "tracing"] }
 thiserror = "*"
