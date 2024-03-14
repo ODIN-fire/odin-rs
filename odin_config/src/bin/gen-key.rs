@@ -76,19 +76,21 @@ fn main ()->Result<()> {
     let uid = format!("{} <{}>", OPTS.user_name, OPTS.user_email);
     let key_size = check_key_size(OPTS.key_size);
 
+    let pass_phrase = rpassword::prompt_password("enter pass-phrase for key: ")?;
+
     let mut key_params = SecretKeyParamsBuilder::default();
     key_params
         .key_type(KeyType::Rsa(key_size))
         .can_certify(false)
         .can_sign(true)
         .primary_user_id(uid)
+        .passphrase(Some(pass_phrase.clone()))
         .preferred_symmetric_algorithms(smallvec![ SymmetricKeyAlgorithm::AES256,])
         .preferred_hash_algorithms(smallvec![ HashAlgorithm::SHA2_256, ])
         .preferred_compression_algorithms(smallvec![ CompressionAlgorithm::ZLIB,]);
         
     let secret_key_params = key_params.build()?;
     let secret_key = secret_key_params.generate()?;
-    let pass_phrase = rpassword::prompt_password("enter pass-phrase for key: ")?;
     let passwd_fn = || pass_phrase.clone();
     let signed_secret_key = secret_key.sign(passwd_fn)?;
     let armored = signed_secret_key.to_armored_string(None)?;

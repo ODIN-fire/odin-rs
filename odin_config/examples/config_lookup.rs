@@ -52,7 +52,6 @@ use_config!();
 
 type Result<T> = crate::ConfigResult<T>;
 
-
 mod my_mod {
     use serde::Deserialize;
 

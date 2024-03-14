@@ -187,8 +187,11 @@ pub fn config_from_embedded_pgp<C> (pw_cache: &pw_cache::PwCache, bs: &[u8])->Re
     priv_key.verify()?;
 
     let parsed = Message::from_armor_single(Cursor::new(bs))?.0;
+
     // unfortunately Message only works with a String pw
-    let (mut decryptor,keys) = pw_cache.with_string_pw( |pw| Ok(parsed.decrypt(|| pw, &[&priv_key])?))?;
+    let (mut decryptor,keys) = pw_cache.with_string_pw( |pw| {
+        parsed.decrypt(|| pw , &[&priv_key]).map_err(|e| OdinConfigError::PgpError(e))
+    })?;
     let decrypted = decryptor.next().ok_or(config_error("invalid embedded PGP data"))??.decompress()?;
 
     if let Message::Literal(literal_data) = decrypted {

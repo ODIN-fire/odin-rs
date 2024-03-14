@@ -17,7 +17,7 @@
 
 use tokio;
 use rpassword;
-use secstr::SecStr;
+use secstr::SecUtf8;
 use std::{ops::Fn, sync::{Arc,Mutex}, time::Duration};
 use crate::{errors::config_error, prelude::{ConfigResult, OdinConfigError}};
 
@@ -36,7 +36,7 @@ type Result<T> = ConfigResult<T>;
 #[derive(Clone)]
 pub struct PwCache {
     prompt: String,
-    cache: Arc<Mutex<Option<SecStr>>>, // needs to be Arc/Mutex because of async reset
+    cache: Arc<Mutex<Option<SecUtf8>>>, // needs to be Arc/Mutex because of async reset
     lifespan: Duration,
 }
 
@@ -53,12 +53,12 @@ impl PwCache {
     /// obtain it from the user and spawn a task that will erase it after the lifespan duration.
     /// Make sure when this task erases it there are no cleartext bytes left on the heap
     pub fn with_pw<F,T> (&self, func: F)->Result<T> 
-        where F: Fn(&SecStr)->Result<T> 
+        where F: Fn(&SecUtf8)->Result<T> 
     {
         if let Ok(mut locked_cache) = self.cache.lock() {
             if locked_cache.is_none() {
                 let pw = rpassword::prompt_password(&self.prompt)?;
-                let sec_pw = SecStr::new(pw.into_bytes());
+                let sec_pw = SecUtf8::from( pw);
                 locked_cache.replace(sec_pw);
 
                 let mut c = self.cache.clone();
@@ -94,7 +94,7 @@ impl PwCache {
     {
         self.with_pw(|sec_pw| {
             let mut bs =  sec_pw.unsecure();
-            func(bs)
+            func(bs.as_bytes())
         })
     } 
 
@@ -104,12 +104,7 @@ impl PwCache {
         where F: Fn(&str)->Result<T>
     {
         self.with_pw(|sec_pw| {
-            let mut bs =  sec_pw.unsecure();
-            if let Ok(s) = std::str::from_utf8(bs) {
-                func(s)
-            } else {
-                Err(Self::err("pw not valid utf-8"))
-            }
+            func(sec_pw.unsecure())
         })
     } 
 
@@ -120,7 +115,7 @@ impl PwCache {
         where F: Fn(&String)->Result<T>
     {
         self.with_pw(|sec_pw| {
-            let mut s =  sec_pw.to_string();
+            let mut s = sec_pw.unsecure().to_string();
             let result = func(&s);
             Self::clear_string(s);
             result
@@ -134,15 +129,14 @@ impl PwCache {
         where F: Fn(String)->Result<T>
     {
         self.with_pw(|sec_pw| {
-            let mut s =  sec_pw.to_string();
-            func(s)
+            func( sec_pw.unsecure().to_string())
         })
     }
 
     /// same as [`with_pw`] except of that we don't try to obtain the pw from the user if it is not
     /// already set
     pub fn try_with_pw<F,T> (&self, func: F)->Result<T> 
-        where F: Fn(&SecStr)->Result<T> 
+        where F: Fn(&SecUtf8)->Result<T> 
     {
         if let Ok(mut locked_cache) = self.cache.lock() {
             match *locked_cache {
@@ -160,12 +154,7 @@ impl PwCache {
         where F: Fn(&str)->Result<T> 
     {
         self.try_with_pw(|sec_pw| {
-            let mut bs =  sec_pw.unsecure();
-            if let Ok(s) = std::str::from_utf8(bs) {
-                func(s)
-            } else {
-                Err(Self::err("pw not valid utf-8"))
-            }
+            func( sec_pw.unsecure())
         })
     }
 
