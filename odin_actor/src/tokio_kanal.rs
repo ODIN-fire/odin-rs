@@ -33,7 +33,11 @@ use std::{
     sync::{atomic::AtomicU64, Arc, LockResult, Mutex, MutexGuard}, time::{Duration, Instant}
 };
 use crate::{
-    create_sfc, errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, micros, millis, nanos, secs, ActorReceiver, ActorSystemRequest, DefaultReceiveAction, DynMsgReceiver, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints, MsgSendFuture, MsgTypeConstraints, ObjSafeFuture, ReceiveAction, SendableFutureCreator, SysMsgReceiver, TryMsgReceiver, _Exec_, _Pause_, _Ping_, _Resume_, _Start_, _Terminate_, _Timer_
+    create_sfc, errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, micros, millis, nanos, secs, 
+    ActorReceiver, ActorSystemRequest, DefaultReceiveAction, DynMsgReceiver, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints, 
+    MsgSendFuture, MsgTypeConstraints, ObjSafeFuture, ReceiveAction, SendableFutureCreator, SysMsgReceiver, TryMsgReceiver, 
+    _Exec_, _Pause_, _Ping_, _Resume_, _Start_, _Terminate_, _Timer_,
+    trace,debug,info,warn,error
 };
 use odin_macro::fn_mut;
 
@@ -204,6 +208,9 @@ impl <S,M> Actor <S,M> where S: Send + 'static, M: MsgTypeConstraints {
     }
 }
 
+impl <S,M> Identifiable for Actor<S,M> where S: Send + 'static, M: MsgTypeConstraints {
+    fn id(&self)->&str { self.id() }
+}
 
 impl <S,M> Deref for Actor<S,M> where S: Send + 'static, M: MsgTypeConstraints {
     type Target = S;
@@ -243,6 +250,10 @@ impl <M> PreActorHandle <M>  where M: MsgTypeConstraints {
     }
 }
 
+impl <M> Identifiable for PreActorHandle<M> where M: MsgTypeConstraints {
+    fn id (&self) -> &str { self.id.as_str() }
+}
+
 /// this is a wrapper for the minimal data we need to send messages of type M to the respective actor
 /// Note this is a partially opaque type
 pub struct ActorHandle <M> where M: MsgTypeConstraints {
@@ -262,6 +273,7 @@ impl <M> ActorHandle <M> where M: MsgTypeConstraints {
 
     /// this waits indefinitely until the message can be send or the receiver got closed
     pub async fn send_actor_msg (&self, msg: M)->Result<()> {
+        debug!("send_actor_msg to '{}': msg: {:?}", self.id, msg);
         self.tx.send(msg).await.map_err(|_| OdinActorError::ReceiverClosed)
     }
 
@@ -278,6 +290,7 @@ impl <M> ActorHandle <M> where M: MsgTypeConstraints {
 
     /// this waits for a given timeout duration until the message can be send or the receiver got closed
     pub async fn timeout_send_actor_msg (&self, msg: M, to: Duration)->Result<()> {
+        debug!("with timeout {:?}", to);
         timeout( to, self.send_actor_msg(msg)).await
     }
 
@@ -292,10 +305,19 @@ impl <M> ActorHandle <M> where M: MsgTypeConstraints {
 
     /// this returns immediately but the caller has to check if the message got sent
     pub fn try_send_actor_msg (&self, msg: M)->Result<()> {
+        debug!( "try_send_actor_msg to '{}': msg: {:?}", self.id, msg);
         match self.tx.try_send(msg) {
-            Ok(true) => Ok(()),
-            Ok((false)) => Err(OdinActorError::ReceiverFull),
-            Err(_) => Err(OdinActorError::ReceiverClosed), // ?? what about SendError::Closed 
+            Ok(true) => {
+                Ok(())
+            }
+            Ok((false)) => {
+                warn!("receiver mailbox full");
+                Err(OdinActorError::ReceiverFull)
+            }
+            Err(_) => {
+                warn!("receiver closed");
+                Err(OdinActorError::ReceiverClosed) // ?? what about SendError::Closed 
+            }
         }
     }
 
@@ -460,7 +482,7 @@ struct ActorEntry {
     type_name: &'static str,
     abortable: AbortHandle,
     receiver: Box<dyn SysMsgReceiver>,
-    ping_response: Arc<AtomicU64>
+    ping_response: Arc<AtomicU64> // see `Ping` for details
 }
 
 #[derive(Clone)]
@@ -518,6 +540,8 @@ impl ActorSystem {
         let mut job_scheduler = Arc::new( Mutex::new( JobScheduler::with_max_pending( 1024)));
         let hsys = Arc::new( ActorSystemHandle{sender: tx.clone(), job_scheduler: job_scheduler.clone()});
 
+        debug!("actor system '{}' created", id.to_string());
+
         ActorSystem { 
             id: id.to_string(), 
             ping_cycle: 0,
@@ -551,12 +575,14 @@ impl ActorSystem {
     pub fn new_actor<S,M> (&self, id: impl ToString, state: S, bound: usize)->(Actor<S,M>, ActorHandle<M>, MpscReceiver<M>)
         where S: Send + 'static, M: MsgTypeConstraints
     {
+        debug!("creating actor '{}'", id.to_string());
         actor_tuple( self.hsys.clone(), id, state, bound)
     }
 
     pub fn new_pre_actor<S,M> (&self, h_pre: PreActorHandle<M>, state: S)->(Actor<S,M>, ActorHandle<M>, MpscReceiver<M>)
         where S: Send + 'static, M: MsgTypeConstraints
     {
+        debug!("creating actor '{}'", h_pre.id());
         pre_actor_tuple( self.hsys.clone(), state, h_pre)
     }
 
@@ -687,17 +713,20 @@ impl ActorSystem {
         }
     }
 
+    // this is where we process ActorSystemRequests until the system has terminated
     pub async fn process_requests (&mut self)->Result<()> {
+        debug!("actor system '{}' running", self.id);
+
         loop {
             match self.request_receiver.recv().await {
                 Ok(msg) => {
-                    use ActorSystemRequest::*;
+                    debug!("actor system '{}' processing request: {:?}", self.id, msg);
                     match msg {
-                        RequestTermination => {
+                        ActorSystemRequest::RequestTermination => {
                             self.terminate_and_wait(secs(5)).await?;
                             break;
                         }
-                        RequestActorOf { id, type_name, sys_msg_receiver, sfc } => {
+                        ActorSystemRequest::RequestActorOf { id, type_name, sys_msg_receiver, sfc } => {
                             self.spawn_actor_request( id, type_name, sys_msg_receiver, sfc)
                         }
                     }
@@ -708,6 +737,7 @@ impl ActorSystem {
             }
         }
 
+        debug!("actor system '{}' terminated", self.id);
         Ok(())
     }
 
@@ -744,9 +774,12 @@ async fn run_actor<M,R> (mut rx: MpscReceiver<M>, mut receiver: R)
         M: MsgTypeConstraints,
         R: ActorReceiver<M> + Send + 'static
 {
+    debug!("actor '{}' running", receiver.id());
+
     loop {
         match rx.recv().await {
             Ok(msg) => {
+                debug!("actor '{}' processing msg: {:?}", receiver.id(), msg);
                 match receiver.receive(msg).await {
                     ReceiveAction::Continue => {} // just go on
                     ReceiveAction::Stop => {
@@ -761,6 +794,8 @@ async fn run_actor<M,R> (mut rx: MpscReceiver<M>, mut receiver: R)
             Err(_) => break // TODO shall we treat ReceiveError::Closed and ::SendClosed the same? what if there are no senders yet?
         }
     }
+
+    debug!("actor '{}' terminated", receiver.id());
 
     // TODO - remove actor entry from ActorSystemData
 }

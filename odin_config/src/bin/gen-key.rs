@@ -52,6 +52,10 @@ struct CliOpts {
     #[structopt(short,long,default_value="local/.pgp")]
     priv_dir: String,
 
+    /// do not set a passphrase for the generated private key
+    #[structopt(short,long)]
+    no_passphrase: bool,
+
     /// user name for key
     user_name: String,
 
@@ -84,10 +88,15 @@ fn main ()->Result<()> {
         .can_certify(false)
         .can_sign(true)
         .primary_user_id(uid)
-        .passphrase(Some(pass_phrase.clone()))
         .preferred_symmetric_algorithms(smallvec![ SymmetricKeyAlgorithm::AES256,])
         .preferred_hash_algorithms(smallvec![ HashAlgorithm::SHA2_256, ])
         .preferred_compression_algorithms(smallvec![ CompressionAlgorithm::ZLIB,]);
+
+    if OPTS.no_passphrase {
+        println!("WARNING - private key is not passphrase protected");
+    } else {
+        key_params.passphrase(Some(pass_phrase.clone()))
+    }
         
     let secret_key_params = key_params.build()?;
     let secret_key = secret_key_params.generate()?;

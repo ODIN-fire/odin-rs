@@ -68,6 +68,8 @@ impl_actor! { match msg for Actor<Parent,ParentMsg> as
 
 #[tokio::main]
 async fn main() ->Result<()> {
+    tracing_subscriber::fmt::init();
+
     let mut actor_system = ActorSystem::new("main");
 
     let actor_handle = spawn_actor!( actor_system, "parent", Parent::new())?;

@@ -21,6 +21,9 @@ serde = { version = "*", features = ["derive"] }
 parse_duration = "*"
 colored = "*"
 
+tracing = "*"
+tracing-subscriber = "*"
+
 odin_macro = { workspace = true }
 odin_config = { workspace = true }
 odin_job = { workspace = true }

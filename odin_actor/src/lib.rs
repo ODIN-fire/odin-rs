@@ -101,12 +101,22 @@ pub enum ActorSystemRequest {
     RequestActorOf { id: Arc<String>, type_name: &'static str, sys_msg_receiver: Box<dyn SysMsgReceiver>, sfc: SendableFutureCreator }
 }
 
+impl Debug for ActorSystemRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ActorSystemRequest::RequestTermination => write!(f, "RequestTermination"),
+            ActorSystemRequest::RequestActorOf {id, type_name, sys_msg_receiver:_, sfc:_} => write!(f, "RequestActorOf {}: {}", id, type_name)
+        }
+        
+    }
+}
+
 pub trait Identifiable {
     fn id(&self) -> &str;
 }
 
 /// while it can be used explicitly this trait is normally transparent and hidden behind the [`define_actor`] macro
-pub trait ActorReceiver <MsgType> where MsgType: FromSysMsg + DefaultReceiveAction + Send + Debug {
+pub trait ActorReceiver <MsgType>: Identifiable where MsgType: FromSysMsg + DefaultReceiveAction + Send + Debug {
     fn receive (&mut self, msg: MsgType)-> impl Future<Output = ReceiveAction> + Send;
     fn hsys (&self)->&ActorSystemHandle;
 }
@@ -227,8 +237,11 @@ pub struct _Ping_ {
     /// the time when the message was sent
     sent: Instant, 
 
-    /// this is where the receiver stores ping results as 24 bit cycle and 36 bit ns response time
-    /// if the response time exceeds 36 bit it is set to the maximum
+    /// this is where the receiver stores ping results as 24 bit cycle and 36 bit ns response time.
+    /// If the response time exceeds 36 bit it is set to the maximum (which corresponds to ~68.7 sec)
+    /// 24-bit give us 16777215 cycles, which with a 30sec ping interval would amount to an uptime of 5825 days
+    /// we cram this into a single atomic so that we only have one memory fence operation per actor update
+    /// (the main idea is to have a heartbeat implementation with minimal runtime impact)
     response: Arc<AtomicU64>  
 } 
 
@@ -269,4 +282,38 @@ pub trait DefaultReceiveAction {
 // a message set that only contains our system messages
 define_actor_msg_type! {
     pub SysMsg // only the automatically added system message variants
+}
+
+/*
+ * we intercept logging/tracing macros here to have a central place where we can remove/replace them 
+ */
+
+#[macro_export]
+macro_rules! trace {
+    ( $( $id:ident = $e:expr ),* ) => { tracing::trace!( $( $id = $e ),* ) };
+    ( $( $e: expr ),* ) => { tracing::trace!( $( $e ),* ) }
+}
+
+#[macro_export]
+macro_rules! debug {
+    ( $( $id:ident = $e:expr ),* ) => { tracing::debug!( $( $id = $e ),* ) };
+    ( $( $e: expr ),* ) => { tracing::debug!( $( $e ),* ) }
+}
+
+#[macro_export]
+macro_rules! info {
+    ( $( $id:ident = $e:expr ),* ) => { tracing::info!( $( $id = $e ),* ) };
+    ( $( $e: expr ),* ) => { tracing::info!( $( $e ),* ) }
+}
+
+#[macro_export]
+macro_rules! warn {
+    ( $( $id:ident = $e:expr ),* ) => { tracing::warn!( $( $id = $e ),* ) };
+    ( $( $e: expr ),* ) => { tracing::warn!( $( $e ),* ) }
+}
+
+#[macro_export]
+macro_rules! error {
+    ( $( $id:ident = $e:expr ),* ) => { tracing::error!( $( $id = $e ),* ) };
+    ( $( $e: expr ),* ) => { tracing::error!( $( $e ),* ) }
 }
