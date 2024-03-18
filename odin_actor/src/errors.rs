@@ -55,6 +55,9 @@ pub enum OdinActorError {
     #[error("failed to join task")]
     JoinError,
 
+    #[error("job error {0}")]
+    JobError( #[from] odin_job::OdinJobError),
+
     // a generic error
     #[error("operation failed {0}")]
     OpFailed(String)

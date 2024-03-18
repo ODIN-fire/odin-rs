@@ -49,8 +49,10 @@ impl Spawner {
 
 impl_actor! { match msg for Actor<Spawner,SpawnerMsg> as
     _Start_ => cont! { 
-        self.timer = Some(self.hself.start_repeat_timer( 1, millis(1000)));
-        println!("started timer");
+        if let Ok(timer) = self.hself.start_repeat_timer( 1, millis(1000)) {
+            self.timer = Some(timer);
+            println!("started timer");
+        }
     }
     _Timer_ => cont! { 
         self.count += 1;
@@ -64,8 +66,8 @@ impl_actor! { match msg for Actor<Spawner,SpawnerMsg> as
         let hself = self.hself.clone();
         let max_cycles = 5;
 
-        self.task = Some(
-            spawn_blocking( move || {
+        if let Ok(join_handle) = spawn_blocking( "spawner-task",
+            move || {
                 let result = Spawner::run_task(max_cycles);
 
                 //--- there are several mechanisms to get back to the actor:
@@ -74,8 +76,10 @@ impl_actor! { match msg for Actor<Spawner,SpawnerMsg> as
                 //hself.try_send_msg( DataAvailable(result)); // non-async alternative but might fail with backpressure
                 //block_on_send_msg( hself, DataAvailable(result)); // specialized blocking (sleep) loop
                 //block_on_timeout_send_msg( hself, DataAvailable(result), millis(100));
-            })
-        )
+            }
+        ) {
+            self.task = Some(join_handle)
+        }
     }
     DataAvailable => cont! {
         println!("{} actor got {:?}", self.hself.id, msg)

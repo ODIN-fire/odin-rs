@@ -47,8 +47,10 @@ impl Spawner {
 
 impl_actor! { match msg for Actor<Spawner,SpawnerMsg> as 
     _Start_ => cont! { 
-        self.timer = Some(self.start_repeat_timer( 1, millis(1000)));
-        println!("started timer");
+        if let Ok(timer) = self.start_repeat_timer( 1, millis(1000)) {
+            self.timer = Some(timer);
+            println!("started timer");
+        }
     }
     _Timer_ => cont! { 
         self.count += 1;
@@ -62,12 +64,14 @@ impl_actor! { match msg for Actor<Spawner,SpawnerMsg> as
         let hself = self.hself.clone();
         let max_cycles = 5;
 
-        self.task = Some(
-            spawn( async move {
+        if let Ok(join_handle) = spawn( "spawner-task", 
+            async move {
                 let result = Spawner::run_task(max_cycles).await;
                 hself.send_msg( DataAvailable(result)).await;
-            })
-        )
+            }
+        ) {
+            self.task = Some(join_handle);
+        }
     }
     DataAvailable => cont! {
         println!("got {:?}", msg)

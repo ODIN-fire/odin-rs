@@ -31,11 +31,28 @@
 ///  scheduler.schedule_once( Duration::from_secs(4), println!("Hola!"));
 ///```  
 
-use tokio::{self, select, spawn, task::JoinHandle, time::{sleep, Sleep}};
+use tokio::{self, select, spawn, task::{JoinHandle,Builder}, time::{sleep, Sleep}};
 use kanal::{unbounded_async,AsyncReceiver,AsyncSender};
 use std::{cmp::max, collections::VecDeque, fmt::Debug, sync::{atomic::{AtomicBool, AtomicU64, Ordering}, Arc, Mutex}, time::{Duration,SystemTime}};
 use chrono::{DateTime, TimeZone};
-use anyhow::{Result,anyhow};
+use thiserror::Error;
+
+#[derive(Error,Debug)]
+pub enum OdinJobError {
+    #[error("job queue not initialized")]
+    NotInitialized,
+
+    #[error("scheduler already running")]
+    AlreadyRunning,
+
+    #[error("max number of pending jobs exceeded")]
+    MaxPendingJobs,
+
+    #[error("spawn failed {0}")]
+    SpawnFailed(String)
+}
+
+type Result<T> = std::result::Result<T,OdinJobError>;
 
 pub struct JobContext {
     current_id: u64,
@@ -115,43 +132,47 @@ impl JobScheduler {
             self.tx = Some(tx);
 
             let mut queue = self.queue.clone();
-            self.task = Some( tokio::spawn( async move {
-                loop {
-                    let next_deadline: Option<Sleep> = {
-                        let mut queue = queue.lock().unwrap();
-                        queue.front().map(|job| job.deadline())
-                    };
-
-                    if let Some(deadline) = next_deadline {
-                        tokio::pin!(deadline);
-
-                        select! {
-                            _ = rx.recv() => {} // just a wakeup interrupt to schedule the next front()
-                            () = &mut deadline => {
+            self.task = Some( 
+                Builder::new()
+                    .name( "job-scheduler")
+                    .spawn( async move {
+                        loop {
+                            let next_deadline: Option<Sleep> = {
                                 let mut queue = queue.lock().unwrap();
-                                if let Some(mut job) = queue.pop_front() {
+                                queue.front().map(|job| job.deadline())
+                            };
 
-                                    let mut ctx = JobContext { current_id: job.id, cancel_repeat: false };
-                                    job.execute(&mut ctx);
+                            if let Some(deadline) = next_deadline {
+                                tokio::pin!(deadline);
 
-                                    if job.interval_millis > 0 && !ctx.cancel_repeat {
-                                        // note we reschedule with the same id
-                                        job.epoch_millis += job.interval_millis;
-                                        sort_in(job, &mut queue);
+                                select! {
+                                    _ = rx.recv() => {} // just a wakeup interrupt to schedule the next front()
+                                    () = &mut deadline => {
+                                        let mut queue = queue.lock().unwrap();
+                                        if let Some(mut job) = queue.pop_front() {
+
+                                            let mut ctx = JobContext { current_id: job.id, cancel_repeat: false };
+                                            job.execute(&mut ctx);
+
+                                            if job.interval_millis > 0 && !ctx.cancel_repeat {
+                                                // note we reschedule with the same id
+                                                job.epoch_millis += job.interval_millis;
+                                                sort_in(job, &mut queue);
+                                            }
+                                        }
                                     }
                                 }
+
+                            } else { // queue is empty - wait for wakeup
+                                rx.recv().await;
                             }
                         }
-
-                    } else { // queue is empty - wait for wakeup
-                        rx.recv().await;
                     }
-                }
-            }));
+            ).map_err( |e| OdinJobError::SpawnFailed(e.to_string()))?);
             Ok(())
 
         } else {
-            Err(anyhow!("already running"))
+            Err(OdinJobError::AlreadyRunning)
         }
     }
 
@@ -202,11 +223,11 @@ impl JobScheduler {
 
                 Ok(JobHandle(id))
             } else {
-                Err(anyhow!("max pending jobs exceeded"))
+                Err(OdinJobError::MaxPendingJobs)
             }
 
         } else {
-            Err(anyhow!("no command queue"))
+            Err(OdinJobError::NotInitialized)
         }
     }
 

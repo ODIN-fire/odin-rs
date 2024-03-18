@@ -98,6 +98,7 @@ pub fn create_sfc <F,R> (func: F) -> SendableFutureCreator
 
 pub enum ActorSystemRequest {
     RequestTermination,
+    RequestHeartbeat,
     RequestActorOf { id: Arc<String>, type_name: &'static str, sys_msg_receiver: Box<dyn SysMsgReceiver>, sfc: SendableFutureCreator }
 }
 
@@ -105,6 +106,7 @@ impl Debug for ActorSystemRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ActorSystemRequest::RequestTermination => write!(f, "RequestTermination"),
+            ActorSystemRequest::RequestHeartbeat => write!(f, "RequestHeartbeat"),
             ActorSystemRequest::RequestActorOf {id, type_name, sys_msg_receiver:_, sfc:_} => write!(f, "RequestActorOf {}: {}", id, type_name)
         }
         
@@ -229,6 +231,13 @@ pub struct _Resume_;
 /// the (atomic, i.e. lock-free) response and the sender does not wait for a reply.
 /// This means it is up to the sender/monitor to decide wheter an actor is deemed to be un-responsive
 /// and to take appropriate action.
+/// 
+/// TODO - ping processing requires two Instant::now() calls, which is expensive (those are sys calls).
+/// In addition we measure across task boundaries (sent is captured in the main task) hence the measurement
+/// is affected by the task load (how many runnable tasks).
+/// This means the ping response is only good for relative (ping) measurement and is not representative for
+/// normal message processing. Waisting ~30 micro seconds per actor every 30 seconds or so does not matter
+/// but checking heartbeats on a sub-second interval could affect system throughput
 #[derive(Debug)] 
 pub struct _Ping_ { 
     /// the ping cycle of the sender
@@ -237,23 +246,33 @@ pub struct _Ping_ {
     /// the time when the message was sent
     sent: Instant, 
 
-    /// this is where the receiver stores ping results as 24 bit cycle and 36 bit ns response time.
-    /// If the response time exceeds 36 bit it is set to the maximum (which corresponds to ~68.7 sec)
+    /// this is where the receiver stores ping results as 26 bit cycle and 38 bit ns response time.
+    /// If the response time exceeds 38 bit it is set to the maximum (which corresponds to ~4.6min)
     /// 24-bit give us 16777215 cycles, which with a 30sec ping interval would amount to an uptime of 5825 days
-    /// we cram this into a single atomic so that we only have one memory fence operation per actor update
-    /// (the main idea is to have a heartbeat implementation with minimal runtime impact)
+    /// we cram this into a single atomic u64 so that we only have one memory fence operation per actor update
+    /// (heartbeat implementation should have minimal runtime impact)
     response: Arc<AtomicU64>  
 } 
 
-pub const MAX_PING_RESPONSE: u128 = 0xFFFFFFFFFF; // 36bit means our max time after which we assume the actor is un-responsive is 68 sec
+pub const MAX_PING_CYCLE: usize = 0xffffff;
+pub const MAX_PING_RESPONSE: u64 = 0x3FFFFFFFFF; // 38bit means our max time after which we assume the actor is un-responsive is 4.6 min
 
 impl _Ping_ {
-    pub fn store_response (&self) { // TODO - should this consume self ?
-        let dt = min( (Instant::now() - self.sent).as_nanos(), MAX_PING_RESPONSE);
-        let result: u64 = ((self.cycle as u64) << 24) | (dt as u64);
+    pub fn new (cycle: u32, response: Arc<AtomicU64>)-> Self {
+        _Ping_ { cycle, sent: Instant::now(), response }
+    }
+
+    pub fn store_response (&self) { 
+        let now = Instant::now();
+        let dt = min( (now - self.sent).as_nanos() as u64, MAX_PING_RESPONSE);
+        let result: u64 = ((self.cycle as u64) << 38) | (dt as u64);
         self.response.store( result, Ordering::Relaxed);
     }
 }
+
+pub fn unpack_ping_response (res: u64)-> (u32,u64) {
+    ( (res >> 38) as u32, (res & 0x3FFFFFFFFF) as u64)
+} 
 
 /// alias trait for something that can ge generated from system messages
 pub trait FromSysMsg: From<_Start_> + From<_Ping_> + From<_Timer_> + From<_Exec_> + From<_Pause_> + From<_Resume_> + From<_Terminate_> {}  

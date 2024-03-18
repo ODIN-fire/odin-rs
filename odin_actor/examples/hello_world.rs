@@ -37,8 +37,7 @@ impl_actor! { match msg for Actor<Greeter,GreeterMsg> as
 
 #[tokio::main]
 async fn main() ->Result<()> {
-    tracing_subscriber::fmt::init();
-    let mut actor_system = ActorSystem::new("main");
+    let mut actor_system = ActorSystem::with_env_tracing("main");
 
     let actor_handle = spawn_actor!( actor_system, "greeter", Greeter{})?;
 

@@ -18,7 +18,7 @@
 #![feature(trait_alias)]
 // #![cfg(feature="tokio_channel")]
 
-use odin_job::JobScheduler;
+use odin_job::{JobHandle, JobScheduler};
 use tokio::{
     time::{self,Interval,interval},
     task::{self, JoinSet, LocalSet},
@@ -30,10 +30,10 @@ use kanal::{
 use std::{
     any::type_name, boxed::Box, cell::Cell, fmt::Debug, future::Future, marker::{PhantomData, Sync}, 
     ops::{Deref,DerefMut}, pin::Pin, result::Result as StdResult, 
-    sync::{atomic::AtomicU64, Arc, LockResult, Mutex, MutexGuard}, time::{Duration, Instant}
+    sync::{atomic::{AtomicU64, Ordering}, Arc, LockResult, Mutex, MutexGuard}, time::{Duration, Instant}
 };
 use crate::{
-    create_sfc, errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, micros, millis, nanos, secs, 
+    create_sfc, errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, micros, millis, nanos, secs, unpack_ping_response,
     ActorReceiver, ActorSystemRequest, DefaultReceiveAction, DynMsgReceiver, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints, 
     MsgSendFuture, MsgTypeConstraints, ObjSafeFuture, ReceiveAction, SendableFutureCreator, SysMsgReceiver, TryMsgReceiver, 
     _Exec_, _Pause_, _Ping_, _Resume_, _Start_, _Terminate_, _Timer_,
@@ -82,21 +82,25 @@ pub async fn yield_now () {
 }
 
 #[inline]
-pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
+pub fn spawn<F>(name: &str, future: F) -> Result<JoinHandle<F::Output>>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
 {
-    task::spawn( future)
+    Ok(task::Builder::new()
+        .name(name)
+        .spawn(future)?)
 }
 
 #[inline]
-pub fn spawn_blocking<F,R> (fn_once: F) -> JoinHandle<F::Output>
+pub fn spawn_blocking<F,R> (name: &str, fn_once: F) -> Result<JoinHandle<F::Output>>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static
 {
-    task::spawn_blocking( fn_once)
+    Ok(task::Builder::new()
+        .name(name)
+        .spawn_blocking( fn_once)?)
 }
 
 // these functions can be used to communicate back to the actor once the spawn_blocking() executed FnOnce is done
@@ -189,12 +193,12 @@ impl <S,M> Actor <S,M> where S: Send + 'static, M: MsgTypeConstraints {
     }
 
     #[inline(always)]
-    pub fn start_oneshot_timer (&self, id: i64, delay: Duration) -> AbortHandle {
+    pub fn start_oneshot_timer (&self, id: i64, delay: Duration) -> Result<AbortHandle> {
         oneshot_timer_for( self.hself.clone(), id, delay)
     }
 
     #[inline(always)]
-    pub fn start_repeat_timer (&self, id: i64, timer_interval: Duration) -> AbortHandle {
+    pub fn start_repeat_timer (&self, id: i64, timer_interval: Duration) -> Result<AbortHandle> {
         repeat_timer_for( self.hself.clone(), id, timer_interval)
     }
 
@@ -347,11 +351,11 @@ impl <M> ActorHandle <M> where M: MsgTypeConstraints {
 
     // TODO - is this right to skip if we can't send? Maybe that should be an option
 
-    pub fn start_oneshot_timer (&self, id: i64, delay: Duration) -> AbortHandle {
+    pub fn start_oneshot_timer (&self, id: i64, delay: Duration) -> Result<AbortHandle> {
         oneshot_timer_for( self.clone(), id, delay)
     }
 
-    pub fn start_repeat_timer (&self, id: i64, timer_interval: Duration) -> AbortHandle {
+    pub fn start_repeat_timer (&self, id: i64, timer_interval: Duration) -> Result<AbortHandle> {
         repeat_timer_for( self.clone(), id, timer_interval)
     }
 
@@ -367,26 +371,28 @@ impl <M> ActorHandle <M> where M: MsgTypeConstraints {
 }
 
 // note this consumed the ActorHandle since we have to move it into a Future
-fn oneshot_timer_for<M> (ah: ActorHandle<M>, id: i64, delay: Duration)->AbortHandle where M: MsgTypeConstraints {
-    let th = spawn( async move {
+fn oneshot_timer_for<M> (ah: ActorHandle<M>, id: i64, delay: Duration)->Result<AbortHandle> where M: MsgTypeConstraints {
+    let timer_name = format!("{}-timer-{}", ah.id(), id);
+    let th = spawn( &timer_name, async move {
         sleep(delay).await;
         ah.try_send_actor_msg( _Timer_{id}.into() );
-    });
-    th.abort_handle()
+    })?;
+    Ok(th.abort_handle())
 }
 
-fn repeat_timer_for<M> (ah: ActorHandle<M>, id: i64, timer_interval: Duration)->AbortHandle where M: MsgTypeConstraints {
+fn repeat_timer_for<M> (ah: ActorHandle<M>, id: i64, timer_interval: Duration)->Result<AbortHandle> where M: MsgTypeConstraints {
+    let timer_name = format!("{}-timer-{}", ah.id(), id);
     let mut interval = interval(timer_interval);
 
-    let th = spawn( async move {
+    let th = spawn( &timer_name, async move {
         while ah.is_running() {
             interval.tick().await;
             if ah.is_running() {
                 ah.try_send_actor_msg( _Timer_{id}.into() );
             }
         }
-    });
-    th.abort_handle()
+    })?;
+    Ok(th.abort_handle())
 }
 
 impl <M> Identifiable for ActorHandle<M> where M: MsgTypeConstraints {
@@ -477,12 +483,51 @@ impl <M> SysMsgReceiver for ActorHandle<M> where M: MsgTypeConstraints
 
 /* #region ActorSystem ************************************************************************************/
 
+#[derive(Debug)]
+struct PingStats {
+    min_ns: u64,
+    max_ns: u64,
+    avg_ns: u64,
+    was_outlier: bool,
+    outlier: usize,
+    // we could add variance here
+}
+impl PingStats {
+    fn new ()->Self { PingStats{ min_ns: 0, max_ns: 0, avg_ns: 0, was_outlier: false, outlier: 0 } }
+
+    fn update (&mut self, cycle: u32, last_ns: u64) {
+        if cycle > 1 {
+            if last_ns > 10* self.avg_ns && !self.was_outlier { // ignore one outlier
+                //println!("@@ outlier: {}", last_ns);
+                self.outlier += 1;
+                self.was_outlier = true;
+
+            } else {
+                if last_ns < self.min_ns { self.min_ns = last_ns }
+                if last_ns > self.max_ns { self.max_ns = last_ns }
+        
+                // we could round here but 1 nano_sec is already more resolution than realistic
+                if last_ns > self.avg_ns {
+                    self.avg_ns = self.avg_ns + (last_ns - self.avg_ns)/cycle as u64;
+                } else {
+                    self.avg_ns = self.avg_ns - (self.avg_ns - last_ns)/cycle as u64;
+                }
+
+                self.was_outlier = false;
+            }
+        } else {
+            self.min_ns = last_ns; self.max_ns = last_ns; self.avg_ns = last_ns;
+        }
+    }
+}
+
 struct ActorEntry {
     id: Arc<String>,
     type_name: &'static str,
     abortable: AbortHandle,
     receiver: Box<dyn SysMsgReceiver>,
-    ping_response: Arc<AtomicU64> // see `Ping` for details
+    ping_response: Arc<AtomicU64>, // see `Ping` for details
+    ping_stats: PingStats
 }
 
 #[derive(Clone)]
@@ -493,6 +538,22 @@ pub struct ActorSystemHandle {
 impl ActorSystemHandle {
     pub async fn send_msg (&self, msg: ActorSystemRequest, to: Duration)->Result<()> {
         timeout( to, self.sender.send(msg)).await
+    }
+
+    pub fn try_send_msg (&self, msg: ActorSystemRequest)->Result<()> {
+        match self.sender.try_send(msg) {
+            Ok(true) => {
+                Ok(())
+            }
+            Ok((false)) => {
+                warn!("actor system request queue full");
+                Err(OdinActorError::ReceiverFull)
+            }
+            Err(_) => {
+                warn!("actor system request queue closed");
+                Err(OdinActorError::ReceiverClosed) // ?? what about SendError::Closed 
+            }
+        }
     }
 
     pub async fn spawn_actor<M,R> (&self, act: (R, ActorHandle<M>, MpscReceiver<M>))->Result<ActorHandle<M>> 
@@ -530,12 +591,13 @@ pub struct ActorSystem {
     job_scheduler: Arc<Mutex<JobScheduler>>, 
     join_set: task::JoinSet<()>, 
     actor_entries: Vec<ActorEntry>,
+    heartbeat_job: Option<JobHandle>,
     hsys: Arc<ActorSystemHandle>
 }
 
 impl ActorSystem {
 
-    pub fn new<T: ToString> (id: T)->Self {
+    pub fn new (id: impl ToString)->Self {
         let (tx,rx) = create_mpsc_sender_receiver(8);
         let mut job_scheduler = Arc::new( Mutex::new( JobScheduler::with_max_pending( 1024)));
         let hsys = Arc::new( ActorSystemHandle{sender: tx.clone(), job_scheduler: job_scheduler.clone()});
@@ -550,8 +612,14 @@ impl ActorSystem {
             job_scheduler,
             join_set: JoinSet::new(),
             actor_entries: Vec::new(),
+            heartbeat_job: None,
             hsys
         }
+    }
+
+    pub fn with_env_tracing (id: impl ToString)->Self {
+        tracing_subscriber::fmt::init();
+        Self::new(id)
     }
 
     pub fn handle (&self)->&ActorSystemHandle {
@@ -595,14 +663,19 @@ impl ActorSystem {
     {
         let (mut receiver, actor_handle, rx) = act;
 
-        let abort_handle = self.join_set.spawn( run_actor(rx, receiver));
+        //let abort_handle = self.join_set.spawn( run_actor(rx, receiver));
+        let abort_handle = self.join_set.build_task()
+            .name( actor_handle.id())
+            .spawn( run_actor(rx, receiver))?;
 
         let actor_entry = ActorEntry {
             id: actor_handle.id.clone(),
             type_name: type_name::<R>(),
             abortable: abort_handle,
             receiver: Box::new(actor_handle.clone()), // stores it as a SysMsgReceiver trait object
-            ping_response: Arc::new(AtomicU64::new(0))
+            ping_response: Arc::new(AtomicU64::new(0)),
+            ping_stats: PingStats::new()
+
         };
         self.actor_entries.push( actor_entry);
 
@@ -617,7 +690,8 @@ impl ActorSystem {
             type_name,
             abortable: abort_handle,
             receiver: sys_msg_receiver, // stores it as a SysMsgReceiver trait object
-            ping_response: Arc::new(AtomicU64::new(0))
+            ping_response: Arc::new(AtomicU64::new(0)),
+            ping_stats: PingStats::new()
         };
 
         self.actor_entries.push( actor_entry);
@@ -646,15 +720,37 @@ impl ActorSystem {
         join_set.abort_all();
     }
 
-    pub async fn ping_all (&mut self, to: Duration)->Result<()> {
-        let actor_entries = &self.actor_entries;
-
+    pub async fn ping_all (&mut self)->Result<()> {
         self.ping_cycle += 1;
-        for actor_entry in actor_entries {
+
+        for actor_entry in &self.actor_entries {
             let response = actor_entry.ping_response.clone();
-            actor_entry.receiver.send_ping( _Ping_{ cycle: self.ping_cycle, sent: Instant::now(), response });
+            actor_entry.receiver.send_ping( _Ping_::new( self.ping_cycle, response));
+
+            // give the receiver a chance to get scheduled but don't block (we don't know if it is still alive)
+            yield_now().await;
+            //sleep(millis(100)).await;
         }
         Ok(())
+    }
+
+    // this is called at the beginning of the next cycle but before incrementing the ping_cycle
+    fn process_ping_responses (&mut self) {
+        let cur_cycle: u32 = self.ping_cycle;
+        println!("--- processing ping cycle: {cur_cycle}");
+
+        for mut actor_entry in &mut self.actor_entries {
+            let (cycle,last_ns) = unpack_ping_response( actor_entry.ping_response.load(Ordering::Relaxed));
+            if (cycle == cur_cycle) {
+                actor_entry.ping_stats.update( cur_cycle, last_ns);
+
+                let stats = &actor_entry.ping_stats;
+                println!("{:<10} = {:>6} ns,  avg: {:>5}, min: {:>5}, max: {:>6}, outlier: {:>2}", 
+                           actor_entry.id, last_ns, stats.avg_ns, stats.min_ns, stats.max_ns, stats.outlier)
+            } else {
+                println!("ACTOR FAILED TO RESPOND!");
+            }
+        }
     }
 
     pub fn start_all(&self)->impl Future<Output=Result<()>> {
@@ -726,6 +822,12 @@ impl ActorSystem {
                             self.terminate_and_wait(secs(5)).await?;
                             break;
                         }
+                        ActorSystemRequest::RequestHeartbeat => {
+                            if (self.ping_cycle > 0) {
+                                self.process_ping_responses();
+                            }
+                            self.ping_all().await;
+                        }
                         ActorSystemRequest::RequestActorOf { id, type_name, sys_msg_receiver, sfc } => {
                             self.spawn_actor_request( id, type_name, sys_msg_receiver, sfc)
                         }
@@ -739,6 +841,25 @@ impl ActorSystem {
 
         debug!("actor system '{}' terminated", self.id);
         Ok(())
+    }
+
+    pub fn start_heartbeats (&mut self, interval: Duration)->Result<()> {
+        if self.heartbeat_job.is_none() {
+            let hsys = self.hsys.clone();
+            if let Ok(mut scheduler) = self.job_scheduler.lock() {
+                let job_handle = scheduler.schedule_repeated( Duration::ZERO, interval, move |_ctx| {
+                    hsys.try_send_msg(ActorSystemRequest::RequestHeartbeat{});
+                })?;
+                debug!("heartbeat task started");
+                self.heartbeat_job.replace(job_handle);
+                Ok(())
+            } else {
+                Err(op_failed("scheduling heartbeat job failed"))
+            }
+        } else { // already scheduled
+            warn!("heartbeat task already running");
+            Ok(())
+        }
     }
 
 }

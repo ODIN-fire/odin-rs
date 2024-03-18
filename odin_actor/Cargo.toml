@@ -11,7 +11,6 @@ edition = "2024"
 
 [dependencies]
 tokio = { version = "*", features = ["full", "tracing"], optional = true }
-#tokio = { version = "*", features = ["full"], optional = true }
 kanal = { version = "0.1.0-pre8", features = ["async"], optional = true }
 
 thiserror = "*"
@@ -20,9 +19,11 @@ ron = "*"
 serde = { version = "*", features = ["derive"] }
 parse_duration = "*"
 colored = "*"
+#quanta = "*"
 
 tracing = "*"
 tracing-subscriber = "*"
+console-subscriber = "*"
 
 odin_macro = { workspace = true }
 odin_config = { workspace = true }

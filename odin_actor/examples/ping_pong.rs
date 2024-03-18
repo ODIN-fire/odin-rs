@@ -18,7 +18,6 @@
 
 use odin_actor::prelude::*;
 use odin_actor::errors::Result;
-use odin_actor::{tokio_kanal::{ActorSystem,Actor,ActorHandle,PreActorHandle}, MsgReceiver};
 
 /// this example shows how to use PreActorHandles to break cyclic dependencies
 

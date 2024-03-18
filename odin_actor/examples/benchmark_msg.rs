@@ -35,7 +35,7 @@ struct Test { max_rounds: u64 } // our actor state
 
 impl_actor! { match msg for Actor<Test,TestMsg> as
     Cycle => {
-        if msg.round < self.max_rounds {
+        if msg.round < self.max_rounds {            
             self.try_send_msg( Cycle{round: msg.round+1, ..msg} );
             ReceiveAction::Continue
             
