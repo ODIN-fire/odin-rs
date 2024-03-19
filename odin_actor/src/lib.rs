@@ -32,6 +32,7 @@ pub const DEFAULT_CHANNEL_BOUNDS: usize = 16;
 
 #[cfg(feature = "tokio_kanal")]
 pub mod tokio_kanal;
+
 #[cfg(feature = "tokio_kanal")]
 pub use tokio_kanal::{
     ActorSystem,ActorSystemHandle,Actor,ActorHandle,PreActorHandle,JoinHandle,AbortHandle,Query,QueryBuilder,
@@ -39,8 +40,20 @@ pub use tokio_kanal::{
     query, query_ref, timeout_query, timeout_query_ref,
 };
 
+#[cfg(feature = "tokio_flume")]
+pub mod tokio_flume;
+
+#[cfg(feature = "tokio_flume")]
+pub use tokio_flume::{
+    ActorSystem,ActorSystemHandle,Actor,ActorHandle,PreActorHandle,JoinHandle,AbortHandle,Query,QueryBuilder,
+    sleep, timeout, yield_now, spawn, spawn_blocking, block_on, block_on_send_msg, block_on_timeout_send_msg,
+    query, query_ref, timeout_query, timeout_query_ref,
+};
+
+
 #[cfg(feature = "tokio_channel")]
 pub mod tokio_channel;
+
 
 pub mod errors;
 pub use errors::{OdinActorError,Result};

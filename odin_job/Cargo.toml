@@ -8,4 +8,4 @@ anyhow = "1.0.80"
 chrono = "*"
 thiserror = "*"
 kanal = "0.1.0-pre8"
-tokio = { version="*", features=["full"] }
+tokio = { version="*", features=["full", "tracing"] }

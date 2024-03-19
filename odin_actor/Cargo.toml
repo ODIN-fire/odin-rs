@@ -12,6 +12,7 @@ edition = "2024"
 [dependencies]
 tokio = { version = "*", features = ["full", "tracing"], optional = true }
 kanal = { version = "0.1.0-pre8", features = ["async"], optional = true }
+flume = { version = "*", features = ["default", "spin"], optional = true }
 
 thiserror = "*"
 anyhow = "*"
@@ -31,8 +32,9 @@ odin_job = { workspace = true }
 
 [features]
 default = ["tokio_kanal"]
+#default = ["tokio_flume"]
 tokio_channel = ["dep:tokio"]
 tokio_kanal = ["dep:tokio", "dep:kanal"]
-
+tokio_flume = ["dep:tokio", "dep:flume"]
 
 
