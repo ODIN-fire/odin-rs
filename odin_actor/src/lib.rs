@@ -30,30 +30,13 @@ pub mod prelude;
 
 pub const DEFAULT_CHANNEL_BOUNDS: usize = 16;
 
-#[cfg(feature = "tokio_kanal")]
-pub mod tokio_kanal;
+pub mod tokio_rt;
 
-#[cfg(feature = "tokio_kanal")]
-pub use tokio_kanal::{
+pub use tokio_rt::{
     ActorSystem,ActorSystemHandle,Actor,ActorHandle,PreActorHandle,JoinHandle,AbortHandle,Query,QueryBuilder,
     sleep, timeout, yield_now, spawn, spawn_blocking, block_on, block_on_send_msg, block_on_timeout_send_msg,
     query, query_ref, timeout_query, timeout_query_ref,
 };
-
-#[cfg(feature = "tokio_flume")]
-pub mod tokio_flume;
-
-#[cfg(feature = "tokio_flume")]
-pub use tokio_flume::{
-    ActorSystem,ActorSystemHandle,Actor,ActorHandle,PreActorHandle,JoinHandle,AbortHandle,Query,QueryBuilder,
-    sleep, timeout, yield_now, spawn, spawn_blocking, block_on, block_on_send_msg, block_on_timeout_send_msg,
-    query, query_ref, timeout_query, timeout_query_ref,
-};
-
-
-#[cfg(feature = "tokio_channel")]
-pub mod tokio_channel;
-
 
 pub mod errors;
 pub use errors::{OdinActorError,Result};
@@ -245,12 +228,15 @@ pub struct _Resume_;
 /// This means it is up to the sender/monitor to decide wheter an actor is deemed to be un-responsive
 /// and to take appropriate action.
 /// 
-/// TODO - ping processing requires two Instant::now() calls, which is expensive (those are sys calls).
+/// TODO - ping processing requires two Instant::now() calls, which is expensive (those are sys calls on some platforms).
 /// In addition we measure across task boundaries (sent is captured in the main task) hence the measurement
-/// is affected by the task load (how many runnable tasks).
+/// is affected by the task load (depending on scheduler and number of active tasks).
 /// This means the ping response is only good for relative (ping) measurement and is not representative for
 /// normal message processing. Waisting ~30 micro seconds per actor every 30 seconds or so does not matter
-/// but checking heartbeats on a sub-second interval could affect system throughput
+/// but checking heartbeats on a sub-second interval could affect system throughput.
+/// It is still debatable though if the response time should be used since it measures both the scheduler and
+/// the actor and shows significant variance. It might be enough for our purposes to check that the actor
+/// did respond within one cycle
 #[derive(Debug)] 
 pub struct _Ping_ { 
     /// the ping cycle of the sender

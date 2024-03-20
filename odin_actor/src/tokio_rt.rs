@@ -14,18 +14,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#![allow(unused)]
+
+//! the Tokio runtime specific parts of odin_actor
+//! Note this is further parameterized by the respective MPSC channel implementation to use 
+//! (currently [`kanal`](https://docs.rs/kanal/latest/kanal/) or [`flume`](https://docs.rs/flume/latest/flume/))
+//! as specified by the `tokio_kanal` or `tokio_flume` features, which are mutually exclusive.
+
+ #![allow(unused)]
 #![feature(trait_alias)]
-// #![cfg(feature="tokio_channel")]
 
 use odin_job::{JobHandle, JobScheduler};
 use tokio::{
     time::{self,Interval,interval},
     task::{self, JoinSet, LocalSet},
     runtime::Handle
-};
-use kanal::{
-    bounded_async,AsyncSender,AsyncReceiver, SendError
 };
 use std::{
     any::type_name, boxed::Box, cell::Cell, fmt::Debug, future::Future, marker::{PhantomData, Sync}, 
@@ -41,6 +43,23 @@ use crate::{
 };
 use odin_macro::fn_mut;
 
+
+// the channel section abstracts the concrete channel type we use for mpsc channels as there are many choices
+// (tokio::sync::mpsc, flume, kanal, crossbeam etc.) and they all differ to some degree. We could
+// unify with our own traits for Sender and Receiver but this wouldn't save code and would make it harder to
+// enforce we consistently use one implementation throughout our concrete runtime module. Since we already
+// apply a similar scheme for the async runtime itself we just go with functions and a match_try_send macro.
+// Items defined in the xx_channel.rs (pseudo-) modules are only meant to be used here and are not exported. 
+// Note that the tokio_xx features are mutually exclusive
+
+#[cfg(feature="tokio_kanal")]
+include!("kanal_channel.rs");
+
+#[cfg(feature="tokio_flume")]
+include!("flume_channel.rs");
+
+
+
 /* #region runtime abstractions ***************************************************************************/
 /*
  * This section is (mostly) for type and function aliases that allow us to program our own structs/traits/impls
@@ -51,17 +70,10 @@ use odin_macro::fn_mut;
  * desirable to hoist some constructs since they are not compatible between runtime/channel implementations.
  */
 
-pub type MpscSender<M> = AsyncSender<M>;
-pub type MpscReceiver<M> =AsyncReceiver<M>;
 pub type AbortHandle = task::AbortHandle;
 pub type JoinHandle<T> = task::JoinHandle<T>;
 
-#[inline]
-pub fn create_mpsc_sender_receiver <MsgType> (bound: usize) -> (MpscSender<MsgType>,MpscReceiver<MsgType>)
-    where MsgType: Send
-{
-    kanal::bounded_async::<MsgType>(bound)
-}
+
 
 #[inline]
 pub async fn sleep (dur: Duration) {
@@ -310,15 +322,15 @@ impl <M> ActorHandle <M> where M: MsgTypeConstraints {
     /// this returns immediately but the caller has to check if the message got sent
     pub fn try_send_actor_msg (&self, msg: M)->Result<()> {
         debug!( "try_send_actor_msg to '{}': msg: {:?}", self.id, msg);
-        match self.tx.try_send(msg) {
-            Ok(true) => {
+        match_try_send!{ self.tx, msg,
+            ok => {
                 Ok(())
             }
-            Ok((false)) => {
+            full => {
                 warn!("receiver mailbox full");
                 Err(OdinActorError::ReceiverFull)
             }
-            Err(_) => {
+            closed => {
                 warn!("receiver closed");
                 Err(OdinActorError::ReceiverClosed) // ?? what about SendError::Closed 
             }
@@ -537,19 +549,19 @@ pub struct ActorSystemHandle {
 }
 impl ActorSystemHandle {
     pub async fn send_msg (&self, msg: ActorSystemRequest, to: Duration)->Result<()> {
-        timeout( to, self.sender.send(msg)).await
+        timeout( to, send(&self.sender, msg)).await
     }
 
     pub fn try_send_msg (&self, msg: ActorSystemRequest)->Result<()> {
-        match self.sender.try_send(msg) {
-            Ok(true) => {
-                Ok(())
+        match_try_send!{ self.sender, msg,
+            ok => { 
+                Ok(()) 
             }
-            Ok((false)) => {
+            full => {
                 warn!("actor system request queue full");
                 Err(OdinActorError::ReceiverFull)
             }
-            Err(_) => {
+            closed => {
                 warn!("actor system request queue closed");
                 Err(OdinActorError::ReceiverClosed) // ?? what about SendError::Closed 
             }
@@ -814,7 +826,7 @@ impl ActorSystem {
         debug!("actor system '{}' running", self.id);
 
         loop {
-            match self.request_receiver.recv().await {
+            match recv(&self.request_receiver).await {
                 Ok(msg) => {
                     debug!("actor system '{}' processing request: {:?}", self.id, msg);
                     match msg {
@@ -898,7 +910,7 @@ async fn run_actor<M,R> (mut rx: MpscReceiver<M>, mut receiver: R)
     debug!("actor '{}' running", receiver.id());
 
     loop {
-        match rx.recv().await {
+        match recv(&rx).await {
             Ok(msg) => {
                 debug!("actor '{}' processing msg: {:?}", receiver.id(), msg);
                 match receiver.receive(msg).await {
@@ -943,7 +955,7 @@ impl <A> QueryBuilder<A> where A: Send + Debug {
     {
         let msg = Query { question: topic, tx: self.tx.clone() };
         responder.send_msg(msg).await;
-        self.rx.recv().await.map_err(|_| OdinActorError::SendersDropped)
+        recv(&self.rx).await.map_err(|_| OdinActorError::SendersDropped)
     }
 
     /// if we use this version `M` has to be `Send` + `Sync` but we save the cost of cloning the responder on each query
@@ -952,7 +964,7 @@ impl <A> QueryBuilder<A> where A: Send + Debug {
     {
         let msg = Query { question: topic, tx: self.tx.clone() };
         responder.send_msg(msg).await;
-        self.rx.recv().await.map_err(|_| OdinActorError::SendersDropped)
+        recv(&self.rx).await.map_err(|_| OdinActorError::SendersDropped)
     }
 
     pub async fn timeout_query <Q,R> (&self, responder: R, topic: Q, to: Duration)->Result<A> 

@@ -33,7 +33,6 @@ odin_job = { workspace = true }
 [features]
 default = ["tokio_kanal"]
 #default = ["tokio_flume"]
-tokio_channel = ["dep:tokio"]
 tokio_kanal = ["dep:tokio", "dep:kanal"]
 tokio_flume = ["dep:tokio", "dep:flume"]
 
