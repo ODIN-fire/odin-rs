@@ -95,7 +95,7 @@ impl_actor! { match msg for Actor<Actor3State,Actor3Msg> as
 
 #[tokio::main]
 async fn main() ->Result<()> {
-    console_subscriber::init();
+    //console_subscriber::init();
     //tracing_subscriber::fmt::init();
 
     // for some reason the tokio main task can be very slow so we run the whole app in a spawned one

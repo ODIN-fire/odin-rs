@@ -19,14 +19,16 @@
 extern crate lazy_static;
 
 use std::{sync::Arc,path::PathBuf};
-use odin_sentinel::actor::TriggerJsonSnapshot;
 use tokio;
-use structopt::StructOpt;
-use odin_actor::prelude::*;
-use odin_actor::tokio_kanal::{ActorSystem,Actor,ActorHandle};
-use odin_config;
-use odin_sentinel::{SentinelConfig,SentinelUpdate,actor::{SentinelConnector,SentinelConnectorMsg,AddInitCallback,AddUpdateCallback,AddJsonUpdateCallback}};
 use anyhow::Result;
+use structopt::StructOpt;
+
+use odin_actor::prelude::*;
+use odin_sentinel::{SentinelConfig,SentinelUpdate,
+    actor::{SentinelConnector,SentinelConnectorMsg,AddInitCallback,AddUpdateCallback,AddJsonUpdateCallback,TriggerJsonSnapshot}};
+use odin_config::prelude::*;
+
+use_config!();
 
 
 /* #region monitor actor *****************************************************************/
@@ -90,12 +92,10 @@ lazy_static! {
 
 #[tokio::main]
 async fn main ()->Result<()> {
-    //odin_config::init_from_os("gov", "nasa", Some("monitor_sentinels"))?;
-    odin_config::init_from_project_root_dir("../config", "gov", "nasa-odin", Some("monitor_sentinels"))?;
     odin_config::ensure_dirs()?;
 
-    let sentinel_config: SentinelConfig = odin_config::load_from_config_dir( "sentinel.ron")?;
-    //println!("--- sentinel config:\n{:?}",sentinel_config);
+    let sentinel_config: SentinelConfig = config_for!( "sentinel")?;
+    println!("--- sentinel config:\n{:?}",sentinel_config);
     
     let mut actor_system = ActorSystem::new("main");
 

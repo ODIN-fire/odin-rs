@@ -20,15 +20,17 @@
 extern crate lazy_static;
 
 use std::{process::Output, path::PathBuf, str::FromStr, fmt::{Display,Formatter}, fs::File, io::Write};
-
-use odin_sentinel::{SentinelStore,SentinelConfig};
 use anyhow::Result;
-use odin_config::load_config;
 use structopt::StructOpt;
 use displaydoc::Display;
 use tokio;
 use reqwest;
 use strum::EnumString;
+
+use odin_sentinel::{SentinelStore,SentinelConfig};
+use odin_config::prelude::*;
+
+use_config!();
 
 /// command line arg: {0}
 #[derive(Debug,Display)]
@@ -59,9 +61,6 @@ struct CliOpts {
     #[structopt(short,long)]
     output: Option<PathBuf>,
 
-    /// path to sentinel config file
-    config_path: PathBuf
-
     //.. and more to follow
 }
 
@@ -71,7 +70,7 @@ lazy_static! {
 
 #[tokio::main]
 async fn main()->Result<()> {
-    let sentinel_config: SentinelConfig = load_config( &ARGS.config_path)?;
+    let sentinel_config: SentinelConfig = config_for!( "sentinel")?;
     let http_client = reqwest::Client::new();
 
     let mut sentinel_store = SentinelStore::new();

@@ -126,16 +126,10 @@ fn get_config_mode()->ConfigMode {
     else { ConfigMode::File }
 }
 
-// note - this needs to mirror get_local() from lib.rs (i.e. our runtime behavior)
+// NOTE - this needs to mirror get_local() from lib.rs (i.e. our runtime behavior)
 fn get_local_dir ()->String { 
     match std::env::var("ODIN_LOCAL") {
-        Ok(local_root) => {
-            if let Ok(pkg_name) = std::env::var("CARGO_PKG_NAME") {
-                format!("{local_root}/{pkg_name}")
-            } else { // fall back to the current directory - is this safe?
-                std::env::current_dir().unwrap().file_name().unwrap().to_string_lossy().to_string()
-            }
-        }
+        Ok(local_root) => local_root,
         _ => "./local".to_string()
     }
 }

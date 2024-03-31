@@ -21,7 +21,7 @@ use std::{
     collections::{VecDeque,HashMap},fmt::{self,Debug},cmp::{Ordering,min}, future::Future, ops::RangeBounds, 
     time::Duration, sync::atomic::{self,AtomicU64}, path::{Path,PathBuf}, fs::File, io::Write, sync::Arc, rc::Rc,
 };
-use actor::SentinelConnectorMsg;
+use actor::SentinelActorMsg;
 use odin_actor::MsgReceiver;
 use odin_macro::{define_algebraic_type, match_algebraic_type, define_struct};
 use serde::{Deserialize,Serialize,Serializer};
@@ -29,7 +29,7 @@ use serde_json;
 use ron::{self, to_string};
 use chrono::{DateTime,Utc};
 use odin_common::{angle::{LatAngle, LonAngle, Angle},datetime::deserialize_duration};
-use odin_actor::tokio_kanal::ActorHandle;
+use odin_actor::ActorHandle;
 use strum::IntoStaticStr;
 use uom::si::f64::{Velocity,ThermodynamicTemperature,ElectricCurrent,ElectricPotential};
 use reqwest::Client;
@@ -661,8 +661,6 @@ pub struct SentinelConfig {
     pub max_history_len: usize, // maximum number of records to store per device/sensor capability
     pub max_age: Duration, // maximum age after which additional data (images etc.) are deleted
     pub ping_interval: Option<Duration>, // interval duration for sending Ping messages on the websocket 
-
-    pub data_dir: PathBuf, 
 }
 
 impl Default for SentinelConfig {
@@ -677,17 +675,7 @@ impl Default for SentinelConfig {
             max_history_len: 10,
             max_age: Duration::from_secs( 60*60*24),
             ping_interval: Some(Duration::from_secs(20)),
-
-            //--- the ones we /might/ have defaults for 
-            data_dir: default_sentinel_data_dir()
         }
-    }
-}
-
-fn default_sentinel_data_dir ()->PathBuf {
-    match odin_config::data_dir() {
-        Ok(dir) => dir.join("sentinel"),
-        Err(_) => Path::new("target/data/sentinel").to_path_buf()
     }
 }
 

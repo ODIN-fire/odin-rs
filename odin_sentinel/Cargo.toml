@@ -16,10 +16,12 @@ path = "src/bin/monitor_ws.rs"
 [dependencies]
 # our ODIN crates
 odin_actor = { workspace = true }
+odin_job = { workspace = true }
 odin_common = { workspace = true }
 odin_config = { workspace = true }
 odin_macro = { workspace = true }
 
+tracing = "*"
 anyhow = "*"
 thiserror = "*"
 chrono = { version = "*", features = ["serde"] }

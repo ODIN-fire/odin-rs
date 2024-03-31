@@ -31,20 +31,21 @@ pub fn create_mpsc_sender_receiver <MsgType> (bound: usize) -> (MpscSender<MsgTy
 }
 
 #[inline] 
-fn is_closed<M> (tx: &MpscSender<M>)->bool { 
+pub fn is_closed<M> (tx: &MpscSender<M>)->bool { 
     tx.is_disconnected() 
 }
 
 #[inline] 
-fn send<M> (tx: &MpscSender<M>, msg: M)->SendFuture<'_,M> { 
+pub fn send<M> (tx: &MpscSender<M>, msg: M)->SendFuture<'_,M> { 
     tx.send_async(msg)
 }
 
 #[inline] 
-fn recv<M> (tx: &MpscReceiver<M>)->ReceiveFuture<'_,M> { 
+pub fn recv<M> (tx: &MpscReceiver<M>)->ReceiveFuture<'_,M> { 
     tx.recv_async()
 }
 
+#[macro_export]
 macro_rules! match_try_send {
     ($sender:expr, $msg:expr, ok => $ok_blk:block full => $full_blk:block closed => $closed_blk:block) => {
         match $sender.try_send($msg) {
@@ -54,3 +55,4 @@ macro_rules! match_try_send {
         }
     }
 }
+pub use match_try_send;

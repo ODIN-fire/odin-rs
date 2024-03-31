@@ -17,6 +17,7 @@
 
 use thiserror::Error;
 use odin_actor::errors::OdinActorError;
+use odin_job::OdinJobError;
 use ron;
 
 pub type Result<T> = std::result::Result<T, OdinSentinelError>;
@@ -53,6 +54,12 @@ pub enum OdinSentinelError {
     #[error("actor error {0}")]
     ActorError( #[from] OdinActorError),
 
+    #[error("connector error {0}")]
+    ConnectorError(String),
+
+    #[error("job error {0}")]
+    JobError( #[from] OdinJobError),
+
     #[error("JSON error {0}")]
     JsonError( #[from] serde_json::Error),
 
@@ -86,3 +93,10 @@ pub fn op_failed (msg: impl ToString)->OdinSentinelError {
     OdinSentinelError::OpFailed(msg.to_string())
 }
 
+pub fn connector_error (msg: impl ToString)->OdinSentinelError {
+    OdinSentinelError::ConnectorError(msg.to_string())
+}
+
+pub fn send_error (msg: impl ToString)->OdinSentinelError {
+    OdinSentinelError::ConnectorError(msg.to_string())
+}

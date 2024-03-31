@@ -27,27 +27,29 @@ use kanal::{ bounded_async,AsyncSender,AsyncReceiver, SendFuture, SendError, Rec
 pub type MpscSender<M> = AsyncSender<M>;
 pub type MpscReceiver<M> =AsyncReceiver<M>;
 
-#[inline] pub fn create_mpsc_sender_receiver <MsgType> (bound: usize) -> (MpscSender<MsgType>,MpscReceiver<MsgType>)
+#[inline] 
+pub fn create_mpsc_sender_receiver <MsgType> (bound: usize) -> (MpscSender<MsgType>,MpscReceiver<MsgType>)
     where MsgType: Send
 {
     bounded_async::<MsgType>(bound)
 }
 
 #[inline] 
-fn is_closed<M> (tx: &MpscSender<M>)->bool { 
+pub fn is_closed<M> (tx: &MpscSender<M>)->bool { 
     tx.is_closed() 
 }
 
 #[inline] 
-fn send<M> (tx: &MpscSender<M>, msg: M)->SendFuture<'_,M> { 
+pub fn send<M> (tx: &MpscSender<M>, msg: M)->SendFuture<'_,M> { 
     tx.send(msg) 
 }
 
 #[inline] 
-fn recv<M> (tx: &MpscReceiver<M>)->ReceiveFuture<'_,M> { 
+pub fn recv<M> (tx: &MpscReceiver<M>)->ReceiveFuture<'_,M> { 
     tx.recv() 
 }
 
+#[macro_export]
 macro_rules! match_try_send {
     ($sender:expr, $msg:expr, ok => $ok_blk:block full => $full_blk:block closed => $closed_blk:block) => {
         match $sender.try_send($msg) {
@@ -57,3 +59,4 @@ macro_rules! match_try_send {
         }
     }
 }
+pub use match_try_send;

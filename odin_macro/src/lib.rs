@@ -556,9 +556,9 @@ pub fn define_actor_msg_type (item: TokenStream) -> TokenStream {
         impl DefaultReceiveAction for #name {
             fn default_receive_action (&self)->ReceiveAction {
                 match self {
-                    #name::_Terminate_(msg) => ReceiveAction::Stop,
-                    #name::_Ping_(msg) => { msg.store_response(); ReceiveAction::Continue }
                     #name::_Exec_(msg) => { msg.0(); ReceiveAction::Continue }
+                    #name::_Ping_(msg) => { msg.store_response(); ReceiveAction::Continue }
+                    #name::_Terminate_(msg) => ReceiveAction::Stop,
                     _ => ReceiveAction::Continue
                 }
             }

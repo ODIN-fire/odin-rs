@@ -19,6 +19,6 @@
 
 pub use crate::{
     use_config,config_for,
-    app::{AppMetaData,AppDomain},
+    app_metadata,app::{AppMetaData,AppDomain},
     errors::{ConfigResult,OdinConfigError}
 };

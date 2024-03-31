@@ -20,7 +20,7 @@
 //! (currently [`kanal`](https://docs.rs/kanal/latest/kanal/) or [`flume`](https://docs.rs/flume/latest/flume/))
 //! as specified by the `tokio_kanal` or `tokio_flume` features, which are mutually exclusive.
 
- #![allow(unused)]
+#![allow(unused)]
 #![feature(trait_alias)]
 
 use odin_job::{JobHandle, JobScheduler};
@@ -34,6 +34,7 @@ use std::{
     ops::{Deref,DerefMut}, pin::Pin, result::Result as StdResult, 
     sync::{atomic::{AtomicU64, Ordering}, Arc, LockResult, Mutex, MutexGuard}, time::{Duration, Instant}
 };
+use futures::TryFutureExt;
 use crate::{
     create_sfc, errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, micros, millis, nanos, secs, unpack_ping_response,
     ActorReceiver, ActorSystemRequest, DefaultReceiveAction, DynMsgReceiver, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints, 
@@ -43,14 +44,15 @@ use crate::{
 };
 use odin_macro::fn_mut;
 
-
-// the channel section abstracts the concrete channel type we use for mpsc channels as there are many choices
-// (tokio::sync::mpsc, flume, kanal, crossbeam etc.) and they all differ to some degree. We could
-// unify with our own traits for Sender and Receiver but this wouldn't save code and would make it harder to
-// enforce we consistently use one implementation throughout our concrete runtime module. Since we already
-// apply a similar scheme for the async runtime itself we just go with functions and a match_try_send macro.
-// Items defined in the xx_channel.rs (pseudo-) modules are only meant to be used here and are not exported. 
-// Note that the tokio_xx features are mutually exclusive
+/* #region channel abstractions ********************************************************************************/
+/*
+ * the channel section abstracts the concrete channel type we use for mpsc channels as there are many choices
+ * (tokio::sync::mpsc, flume, kanal, crossbeam etc.) and they all differ to some degree. We could
+ * unify with our own traits for Sender and Receiver but this wouldn't save code and would make it harder to
+ * enforce we consistently use one implementation throughout our concrete runtime module. Since we already
+ * apply a similar scheme for the async runtime itself we just go with functions and a match_try_send macro.
+ * Note that the tokio_xx features are mutually exclusive
+ */
 
 #[cfg(feature="tokio_kanal")]
 include!("kanal_channel.rs");
@@ -58,9 +60,9 @@ include!("kanal_channel.rs");
 #[cfg(feature="tokio_flume")]
 include!("flume_channel.rs");
 
+/* #endregion channel abstractions */
 
-
-/* #region runtime abstractions ***************************************************************************/
+/* #region runtime abstractions ********************************************************************************/
 /*
  * This section is (mostly) for type and function aliases that allow us to program our own structs/traits/impls
  * without having to explicitly use runtime or channel crate specifics. While this means we still have
@@ -72,7 +74,6 @@ include!("flume_channel.rs");
 
 pub type AbortHandle = task::AbortHandle;
 pub type JoinHandle<T> = task::JoinHandle<T>;
-
 
 
 #[inline]
@@ -361,7 +362,10 @@ impl <M> ActorHandle <M> where M: MsgTypeConstraints {
         }
     }
 
-    // TODO - is this right to skip if we can't send? Maybe that should be an option
+    #[inline(always)]
+    pub fn get_scheduler (&self)->LockResult<MutexGuard<'_,JobScheduler>> {
+        self.hsys.get_scheduler()
+    }
 
     pub fn start_oneshot_timer (&self, id: i64, delay: Duration) -> Result<AbortHandle> {
         oneshot_timer_for( self.clone(), id, delay)
@@ -493,7 +497,7 @@ impl <M> SysMsgReceiver for ActorHandle<M> where M: MsgTypeConstraints
 
 /* #endregion ActorHandle */
 
-/* #region ActorSystem ************************************************************************************/
+/* #region ActorSystem *****************************************************************************************/
 
 #[derive(Debug)]
 struct PingStats {
@@ -741,7 +745,7 @@ impl ActorSystem {
 
             // give the receiver a chance to get scheduled but don't block (we don't know if it is still alive)
             yield_now().await;
-            //sleep(millis(100)).await;
+            //sleep(millis(1)).await;
         }
         Ok(())
     }
@@ -874,6 +878,16 @@ impl ActorSystem {
         }
     }
 
+    pub async fn process_requests_for (&mut self, dur: Duration)->Result<()> {
+        let hsys = self.hsys.clone();
+        if let Ok(mut scheduler) = self.job_scheduler.lock() {
+            scheduler.schedule_once( dur, move |_| { 
+                hsys.try_send_msg(ActorSystemRequest::RequestTermination{});
+            })?;
+        }
+        self.process_requests().await
+    }
+
 }
 
 type ActorTuple<S,M> = (Actor<S,M>, ActorHandle<M>, MpscReceiver<M>);
@@ -935,7 +949,14 @@ async fn run_actor<M,R> (mut rx: MpscReceiver<M>, mut receiver: R)
 
 /* #endregion ActorSystem */
 
-/* #region Queries ***************************************************************************/
+/* #region Queries *********************************************************************************************/
+/*
+ * queries are synchronous roundtrip messages, i.e. the sender awaits the answer before proceeding. Those should
+ * only be used behind timeouts or in cases where the receiver is guaranteed to answer in bounded time, to avoid
+ * blocking the senders receive() loop.
+ * We dropped the OneshotSender/Receiver support since it has no runtime benefits and would make it harder to
+ * switch between channel implementations.
+ */
 
 /// QueryBuilder avoids the extra cost of a per-request channel allocation and is therefore slightly faster
 /// compared to a per-query Oneshot channel
@@ -946,7 +967,7 @@ pub struct QueryBuilder<A>  where A: Send + Debug {
 
 impl <A> QueryBuilder<A> where A: Send + Debug {
     pub fn new ()->Self {
-        let (tx,rx) = create_mpsc_sender_receiver::<A>(1);
+        let (tx,rx) = create_mpsc_sender_receiver::<A>(0);
         QueryBuilder { tx, rx }
     }
 
@@ -981,15 +1002,30 @@ impl <A> QueryBuilder<A> where A: Send + Debug {
     }
 }
 
-///
+/// struct that abstracts synchronous roundtrip messages. The sender is blocked until it receives a response
+/// through a dedicated response channel that is encapsulated in the Query instance.
+/// Note this should only be used with timeouts or in cases where the receiver is guaranteed to respond in
+/// bounded time, to avoid blocking the responders / query originator receive() loop. If that
+/// cannot be guaranteed the query response/processing should be moved into a background task.
 pub struct Query<Q,A> where Q: Send + Debug, A: Send + Debug {
     pub question: Q,
     tx: MpscSender<A>
 }
 
-impl <Q,A> Query<Q,A> where Q: Send + Debug, A: Send + Debug {
-    pub async fn respond (self, answer: A)->Result<()> {
-        self.tx.send(answer).await.map_err(|_| OdinActorError::ReceiverClosed)
+impl <Q,A> Query<Q,A> where Q: Send + Debug, A: Send + Debug + 'static {
+
+    /// respond to the query. Since each query can only get one response we consume self.
+    pub fn respond (self, answer: A) -> impl Future<Output=Result<()>> + Send {
+        async move { self.tx.send(answer).await.map_err(|_| OdinActorError::ReceiverClosed) }
+
+        // the alternative would be to use a &self receiver arg, in which case the responder would define
+        // the lifetime of self. If we go that route we could have multpile responses if both the
+        // responder and the query originator loop, but we would not have a clean, general way to enforce
+        // that both sides use the same iteration logic. While this could be used to implement stacked (modal)
+        // message protocols it would be solely based on convention and prone to back pressure if either sender
+        // or responder continue to receive messages.
+        // Better to leave that for explicit tasks/channels.
+        //self.tx.send(answer).map_err(|_| OdinActorError::ReceiverClosed)
     }
 }
 
@@ -999,7 +1035,6 @@ impl<Q,A> Debug for Query<Q,A>  where Q: Send + Debug, A: Send + Debug {
     }
 }
 
-/// oneshot query
 pub async fn query<Q,A,R> (responder: R, topic: Q)->Result<A> 
     where Q: Send + Debug, A: Send + Debug, R: MsgReceiver<Query<Q,A>>
 {
@@ -1030,5 +1065,3 @@ pub async fn timeout_query_ref<Q,A,R> (responder: &R, topic: Q, to: Duration)->R
 }
 
 /* #endregion QueryBuilder & Query */
-
-// we ditch the OneshotQuery (using a oneshot channel) since it doesn't really save us anything

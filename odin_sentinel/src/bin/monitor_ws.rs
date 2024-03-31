@@ -32,7 +32,9 @@ use strum::EnumString;
 use chrono::prelude::*;
 use odin_sentinel::{SentinelConfig,get_device_list_from_config};
 use odin_sentinel::ws::{connect,read_next_ws_msg,request_join,WsStream,WsMsg,WsCmd};
-use odin_config::load_config;
+use odin_config::prelude::*;
+
+use_config!();
 
 /// command line arg: {0}
 #[derive(Debug,Display)]
@@ -63,9 +65,6 @@ struct CliOpts {
     #[structopt(short,long,default_value="rust")]
     format: OutputFormat,
 
-    /// path to sentinel config file
-    config_path: PathBuf
-
     //.. and more to follow
 }
 
@@ -75,7 +74,7 @@ lazy_static! {
 
 #[tokio::main]
 async fn main()->Result<()> {
-    let config: SentinelConfig = load_config( &ARGS.config_path)?;
+    let config: SentinelConfig = config_for!( "sentinel")?;
     let http_client = reqwest::Client::new();
     let mut msg_id = 0;
 

@@ -16,6 +16,46 @@
  */
 #![allow(unused)]
 
+//! the odin_config module serves two purposes: 
+//! 
+//!   (1) to handle mandatory config data lookup supporting different build options through the use of the [`config_for] macro, and 
+//!   (2) to locate config/cache/data dirs to be used explicitly by the application/crate in a consistent way (e.g. according to the XDG spec)
+//! 
+//! [`config_for`] is using features to determine the kind of lookup that is performed, and is primarily used to either embed 
+//! mandatory configuration data (encrypted or just compressed) within the application or to use XDG to locate respective
+//! config sources.
+//! 
+//! ## Feature Flags
+//! 
+//! The following features are supported. Please note these require a respective `build.rs` build script in the root dir
+//! of the target application
+//! 
+//!   (1) `config_local`: get config files from ODIN_LOCAL/config (or ./local/config/ if not defined)  
+//!       no features need to be specified when buidling the application
+//!       this is the default but should only be used for development
+//! 
+//!   (2) `config_xdg`: get config files from platform specific XDG directories
+//!       build with `cargo build --features config_xdg ...`
+//!       this is a production mode for machines in a controlled environment
+//!       see https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html for details
+//! 
+//!   (3) `config_embedded`: this generates a _config_data_ file with compressed bytes of the local config data
+//!       which is then included within the target application
+//!       build with `cargo build --features config_embedded ...`
+//!       note that while this does not show cleartext config data in the executable binary the data is not encrypted
+//! 
+//!   (4) `config_embedded_pw`: generate a passphrase encrypted _config_data_ file to be included in the target application
+//!       build with `ODIN_PP=... cargo build --features config_embedded_pw ...`
+//!       note the provided passphrase is not stored anywhere. You loose it you can't run the target application.
+//!       the default encryption uses aes256
+//! 
+//!   (5) `config_embedded_pgp`: generate PGP encrypted _config_data_
+//!       this is the most secure mode. Users only have to provide their public PGP keys, i.e. the secret key does not
+//!       have to be shared with the developer. At runtime, the target application needs access to the users
+//!       private key and the user needs to enter the respective passphrase, i.e. this is 2FA
+//!       build with `ODIN_KEY=<dir>/<usr-name> cargo build --features config_embedded_pgp ...`
+//!       the ODIN_KEY env var is used as a prefix to derive the key file names (<dir>/<usr-name>_{private,public}.asc)
+
 pub mod prelude;
 
 pub mod errors;
@@ -100,10 +140,6 @@ macro_rules! config_for {
 macro_rules! use_config {
     () => {
         include!(concat!(env!("OUT_DIR"), "/config_data"));
-
-        lazy_static::lazy_static! {
-            static ref APP: AppMetaData = AppMetaData::new();
-        }
     };
 }
 
@@ -114,7 +150,6 @@ macro_rules! use_config {
         include!(concat!(env!("OUT_DIR"), "/config_data"));
 
         lazy_static::lazy_static! {
-            static ref APP: AppMetaData = AppMetaData::new();
             static ref PW_CACHE: odin_config::pw_cache::PwCache = odin_config::pw_cache::PwCache::new("please enter key passphrase", std::time::Duration::from_secs(20));
         }
     };
@@ -123,12 +158,15 @@ macro_rules! use_config {
 #[macro_export]
 #[cfg(not(any(feature="config_embedded",feature="config_embedded_pgp",feature="config_embedded_pw")))]
 macro_rules! use_config {
-    () => {
-        lazy_static::lazy_static! {
-            static ref APP: AppMetaData = AppMetaData::new();
-        }
-    }
+    () => { }
 }
+
+lazy_static::lazy_static! {
+    static ref APP: AppMetaData = AppMetaData::new();
+}
+
+pub fn app_metadata()->&'static AppMetaData { &APP }
+
 
 /* #region config retrievers ******************************************************************************/
 
@@ -145,6 +183,8 @@ pub fn config_from_xdg_file<C> (app: &AppMetaData, id: &str)->Result<C>   where 
     app.load_config(&path)
 }
 
+/// RON config lookup through ODIN_LOCAL env var or ./local directory as a fallback. The config pathname is constructed
+/// from «local-root»/config/«id».ron
 #[cfg(not(any(feature="config_embedded",feature="config_embedded_gpg",feature="config_xdg")))]
 pub fn config_from_local_file<C> (id: &str)->Result<C>   where C: for <'a> Deserialize<'a> {
     use errors::file_not_found;
@@ -163,13 +203,7 @@ pub fn config_from_local_file<C> (id: &str)->Result<C>   where C: for <'a> Deser
 
 fn get_local_dir ()->String { 
     match std::env::var("ODIN_LOCAL") {
-        Ok(local_root) => {
-            if let Ok(pkg_name) = std::env::var("CARGO_PKG_NAME") {
-                format!("{local_root}/{pkg_name}")
-            } else { // fall back to the current directory - is this safe?
-                std::env::current_dir().unwrap().file_name().unwrap().to_string_lossy().to_string()
-            }
-        }
+        Ok(local_root) => local_root,
         _ => "./local".to_string()
     }
 }
