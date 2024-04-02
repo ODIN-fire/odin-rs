@@ -82,19 +82,7 @@ fn main() {
             }
         }
         ConfigMode::EmbeddedPGP => {
-            if let Ok(mut pub_key) = env::var("ODIN_KEY") { // this is the dir/name combination, e.g. local/.pgp/otto
-                if !pub_key.ends_with("_public.asc") { pub_key.push_str("_public.asc") }
-
-                info!("building in embedded PGP config mode");
-                info!("using public PDP key from: {pub_key}");
-                let src = get_config_src( Path::new(&in_dir), |input| pgp_encrypt(input, pub_key.as_str()));
-                if !src.is_empty() {
-                    fs::write( &out_file, src).unwrap();
-                    info!("generated PGP encrypted config data {}", out_file.to_string_lossy());
-                }
-            } else { 
-                panic!("ODIN_KEY not set, terminating build.");
-            }
+            build_embedded_pgp(&in_dir, &out_file);
         }
         ConfigMode::EmbeddedPw => {
             if let Ok(passphrase) = env::var("ODIN_PP") {
@@ -117,6 +105,28 @@ fn main() {
     
     println!("cargo:rerun-if-changed=build.rs");
 }
+
+#[cfg(feature="config_embedded_pgp")]
+fn build_embedded_pgp (in_dir: &String, out_file: &PathBuf) {
+    if let Ok(mut pub_key) = env::var("ODIN_KEY") { // this is the dir/name combination, e.g. local/.pgp/otto
+        if !pub_key.ends_with("_public.asc") { pub_key.push_str("_public.asc") }
+
+        info!("building in embedded PGP config mode");
+        info!("using public PDP key from: {pub_key}");
+        let src = get_config_src( Path::new(in_dir), |input| pgp_encrypt(input, pub_key.as_str()));
+        if !src.is_empty() {
+            fs::write( out_file, src).unwrap();
+            info!("generated PGP encrypted config data {}", out_file.to_string_lossy());
+        }
+    } else { 
+        panic!("ODIN_KEY not set, terminating build.");
+    }
+}
+#[cfg(not(feature="config_embedded_pgp"))]
+fn build_embedded_pgp (_in_dir: &String, _out_file: &PathBuf) {
+    panic!("PGP mode requires to build with enabled feature \"config_embedded_pgp\"");
+}
+
 
 fn get_config_mode()->ConfigMode {
     if cfg!(feature = "config_embedded") { ConfigMode::Embedded } 
@@ -175,10 +185,11 @@ fn file_contents_as_bytes (path: &Path) -> Vec<u8> {
 
 //--- PGP encryption
 
-use pgp::Deserializable;
-use rand::SeedableRng;
-
+#[cfg(feature="config_embedded_pgp")]
 fn pgp_encrypt (data: &[u8], pub_key_filename: &str) -> Vec<u8> {
+    use pgp::Deserializable;
+    use rand::SeedableRng;    
+
     let mut pub_key_file = fs::File::open(pub_key_filename).expect("cannot open public key file");
 
     let (pub_key, _headers) = pgp::composed::SignedPublicKey::from_armor_single(&mut pub_key_file).expect("failed to read key");

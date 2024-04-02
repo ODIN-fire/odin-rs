@@ -8,6 +8,7 @@ edition = "2021"
 [[bin]]
 name = "gen-key"
 path = "src/bin/gen-key.rs"
+required-features = ["config_embedded_pgp"]
 
 [dependencies]
 chrono = { version = "0.4.26", features = ["serde"] }
@@ -20,8 +21,8 @@ rpassword = { version = "*" }
 tokio = { version = "*", features = ["full"] }
 lazy_static = "*"
 secstr = { version = "*" }
-pgp = "*"
 
+pgp = { version = "*", optional = true }
 miniz_oxide = { version = "*", optional = true }
 magic-crypt = { version = "*", optional = true }
 
@@ -37,12 +38,12 @@ odin_common = { workspace = true }
 [build-dependencies]
 miniz_oxide = "*"
 rand = "*"
-pgp = "*"
+pgp = { version = "*", optional = true }
 magic-crypt = "*"
 
 [features]
 config_embedded = ["dep:miniz_oxide"]
-config_embedded_pgp = []
+config_embedded_pgp = ["dep:pgp"]
 config_embedded_pw = ["dep:magic-crypt"]
 config_xdg = []
 config_local = []
