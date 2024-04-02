@@ -21,7 +21,6 @@ use std::{
     collections::{VecDeque,HashMap},fmt::{self,Debug},cmp::{Ordering,min}, future::Future, ops::RangeBounds, 
     time::Duration, sync::atomic::{self,AtomicU64}, path::{Path,PathBuf}, fs::File, io::Write, sync::Arc, rc::Rc,
 };
-use actor::SentinelActorMsg;
 use odin_actor::MsgReceiver;
 use odin_macro::{define_algebraic_type, match_algebraic_type, define_struct};
 use serde::{Deserialize,Serialize,Serializer};
@@ -37,9 +36,13 @@ use paste::paste;
 
 use tokio::sync::Notify; // Hmm, this binds us to a Tokio runtime
 
-pub mod actor;
-pub mod live_connector;
+mod actor;
+pub use actor::*;
+
 pub mod ws;
+
+mod live_connector;
+pub use live_connector::*;
 
 mod errors;
 pub use errors::*;
@@ -157,6 +160,7 @@ define_algebraic_type!{
     pub fn record_id (&self)->&RecordId { &__.id }
     pub fn device_id (&self)->&DeviceId { &__.device_id }
     pub fn to_json (&self)->Result<String> { Ok(serde_json::to_string(&__)?) }
+    pub fn to_json_pretty (&self)->Result<String> { Ok(serde_json::to_string_pretty(&__)?) }
 }
 
 /* #endregion sensor record */
@@ -270,7 +274,7 @@ assoc_capability!(PersonData: Person);
 
 #[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]
 #[serde(rename_all="camelCase")]
-pub struct PowerData { // can use uom here for current, volatage, temp?
+pub struct    PowerData { // can use uom here for current, volatage, temp?
     pub battery_voltage: ElectricPotential,
     pub battery_current: ElectricCurrent,
     pub solar_voltage:ElectricPotential,
@@ -281,9 +285,9 @@ pub struct PowerData { // can use uom here for current, volatage, temp?
     pub battery_temp: ThermodynamicTemperature, // temp
     pub controller_temp: ThermodynamicTemperature, //temp
     pub battery_status: String,
-    pub charging_volatage_status: String,
+    //pub charging_volatage_status: String,  // changed by Delphire 04/01/24
     pub charging_status: String,
-    pub load_volatage_status: String,
+    //pub load_volatage_status: String,       // changed by Delphire 04/01/24
     pub load_status: String
 }
 assoc_capability!(PowerData: Power);
@@ -477,6 +481,11 @@ impl SentinelStore {
         } else {
             Ok(serde_json::to_string( &list)?)
         }
+    }
+
+    pub fn to_json_pretty (&self)->Result<String> {
+        let list = SentinelList { sentinels: self.values() };
+        Ok(serde_json::to_string_pretty( &list)?)
     }
 
     pub fn to_ron (&self, pretty: bool)->Result<String> {

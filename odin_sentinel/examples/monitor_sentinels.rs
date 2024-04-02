@@ -15,17 +15,9 @@
  * limitations under the License.
  */
 
-#[macro_use]
-extern crate lazy_static;
-
-use std::{sync::Arc,path::PathBuf};
-use tokio;
 use anyhow::Result;
-use structopt::StructOpt;
-
 use odin_actor::prelude::*;
-use odin_sentinel::{SentinelConfig,SentinelUpdate,
-    actor::{SentinelConnector,SentinelConnectorMsg,AddInitCallback,AddUpdateCallback,AddJsonUpdateCallback,TriggerJsonSnapshot}};
+use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor};
 use odin_config::prelude::*;
 
 use_config!();
@@ -33,74 +25,49 @@ use_config!();
 
 /* #region monitor actor *****************************************************************/
 
-#[derive(Debug)] pub struct DataAvailable;
-
 #[derive(Debug)] pub struct Snapshot(String);
+#[derive(Debug)] pub struct Update(String);
 
-#[derive(Debug)] pub struct Update(Arc<SentinelUpdate>);
+define_actor_msg_type! { SentinelMonitorMsg = Snapshot | Update }
 
-#[derive(Debug)] pub struct JsonUpdate(Arc<String>);
-
-define_actor_msg_type! { SentinelMonitorMsg = DataAvailable | Snapshot | Update | JsonUpdate }
-
-struct SentinelMonitor {
-    hconn: ActorHandle<SentinelConnectorMsg> 
-}
+struct SentinelMonitor {}
 
 impl_actor! { match msg for Actor<SentinelMonitor,SentinelMonitorMsg> as
-    _Start_ => cont! {
-        // we could also use an async_callback that directly sends the TriggerJsonSnapshot and then
-        // the AddJsonUpdateCallback, which would save the SentinelDataAvailable. It's less readable
-        // though because of the nesting (creating callbacks from within callback actions)
-        let id = self.id().to_string();
-        let hself = &self.hself;
-        self.hconn.send_msg( AddInitCallback{id, action: msg_callback!(hself, DataAvailable)}).await.ok();
-    }
-    DataAvailable => cont! {
-        let hself = &self.hself;
-        let hconn = &self.hconn;
-        hconn.send_msg( TriggerJsonSnapshot( msg_callback!( hself, |json:String| Snapshot(json)))).await.ok();
-        hconn.send_msg( AddUpdateCallback {id: self.id().to_string(), action: msg_callback!( hself, |rec:Arc<SentinelUpdate>| Update(rec))}).await.ok();
-        hconn.send_msg( AddJsonUpdateCallback {id: self.id().to_string(), action: msg_callback!( hself, |json:Arc<String>| JsonUpdate(json))}).await.ok();
-    }
     Snapshot => cont! {
         println!("------------------------------ snapshot");
         println!("{}", msg.0);
     }
     Update => cont! { 
         println!("------------------------------ update");
-        println!("{:?}", msg.0) 
-    }
-    JsonUpdate => cont! { 
-        println!("------------------------------ JSON update");
-        println!("JSON: {}", msg.0) 
+        println!("{}", msg.0) 
     }
 }
 
 /* #endregion monitor actor */
 
-#[derive(StructOpt)]
-#[structopt(about = "example of how to use the SentinelConnector actor")]
-struct CliOpts {
-        /// path to sentinel config file
-        config_path: PathBuf
-}
-
-lazy_static! {
-    static ref ARGS: CliOpts = CliOpts::from_args();
-}
 
 #[tokio::main]
 async fn main ()->Result<()> {
-    odin_config::ensure_dirs()?;
-
-    let sentinel_config: SentinelConfig = config_for!( "sentinel")?;
-    println!("--- sentinel config:\n{:?}",sentinel_config);
-    
     let mut actor_system = ActorSystem::new("main");
 
-    let importer = spawn_actor!( actor_system, "importer", SentinelConnector::new(sentinel_config))?;
-    let _ = spawn_actor!( actor_system, "monitor", SentinelMonitor{ hconn: importer })?;
+    let hmonitor = spawn_actor!( actor_system, "monitor", SentinelMonitor{})?;
+
+    define_actor_action_type! { InitAction = hrcv <- (sentinels: &SentinelStore) for
+        SentinelMonitorMsg => hrcv.try_send_msg( Snapshot( sentinels.to_json_pretty().unwrap()))
+    }
+    define_actor_action_type! { UpdateAction = hrcv <- (update: &SentinelUpdate) for
+        SentinelMonitorMsg => hrcv.try_send_msg( Update( update.to_json_pretty().unwrap()))
+    }
+    define_actor_action2_type! { SnapshotAction = _hrcv <- (_sentinels: &SentinelStore, _client: &String) for
+        SentinelMonitorMsg => Ok(()) //nothing yet
+    }
+
+    let _hsentinel = spawn_actor!( actor_system, "sentinel", SentinelActor::new(
+        LiveSentinelConnector::new( config_for!( "sentinel")?), 
+        InitAction( hmonitor.clone()),
+        UpdateAction( hmonitor.clone()),
+        SnapshotAction( hmonitor.clone())
+    ))?;
 
     actor_system.timeout_start_all(millis(20)).await?;
     actor_system.process_requests().await?;
