@@ -33,7 +33,7 @@ pub const DEFAULT_CHANNEL_BOUNDS: usize = 16;
 pub mod tokio_rt;
 
 pub use tokio_rt::{
-    ActorSystem,ActorSystemHandle,Actor,ActorHandle,PreActorHandle,JoinHandle,AbortHandle,Query,QueryBuilder,
+    ActorSystem,ActorSystemHandle,Actor,ActorHandle,PreActorHandle,JoinHandle,AbortHandle,Query,QueryBuilder,RequestProcessor,
     sleep, timeout, yield_now, spawn, spawn_blocking, block_on, block_on_send_msg, block_on_timeout_send_msg,
     query, query_ref, timeout_query, timeout_query_ref,
     MpscSender, MpscReceiver, create_mpsc_sender_receiver, send, recv

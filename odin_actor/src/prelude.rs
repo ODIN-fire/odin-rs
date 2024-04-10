@@ -16,9 +16,9 @@
  */
 
 pub use crate::{
-    ActorSystem, ActorSystemHandle, Actor, ActorHandle, PreActorHandle, AbortHandle, JoinHandle, Query, QueryBuilder,// from respective cfg module
+    ActorSystem, ActorSystemHandle, Actor, ActorHandle, PreActorHandle, AbortHandle, JoinHandle, 
     sleep, timeout, yield_now, spawn, spawn_blocking, block_on, block_on_send_msg, block_on_timeout_send_msg, // from respective cfg module
-    query, query_ref, timeout_query, timeout_query_ref,
+    Query, QueryBuilder, query, query_ref, timeout_query, timeout_query_ref, RequestProcessor,
     MpscSender, MpscReceiver, create_mpsc_sender_receiver, send, recv,
     ActorReceiver, ReceiveAction, MsgReceiver, DynMsgReceiver, TryMsgReceiver, SysMsgReceiver, SysMsg, DefaultReceiveAction, FromSysMsg, 
     Identifiable, ActorMsgAction, ActorAction, ActorAction2, MsgSubscriptions, MsgSubscriber, Callback, CallbackList, SyncCallback, AsyncCallback,

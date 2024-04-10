@@ -32,6 +32,7 @@ use tokio::{
 use std::{
     any::type_name, boxed::Box, cell::Cell, fmt::Debug, future::Future, marker::{PhantomData, Sync}, 
     ops::{Deref,DerefMut}, pin::Pin, result::Result as StdResult, 
+    collections::VecDeque,
     sync::{atomic::{AtomicU64, Ordering}, Arc, LockResult, Mutex, MutexGuard}, time::{Duration, Instant}
 };
 use futures::TryFutureExt;
@@ -950,16 +951,67 @@ async fn run_actor<M,R> (mut rx: MpscReceiver<M>, mut receiver: R)
 /* #endregion ActorSystem */
 
 /* #region Queries *********************************************************************************************/
-/*
- * queries are synchronous roundtrip messages, i.e. the sender awaits the answer before proceeding. Those should
- * only be used behind timeouts or in cases where the receiver is guaranteed to answer in bounded time, to avoid
- * blocking the senders receive() loop.
- * We dropped the OneshotSender/Receiver support since it has no runtime benefits and would make it harder to
- * switch between channel implementations.
- */
 
-/// QueryBuilder avoids the extra cost of a per-request channel allocation and is therefore slightly faster
-/// compared to a per-query Oneshot channel
+/// struct that abstracts synchronous 1:1 roundtrip messages. The sender is blocked until it receives a (single)
+/// response through a dedicated response channel that is encapsulated in the Query instance.
+/// Note this should only be used with timeouts or in cases where the receiver is guaranteed to respond in
+/// bounded time, to avoid blocking the query originator receive() loop.
+/// If that cannot be guaranteed the query should be moved into a background task.
+pub struct Query<Q,A> where Q: Send + Debug, A: Send + Debug {
+    pub question: Q,
+    tx: MpscSender<A>
+}
+
+impl <Q,A> Query<Q,A> where Q: Send + Debug, A: Send + Debug + 'static {
+
+    /// respond to the query with an answer
+    /// note that we do not consume self anymore so that we still have access to the query object
+    /// in the caller (e.g. if queries are stored in collections). While this means we could send
+    /// several responses for the same query to a receiver that only processes one, we would get
+    /// an error result. This is similar to the case where the receiver does not await our response.
+    pub async fn respond (&self, answer: A) -> Result<()> {
+        self.tx.send(answer).await.map_err(|_| OdinActorError::ReceiverClosed)
+    }
+}
+
+impl<Q,A> Debug for Query<Q,A>  where Q: Send + Debug, A: Send + Debug {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Request<{},{}>{:?}", type_name::<Q>(), type_name::<A>(), self.question)
+    }
+}
+
+pub async fn query<Q,A,R> (responder: R, topic: Q)->Result<A> 
+    where Q: Send + Debug, A: Send + Debug, R: MsgReceiver<Query<Q,A>>
+{
+    let qb = QueryBuilder::<A>::new();
+    qb.query( responder, topic).await
+}
+
+pub async fn query_ref<Q,A,R> (responder: &R, topic: Q)->Result<A> 
+    where Q: Send + Debug, A: Send + Debug, R: MsgReceiver<Query<Q,A>> + Sync
+{
+    let qb = QueryBuilder::<A>::new();
+    qb.query_ref( responder, topic).await
+}
+
+/// oneshot timeout query
+pub async fn timeout_query<Q,A,R> (responder: R, topic: Q, to: Duration)->Result<A> 
+    where Q: Send + Debug, A: Send + Debug, R: MsgReceiver<Query<Q,A>>
+{
+    let qb = QueryBuilder::<A>::new();
+    qb.timeout_query( responder, topic, to).await
+}
+
+pub async fn timeout_query_ref<Q,A,R> (responder: &R, topic: Q, to: Duration)->Result<A> 
+    where Q: Send + Debug, A: Send + Debug, R: MsgReceiver<Query<Q,A>> + Sync
+{
+    let qb = QueryBuilder::<A>::new();
+    qb.timeout_query_ref( responder, topic, to).await
+}
+
+
+/// builder for Query instances that avoids the extra cost of a per-request channel allocation for repeated queries 
+/// of the same answer type and is therefore slightly faster compared to a per-query Oneshot channel
 pub struct QueryBuilder<A>  where A: Send + Debug {
     tx: MpscSender<A>,
     rx: MpscReceiver<A>,
@@ -1002,66 +1054,113 @@ impl <A> QueryBuilder<A> where A: Send + Debug {
     }
 }
 
-/// struct that abstracts synchronous roundtrip messages. The sender is blocked until it receives a response
-/// through a dedicated response channel that is encapsulated in the Query instance.
-/// Note this should only be used with timeouts or in cases where the receiver is guaranteed to respond in
-/// bounded time, to avoid blocking the responders / query originator receive() loop. If that
-/// cannot be guaranteed the query response/processing should be moved into a background task.
-pub struct Query<Q,A> where Q: Send + Debug, A: Send + Debug {
-    pub question: Q,
-    tx: MpscSender<A>
-}
-
-impl <Q,A> Query<Q,A> where Q: Send + Debug, A: Send + Debug + 'static {
-
-    /// respond to the query. Since each query can only get one response we consume self.
-    pub fn respond (self, answer: A) -> impl Future<Output=Result<()>> + Send {
-        async move { self.tx.send(answer).await.map_err(|_| OdinActorError::ReceiverClosed) }
-
-        // the alternative would be to use a &self receiver arg, in which case the responder would define
-        // the lifetime of self. If we go that route we could have multpile responses if both the
-        // responder and the query originator loop, but we would not have a clean, general way to enforce
-        // that both sides use the same iteration logic. While this could be used to implement stacked (modal)
-        // message protocols it would be solely based on convention and prone to back pressure if either sender
-        // or responder continue to receive messages.
-        // Better to leave that for explicit tasks/channels.
-        //self.tx.send(answer).map_err(|_| OdinActorError::ReceiverClosed)
-    }
-}
-
-impl<Q,A> Debug for Query<Q,A>  where Q: Send + Debug, A: Send + Debug {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Request<{},{}>{:?})", type_name::<Q>(), type_name::<A>(), self.question)
-    }
-}
-
-pub async fn query<Q,A,R> (responder: R, topic: Q)->Result<A> 
-    where Q: Send + Debug, A: Send + Debug, R: MsgReceiver<Query<Q,A>>
-{
-    let qb = QueryBuilder::<A>::new();
-    qb.query( responder, topic).await
-}
-
-pub async fn query_ref<Q,A,R> (responder: &R, topic: Q)->Result<A> 
-    where Q: Send + Debug, A: Send + Debug, R: MsgReceiver<Query<Q,A>> + Sync
-{
-    let qb = QueryBuilder::<A>::new();
-    qb.query_ref( responder, topic).await
-}
-
-/// oneshot timeout query
-pub async fn timeout_query<Q,A,R> (responder: R, topic: Q, to: Duration)->Result<A> 
-    where Q: Send + Debug, A: Send + Debug, R: MsgReceiver<Query<Q,A>>
-{
-    let qb = QueryBuilder::<A>::new();
-    qb.timeout_query( responder, topic, to).await
-}
-
-pub async fn timeout_query_ref<Q,A,R> (responder: &R, topic: Q, to: Duration)->Result<A> 
-    where Q: Send + Debug, A: Send + Debug, R: MsgReceiver<Query<Q,A>> + Sync
-{
-    let qb = QueryBuilder::<A>::new();
-    qb.timeout_query_ref( responder, topic, to).await
-}
-
 /* #endregion QueryBuilder & Query */
+
+/* #region RequestProcessor ************************************************************************************/
+
+/// trait to process queued, possibly overlapping queries in a background task.
+/// The use case is to support long running queries that should be resolved sequentially, e.g. to avoid
+/// external server overload or high computational loads.
+/// This might cause several queries for the same subject to arrive (also from different requesters) while the
+/// answer is still computed, which in turn requires to keep track of all requesters we have to respond to 
+/// once the answer is available.
+/// This means we have to be able to check if two queries are about the same subject (hence `is_same_request()`) and
+/// we have to be able to duplicate the answer (hence A: Clone).
+/// The resolver task has to loop over a select() since it has to await both new queue requests and completed
+/// answers.The logic of this select loop is implemented in the generic process_detached_queries() function.
+///
+/// example sequence diagram:
+///                                                 responder
+///      task-1    task-2     task-3                  task
+///        :         :          :                      :
+///        []--Q1--- : -------- : ------------(queue)->[]... 
+///        []        []---Q1--- : ------------(queue)->[] Q1
+///        []        []         []---Q2-------(queue)->[]
+///        []<------ []<------- [] --------------A1----[]...
+///        :         :          []                     [] Q2
+///        :         []---Q3--- [] -----------(queue)->[]
+///        :         []         []<--------------A2----[]...
+///        :         []         :                      [] Q3
+///        :         []<------- : ---------------A3----[]...
+///        :         :          :                      :
+///
+pub trait RequestProcessor<R,T> 
+    where Self: Sized + Send + 'static,
+          R: Send + Debug + 'static, // request type
+          T: Clone + Send + Debug + 'static // result type
+{
+    // we need an initial future before we get the first query, hence the option arg. Note its output is never used
+    fn get_response_future (&self, request: Option<R>) -> impl Future<Output=Result<(R,T)>> + Send;
+    fn process_response (&self, request: &R, answer: T) -> impl Future<Output=Result<()>> + Send;
+    fn is_same_request (&self, request1: &R, request2: &R)->bool; // we could also turn this into a PartialEq constraint on R
+
+    /// provided method to loop over pending requests
+    fn spawn (self, task_name: &str, bounds: usize)->Result<(JoinHandle<Result<()>>,MpscSender<R>)> {
+        let (tx,rx) = create_mpsc_sender_receiver::<R>(bounds);
+        let jh = spawn( task_name, async move {
+            process_requests(self,rx).await
+        })?;
+        Ok( (jh, tx) )
+    }
+}
+
+async fn process_requests<P,R,T> (proc: P, rx: AsyncReceiver<R>) -> Result<()> 
+    where R: Send + Debug + 'static, // request type
+          T: Clone + Send + Debug + 'static, // result type
+          P: RequestProcessor<R,T> + Sized + 'static
+{
+    let mut response_pending = false;
+    let mut pending_requests: VecDeque<R> = VecDeque::new();
+    let mut response_fut = proc.get_response_future(None);
+    tokio::pin!(response_fut);
+
+    loop {
+        tokio::select! {
+            // note that we use a reference to resolve_fut so that we can keep it if pending.
+            // note also that we have to use a guard to ensure we don't double poll a ready initial future
+            res = &mut response_fut, if response_pending => {
+                if let Ok((request,response)) = res { // future did resolve to a Result<A>                    
+                    let mut i = 0;
+                    while i < pending_requests.len() {
+                        let req = &pending_requests[i];
+                        if proc.is_same_request( req, &request) {
+                            proc.process_response( req, response.clone()).await;
+                            pending_requests.remove(i);
+                        } else {
+                            i += 1;
+                        }
+                    }
+
+                    proc.process_response( &request, response).await;
+
+                    response_pending = !pending_requests.is_empty();
+                    if response_pending {
+                        response_fut.set( proc.get_response_future( pending_requests.pop_front()));
+                    }
+
+                    yield_now().await; // let active tasks react before we process the next query
+                }
+            }
+
+            res = rx.recv() => {
+                match res {
+                    Ok(new_request) => { // got new query
+                        if !response_pending { // we need a new resolve future
+                            response_pending = true;
+                            response_fut.set( proc.get_response_future( Some( new_request)));
+                        } else {
+                            pending_requests.push_back( new_request);
+                        }
+                    }
+                    Err(e) => {
+                        return Err(OdinActorError::ReceiverClosed)
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/* #endregion RequestResolver */
+
