@@ -36,11 +36,6 @@ use odin_config::prelude::*;
 
 use_config!();
 
-/// command line arg: {0}
-#[derive(Debug,Display)]
-struct ParseArgError(String);
-
-
 #[derive(Debug,EnumString)]
 #[strum(serialize_all="snake_case")]
 enum OutputFormat { Rust, Ron, Json }

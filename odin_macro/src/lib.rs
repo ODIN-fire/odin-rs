@@ -46,7 +46,7 @@ use quote::{format_ident, quote, ToTokens, TokenStreamExt};
 use syn::{ 
 	self, parse::{Lookahead1, Parse, ParseStream, Result}, 
     parse_macro_input, punctuated::{Punctuated}, visit::{self, Visit}, 
-    token::{self, Mut, Where, Colon, Gt, Lt, Comma, Paren, PathSep, Use, For, In}, 
+    token::{self, Mut, Ref, Where, Colon, Gt, Lt, Comma, Paren, PathSep, Use, For, In}, 
     Attribute, Block, Expr, ExprLit, ExprCall, ExprBlock, ExprMacro, ExprMethodCall, FnArg, Ident, ItemEnum, ItemFn, ItemStruct, Path, PathSegment, 
     PredicateType, Stmt, Token, Type, TypePath, Visibility, WhereClause, WherePredicate, GenericParam, PathArguments,
     parenthesized
@@ -639,7 +639,7 @@ impl Parse for AdtEnum {
 pub fn match_algebraic_type (item: TokenStream) -> TokenStream {
     let MsgMatch { msg_name, msg_type, match_arms }: MsgMatch = match syn::parse(item) {
         Ok(msg_match) => msg_match,
-        Err(e) => panic!( "expected \"match_algebraic_type!( 𝑣𝑎𝑟𝑖𝑎𝑏𝑙𝑒𝑛𝑎𝑚𝑒𝑁𝑎𝑚𝑒:𝐸𝑛𝑢𝑚𝑇𝑦𝑝𝑒 as 𝑉𝑎𝑟𝑖𝑎𝑛𝑡𝑇𝑦𝑝𝑒 => {{..}}, ..)\", got {:?}", e)
+        Err(e) => panic!( "expected \"match_algebraic_type!( «msgVarName»:«EnumType» as «VariantType» => {{..}}, ..)\", got {:?}", e)
     };
 
     let match_patterns: Vec<TokenStream2> = get_match_patterns(&msg_name, &msg_type, &match_arms);
@@ -662,8 +662,9 @@ fn get_match_patterns(msg_name: &Ident, msg_type: &Path, match_arms: &Vec<MsgMat
         match &a.variant_spec {
             VariantSpec::Type(path) => {
                 let variant_name = get_variant_name_from_match_arm(a);
+                let maybe_ref = a.maybe_ref;
                 let maybe_mut = a.maybe_mut;
-                quote!( #msg_type::#variant_name (#maybe_mut #msg_name))
+                quote!( #msg_type::#variant_name (#maybe_ref #maybe_mut #msg_name))
             }
             VariantSpec::Wildcard => { quote!(_) }
         }
@@ -783,6 +784,7 @@ struct MsgMatch {
 
 struct MsgMatchArm {
     variant_spec: VariantSpec,
+    maybe_ref: Option<Token![ref]>,
     maybe_mut: Option<Token![mut]>,
     match_action: MsgMatchAction,
 }
@@ -826,16 +828,20 @@ fn parse_match_arms (input: ParseStream)->Result<Vec::<MsgMatchArm>> {
     
     while !input.is_empty() {
         let lookahead = input.lookahead1();
-        let (variant_spec,is_mut) = if lookahead.peek( Token![_]) {
+        let (variant_spec,is_ref,is_mut) = if lookahead.peek( Token![_]) {
             let _: Token![_] = input.parse()?;
-            (VariantSpec::Wildcard,Option::<Mut>::None)
+            (VariantSpec::Wildcard,Option::<Ref>::None,Option::<Mut>::None)
         } else {
+            let is_ref: Option<Token![ref]> = if lookahead.peek( Token![ref]) {
+                Some(input.parse()?)
+            } else { None };
+
             let is_mut: Option<Token![mut]> = if lookahead.peek( Token![mut]) {
                 Some(input.parse()?)
             } else { None };
     
             let path: Path = input.parse()?;
-            (VariantSpec::Type(path),is_mut)
+            (VariantSpec::Type(path),is_ref,is_mut)
         };
         
         //--- the match 
@@ -859,7 +865,7 @@ fn parse_match_arms (input: ParseStream)->Result<Vec::<MsgMatchArm>> {
             let _: Token![,] = input.parse()?;
         }
 
-        match_arms.push( MsgMatchArm { variant_spec, maybe_mut: is_mut, match_action } );
+        match_arms.push( MsgMatchArm { variant_spec, maybe_ref: is_ref, maybe_mut: is_mut, match_action } );
     }
 
     Ok(match_arms)

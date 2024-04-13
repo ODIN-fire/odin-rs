@@ -17,33 +17,27 @@
 
 use thiserror::Error;
 use odin_actor::errors::OdinActorError;
+use odin_common::map_to_opaque_error;
 use odin_job::OdinJobError;
 use ron;
 
 pub type Result<T> = std::result::Result<T, OdinSentinelError>;
 
-#[derive(Error,Debug)]
+/// odin_sentinel specific error type. Note that we need those to be Clone, hence we use
+/// our own mapping into opaque types that do not store the source error
+#[derive(Error,Debug,Clone)]
 pub enum OdinSentinelError {
     #[error("IO error {0}")]
-    IOError( #[from] std::io::Error),
+    IOError(String),
 
-    #[error("config parse error {0}")]
-    ConfigParseError(String),
-
-    #[error("http error {0}")]
-    HttpError( #[from] reqwest::Error),
+    #[error("config error {0}")]
+    ConfigError(String),
 
     #[error("http error {0}")]
-    HttpError1( #[from] tokio_tungstenite::tungstenite::http::Error),
-
-    #[error("http header error {0}")]
-    HttpHeaderError( #[from] tokio_tungstenite::tungstenite::http::header::InvalidHeaderValue),
-
-    #[error("URL parse error (0)")]
-    UrlParseError( #[from] url::ParseError),
+    HttpError(String),
 
     #[error("websock error {0}")]
-    WsError( #[from] tokio_tungstenite::tungstenite::Error),
+    WsError(String),
 
     #[error("websock protocol error {0}")] 
     WsProtocolError(String), // unexpected/wrong responses
@@ -52,25 +46,25 @@ pub enum OdinSentinelError {
     WsClosedError,
 
     #[error("actor error {0}")]
-    ActorError( #[from] OdinActorError),
+    ActorError(String),
 
     #[error("connector error {0}")]
     ConnectorError(String),
 
     #[error("job error {0}")]
-    JobError( #[from] OdinJobError),
+    JobError(String),
 
     #[error("JSON error {0}")]
-    JsonError( #[from] serde_json::Error),
-
-    #[error("RON error {0}")]
-    RonError( #[from] ron::error::Error),
+    JsonError(String),
 
     #[error("no data error {0}")]
     NoDataError(String),
 
     #[error("no such device error {0}")]
     NoSuchDeviceError(String),
+
+    #[error("no such record error {0}")]
+    NoSuchRecordError(String),
 
     #[error("no devices")]
     NoDevicesError,
@@ -84,6 +78,18 @@ pub enum OdinSentinelError {
     #[error("operation failed {0}")]
     OpFailed(String)
 }
+
+map_to_opaque_error!{ std::io::Error => OdinSentinelError::IOError }
+map_to_opaque_error!{ serde_json::Error => OdinSentinelError::JsonError }
+map_to_opaque_error!{ reqwest::Error => OdinSentinelError::HttpError }
+map_to_opaque_error!{ tokio_tungstenite::tungstenite::http::Error => OdinSentinelError::HttpError }
+map_to_opaque_error!{ tokio_tungstenite::tungstenite::http::header::InvalidHeaderValue => OdinSentinelError::HttpError }
+map_to_opaque_error!{ url::ParseError => OdinSentinelError::HttpError }
+map_to_opaque_error!{ tokio_tungstenite::tungstenite::Error => OdinSentinelError::WsError }
+map_to_opaque_error!{ odin_actor::errors::OdinActorError => OdinSentinelError::ActorError }
+map_to_opaque_error!{ odin_job::OdinJobError => OdinSentinelError::JobError }
+map_to_opaque_error!{ ron::error::Error => OdinSentinelError::ConfigError }
+
 
 pub fn no_data (msg: impl ToString)->OdinSentinelError {
     OdinSentinelError::NoDataError(msg.to_string())

@@ -21,71 +21,116 @@
 /// (or Haskell do-notation) with the extension that we can (optionally) specify side effects and/or
 /// return values for failed match clauses.
 ///
-/// # Examples
+/// This is an example for pure side effects:
 /// ```
-/// use odin_common::macros;
-/// ..
-/// let p: Option<i64> = Some(42);
-/// let q: Option<i64> = None;
-/// fn foo (i: i64) -> Result<String,SomeError> {..}
-/// ...
-/// // purely for side effects if all matches succeed
+/// use odin_common::if_let;
+/// let p: Option<i64> = ...
+/// let q: Result<i64,&'static str> = ...
+/// fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { ... }
+/// 
 /// if_let! {
-///     Some(a) = p;         // binds 'a'
-///     Ok(b) = foo(a) => {  // not evaluated if first match clause fails
-///         println!("a={}, b={}", a,b);
+///     Some(a) = p,
+///     Ok(b) = q,
+///     Ok(c) = foo(a,b) => {
+///         println!("just here to print a={}, b={}, c={}", a,b,c);
+///     }
+/// }
+/// ```
+/// which gets expanded into:
+/// ```
+/// if let Some(a) = p {
+///     if let Ok(b) = q {
+///         if let Ok(c) = foo(a, b) {
+///             println!("just here to print a={}, b={}, c={}", a,b,c)
+///         }
+///     }
+/// }
+/// ```
+/// 
+/// Here is an example for pure side effects that uses fail closures (e.g. for error reporting)
+/// ```
+/// if_let! {
+///     Some(a) = p,
+///     Ok(b) = { q } else for |e| println!("no b: {e:?}"),
+///     Ok(c) = { foo(a,b) } else for |e| println!("no c: {e:?}") => {
+///         println!("just here to print a={}, b={}, c={}", a,b,c);
+///     }
+/// }
+/// ```
+/// which expands to:
+/// ```
+/// if let Some(a) = p {
+///     match { q } {
+///         Ok(b) => {
+///             match { foo(a, b) } {
+///                 Ok(c) => { println!("just here to print a={}, b={}, c={}", a,b,c) }
+///                 x => { |e|{ println!("no c: {e:?}") }(x) }
+///             }
+///         }
+///         x => { |e|{println!("no b: {e:?}")}(x) }
+///     }
+/// } 
+/// ```
+/// This is finally an example that uses the `if_let` value and fail closures (providing failure values)
+/// ```
+/// let res = if_let! {
+///     Some(a) = { p } else { println!("no a"); -1 }
+///     Ok(b)   = { q } else for |e|{ println!("no b: {e:?}"); -2 }, 
+///     Ok(c)   = { foo(a,b) } else for |e|{ println!("no c: {e:?}"); -3 } => {
+///         println!("a={}, b={}, c={}", a,b,c);
+///         0
 ///     }
 /// };
-///
-/// // expression with per-clause short-circuits
-/// let r = if_let! {
-///     Some(a) = p.or(q) , { println!("neither p nor q"); 1 };
-///     Ok(b)   = foo(a)  , { println!("wrong result"); 2 } => {
-///         println!("a={}, b={}", a,b); 3
-///     }
-///  };
+/// println!("res = {res}");
+/// ``` 
+/// which is expanded into:
 /// ```
-/// this expands to:
-/// ```
-/// let r = if let Some(a) = p.or(q) {
-///     if let Ok(b) = foo(a) {
-///         println!("a={}, b={}", a,b); 3
-///     } else {
-///         println!("wrong result"); 2
+/// let res = if let Some(a) = { p } {
+///     match { q } {
+///         Ok(b) => {
+///             match { foo(a, b) } {
+///                 Ok(c) => { println!("a={}, b={}, c={}", a,b,c); 0 }
+///                 x => { |e|{ println!("no c: {e:?}"); -3 }(x) }
+///             }
+///         }
+///         x => { |e|{ println!("no b: {e:?}"); -2 }(x) }
 ///     }
-/// } else {
-///     println!("neither p nor q"); 1
-/// }
+/// } else { println!("no a"); -1 };
+/// println!("res = {res}");
 /// ```
 #[macro_export]
 macro_rules! if_let {
-    { $p:pat = $x:expr $(, $e:expr)? => $r:expr } =>
-    {
-        if let $p = $x { $r } $(else { $e })?
+    //--- the leafs
+    { $p:pat = $x:block else $e:block => $r:expr } => {
+        if let $p = $x { $r } else $e
     };
-
-    { $p:pat = $x:expr , $i:ident => $e:expr => $r:expr } =>
-    {
+    { $p:pat = $x:block else for $e:expr => $r:expr } => {
         match $x {
             $p => { $r }
-            $i => { $e }
+            x => { $e(x) }
         }
     };
-
-    { $p:pat = $x:expr $(, $e:expr)? ; $($ts:tt)+ } =>
-    {
+    { $p:pat = $x:expr => $r:expr } => {
+        if let $p = $x { $r } 
+    };
+    
+    //--- the recursive tt munchers
+    { $p:pat = $x:block else $e:block $($ts:tt)+ } => {
         if let $p = $x {
             if_let! { $($ts)+ }
-        } $(else { $e })?
+        } else $e
     };
-
-    { $p:pat = $x:expr , $i:ident => $e:expr ; $($ts:tt)+ } =>
-    {
+    { $p:pat = $x:block else for $e:expr , $($ts:tt)+ } => {
         match $x {
             $p => { if_let! { $($ts)+ } }
-            $i => { $e }
+            x => { $e(x) }
         }
-    }
+    };
+    { $p:pat = $x:expr , $($ts:tt)+ } => {
+        if let $p = $x {
+            if_let! { $($ts)+ }
+        }
+    };
 }
 pub use if_let; // preserve 'macros' module across crates
 
@@ -257,6 +302,17 @@ macro_rules! io_error {
     }
 }
 pub use io_error;
+
+//--- macros that are usefule to map errors (also to thiserror defined enums)
+
+#[macro_export]
+macro_rules! map_to_opaque_error {
+    ($from_error:ty => $to_error:ident :: $variant:ident) => {
+        impl From<$from_error> for $to_error {
+            fn from (e: $from_error)->Self { $to_error :: $variant ( e.to_string()) }
+        }
+    };
+}
 
 //--- feature management (conditional compilation support)
 

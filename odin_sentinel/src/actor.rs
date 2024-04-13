@@ -25,13 +25,12 @@ use crate::ws::WsCmd;
 
 //-- external messages (from other actors)
 
-/// request a specific update record
-#[derive(Debug)] pub struct GetSentinelUpdate { pub record_id: String }
-
-/// request a file associated with an update record
-#[derive(Debug)] pub struct GetSentinelFile { pub record_id: String, pub filename: String }
-
 #[derive(Debug)] pub struct ExecSnapshotAction(String);
+
+/// request a specific update record
+#[derive(Debug)] pub struct GetSentinelUpdate {  pub record_id: String }
+
+
 
 /// send a command to Sentinel devices
 #[derive(Debug)] pub struct SendSentinelCmd { sentinel_cmd: WsCmd }
@@ -44,8 +43,8 @@ use crate::ws::WsCmd;
 define_actor_msg_type! { pub SentinelActorMsg = 
     //-- messages we get from other actors
     ExecSnapshotAction |
-    Query<GetSentinelUpdate,Option<SentinelUpdate>> |
-    Query<GetSentinelFile,Option<PathBuf>> |
+    Query<GetSentinelUpdate,Result<SentinelUpdate>> |
+    Query<GetSentinelFile,Result<SentinelFile>> |
 
     //-- messages we get from our connector
     InitializeStore |
@@ -77,17 +76,7 @@ impl<S,A,B,C> SentinelActor<S,A,B,C>
 
     async fn init_store (&mut self, sentinels: SentinelStore)->Result<()> {
         self.sentinels = sentinels;
-        self.request_all_image_files().await;
         self.init_action.execute(&self.sentinels).await;
-        Ok(())
-    }
-
-    async fn request_all_image_files (&self)->Result<()> {
-        for sentinel in self.sentinels.values_iter() {
-            for rec in &sentinel.image {
-                self.connector.request_image_file( rec).await?;
-            }
-        }
         Ok(())
     }
 
@@ -95,19 +84,18 @@ impl<S,A,B,C> SentinelActor<S,A,B,C>
         let SentinelChange { added, removed } = self.sentinels.update_with( sentinel_update, self.connector.max_history());
 
         if let Some(ref added) = added {
-            match_algebraic_type! { added: SentinelUpdate as
-                Arc<SensorRecord<ImageData>> => { self.connector.request_image_file(added).await; }
-                _ => {}
-            }
             self.update_action.execute(added).await;
         }
         // TODO- shall we also notify about removed records?
         Ok(())
     }
 
-    async fn handle_record_query (&self, record_query: Query<GetSentinelUpdate,Option<SentinelUpdate>>)->Result<()> {
-        let resp = self.sentinels.get_update( &record_query.question.record_id).map(|u| u.clone());
-        record_query.respond( resp).await.map_err(|_| op_failed("receiver closed"))
+    async fn handle_record_query (&self, record_query: Query<GetSentinelUpdate,Result<SentinelUpdate>>)->Result<()> {
+        let res = match self.sentinels.get_update( &record_query.question.record_id) {
+            Some(upd) => Ok(upd.clone()),
+            None => Err( OdinSentinelError::NoSuchRecordError(record_query.question.record_id.clone()))
+        };        
+        record_query.respond( res).await.map_err(|_| op_failed("receiver closed"))
     }
 
 
@@ -120,10 +108,11 @@ impl_actor! { match msg for Actor<SentinelActor<S,A,B,C>,SentinelActorMsg>
     ExecSnapshotAction => cont! {
         self.snapshot_action.execute( &self.sentinels, &msg.0).await;
     }
-    Query<GetSentinelUpdate,Option<SentinelUpdate>> => cont! { 
-        self.handle_record_query(msg).await; 
+    Query<GetSentinelUpdate,Result<SentinelUpdate>> => cont! { 
+        let fut = self.handle_record_query(msg);
     }
-    Query<GetSentinelFile,Option<PathBuf>> => cont! { 
+    Query<GetSentinelFile,Result<SentinelFile>> => cont! { 
+        // it might be in-flight so forward to connector
         self.connector.handle_file_query(msg).await; 
     }
 
@@ -155,9 +144,9 @@ pub trait SentinelConnector {
 
    fn start (&mut self, hself: ActorHandle<SentinelActorMsg>) -> impl Future<Output=Result<()>> + Send;
 
+   // note that these future do not wait until the request was resolved - only until the request has been queued (if it needs to)
    fn send_cmd (&mut self, cmd: WsCmd) -> impl Future<Output=Result<()>> + Send;
-   fn request_image_file (&self, rec: &SensorRecord<ImageData>) -> impl Future<Output=Result<()>> + Send;
-   fn handle_file_query (&self, file_query: Query<GetSentinelFile,Option<PathBuf>>) -> impl Future<Output=Result<()>> + Send;
+   fn handle_file_query (&self, file_query: Query<GetSentinelFile,Result<SentinelFile>>) -> impl Future<Output=Result<()>> + Send;
 
    fn terminate (&mut self);
 

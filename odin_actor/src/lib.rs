@@ -187,6 +187,7 @@ pub trait ActorAction2<A,B>: Send {
     fn execute (&self, a: &A,b: &B) -> impl Future<Output=Result<()>> + Send;
 }
 
+
 /* #endregion runtime/channel agnostic traits and types */
 
 

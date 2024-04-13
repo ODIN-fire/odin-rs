@@ -21,8 +21,6 @@ use std::{
     collections::{VecDeque,HashMap},fmt::{self,Debug},cmp::{Ordering,min}, future::Future, ops::RangeBounds, 
     time::Duration, sync::atomic::{self,AtomicU64}, path::{Path,PathBuf}, fs::File, io::Write, sync::Arc, rc::Rc,
 };
-use odin_actor::MsgReceiver;
-use odin_macro::{define_algebraic_type, match_algebraic_type, define_struct};
 use serde::{Deserialize,Serialize,Serializer};
 use serde_json;
 use ron::{self, to_string};
@@ -34,7 +32,8 @@ use uom::si::f64::{Velocity,ThermodynamicTemperature,ElectricCurrent,ElectricPot
 use reqwest::Client;
 use paste::paste;
 
-use tokio::sync::Notify; // Hmm, this binds us to a Tokio runtime
+use odin_actor::{MsgReceiver,Query};
+use odin_macro::{define_algebraic_type, match_algebraic_type, define_struct};
 
 mod actor;
 pub use actor::*;
@@ -97,6 +96,12 @@ pub struct SensorRecord <T> where T: RecordDataBounds {
     pub data: T,
 }
 
+impl<T> SensorRecord<T> where T: RecordDataBounds {
+    fn capability(&self)->SensorCapability {
+        T::capability()
+    }
+}
+
 impl<T> Serialize for SensorRecord<T> where T: RecordDataBounds {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> where S: Serializer {
         use serde::ser::SerializeStruct;
@@ -137,7 +142,7 @@ pub struct RecordRef {
 }
 
 /// enum to give us a single non-generic type we can use to wrap any record so that we can publish it through a single msg/callback slot
-/// note this also defined respective From<SensorRecord<..>> impls
+/// note this also defines respective From<SensorRecord<..>> impls
 define_algebraic_type!{ 
     pub SentinelUpdate: Clone =
         Arc<SensorRecord<AccelerometerData>> |
@@ -159,6 +164,9 @@ define_algebraic_type!{
 
     pub fn record_id (&self)->&RecordId { &__.id }
     pub fn device_id (&self)->&DeviceId { &__.device_id }
+    pub fn sensor_no (&self)->u32 { __.sensor_no }
+    pub fn capability (&self)->SensorCapability { __.capability() }
+
     pub fn to_json (&self)->Result<String> { Ok(serde_json::to_string(&__)?) }
     pub fn to_json_pretty (&self)->Result<String> { Ok(serde_json::to_string_pretty(&__)?) }
 }
@@ -694,35 +702,21 @@ impl Default for SentinelConfig {
 /* #region file requests ******************************************************************************************************/
 
 /// a struct that associates a SensorRecord with a file (pathname)
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct SentinelFile {
-    pub device_id: String,
-    pub sensor_no: u32,
-    pub capability: SensorCapability,
-    pub record_id: String, 
-    pub pathname: PathBuf,
+    pub record_id: String,   // the SensorRecord this file is associated with
+    pub pathname: PathBuf,   // this is the physical location of the file (once downloaded)
 }
 
-/// internal struct to request / notify SentinelFiles 
-struct SentinelFileRequest {
-    uri: String, 
-    notify: Arc<Notify>, 
-    sentinel_file: SentinelFile,
+/// message to request a SentinelFile. The fields are from the SensorRecord that contains the file reference
+#[derive(Debug)]
+pub struct GetSentinelFile {
+    pub record_id: String,
+    pub filename: String, // on the Delphire server. This is only used to construct the uri and not neccessarily how we store it locally
 }
 
-impl SentinelFileRequest {
-    fn for_image_record (rec: &SensorRecord<ImageData>, data_dir: &PathBuf, uri: String)->Self {
-        let notify = Arc::new( Notify::new());
-        let sentinel_file = SentinelFile {
-            device_id: rec.device_id.clone(),
-            sensor_no: rec.sensor_no,
-            capability: SensorCapability::Image,
-            record_id: rec.id.clone(),
-            pathname: data_dir.join(&rec.data.filename)
-        };
-        SentinelFileRequest { uri, notify, sentinel_file }
-    }
-}
+pub type SentinelFileResult = Result<SentinelFile>;
+pub type SentinelFileQuery = Query<GetSentinelFile,SentinelFileResult>;
 
 /* #endregion file requests */
 
@@ -775,10 +769,10 @@ pub async fn get_latest_update <T> (client: &Client, base_uri: &str, access_toke
         .map( |r| SentinelUpdate::from(Arc::new(r)))
 }
 
-async fn get_file_request (client: &Client, access_token: &str, req: &SentinelFileRequest)->Result<()> {
-    let mut response = client.get(&req.uri).bearer_auth(access_token).send().await?;
+async fn get_file_request (client: &Client, access_token: &str, uri: &str, pathname: &PathBuf)->Result<()> {
+    let mut response = client.get(uri).bearer_auth(access_token).send().await?;
 
-    let mut file = File::create(&req.sentinel_file.pathname)?;
+    let mut file = File::create(pathname)?;
     while let Some(chunk) = response.chunk().await? {
         file.write(&chunk)?;
     }
@@ -789,20 +783,5 @@ async fn get_file_request (client: &Client, access_token: &str, req: &SentinelFi
 pub fn get_image_uri (base_uri: &str, record_id: &str)->String {
     format!("{base_uri}/images/{record_id}")
 }
-
-/*
-pub async fn get_image (client: &Client, base_uri: &str, access_token: &str, rec_id: &str, path: &PathBuf)->Result<()> {
-    let uri = format!("{base_uri}/images/{rec_id}");
-
-    let mut response = client.get(uri).bearer_auth(access_token).send().await?;
-
-    let mut file = File::create(path)?;
-    while let Some(chunk) = response.chunk().await? {
-        file.write(&chunk)?;
-    }
-
-    Ok(())
-}
-*/
 
 /* #endregion basic http getters */

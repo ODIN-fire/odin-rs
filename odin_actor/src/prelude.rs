@@ -16,7 +16,7 @@
  */
 
 pub use crate::{
-    ActorSystem, ActorSystemHandle, Actor, ActorHandle, PreActorHandle, AbortHandle, JoinHandle, 
+    ActorSystem, ActorSystemHandle, Actor, ActorHandle, PreActorHandle, AbortHandle, JoinHandle,
     sleep, timeout, yield_now, spawn, spawn_blocking, block_on, block_on_send_msg, block_on_timeout_send_msg, // from respective cfg module
     Query, QueryBuilder, query, query_ref, timeout_query, timeout_query_ref, RequestProcessor,
     MpscSender, MpscReceiver, create_mpsc_sender_receiver, send, recv,

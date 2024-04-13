@@ -26,7 +26,7 @@
 /// However, we also want to be able to directly process [`Query`] requests without additional runtime
 /// overhead, which is what this example does
 
-use odin_actor::{errors::{Result,op_failed}, prelude::*};
+use odin_actor::{errors::{op_failed, Result}, prelude::*};
 
 /* #region common app types ******************************************************************************************/
 
@@ -113,20 +113,14 @@ impl_actor! { match msg for Actor<Actor3State<S>,ClientActorMsg> where S: Server
 pub struct FileFetcher {}
 
 impl RequestProcessor<Query<GetFile,FileAvailable>,FileAvailable> for FileFetcher {
-    async fn get_response_future (&self, req: Option<Query<GetFile,FileAvailable>>) -> Result<(Query<GetFile,FileAvailable>,FileAvailable)> {
-        match req {
-            Some(request) => {
-                let pathname = format!("/somedir/{}", request.question.filename);
-                println!(".. server getting '{}'..", request.question.filename);
-                sleep( secs(2)).await; // simulated get - we could model a random response time here
-                println!(".. server saved '{}' to '{}'.", request.question.filename, pathname);
-                Ok( (request,FileAvailable { pathname }))
-            }
-            None => {
-                println!(".. SERVER HAS NOTHING TO GET!");
-                Err(op_failed("nil request"))
-            }
-        }
+    async fn get_response_future (&self, req: Option<Query<GetFile,FileAvailable>>) -> Option<(Query<GetFile,FileAvailable>,FileAvailable)> {
+        if let Some(request) = req {
+            let pathname = format!("/somedir/{}", request.question.filename);
+            println!(".. server getting '{}'..", request.question.filename);
+            sleep( secs(2)).await; // simulated get - we could model a random response time here
+            println!(".. server saved '{}' to '{}'.", request.question.filename, pathname);
+            Some( (request, FileAvailable { pathname }) )
+        } else { None }
     }
 
     // just respond to the query, which should wake the respective client actor
@@ -142,7 +136,7 @@ impl RequestProcessor<Query<GetFile,FileAvailable>,FileAvailable> for FileFetche
 define_actor_msg_type! { ServerMsg = Query<GetFile,FileAvailable> }
 
 struct ServerState{
-    request_task: JoinHandle<Result<()>>,
+    request_task: AbortHandle,
     request_tx: MpscSender<Query<GetFile,FileAvailable>>
 }
 

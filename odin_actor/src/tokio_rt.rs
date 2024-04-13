@@ -31,17 +31,17 @@ use tokio::{
 };
 use std::{
     any::type_name, boxed::Box, cell::Cell, fmt::Debug, future::Future, marker::{PhantomData, Sync}, 
-    ops::{Deref,DerefMut}, pin::Pin, result::Result as StdResult, 
+    ops::{Deref,DerefMut}, pin::Pin, 
     collections::VecDeque,
     sync::{atomic::{AtomicU64, Ordering}, Arc, LockResult, Mutex, MutexGuard}, time::{Duration, Instant}
 };
 use futures::TryFutureExt;
 use crate::{
-    create_sfc, errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, micros, millis, nanos, secs, unpack_ping_response,
-    ActorReceiver, ActorSystemRequest, DefaultReceiveAction, DynMsgReceiver, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints, 
-    MsgSendFuture, MsgTypeConstraints, ObjSafeFuture, ReceiveAction, SendableFutureCreator, SysMsgReceiver, TryMsgReceiver, 
-    _Exec_, _Pause_, _Ping_, _Resume_, _Start_, _Terminate_, _Timer_,
-    trace,debug,info,warn,error
+    create_sfc, debug, error, errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, 
+    info, micros, millis, nanos, secs, trace, unpack_ping_response, warn, ActorReceiver, ActorSystemRequest, 
+    DefaultReceiveAction, DynMsgReceiver, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints, MsgSendFuture, 
+    MsgTypeConstraints, ObjSafeFuture, ReceiveAction, SendableFutureCreator, SysMsgReceiver, TryMsgReceiver, 
+    _Exec_, _Pause_, _Ping_, _Resume_, _Start_, _Terminate_, _Timer_
 };
 use odin_macro::fn_mut;
 
@@ -83,7 +83,7 @@ pub async fn sleep (dur: Duration) {
 }
 
 #[inline]
-pub async fn timeout<F,R,E> (to: Duration, fut: F)->Result<R> where F: Future<Output=StdResult<R,E>> {
+pub async fn timeout<F,R,E> (to: Duration, fut: F)->Result<R> where F: Future<Output= std::result::Result<R,E>> {
     match time::timeout( to, fut).await {
         Ok(result) => result.map_err(|_| OdinActorError::SendersDropped),
         Err(e) => Err(OdinActorError::TimeoutError(to))
@@ -1067,7 +1067,7 @@ impl <A> QueryBuilder<A> where A: Send + Debug {
 /// This means we have to be able to check if two queries are about the same subject (hence `is_same_request()`) and
 /// we have to be able to duplicate the answer (hence A: Clone).
 /// The resolver task has to loop over a select() since it has to await both new queue requests and completed
-/// answers.The logic of this select loop is implemented in the generic process_detached_queries() function.
+/// answers.The logic of this select loop is implemented in the generic (internal) process_requests() function.
 ///
 /// example sequence diagram:
 ///                                                 responder
@@ -1086,26 +1086,26 @@ impl <A> QueryBuilder<A> where A: Send + Debug {
 ///
 pub trait RequestProcessor<R,T> 
     where Self: Sized + Send + 'static,
-          R: Send + Debug + 'static, // request type
+          R: Send + Sync + Debug + 'static, // request type
           T: Clone + Send + Debug + 'static // result type
 {
     // we need an initial future before we get the first query, hence the option arg. Note its output is never used
-    fn get_response_future (&self, request: Option<R>) -> impl Future<Output=Result<(R,T)>> + Send;
+    fn get_response_future (&self, request: Option<R>) -> impl Future<Output=Option<(R,T)>> + Send;
     fn process_response (&self, request: &R, answer: T) -> impl Future<Output=Result<()>> + Send;
     fn is_same_request (&self, request1: &R, request2: &R)->bool; // we could also turn this into a PartialEq constraint on R
-
+    
     /// provided method to loop over pending requests
-    fn spawn (self, task_name: &str, bounds: usize)->Result<(JoinHandle<Result<()>>,MpscSender<R>)> {
+    fn spawn (self, task_name: &str, bounds: usize)->Result<(AbortHandle,MpscSender<R>)> {
         let (tx,rx) = create_mpsc_sender_receiver::<R>(bounds);
         let jh = spawn( task_name, async move {
             process_requests(self,rx).await
         })?;
-        Ok( (jh, tx) )
+        Ok( (jh.abort_handle(), tx) )
     }
 }
 
 async fn process_requests<P,R,T> (proc: P, rx: AsyncReceiver<R>) -> Result<()> 
-    where R: Send + Debug + 'static, // request type
+    where R: Send + Sync + Debug + 'static, // request type
           T: Clone + Send + Debug + 'static, // result type
           P: RequestProcessor<R,T> + Sized + 'static
 {
@@ -1119,19 +1119,23 @@ async fn process_requests<P,R,T> (proc: P, rx: AsyncReceiver<R>) -> Result<()>
             // note that we use a reference to resolve_fut so that we can keep it if pending.
             // note also that we have to use a guard to ensure we don't double poll a ready initial future
             res = &mut response_fut, if response_pending => {
-                if let Ok((request,response)) = res { // future did resolve to a Result<A>                    
+                if let Some((request,response)) = res { // future did resolve to a Result<A>                    
                     let mut i = 0;
                     while i < pending_requests.len() {
                         let req = &pending_requests[i];
                         if proc.is_same_request( req, &request) {
-                            proc.process_response( req, response.clone()).await;
+                            if let Err(e) = proc.process_response( req, response.clone()).await {
+                                error!("processing response for {req:?} failed: {}", e.to_string())
+                            }
                             pending_requests.remove(i);
                         } else {
                             i += 1;
                         }
                     }
 
-                    proc.process_response( &request, response).await;
+                    if let Err(e) = proc.process_response( &request, response).await {
+                        error!("processing response for {request:?} failed: {}", e.to_string())
+                    }
 
                     response_pending = !pending_requests.is_empty();
                     if response_pending {
@@ -1139,7 +1143,7 @@ async fn process_requests<P,R,T> (proc: P, rx: AsyncReceiver<R>) -> Result<()>
                     }
 
                     yield_now().await; // let active tasks react before we process the next query
-                }
+                } // ignore if response_fut output was None
             }
 
             res = rx.recv() => {
