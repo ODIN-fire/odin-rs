@@ -81,15 +81,27 @@ impl AppMetaData {
     pub fn new ()->Self {
         let domain = AppDomain::new();
 
-        let (config_dir, cache_dir, data_dir) = if let Some(project_dirs) = ProjectDirs::from(&domain.domain, &domain.organization, &domain.application) {
-            ( project_dirs.config_dir().to_path_buf(), 
-              project_dirs.data_dir().to_path_buf(), 
-              project_dirs.cache_dir().to_path_buf() )
-        } else {
-            ( Path::new("local/config").to_path_buf(), 
-              Path::new("local/data").to_path_buf(),
-              Path::new("local/cache").to_path_buf() )
-        };
+        let (config_dir, cache_dir, data_dir) = 
+            // if ODIN_LOCAL env var is set use this as the root 
+            if let Ok(mut local_root) = std::env::var("ODIN_LOCAL") {
+                // if it ends with a separator char extend with the current dir
+                if local_root.ends_with(std::path::MAIN_SEPARATOR) {
+                    if let Ok(cwd) = std::env::current_dir() {
+                        if let Some(dir) = cwd.file_name() {
+                            local_root.push_str( &dir.to_string_lossy())
+                        }
+                    }
+                }
+                let pb = PathBuf::from(local_root);
+                ( pb.join("config"), pb.join("data"), pb.join("cache") )
+
+            } else { // no ODIN_LOCAL env var set, use either platform specific XDG or if not supported a ./local/ dir
+                if let Some(project_dirs) = ProjectDirs::from(&domain.domain, &domain.organization, &domain.application) {
+                    ( project_dirs.config_dir().into(), project_dirs.data_dir().into(), project_dirs.cache_dir().into() )
+                } else { // fallback is a ./local dir
+                    ( "local/config".into(), "local/data".into(), "local/cache".into() )
+                }
+            };
 
         ensure_dir(&config_dir).expect(format!("no valid config dir: {config_dir:?}").as_str());
         ensure_dir(&data_dir).expect(format!("no valid data dir: {data_dir:?}").as_str());

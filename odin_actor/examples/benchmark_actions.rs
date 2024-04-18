@@ -16,14 +16,10 @@
  */
 #![allow(unused)]
 
-use tokio;
-use std::time::{Instant,Duration};
-use odin_actor::prelude::*;
-use odin_actor::errors::Result;
+/// simple macro-benchmark for [`ActorAction`] (to compare with benchmark_cb)
 
 mod provider {
-    use odin_actor::{prelude::*, ActorAction};
-    use odin_actor::tokio_kanal::{Actor, ActorHandle};
+    use odin_actor::prelude::*;
 
     #[derive(Debug)] pub struct ExecuteActions{}
 
@@ -48,7 +44,6 @@ mod provider {
 mod client {
     use std::time::{Instant,Duration};
     use odin_actor::prelude::*;
-    use odin_actor::tokio_kanal::{Actor, ActorHandle};
     use crate::provider::{ProviderMsg,ExecuteActions};
 
     #[derive(Debug)] pub struct Update(pub u64);
@@ -115,6 +110,11 @@ mod client {
         }
     }
 }
+
+use tokio;
+use std::time::{Instant,Duration};
+use odin_actor::prelude::*;
+use odin_actor::errors::Result;
 
 //#[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 //#[tokio::main(flavor = "current_thread")]

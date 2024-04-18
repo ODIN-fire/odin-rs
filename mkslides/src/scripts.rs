@@ -90,7 +90,7 @@ function gotoNavItem (event) {
     idx++;
     e = e.previousSibling;
   }
-  slides[idx].scrollIntoView();
+  scrollToSlide(idx, false);
 }
 
 function setRunHandlers() {
@@ -136,7 +136,7 @@ function setSrvText() {
 }
 
 function setSlideSelectors() {
-  var navList = document.getElementsByClassName("nav-list")[0];
+  var navList = document.getElementsByClassName("nav_view")[0];
   if (navList) {
     var children = navList.children;
     for (var i=0; i < children.length; i++) {
@@ -229,14 +229,18 @@ function showCounter() {
   slideCounter.textContent = (curIdx+1) + " / " + slides.length;
 }
 
-function scrollToSlide (idx) {
+function scrollToSlide (idx, smooth=true) {
   if (idx < 0) idx = 0;
   if (idx >= slides.length) idx = slides.length-1;
 
   if (idx == 0) {
     window.scrollTo(0,0);
   } else {
-    slides[idx].scrollIntoView({behavior: "smooth", block: "start", inline: "nearest"});
+    if (smooth) {
+      slides[idx].scrollIntoView({behavior: "smooth", block: "start", inline: "nearest"});
+    } else {
+      slides[idx].scrollIntoView();
+    }
   }
 
   curIdx = idx;

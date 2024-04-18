@@ -38,6 +38,9 @@ use odin_macro::{define_algebraic_type, match_algebraic_type, define_struct};
 mod actor;
 pub use actor::*;
 
+mod alarm;
+pub use alarm::*;
+
 pub mod ws;
 
 mod live_connector;
@@ -99,6 +102,10 @@ pub struct SensorRecord <T> where T: RecordDataBounds {
 impl<T> SensorRecord<T> where T: RecordDataBounds {
     fn capability(&self)->SensorCapability {
         T::capability()
+    }
+
+    fn description(&self)->String {
+        format!("{}/{} at {:?} : {:?}", self.device_id, self.sensor_no, self.time_recorded.naive_local(), self.data)
     }
 }
 
@@ -166,6 +173,7 @@ define_algebraic_type!{
     pub fn device_id (&self)->&DeviceId { &__.device_id }
     pub fn sensor_no (&self)->u32 { __.sensor_no }
     pub fn capability (&self)->SensorCapability { __.capability() }
+    pub fn description (&self)->String { __.description() }
 
     pub fn to_json (&self)->Result<String> { Ok(serde_json::to_string(&__)?) }
     pub fn to_json_pretty (&self)->Result<String> { Ok(serde_json::to_string_pretty(&__)?) }

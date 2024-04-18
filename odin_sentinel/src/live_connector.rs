@@ -21,9 +21,9 @@ use futures::{TryFutureExt, stream::{StreamExt,SplitStream,SplitSink}};
 use tokio_tungstenite::{tungstenite::protocol::Message, MaybeTlsStream};
 use reqwest::{Client};
 
-use odin_actor::{error, warn, minutes, prelude::*};
+use odin_actor::prelude::*;
 use odin_config::prelude::*;
-use odin_common::{if_let,fs::remove_old_files};
+use odin_common::{if_let,fs::{remove_old_files, ensure_dir}};
 
 use crate::*;
 use crate::actor::*;
@@ -55,6 +55,9 @@ impl LiveSentinelConnector {
     /// called before actor instantiation
     pub fn new (config: SentinelConfig)->Self {
         let data_dir = Arc::new( odin_config::app_metadata().data_dir.join("sentinel"));
+        if let Err(e) = ensure_dir( &data_dir) { 
+            error!("failed to create data dir: {:?}", data_dir);
+        }
         LiveSentinelConnector { config: Arc::new(config), data_dir, connection: None }
     }
 
@@ -154,6 +157,7 @@ impl LiveConnection {
 
         //--- now open a websocket and register for the devies we got
         let device_ids = sentinel_store.get_device_ids();
+        debug!("monitored Sentinel devices: {:?}", device_ids);
         if !device_ids.is_empty() {
             let last_recv_epoch = Arc::new(AtomicU64::new(0));
 
@@ -383,7 +387,7 @@ struct FileFetcher {
 impl RequestProcessor<FileRequest,Result<SentinelFile>> for FileFetcher {
 
     async fn get_response_future (&self, req: Option<FileRequest>) -> Option<(FileRequest,Result<SentinelFile>)> {
-        fn result (request: FileRequest)->Option<(FileRequest,SentinelFileResult)> {
+        fn result (request: FileRequest)->Option<(FileRequest,Result<SentinelFile>)> {
             let response = Ok(request.sentinel_file.clone());
             Some( (request, response) )
         }
@@ -392,6 +396,7 @@ impl RequestProcessor<FileRequest,Result<SentinelFile>> for FileFetcher {
             if request.sentinel_file.pathname.is_file() { // we already have it
                 result( request)
             } else {
+                info!("downloading Sentinel file {:?}", request.sentinel_file.pathname);
                 match get_file_request( &self.client, &self.config.access_token, &request.uri, &request.sentinel_file.pathname).await {
                     Ok(()) => result( request),
                     Err(e) => Some( (request, Err( OdinSentinelError::FileRequestError( e.to_string()))) )

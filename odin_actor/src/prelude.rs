@@ -24,9 +24,10 @@ pub use crate::{
     Identifiable, ActorMsgAction, ActorAction, ActorAction2, MsgSubscriptions, MsgSubscriber, Callback, CallbackList, SyncCallback, AsyncCallback,
     _Start_, _Ping_, _Timer_, _Exec_, _Pause_, _Resume_, _Terminate_,
     OdinActorError,
-    secs,millis,micros,nanos,
+    secs,millis,micros,nanos,minutes,hours,
     DEFAULT_CHANNEL_BOUNDS,
     define_actor_msg_type, match_actor_msg, cont, stop, term, impl_actor, spawn_actor, spawn_pre_actor, spawn_dyn_actor,
     define_actor_action_type, define_actor_action2_type, define_actor_msg_action_type,
-    msg_subscriber,sync_callback,async_callback,send_msg_callback,async_action,try_send_msg_callback
+    msg_subscriber,sync_callback,async_callback,send_msg_callback,async_action,try_send_msg_callback,
+    trace,debug,info,warn,error
 };

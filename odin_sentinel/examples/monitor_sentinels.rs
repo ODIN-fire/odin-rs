@@ -48,7 +48,7 @@ impl_actor! { match msg for Actor<SentinelMonitor,SentinelMonitorMsg> as
 
 #[tokio::main]
 async fn main ()->Result<()> {
-    let mut actor_system = ActorSystem::new("main");
+    let mut actor_system = ActorSystem::with_env_tracing("main");
 
     let hmonitor = spawn_actor!( actor_system, "monitor", SentinelMonitor{})?;
 
@@ -58,15 +58,13 @@ async fn main ()->Result<()> {
     define_actor_action_type! { UpdateAction = hrcv <- (update: &SentinelUpdate) for
         SentinelMonitorMsg => hrcv.try_send_msg( Update( update.to_json_pretty().unwrap()))
     }
-    define_actor_action2_type! { SnapshotAction = _hrcv <- (_sentinels: &SentinelStore, _client: &String) for
-        SentinelMonitorMsg => Ok(()) //nothing yet
-    }
+    define_actor_action2_type! { SnapshotAction = _hrcv <- (_sentinels: &SentinelStore, _client: &String) } // nothing yet
 
     let _hsentinel = spawn_actor!( actor_system, "sentinel", SentinelActor::new(
         LiveSentinelConnector::new( config_for!( "sentinel")?), 
         InitAction( hmonitor.clone()),
         UpdateAction( hmonitor.clone()),
-        SnapshotAction( hmonitor.clone())
+        SnapshotAction()
     ))?;
 
     actor_system.timeout_start_all(millis(20)).await?;

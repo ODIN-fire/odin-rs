@@ -18,21 +18,19 @@
 ///! This crate provides procedural macros used throughout the ODIN project, namely
 ///!
 ///!    - [`define_algebraic_type`] and [`match_algebraic_type`]
-///!    - [`define_actor_msg_type`] and [`match_actor_msg_type`] (the [`odin_actor`] specific versions)
+///!    - [`define_actor_msg_type`] and [`match_actor_msg`] (the [`odin_actor`] specific versions)
+///!    - [`impl_actor`] and [`spawn_actor`]
 ///! 
 ///! Its main use case within ODIN is to support concise syntax for [`odin_actor::Actor`] implementation as in:
 ///! ```
 ///!     define_actor_msg_type! {
 ///!         MyActorMsg = A | B<std::vec::Vec<(u32,&'static str)>>
 ///!     }
+///!     struct MyActorState {...}
 ///!     ...
-///!     impl Actor<MyActorMsg> for MyActor {
-///!         async fn receive (...) {
-///!             match_actor_msg_type! { msg: MyActorMsg as
-///!                  B<std::vec::Vec<(u32,&'static str)>> => cont! { println!("got a B: {:?}", msg) }
-///!                  ...
-///!             }
-///!         }
+///!     impl_actor! { match msg for Actor<MyActorState,MyActorMsg> {
+///!         B<std::vec::Vec<(u32,&'static str)>> => cont! { println!("got a B: {:?}", msg) }
+///!         ...
 ///!     }
 ///! ```
 
@@ -147,18 +145,21 @@ impl Parse for ServiceComposition {
 
 /* #region define_struct **************************************************************/
 
-///
+/// convenience macro to generate a struct definition with respective default constructor
+/// 
+/// example:
+/// ```rust
 /// define_struct! {
-///     pub MyStruct<A>: Debug + Clone where A: Foo + Debug + Cone =
-///         field_1: A,
-///         field_2: Vec<String>   = Vec::new(),  // func call init
-///         field_3: &'static str  = "blah",     // literal init
+///     pub MyStruct<A>: Debug + Clone where A: Foo + Debug =
+///         field_1: A,                                 // no init expr -> becomes ctor arg
+///         field_2: Vec<String>   = Vec::new(),        // func call init
+///         field_3: &'static str  = "blah",            // literal init
 ///         field_4: usize         = { field_3.len() }  // block init (with back-ref)
 /// }
-/// 
-/// expanded into:
-/// 
-/// #[derive(Debug)]
+/// ```
+/// is expanded into:
+/// ```rust
+/// #[derive(Debug,Clone)]
 /// pub struct MyStruct<A> where A: Foo + Debug {
 ///     field_1: A,
 ///     ...
@@ -171,6 +172,7 @@ impl Parse for ServiceComposition {
 ///         MyStruct { field_1, field_2, field_3, field_4 }
 ///     } 
 /// }
+/// ```
 /// 
 #[proc_macro]
 pub fn define_struct (item: TokenStream) -> TokenStream {
@@ -643,7 +645,7 @@ pub fn match_algebraic_type (item: TokenStream) -> TokenStream {
     };
 
     let match_patterns: Vec<TokenStream2> = get_match_patterns(&msg_name, &msg_type, &match_arms);
-    let match_actions: Vec<&MsgMatchAction> = match_arms.iter().map( |a| { &a.match_action }).collect();
+    let match_actions: Vec<&Expr> = match_arms.iter().map( |a| { &a.match_action }).collect();
 
     let new_item: TokenStream = quote! {
         match #msg_name {
@@ -704,7 +706,7 @@ pub fn match_actor_msg (item: TokenStream)->TokenStream {
     let MsgMatch { msg_name, msg_type, match_arms }: MsgMatch = syn::parse(item).unwrap();
     let variant_names: Vec<Ident> = get_variant_names_from_match_arms(&match_arms);
     let is_mut: Vec<&Option<Token![mut]>> = match_arms.iter().map( |a| { &a.maybe_mut }).collect();
-    let match_actions: Vec<&MsgMatchAction> = match_arms.iter().map( |a| { &a.match_action }).collect();
+    let match_actions: Vec<&Expr> = match_arms.iter().map( |a| { &a.match_action }).collect();
 
     let new_item: TokenStream = quote! {
         match #msg_name {
@@ -786,28 +788,12 @@ struct MsgMatchArm {
     variant_spec: VariantSpec,
     maybe_ref: Option<Token![ref]>,
     maybe_mut: Option<Token![mut]>,
-    match_action: MsgMatchAction,
+    match_action: Expr,
 }
 
 enum VariantSpec {
     Type(Path),
     Wildcard
-}
-
-enum MsgMatchAction {
-    MethodCall(ExprMethodCall),
-    Macro(ExprMacro),
-    Block(Block),
-}
-
-impl ToTokens for MsgMatchAction {
-    fn to_tokens(&self, tokens: &mut TokenStream2) {
-        match self {
-            MsgMatchAction::MethodCall(a) => a.to_tokens(tokens),
-            MsgMatchAction::Macro(a) => a.to_tokens(tokens),
-            MsgMatchAction::Block(a) => a.to_tokens(tokens),
-        }
-    }
 }
 
 impl Parse for MsgMatch {
@@ -846,19 +832,7 @@ fn parse_match_arms (input: ParseStream)->Result<Vec::<MsgMatchArm>> {
         
         //--- the match 
         let _: Token![=>] = input.parse()?;
-        let lookahead = input.lookahead1();
-        let match_action = if lookahead.peek(Ident) {
-            let mac: ExprMacro = input.parse()?;
-            MsgMatchAction::Macro(mac)
-        } else if lookahead.peek(token::Brace) {
-            let block: Block = input.parse()?;
-            MsgMatchAction::Block(block)
-        } else if lookahead.peek( Token![self]) {
-            let mthd_call: ExprMethodCall = input.parse()?;
-            MsgMatchAction::MethodCall(mthd_call)
-        } else {
-            return Err(lookahead.error())
-        };
+        let match_action: Expr = input.parse()?;
 
         let lookahead = input.lookahead1();
         if lookahead.peek(Token![,]) { // FIXME - does not work! 
@@ -904,7 +878,7 @@ pub fn impl_actor (item: TokenStream) -> TokenStream {
     let variant_names: Vec<Ident> = get_variant_names_from_match_arms(&match_arms);
     //let variant_types: Vec<Path> = get_variant_types_from_match_arms(&match_arms); // if we need to do explicit trait impls for variant types
     let is_mut: Vec<&Option<Token![mut]>> = match_arms.iter().map( |a| { &a.maybe_mut }).collect();
-    let match_actions: Vec<&MsgMatchAction> = match_arms.iter().map( |a| { &a.match_action }).collect();
+    let match_actions: Vec<&Expr> = match_arms.iter().map( |a| { &a.match_action }).collect();
 
     let typevars: Vec<&Path> = if let Some(ref wc) = where_clause { collect_typevars( wc) } else { Vec::new() }; 
     let typevar_tokens: TokenStream2 = if typevars.is_empty() { quote! {} } else {
@@ -1232,13 +1206,17 @@ pub fn define_actor_action_type (item: TokenStream)->TokenStream {
 
     let msg_types: Vec<&Path> = actions.iter().map(|a| &a.msg_type).collect();
     let stmts = get_action_stmts( &handle_name, &actions);
+    let exec_body = if stmts.is_empty() { 
+        quote!{ Ok(()) } 
+    } else { 
+        quote!{ let _hsys_ = &self.0; #( #stmts );* } 
+    };
 
     let new_item: TokenStream = quote! {
         struct #struct_name ( #( ActorHandle< #msg_types > ),* );
         impl ActorAction< #v_base > for #struct_name {
             async fn execute (&self, #data_vars)->odin_actor::Result<()> {
-                let _hsys_ = &self.0; 
-                #( #stmts );*
+                #exec_body
             }
         }
     }.into();
@@ -1266,13 +1244,17 @@ pub fn define_actor_action2_type (item: TokenStream)->TokenStream {
 
     let msg_types: Vec<&Path> = actions.iter().map(|a| &a.msg_type).collect();
     let stmts = get_action_stmts( &handle_name, &actions);
+    let exec_body = if stmts.is_empty() { 
+        quote!{ Ok(()) } 
+    } else { 
+        quote!{ let _hsys_ = &self.0; #( #stmts );* } 
+    };
 
     let new_item: TokenStream = quote! {
         struct #struct_name ( #( ActorHandle< #msg_types > ),* );
         impl ActorAction2< #v1_base, #v2_base > for #struct_name {
             async fn execute (&self, #data_vars)->odin_actor::Result<()> {
-                let _hsys_ = &self.0; 
-                #( #stmts );*
+                #exec_body
             }
         }
     }.into();
@@ -1282,17 +1264,21 @@ pub fn define_actor_action2_type (item: TokenStream)->TokenStream {
 }
 
 fn get_action_stmts (handle_name: &Ident, actions: &Vec<ActorActionArm>)->Vec<TokenStream2> {
-    let max_idx = actions.len()-1;
+    if actions.is_empty() {
+        Vec::with_capacity(0)
+    } else {
+        let max_idx = actions.len()-1;
 
-    actions.iter().enumerate().map(|(idx,a)| {
-        let result_expr = &a.result_expr;
-        let idx_tok = Literal::usize_unsuffixed(idx); 
-        if idx < max_idx { 
-            quote!{ let #handle_name = &self.#idx_tok; #result_expr; } 
-        } else { 
-            quote!{ let #handle_name = &self.#idx_tok; #result_expr } 
-        }
-    }).collect()
+        actions.iter().enumerate().map(|(idx,a)| {
+            let result_expr = &a.result_expr;
+            let idx_tok = Literal::usize_unsuffixed(idx); 
+            if idx < max_idx { 
+                quote!{ let #handle_name = &self.#idx_tok; #result_expr; } 
+            } else { 
+                quote!{ let #handle_name = &self.#idx_tok; #result_expr } 
+            }
+        }).collect()
+    }
 }
 
 struct ActorActionSpec {
@@ -1313,15 +1299,19 @@ impl Parse for ActorActionSpec {
             let _data_paren: Paren = parenthesized!( arg_input in input);
             Punctuated::parse_separated_nonempty(&arg_input)?
         };
-        let _: For = input.parse()?;
 
         let mut actions = Vec::<ActorActionArm>::new();
-        while !input.is_empty() {
-            let a: ActorActionArm = input.parse()?;
-            actions.push(a);
-    
-            let lookahead = input.lookahead1();
-            if lookahead.peek( Comma) { let _: Comma = input.parse()?; }
+        let lookahead = input.lookahead1();
+        if lookahead.peek( For) {
+            let _: For = input.parse()?;
+
+            while !input.is_empty() {
+                let a: ActorActionArm = input.parse()?;
+                actions.push(a);
+        
+                let lookahead = input.lookahead1();
+                if lookahead.peek( Comma) { let _: Comma = input.parse()?; }
+            }
         }
     
         Ok( ActorActionSpec{struct_name, handle_name, data_vars, actions} )

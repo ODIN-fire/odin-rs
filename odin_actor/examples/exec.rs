@@ -20,7 +20,6 @@
 /// (using the implicit _Exec_ system message)
 
 use odin_actor::prelude::*;
-use odin_actor::tokio_kanal::{ActorSystem,Actor};
 use std::fmt::Debug;
 use anyhow::{anyhow,Result};
 

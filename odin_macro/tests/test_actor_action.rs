@@ -63,15 +63,15 @@ impl <T,M> MsgReceiver<T> for ActorHandle<M> where T: Send+Debug, M: From<T>+Sen
     fn retry_send_msg(&self, m:T)->Result<()> { self.retry_send_actor_msg( m.into()) }
 }
 
-pub trait ActorActionList<A> {
+pub trait ActorAction<A> {
     fn execute (&self,data:&A) -> impl Future<Output=Result<()>>;
 }
 
-pub trait ActorAction2List<A,B> {
+pub trait ActorAction2<A,B> {
     fn execute (&self,data1:&A,data2:&B) -> impl Future<Output=Result<()>>;
 }
 
-pub trait ActorSendMsgList<M> {
+pub trait ActorMsgAction<M> {
     fn send_msg (&self,msg:M) -> impl Future<Output=Result<()>>;
 }
 
@@ -130,7 +130,6 @@ fn test_msg_action() {
     let ah2 = ActorHandle::<Actor2Msg>::new("actor-2");
 
     define_actor_msg_action_type!{ MySends = Msg1 for Actor1Msg, Actor2Msg }
-    //define_actor_msg_list!{ MySends (Msg1) : Actor1Msg, Actor2Msg }
     let my_sends = MySends( ah1, ah2);
     println!("got my sends."); // this is needed if we want to print debug output (--nocapture)
 }

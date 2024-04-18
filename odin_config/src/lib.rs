@@ -203,7 +203,16 @@ pub fn config_from_local_file<C> (id: &str)->Result<C>   where C: for <'a> Deser
 
 fn get_local_dir ()->String { 
     match std::env::var("ODIN_LOCAL") {
-        Ok(local_root) => local_root,
+        Ok(local_root) => {
+            if local_root.ends_with(std::path::MAIN_SEPARATOR) {
+                if let Ok(cwd) = std::env::current_dir() {
+                    if let Some(dir) = cwd.file_name() {
+                        return format!("{local_root}{}", dir.to_string_lossy())
+                    }
+                }
+            }
+            local_root
+        }
         _ => "./local".to_string()
     }
 }

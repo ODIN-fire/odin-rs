@@ -136,10 +136,22 @@ fn get_config_mode()->ConfigMode {
     else { ConfigMode::File }
 }
 
+// get the directory from where to load config files.
 // NOTE - this needs to mirror get_local() from lib.rs (i.e. our runtime behavior)
+// if set, the first preference for config is the ODIN_LOCAL env var, otherwise use a ./local dir
 fn get_local_dir ()->String { 
     match std::env::var("ODIN_LOCAL") {
-        Ok(local_root) => local_root,
+        Ok(local_root) => {
+            // if ODIN_LOCAL ends with a separator char append current dir name
+            if local_root.ends_with(std::path::MAIN_SEPARATOR) {
+                if let Ok(cwd) = std::env::current_dir() {
+                    if let Some(dir) = cwd.file_name() {
+                        return format!("{local_root}{}", dir.to_string_lossy())
+                    }
+                }
+            }
+            local_root
+        }
         _ => "./local".to_string()
     }
 }

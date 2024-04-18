@@ -1148,7 +1148,7 @@ async fn process_requests<P,R,T> (proc: P, rx: AsyncReceiver<R>) -> Result<()>
 
             res = rx.recv() => {
                 match res {
-                    Ok(new_request) => { // got new query
+                    Ok(new_request) => { // got new request
                         if !response_pending { // we need a new resolve future
                             response_pending = true;
                             response_fut.set( proc.get_response_future( Some( new_request)));

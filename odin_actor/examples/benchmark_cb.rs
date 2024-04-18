@@ -16,14 +16,10 @@
  */
 #![allow(unused)]
 
-use tokio;
-use std::time::{Instant,Duration};
-use odin_actor::prelude::*;
-use odin_actor::errors::Result;
+/// simple macro-benchmark for callbacks (to compare with benchmark_actions)
 
 mod provider {
     use odin_actor::prelude::*;
-    use odin_actor::tokio_kanal::{Actor, ActorHandle};
 
     #[derive(Debug)] pub struct TriggerCb{}
     #[derive(Debug)] pub struct AddCb(pub Callback<u64>);
@@ -52,7 +48,6 @@ mod provider {
 mod client {
     use std::time::{Instant,Duration};
     use odin_actor::prelude::*;
-    use odin_actor::tokio_kanal::{Actor, ActorHandle};
     use crate::provider::{ProviderMsg,AddCb,TriggerCb};
 
     #[derive(Debug)] pub struct Update(u64);
@@ -123,6 +118,11 @@ mod client {
         }
     }
 }
+
+use tokio;
+use std::time::{Instant,Duration};
+use odin_actor::prelude::*;
+use odin_actor::errors::Result;
 
 #[tokio::main]
 async fn main()->Result<()> {

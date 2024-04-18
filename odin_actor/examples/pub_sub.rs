@@ -18,9 +18,6 @@
 
 use odin_actor::prelude::*;
 use odin_actor::errors::Result;
-//use odin_actor::tokio_channel::{ActorSystem,Actor,ActorHandle,Abortable, sleep};
-use odin_actor::tokio_kanal::{ActorSystem,ActorSystemHandle,Actor,ActorHandle,AbortHandle,sleep};
-
 use std::{sync::Arc, future::Future, pin::Pin};
 
 #[derive(Debug,Clone)] struct Update(u64);
