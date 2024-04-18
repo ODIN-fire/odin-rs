@@ -56,6 +56,12 @@ pub trait InitAction = ActorAction<SentinelStore>;
 pub trait UpdateAction = ActorAction<SentinelUpdate>;
 pub trait SnapshotAction = ActorAction2<SentinelStore,String>;
 
+// convenience defs for empty action sets
+define_actor_action_type! { pub EmptyInitAction = hrcv <- (sentinels: &SentinelStore) }
+define_actor_action_type! { pub EmptyUpdateAction = hrcv <- (update: &SentinelUpdate) }
+define_actor_action2_type! { pub EmptySnapshotAction = hrcv <- (sentinels: &SentinelStore, client: &String) }
+
+
 pub struct SentinelActor<S,A,B,C> 
     where S: SentinelConnector + Send, A: InitAction, B: UpdateAction, C: SnapshotAction
 {

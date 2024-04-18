@@ -1196,7 +1196,7 @@ impl Parse for ActorMsgActionSpec {
 /// lifetimes to the definition
 #[proc_macro]
 pub fn define_actor_action_type (item: TokenStream)->TokenStream {
-    let ActorActionSpec{ struct_name, handle_name, data_vars, actions} = match syn::parse(item) {
+    let ActorActionSpec{ visibility, struct_name, handle_name, data_vars, actions} = match syn::parse(item) {
         Ok(action_list) => action_list,
         Err(e) => panic!( "expected define_actor_action_type!(«actionType» = «actor_handle» <- («execArg» : «dataType»)), error: {:?}", e)
     };
@@ -1213,7 +1213,7 @@ pub fn define_actor_action_type (item: TokenStream)->TokenStream {
     };
 
     let new_item: TokenStream = quote! {
-        struct #struct_name ( #( ActorHandle< #msg_types > ),* );
+        #visibility struct #struct_name ( #( ActorHandle< #msg_types > ),* );
         impl ActorAction< #v_base > for #struct_name {
             async fn execute (&self, #data_vars)->odin_actor::Result<()> {
                 #exec_body
@@ -1233,7 +1233,7 @@ pub fn define_actor_action_type (item: TokenStream)->TokenStream {
 /// to decide which one is which.
 #[proc_macro]
 pub fn define_actor_action2_type (item: TokenStream)->TokenStream {
-    let ActorActionSpec{ struct_name, handle_name, data_vars, actions} = match syn::parse(item) {
+    let ActorActionSpec{ visibility, struct_name, handle_name, data_vars, actions} = match syn::parse(item) {
         Ok(action_list) => action_list,
         Err(e) => panic!( "expected define_actor_action2_type!(«actionType» = «actor_handle» <- («execArg1» : «dataType», «execArg2» : «dataType»)), error: {:?}", e)
     };
@@ -1251,7 +1251,7 @@ pub fn define_actor_action2_type (item: TokenStream)->TokenStream {
     };
 
     let new_item: TokenStream = quote! {
-        struct #struct_name ( #( ActorHandle< #msg_types > ),* );
+        #visibility struct #struct_name ( #( ActorHandle< #msg_types > ),* );
         impl ActorAction2< #v1_base, #v2_base > for #struct_name {
             async fn execute (&self, #data_vars)->odin_actor::Result<()> {
                 #exec_body
@@ -1282,6 +1282,7 @@ fn get_action_stmts (handle_name: &Ident, actions: &Vec<ActorActionArm>)->Vec<To
 }
 
 struct ActorActionSpec {
+    visibility: Visibility,
     struct_name: Ident,
     handle_name: Ident,
     data_vars: Punctuated<TypedVar,Comma>,
@@ -1290,6 +1291,7 @@ struct ActorActionSpec {
 
 impl Parse for ActorActionSpec {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let visibility: Visibility = parse_visibility(input);
         let struct_name: Ident = input.parse()?;
         let _ : Token![=] = input.parse()?;
         let handle_name: Ident = input.parse()?;
@@ -1314,7 +1316,7 @@ impl Parse for ActorActionSpec {
             }
         }
     
-        Ok( ActorActionSpec{struct_name, handle_name, data_vars, actions} )
+        Ok( ActorActionSpec{visibility, struct_name, handle_name, data_vars, actions} )
     }
 }
 

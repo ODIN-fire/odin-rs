@@ -17,8 +17,8 @@
 
 use anyhow::Result;
 use odin_actor::prelude::*;
-use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor};
 use odin_config::prelude::*;
+use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor,EmptySnapshotAction};
 
 use_config!();
 
@@ -58,13 +58,12 @@ async fn main ()->Result<()> {
     define_actor_action_type! { UpdateAction = hrcv <- (update: &SentinelUpdate) for
         SentinelMonitorMsg => hrcv.try_send_msg( Update( update.to_json_pretty().unwrap()))
     }
-    define_actor_action2_type! { SnapshotAction = _hrcv <- (_sentinels: &SentinelStore, _client: &String) } // nothing yet
 
     let _hsentinel = spawn_actor!( actor_system, "sentinel", SentinelActor::new(
         LiveSentinelConnector::new( config_for!( "sentinel")?), 
         InitAction( hmonitor.clone()),
         UpdateAction( hmonitor.clone()),
-        SnapshotAction()
+        EmptySnapshotAction()
     ))?;
 
     actor_system.timeout_start_all(millis(20)).await?;

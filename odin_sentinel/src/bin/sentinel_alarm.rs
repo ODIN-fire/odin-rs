@@ -17,8 +17,11 @@
 
  use anyhow::Result;
  use odin_actor::prelude::*;
- use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor,SentinelAlarmMonitor,ConsoleMessenger};
  use odin_config::prelude::*;
+ use odin_sentinel::{
+    SentinelUpdate,LiveSentinelConnector,SentinelActor,
+    SentinelAlarmMonitor,SentinelAlarmMonitorMsg,ConsoleMessenger,EmptyInitAction,EmptySnapshotAction
+};
  
  use_config!();
 
@@ -34,17 +37,15 @@ async fn main ()->Result<()> {
         ConsoleMessenger{}
     ))?;
 
-    define_actor_action_type! { InitAction = hrcv <- (sentinels: &SentinelStore) }  // no action
     define_actor_action_type! { UpdateAction = hrcv <- (update: &SentinelUpdate) for
-        SentinelMonitorMsg => hrcv.try_send_msg( update.clone())
+        SentinelAlarmMonitorMsg => hrcv.try_send_msg( update.clone())
     }
-    define_actor_action2_type! { SnapshotAction = hrcv <- (sentinels: &SentinelStore, client: &String) } // no action
 
     let hsentinel = spawn_pre_actor!( actor_system, pre_hsentinel, SentinelActor::new(
         LiveSentinelConnector::new( config_for!( "sentinel")?), 
-        InitAction(),
+        EmptyInitAction(),
         UpdateAction( hmonitor.clone()),
-        SnapshotAction()
+        EmptySnapshotAction()
     ))?;
 
     actor_system.timeout_start_all(millis(20)).await?;
