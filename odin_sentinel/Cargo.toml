@@ -13,6 +13,14 @@ path = "src/bin/get_sentinels.rs"
 name = "monitor_ws"
 path = "src/bin/monitor_ws.rs"
 
+[[bin]]
+name = "send_ws_cmd"
+path = "src/bin/send_ws_cmd.rs"
+
+[[bin]]
+name = "sentinel_alarm"
+path = "src/bin/sentinel_alarm.rs"
+
 [dependencies]
 # our ODIN crates
 odin_actor = { workspace = true }
@@ -31,6 +39,7 @@ serde = { version = "*", features = ["rc"] }
 serde_with = "*" 
 uom = { version = "*", features = ["serde", "i64"] }
 tokio = { version = "*", features = ["full"] }
+tokio-util = { version = "*", features = ["full"] }
 futures = "*"
 async-stream = "*"
 reqwest = { version = "*", features = ["json", "stream"] }

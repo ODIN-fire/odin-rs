@@ -66,14 +66,6 @@ pub trait CapabilityProvider {
     fn capability()->SensorCapability;
 }
 
-macro_rules! assoc_capability {
-    ($rec_type:ty : $cap:ident) => {
-        impl CapabilityProvider for $rec_type {
-            fn capability()->SensorCapability { SensorCapability::$cap }
-        }
-    };
-}
-
 pub type DeviceId = String;
 pub type RecordId = String;
 pub trait RecordDataBounds = CapabilityProvider + Serialize + for<'de2> Deserialize<'de2> + Debug + Clone + 'static;
@@ -94,7 +86,7 @@ pub struct SensorRecord <T> where T: RecordDataBounds {
     // here is the crux - we get this as different properties ("gps" etc - it depends on T)
     // since we need to preserve the mapping for subsequent serializing we have to provide alias annotations (for de)
     // *and* our own Serialize impl 
-    #[serde(alias="accelerometer",alias="anemometer",alias="cloudcover",alias="fire",alias="image",alias="gas",alias="gps",alias="gyroscope",
+    #[serde(alias="accelerometer",alias="anemometer",alias="cloudcover",alias="event",alias="fire",alias="image",alias="gas",alias="gps",alias="gyroscope",
             alias="magnetometer",alias="orientation",alias="person",alias="power",alias="smoke",alias="thermometer",alias="valve",alias="voc")]
     pub data: T,
 }
@@ -155,6 +147,7 @@ define_algebraic_type!{
         Arc<SensorRecord<AccelerometerData>> |
         Arc<SensorRecord<AnemometerData>> |
         Arc<SensorRecord<CloudcoverData>> |
+        Arc<SensorRecord<EventData>> |
         Arc<SensorRecord<FireData>> |
         Arc<SensorRecord<GasData>> |
         Arc<SensorRecord<GpsData>> |
@@ -183,62 +176,59 @@ define_algebraic_type!{
 
 /* #region record payload data *********************************************************************************/
 
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]
-#[serde(rename_all="camelCase")]
-pub struct AccelerometerData {
+macro_rules! define_sensor_data {
+    ( $capa:ident = $( $body:tt )* ) => {
+        paste! {
+            #[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]
+            #[serde(rename_all="camelCase")]
+            pub struct [<$capa Data>] {
+                $( $body )*
+            }
+            impl CapabilityProvider for [<$capa Data>] {
+                fn capability()->SensorCapability { SensorCapability::$capa }
+            }
+        }
+    }
+}
+
+define_sensor_data! { Accelerometer =
     pub ax: f32,
     pub ay: f32,
     pub az: f32,
 }
-assoc_capability!( AccelerometerData: Accelerometer);
 
-
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]
-#[serde(rename_all="camelCase")]
-pub struct AnemometerData {
+define_sensor_data! { Anemometer = 
     pub angle: Angle,
     pub speed: Velocity 
 }
-assoc_capability!(AnemometerData: Anemometer);
 
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]
-#[serde(rename_all="camelCase")]
-pub struct CloudcoverData {
+define_sensor_data! { Cloudcover =
     pub percent: f32,
 }
-assoc_capability!(CloudcoverData: Cloudcover);
 
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]
-#[serde(rename_all="camelCase")]
-pub struct FireData {
+define_sensor_data! { Event =
+    pub event_code: String,
+    pub original_type: String,
+}
+
+define_sensor_data! { Fire =
     pub fire_prob: f64
 }
-assoc_capability!(FireData: Fire);
 
-
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)] // check this
-#[serde(rename_all="camelCase")]
-pub struct ImageData {
+define_sensor_data! { Image =
     pub filename: String,
     pub is_infrared: bool,
     pub orientation_record: Option<RecordRef>, // nested orientation record?
 }
-assoc_capability!(ImageData: Image);
 
-
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]  
-pub struct GasData {
+define_sensor_data! { Gas =
     pub gas: i32, // long
     pub humidity: f64,
     pub pressure: f64,
     pub altitude: f64
 }
-assoc_capability!(GasData: Gas);
 
-
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]  
-#[serde(rename_all="camelCase")]
-pub struct GpsData {
+define_sensor_data! { Gps =
     pub latitude: LatAngle, //f64,
     pub longitude: LonAngle,//f64
     pub altitude: Option<f64>, // update to uom
@@ -246,51 +236,31 @@ pub struct GpsData {
     pub number_of_satellites: Option<i32>,
     #[serde(alias = "HDOP")] pub hdop: Option<f32>
 }
-assoc_capability!(GpsData: Gps);
 
-
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]  
-#[serde(rename_all="camelCase")]
-pub struct GyroscopeData {
+define_sensor_data! { Gyroscope =
     pub gx: f64,
     pub gy: f64,
     pub gz: f64
 }
-assoc_capability!(GyroscopeData: Gyroscope);
 
-
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]  
-#[serde(rename_all="camelCase")]
-pub struct OrientationData {
+define_sensor_data! { Orientation =
     pub w: f64,
     pub qx: f64,
     pub qy: f64,
     pub qz: f64
 }
-assoc_capability!(OrientationData: Orientation);
 
-
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]  
-#[serde(rename_all="camelCase")]
-pub struct MagnetometerData {
+define_sensor_data! { Magnetometer =
     pub mx: f64,
     pub my: f64,
     pub mz: f64
 }
-assoc_capability!(MagnetometerData: Magnetometer);
 
-
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]
-#[serde(rename_all="camelCase")]
-pub struct PersonData {
+define_sensor_data! { Person =
     pub person_prob: f64
 }
-assoc_capability!(PersonData: Person);
 
-
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]
-#[serde(rename_all="camelCase")]
-pub struct    PowerData { // can use uom here for current, volatage, temp?
+define_sensor_data! { Power = // can use uom here for current, volatage, temp?
     pub battery_voltage: ElectricPotential,
     pub battery_current: ElectricCurrent,
     pub solar_voltage:ElectricPotential,
@@ -306,41 +276,25 @@ pub struct    PowerData { // can use uom here for current, volatage, temp?
     //pub load_volatage_status: String,       // changed by Delphire 04/01/24
     pub load_status: String
 }
-assoc_capability!(PowerData: Power);
 
-
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]
-#[serde(rename_all="camelCase")]
-pub struct SmokeData {
+define_sensor_data! { Smoke =
     pub smoke_prob: f64
 }
-assoc_capability!(SmokeData: Smoke);
 
-
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]
-#[serde(rename_all="camelCase")]
-pub struct ThermometerData {
+define_sensor_data! { Thermometer =
     pub temperature: ThermodynamicTemperature
 }
-assoc_capability!(ThermometerData: Thermometer);
 
-
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]
-#[serde(rename_all="camelCase")]
-pub struct ValveData {
+define_sensor_data! { Valve =
     pub valve_open: bool,
     pub external_light_on: bool,
     pub internal_light_on: bool,
 }
-assoc_capability!(ValveData: Valve);
 
-
-#[derive(Serialize,Deserialize,Debug,PartialEq,Clone)] 
-pub struct VocData {
+define_sensor_data! { Voc =
    #[serde(alias = "TVOC")] pub tvoc: i32,
    #[serde(alias = "eCO2")] pub e_co2: i32,
 }
-assoc_capability!(VocData: Voc);
 
 #[derive(Serialize,Deserialize,Debug,PartialEq,Copy,Clone,IntoStaticStr)] 
 #[serde(rename_all="lowercase")]
@@ -349,6 +303,7 @@ pub enum SensorCapability {
     Accelerometer,
     Anemometer,
     Cloudcover,
+    Event,
     Fire,
     Gas,
     Gps,
@@ -387,6 +342,7 @@ impl DeviceList {
     pub fn get_device_ids (&self)->Vec<String> {
         self.data.iter().map(|d| d.id.clone()).collect()
     }
+    pub fn is_empty(&self)->bool { self.data.is_empty() }
 }
 
 #[derive(Serialize,Deserialize,Debug, PartialEq, Clone)]
@@ -553,6 +509,7 @@ define_struct! {
         accel:         VecDeque< Arc<SensorRecord<AccelerometerData>> > = VecDeque::new(),
         anemo:         VecDeque< Arc<SensorRecord<AnemometerData>> > = VecDeque::new(),
         cloudcover:    VecDeque< Arc<SensorRecord<CloudcoverData>> > = VecDeque::new(),
+        event:         VecDeque< Arc<SensorRecord<EventData>> > = VecDeque::new(),
         fire:          VecDeque< Arc<SensorRecord<FireData>> > = VecDeque::new(),
         gas:           VecDeque< Arc<SensorRecord<GasData>> > = VecDeque::new(),
         gps:           VecDeque< Arc<SensorRecord<GpsData>> > = VecDeque::new(),
@@ -574,17 +531,19 @@ define_struct! {
         max_len: usize
 }
 
+
 impl Sentinel {
     /// initial bulk retrieval based on capability. Note these are homogenous record type retrievals, i.e. we know (and check) the type
     /// of the returned records
     pub async fn init_records( &mut self, client: &Client, base_uri: &str, access_token: &str, 
-                                        sensor_no: u32, capability: SensorCapability, n_last: usize, max_len: usize)->Result<Vec<SentinelUpdate>> {
+                               sensor_no: u32, capability: SensorCapability, n_last: usize, max_len: usize)->Result<Vec<SentinelUpdate>> {
         let device_id = &self.device_id.as_str();
         use SensorCapability::*;
         let updates = match capability {
             Accelerometer => init_recs( &mut self.accel,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
             Anemometer    => init_recs( &mut self.anemo,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
             Cloudcover    => init_recs( &mut self.cloudcover,  get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
+            Event         => init_recs( &mut self.event,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
             Fire          => init_recs( &mut self.fire,        get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
             Gas           => init_recs( &mut self.gas,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
             Gps           => init_recs( &mut self.gps,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
@@ -604,25 +563,25 @@ impl Sentinel {
 
     pub fn update_with( &mut self, sentinel_update: SentinelUpdate)->(Option<RecordId>,Option<RecordId>) {
         match_algebraic_type! { sentinel_update: SentinelUpdate as
-            Arc<SensorRecord<AccelerometerData>> => { sort_in_record( &mut self.accel,       sentinel_update, self.max_len) }
-            Arc<SensorRecord<AnemometerData>>    => { sort_in_record( &mut self.anemo,       sentinel_update, self.max_len) }
-            Arc<SensorRecord<CloudcoverData>>    => { sort_in_record( &mut self.cloudcover,  sentinel_update, self.max_len) }
-            Arc<SensorRecord<FireData>>          => { sort_in_record( &mut self.fire,        sentinel_update, self.max_len) }
-            Arc<SensorRecord<GasData>>           => { sort_in_record( &mut self.gas,         sentinel_update, self.max_len) }
-            Arc<SensorRecord<GpsData>>           => { sort_in_record( &mut self.gps,         sentinel_update, self.max_len) }
-            Arc<SensorRecord<GyroscopeData>>     => { sort_in_record( &mut self.gyro,        sentinel_update, self.max_len) }
-            Arc<SensorRecord<ImageData>>         => { sort_in_record( &mut self.image,       sentinel_update, self.max_len) }
-            Arc<SensorRecord<MagnetometerData>>  => { sort_in_record( &mut self.mag,         sentinel_update, self.max_len) }
-            Arc<SensorRecord<OrientationData>>   => { sort_in_record( &mut self.orientation, sentinel_update, self.max_len) }
-            Arc<SensorRecord<PersonData>>        => { sort_in_record( &mut self.person,      sentinel_update, self.max_len) }
-            Arc<SensorRecord<PowerData>>         => { sort_in_record( &mut self.power,       sentinel_update, self.max_len) }
-            Arc<SensorRecord<SmokeData>>         => { sort_in_record( &mut self.smoke,       sentinel_update, self.max_len) }
-            Arc<SensorRecord<ThermometerData>>   => { sort_in_record( &mut self.thermo,      sentinel_update, self.max_len) }
-            Arc<SensorRecord<ValveData>>         => { sort_in_record( &mut self.valve,       sentinel_update, self.max_len) }
-            Arc<SensorRecord<VocData>>           => { sort_in_record( &mut self.voc,         sentinel_update, self.max_len) }
+            Arc<SensorRecord<AccelerometerData>> => sort_in_record( &mut self.accel,       sentinel_update, self.max_len),
+            Arc<SensorRecord<AnemometerData>>    => sort_in_record( &mut self.anemo,       sentinel_update, self.max_len),
+            Arc<SensorRecord<CloudcoverData>>    => sort_in_record( &mut self.cloudcover,  sentinel_update, self.max_len),
+            Arc<SensorRecord<EventData>>         => sort_in_record( &mut self.event,       sentinel_update, self.max_len),
+            Arc<SensorRecord<FireData>>          => sort_in_record( &mut self.fire,        sentinel_update, self.max_len),
+            Arc<SensorRecord<GasData>>           => sort_in_record( &mut self.gas,         sentinel_update, self.max_len),
+            Arc<SensorRecord<GpsData>>           => sort_in_record( &mut self.gps,         sentinel_update, self.max_len),
+            Arc<SensorRecord<GyroscopeData>>     => sort_in_record( &mut self.gyro,        sentinel_update, self.max_len),
+            Arc<SensorRecord<ImageData>>         => sort_in_record( &mut self.image,       sentinel_update, self.max_len),
+            Arc<SensorRecord<MagnetometerData>>  => sort_in_record( &mut self.mag,         sentinel_update, self.max_len),
+            Arc<SensorRecord<OrientationData>>   => sort_in_record( &mut self.orientation, sentinel_update, self.max_len),
+            Arc<SensorRecord<PersonData>>        => sort_in_record( &mut self.person,      sentinel_update, self.max_len),
+            Arc<SensorRecord<PowerData>>         => sort_in_record( &mut self.power,       sentinel_update, self.max_len),
+            Arc<SensorRecord<SmokeData>>         => sort_in_record( &mut self.smoke,       sentinel_update, self.max_len),
+            Arc<SensorRecord<ThermometerData>>   => sort_in_record( &mut self.thermo,      sentinel_update, self.max_len),
+            Arc<SensorRecord<ValveData>>         => sort_in_record( &mut self.valve,       sentinel_update, self.max_len),
+            Arc<SensorRecord<VocData>>           => sort_in_record( &mut self.voc,         sentinel_update, self.max_len)
         }
     }
-
 }
 
 fn init_recs<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, recs: Vec<SensorRecord<T>>)->Vec<SentinelUpdate> 
@@ -699,7 +658,7 @@ impl Default for SentinelConfig {
             //--- the fields for which we have defaults
             max_history_len: 10,
             max_age: Duration::from_secs( 60*60*24),
-            ping_interval: Some(Duration::from_secs(20)),
+            ping_interval: None, // Some(Duration::from_secs(20)),
         }
     }
 }
@@ -755,7 +714,7 @@ pub async fn get_time_sorted_records <T> (client: &Client, base_uri: &str, acces
     let capability = T::capability();
     let uri = format!("{base_uri}/devices/{device_id}/sensors/{sensor_no}/{capability:?}?sort=timeRecorded,DESC&limit={n_last}");
     let response = client.get(uri).bearer_auth(access_token).send().await?;
-    let record_list: RecordList<T> = response.json().await?;
+    let record_list: RecordList<T> = response.json().await?; // FIXME - response.json() has inadequate error details
     Ok(record_list.data)
 } 
 

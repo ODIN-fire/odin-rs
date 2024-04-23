@@ -19,7 +19,15 @@
 
 /// macro to flatten deeply nested "if let .." trees into a construct akin to Scala for-comprehensions
 /// (or Haskell do-notation) with the extension that we can (optionally) specify side effects and/or
-/// return values for failed match clauses.
+/// return values for failed matches.
+/// 
+/// Constraints:
+///   - if there is an `else` clause both the match expression and the else clause have to be blocks
+///     (this is a declarative macro constraint)
+///   - to keep the syntax consistent we always require a ',' separator between non-terminal `if_let`` arms,
+///     even if they end in blocks
+///   - we use closures for `else` clauses that need the failed match expression value - note this means
+///     the closure argument is a `Result` not an `Error`
 ///
 /// This is an example for pure side effects:
 /// ```
@@ -51,8 +59,8 @@
 /// ```
 /// if_let! {
 ///     Some(a) = p,
-///     Ok(b) = { q } else for |e| println!("no b: {e:?}"),
-///     Ok(c) = { foo(a,b) } else for |e| println!("no c: {e:?}") => {
+///     Ok(b) = { q } else |other| { println!("no b: {other:?}") },
+///     Ok(c) = { foo(a,b) } else |other| { println!("no c: {other:?}") } => {
 ///         println!("just here to print a={}, b={}, c={}", a,b,c);
 ///     }
 /// }
@@ -74,9 +82,9 @@
 /// This is finally an example that uses the `if_let` value and fail closures (providing failure values)
 /// ```
 /// let res = if_let! {
-///     Some(a) = { p } else { println!("no a"); -1 }
-///     Ok(b)   = { q } else for |e|{ println!("no b: {e:?}"); -2 }, 
-///     Ok(c)   = { foo(a,b) } else for |e|{ println!("no c: {e:?}"); -3 } => {
+///     Some(a) = { p } else { println!("no a"); -1 },
+///     Ok(b)   = { q } else |e| { println!("no b: {e:?}"); -2 }, 
+///     Ok(c)   = { foo(a,b) } else |e| { println!("no c: {e:?}"); -3 } => {
 ///         println!("a={}, b={}, c={}", a,b,c);
 ///         0
 ///     }
@@ -104,10 +112,10 @@ macro_rules! if_let {
     { $p:pat = $x:block else $e:block => $r:expr } => {
         if let $p = $x { $r } else $e
     };
-    { $p:pat = $x:block else for $e:expr => $r:expr } => {
+    { $p:pat = $x:block else $closure:expr => $r:expr } => {
         match $x {
             $p => { $r }
-            x => { $e(x) }
+            other => { $closure( other) }
         }
     };
     { $p:pat = $x:expr => $r:expr } => {
@@ -115,15 +123,13 @@ macro_rules! if_let {
     };
     
     //--- the recursive tt munchers
-    { $p:pat = $x:block else $e:block $($ts:tt)+ } => {
-        if let $p = $x {
-            if_let! { $($ts)+ }
-        } else $e
+    { $p:pat = $x:block else $e:block , $($ts:tt)+ } => {
+        if let $p = $x { if_let! { $($ts)+ } } else $e
     };
-    { $p:pat = $x:block else for $e:expr , $($ts:tt)+ } => {
+    { $p:pat = $x:block else $closure:expr , $($ts:tt)+ } => { // expr covers closures
         match $x {
             $p => { if_let! { $($ts)+ } }
-            x => { $e(x) }
+            other => { $closure( other) } // watch out - 'other' type is not Error but Result
         }
     };
     { $p:pat = $x:expr , $($ts:tt)+ } => {

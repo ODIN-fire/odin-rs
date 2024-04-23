@@ -173,14 +173,14 @@ impl Default for FireSummary {
 
 fn main() -> Result<(),Box<dyn Error>>{
     let output_dir = if let Some(ref path) = ARGS.output_dir { path.as_str() } else { ARGS.fire_name.as_str() };
-    ensure_writable_dir(output_dir)?;
+    ensure_writable_dir( Path::new(output_dir))?;
     let mut summary = get_summary(output_dir)?;
 
     for file_name in &ARGS.input_files {
         if_let! {
-            Ok(mut file) = File::open( file_name.as_str()) , e=>eprintln!("opening input file {} failed: {:?}", file_name,e);
-            Ok(contents) = file_contents_as_string(&mut file) , eprintln!("could not read content of input file {}", file_name);
-            Ok(gj) = contents.parse::<GeoJson>() , e=>eprintln!("input file {} not valid GeoJSON: {:?}", file_name,e) => {
+            Ok(mut file) = { File::open( file_name.as_str()) } else  |e| { eprintln!("opening input file {} failed: {:?}", file_name,e) },
+            Ok(contents) = { file_contents_as_string(&mut file) } else |e| { eprintln!("could not read content of input file {}", file_name) },
+            Ok(gj) = { contents.parse::<GeoJson>() } else  |e| { eprintln!("input file {} not valid GeoJSON: {:?}", file_name,e) } => {
                 println!("processing input file {:}", file_name);
                 process_geojson( &gj, output_dir, &mut summary)
             }
@@ -211,10 +211,10 @@ fn process_geojson (gj: &GeoJson, output_dir: &str, summary: &mut FireSummary) {
     if let GeoJson::FeatureCollection(ref fc) = *gj {
         for feature in &fc.features {
             if_let! {
-                Some(ref props) = feature.properties, eprintln!("ignoring feature without properties");
-                Some(id) = archive_id_of_feature(feature), eprintln!("ignoring feature without archive id");
-                Some(cat) = cat_property_of_feature(feature), eprintln!("ignoring feature #{} without category", id);
-                Some(dt) = get_datetime(feature), eprintln!("ignoring feature #{} without date", id) => {
+                Some(ref props) = { &feature.properties } else { eprintln!("ignoring feature without properties") },
+                Some(id) = { archive_id_of_feature(feature) } else { eprintln!("ignoring feature without archive id") },
+                Some(cat) = { cat_property_of_feature(feature) } else { eprintln!("ignoring feature #{} without category", id) },
+                Some(dt) = { get_datetime(feature) } else { eprintln!("ignoring feature #{} without date", id) } => {
                     match process_feature(  feature, cat.as_str(), &dt, output_dir, summary) {
                         Ok(true) => println!("stored {} feature #{} at {}", cat, id, dt),
                         Ok(false) => println!("dropped {} feature #{} at {}", cat, id, dt),

@@ -98,6 +98,9 @@ async fn run_without_ping (ws: &mut WsStream) {
     loop {
         if let Ok(msg) = read_next_ws_msg(ws).await {
             log_ws_msg(&msg);
+        } else {
+            println!("server closed websocket, exiting");
+            break;
         }
     }
 }
@@ -125,6 +128,9 @@ async fn run_with_ping (ws: &mut WsStream, interval: Duration) {
                             }
                         }
                     }
+                } else {
+                    println!("server closed websocket, exiting");
+                    break;
                 }
             },
             ping = ping_stream.next() => {
@@ -161,7 +167,7 @@ fn log_ws_msg (msg: &WsMsg)->Result<()> {
         stdout.write_all(ts.as_bytes());
     }
 
-    stdout.write(b"> ");
+    stdout.write(b"in:  ");
     match ARGS.format {
         OutputFormat::Json => {
             let s = if ARGS.pretty {
@@ -199,8 +205,11 @@ fn log_ws_cmd (cmd: &WsCmd)->Result<()> {
         let ts = format!("[{}]", now.format("%H:%M:%S%.3f"));
         stdout.write_all(ts.as_bytes());
     }
-    stdout.write(b"< ");
+
+    stdout.write(b"\x1b[32;1m\x1b[37m");
+    stdout.write(b"out: ");
     writeln!( stdout, "{:?}", cmd);
+    stdout.write(b"\x1b[0m");
 
     Ok(())
 }

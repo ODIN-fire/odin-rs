@@ -66,7 +66,7 @@ async fn main ()->Result<()> {
         EmptySnapshotAction()
     ))?;
 
-    actor_system.timeout_start_all(millis(20)).await?;
+    actor_system.timeout_start_all(secs(2)).await?;
     actor_system.process_requests().await?;
 
     Ok(())

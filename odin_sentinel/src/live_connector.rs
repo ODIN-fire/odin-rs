@@ -216,15 +216,16 @@ impl LiveConnection {
         let client = reqwest::Client::new();
         loop {
             let res: Result<()> = if_let! {
-                Some(m) = { ws_read.next().await } else { Err(OdinSentinelError::WsClosedError{}) } // no use going on, terminate task
-                Ok(Message::Text(json)) = { m } else { Ok(()) } // ignore binary messages
-                Ok(msg) = { serde_json::from_str::<WsMsg>(&json) } else { warn!("malformed websocket message {json}"); Ok(()) }
+                Some(m) = { ws_read.next().await } else { Err(OdinSentinelError::WsClosedError{}) }, // no use going on, terminate task
+                Ok(Message::Text(json)) = { m } else { Ok(()) }, // ignore binary messages
+                Ok(msg) = { serde_json::from_str::<WsMsg>(&json) } else { warn!("malformed websocket message {json}"); Ok(()) },
                 WsMsg::Record { device_id, sensor_no, rec_type } = { msg } else { Ok(()) } => { // ignore other WsMsg variants
                     use SensorCapability::*;
                     match rec_type {
                         Accelerometer => Self::get_and_send_update::<AccelerometerData>( &hself, &client, &config, &device_id, sensor_no).await,
                         Anemometer    => Self::get_and_send_update::<AnemometerData>( &hself, &client, &config, &device_id, sensor_no).await,
                         Cloudcover    => Self::get_and_send_update::<CloudcoverData>( &hself, &client, &config, &device_id, sensor_no).await,
+                        Event         => Self::get_and_send_update::<EventData>( &hself, &client, &config, &device_id, sensor_no).await,
                         Fire          => Self::get_and_send_update::<FireData>( &hself, &client, &config, &device_id, sensor_no).await,
                         Gas           => Self::get_and_send_update::<GasData>( &hself, &client, &config, &device_id, sensor_no).await,
                         Gps           => Self::get_and_send_update::<GpsData>( &hself, &client, &config, &device_id, sensor_no).await,

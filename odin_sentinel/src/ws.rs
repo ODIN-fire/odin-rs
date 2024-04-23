@@ -49,21 +49,23 @@ pub async fn init_websocket (config: &SentinelConfig, device_ids: Vec<String>)->
 }
 
 pub async fn connect (config: &SentinelConfig)->Result<(WsStream, Response)> {
-    
+
     let mut request = config.ws_uri.as_str().into_client_request()?;
     let mut hdrs = request.headers_mut();
 
     let auth_val = format!("Bearer {}", config.access_token);
     hdrs.append( AUTHORIZATION, HeaderValue::from_str(auth_val.as_str())?);
 
-    /* explicit request construction with Request
+    /*
+    // explicit upgrade using builder
     let url = url::Url::parse(&config.ws_uri)?;
     let host = url.host_str().ok_or(op_failed(url::ParseError::EmptyHost))?;
 
     let request = Request::builder()
         .uri( config.ws_uri.as_str())
         .header("Host", host)
-        .header("connection", "Upgrade")
+        //.header("connection", "Upgrade")
+        .header("connection", "keep-alive,Upgrade") // ? doesn't keep alive
         .header("upgrade", "websocket")
         .header("sec-websocket-version", "13")
         .header("sec-websocket-key", tokio_tungstenite::tungstenite::handshake::client::generate_key())
@@ -132,25 +134,25 @@ pub enum WsMsg {
 
     Pong { request_time: u64, response_time: u64, message_id: String },
 
-    #[serde(alias="trigger-alert")] 
+    #[serde(rename="trigger-alert")] 
     TriggerAlert { device_id: String, message_id: String, result: String },
 
     Error { message: String }
 }
 
-/// outgoing websocket messages
+/// outgoing websocket messages (since we deserialize from both RON and JSON we need a few more aliases)
 #[derive(Serialize,Deserialize,Debug,PartialEq)]
 #[serde(tag="event", content="data", rename_all="lowercase", rename_all_fields="camelCase")]
 pub enum WsCmd {
     Ping { request_time: u64, message_id: String },  // time is epoch millis
 
-    #[serde(alias="trigger-alert")] 
+    #[serde(rename="trigger-alert",alias="trigger_alert",alias="TriggerAlert")]
     TriggerAlert { device_ids: Vec<String>, message_id: String },
 
-    #[serde(alias="switch-lights")] 
+    #[serde(rename="switch-lights",alias="switch_lights",alias="SwitchLights")] 
     SwitchLights { device_ids: Vec<String>, #[serde(alias="type")] light_type: String, state: String, message_id: String },
 
-    #[serde(alias="switch-valve")]
+    #[serde(rename="switch-valve",alias="switch_valve",alias="SwitchValve")]
     SwitchValve { device_ids: Vec<String>, state: String, message_id: String  },
 }
 

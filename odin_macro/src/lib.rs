@@ -1209,7 +1209,7 @@ pub fn define_actor_action_type (item: TokenStream)->TokenStream {
     let exec_body = if stmts.is_empty() { 
         quote!{ Ok(()) } 
     } else { 
-        quote!{ let _hsys_ = &self.0; #( #stmts );* } 
+        quote!{ #( #stmts );* } 
     };
 
     let new_item: TokenStream = quote! {
@@ -1247,7 +1247,7 @@ pub fn define_actor_action2_type (item: TokenStream)->TokenStream {
     let exec_body = if stmts.is_empty() { 
         quote!{ Ok(()) } 
     } else { 
-        quote!{ let _hsys_ = &self.0; #( #stmts );* } 
+        quote!{ #( #stmts );* } 
     };
 
     let new_item: TokenStream = quote! {
