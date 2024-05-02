@@ -34,11 +34,11 @@ use odin_actor::errors::Result;
 struct Updater {
     data: Vec<String>,
     count: usize,
-    update_callbacks: CallbackList<String>,
+    update_action: DynDataActionList<String>,
 }
 impl Updater {
     fn new()->Self {
-        Updater { data: Vec::new(), count: 0, update_callbacks: CallbackList::new() }
+        Updater { data: Vec::new(), count: 0, update_action: DynDataActionList::new() }
     }
 
     fn update (&mut self)->bool {
@@ -48,16 +48,16 @@ impl Updater {
     }
 }
 
-#[derive(Debug)] struct AddUpdateCallback(Callback<String>);
+#[derive(Debug)] struct AddUpdateAction(DynDataAction<String>);
 
-#[derive(Debug)] struct ExecuteCallback(Arc<Callback<Vec<String>>>);
-impl ExecuteCallback {
+#[derive(Debug)] struct ExecuteAction(Arc<DynDataAction<Vec<String>>>);
+impl ExecuteAction {
     pub async fn execute (&self, data: &Vec<String>)->Result<()> {
         self.0.execute(data).await
     }
 }
 
-define_actor_msg_type! { UpdaterMsg = AddUpdateCallback | ExecuteCallback }
+define_actor_msg_set! { UpdaterMsg = AddUpdateAction | ExecuteAction }
 
 impl_actor! { match msg for Actor<Updater,UpdaterMsg> as
     _Start_ => cont! {
@@ -68,7 +68,7 @@ impl_actor! { match msg for Actor<Updater,UpdaterMsg> as
         self.count += 1;
         println!("update cycle {}", self.count);
         if self.update() {
-            self.update_callbacks.execute( self.data.last().unwrap()).await;
+            self.update_action.execute( self.data.last().unwrap()).await;
         }
 
         if self.count >= 5 {
@@ -78,10 +78,10 @@ impl_actor! { match msg for Actor<Updater,UpdaterMsg> as
             ReceiveAction::Continue
         }
     }
-    AddUpdateCallback => cont! {
-        self.update_callbacks.push( msg.0)
+    AddUpdateAction => cont! {
+        self.update_action.push( msg.0)
     }
-    ExecuteCallback => cont! {
+    ExecuteAction => cont! {
         println!("updater received {msg:?}");
         msg.execute(&self.data).await;
     }
@@ -99,7 +99,7 @@ struct WsServer {}
 
 #[derive(Debug)] struct SendWsMsg { addr: &'static str, ws_msg: String }
 
-define_actor_msg_type! { WsServerMsg = PublishWsMsg | SendWsMsg }
+define_actor_msg_set! { WsServerMsg = PublishWsMsg | SendWsMsg }
 
 impl_actor! { match msg for Actor<WsServer,WsServerMsg> as
     PublishWsMsg => cont! {
@@ -119,37 +119,19 @@ async fn main ()->Result<()> {
     let updater = spawn_actor!( actor_system, "updater", Updater::new())?;
     let server = spawn_actor!( actor_system, "server", WsServer{}, 4)?;
 
-    // note how we construct the callback from a mix of captured sender/local (server, addr) and passed in receiver/remote (data) info
+    // note how we construct the DynDataAction from a mix of captured sender/local (server, addr) and passed-in receiver/remote data
     let addr = "fortytwo";
-    /* explicit version
-    let recipient = server.clone();
-    let trigger_cb: Arc<Callback<Vec<String>>> = Arc::new( async_callback!( |data: &Vec<String>| {
-        let ws_msg = format!("{:?}", data);
-        let recipient = recipient.clone(); // FIXME
-        async_action!( recipient.send_msg( SendWsMsg{addr, ws_msg}).await )
-    }).into());
-    */
-    let trigger_cb = Arc::new(Callback::from(send_msg_callback!(server, |v: &Vec<String>| SendWsMsg{addr, ws_msg: format!("{v:?}")})));
+    let on_demand_action = Arc::new( send_msg_dyn_action!(server, |v: &Vec<String>| SendWsMsg{addr, ws_msg: format!("{v:?}")}));
+    updater.send_msg( ExecuteAction( on_demand_action.clone())).await?; // we send multiple times so we have to clone
 
-    updater.send_msg( ExecuteCallback( trigger_cb.clone())).await?;
-
-    /* explicit version
-    let recipient = server.clone();
-    let update_cb = async_callback!( |data: &Vec<String>| {
-        let ws_msg = format!("{{\"update\": {:?}}}", data);
-        let recipient = recipient.clone(); // FIXME
-        async_action!( recipient.send_msg(PublishWsMsg{ws_msg}).await )
-    });
-    */
-    let update_cb = try_send_msg_callback!(server, |v: &String| PublishWsMsg{ws_msg: format!("{{\"update\": {v:?}}}")});
-
-    updater.send_msg( AddUpdateCallback(update_cb.into())).await?;
+    let update_action = try_send_msg_dyn_action!(server, |v: &String| PublishWsMsg{ws_msg: format!("{{\"update\": {v:?}}}")});
+    updater.send_msg( AddUpdateAction(update_action)).await?;
 
     actor_system.timeout_start_all(millis(20)).await?;
 
     sleep( secs(2)).await;
 
-    updater.send_msg( ExecuteCallback( trigger_cb)).await?;
+    updater.send_msg( ExecuteAction( on_demand_action)).await?;
 
     actor_system.process_requests().await?;
 

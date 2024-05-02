@@ -45,7 +45,7 @@ pub struct FileAvailable {
     pathname: String
 }
 
-define_actor_msg_type! { ClientActorMsg } // we only process system messages
+define_actor_msg_set! { ClientActorMsg } // we only process system messages
 
 /* #endregion common app types */
 
@@ -66,7 +66,7 @@ impl_actor! { match msg for Actor<Actor1State<S>,ClientActorMsg> where S: Server
 }
 
 #[derive(Debug)] struct KickOffQueries{}
-define_actor_msg_type! { Actor2Msg = KickOffQueries }
+define_actor_msg_set! { Actor2Msg = KickOffQueries }
 
 struct Actor2State<S> { server: S }
 // this one send two queris
@@ -133,7 +133,7 @@ impl RequestProcessor<Query<GetFile,FileAvailable>,FileAvailable> for FileFetche
     }
 }
 
-define_actor_msg_type! { ServerMsg = Query<GetFile,FileAvailable> }
+define_actor_msg_set! { ServerMsg = Query<GetFile,FileAvailable> }
 
 struct ServerState{
     request_task: AbortHandle,

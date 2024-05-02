@@ -30,7 +30,7 @@ impl Ticker {
     fn new (interval: Duration)->Self { Ticker { count: 0, interval, timer: None } }
 }
 
-define_actor_msg_type! { TickerMsg }
+define_actor_msg_set! { TickerMsg }
 
 impl_actor! { match msg for Actor<Ticker,TickerMsg> as
     _Start_ => cont! { 
@@ -60,7 +60,7 @@ async fn main() ->Result<()> {
     let actor_handle = spawn_actor!( actor_system, "ticker", Ticker::new( secs(1)));
 
 
-    actor_system.timeout_start_all(millis(20)).await?; // sends out _Start_ messages
+    actor_system.start_all().await?; // sends out _Start_ messages
     sleep( secs(5)).await;
     actor_system.terminate_and_wait( millis(20)).await?;  // sends out _Terminate_ messages and waits for actor completion
 

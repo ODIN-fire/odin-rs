@@ -18,7 +18,7 @@
 use anyhow::Result;
 use odin_actor::prelude::*;
 use odin_config::prelude::*;
-use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor,EmptySnapshotAction};
+use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor};
 
 use_config!();
 
@@ -28,7 +28,7 @@ use_config!();
 #[derive(Debug)] pub struct Snapshot(String);
 #[derive(Debug)] pub struct Update(String);
 
-define_actor_msg_type! { SentinelMonitorMsg = Snapshot | Update }
+define_actor_msg_set! { SentinelMonitorMsg = Snapshot | Update }
 
 struct SentinelMonitor {}
 
@@ -52,18 +52,17 @@ async fn main ()->Result<()> {
 
     let hmonitor = spawn_actor!( actor_system, "monitor", SentinelMonitor{})?;
 
-    define_actor_action_type! { InitAction = hrcv <- (sentinels: &SentinelStore) for
-        SentinelMonitorMsg => hrcv.try_send_msg( Snapshot( sentinels.to_json_pretty().unwrap()))
-    }
-    define_actor_action_type! { UpdateAction = hrcv <- (update: &SentinelUpdate) for
-        SentinelMonitorMsg => hrcv.try_send_msg( Update( update.to_json_pretty().unwrap()))
-    }
-
     let _hsentinel = spawn_actor!( actor_system, "sentinel", SentinelActor::new(
         LiveSentinelConnector::new( config_for!( "sentinel")?), 
-        InitAction( hmonitor.clone()),
-        UpdateAction( hmonitor.clone()),
-        EmptySnapshotAction()
+        dataref_action!( hmonitor.clone() as MsgReceiver<Snapshot> => |data:&SentinelStore| {
+            let msg = Snapshot(data.to_json_pretty().unwrap());
+            hmonitor.try_send_msg( msg)
+        }),
+        data_action!( hmonitor as MsgReceiver<Update> => |data:SentinelUpdate| {
+            let msg = Update(data.to_json_pretty().unwrap());
+            hmonitor.try_send_msg( msg)
+        }),
+        NoLabeledDataRefAction::new()
     ))?;
 
     actor_system.timeout_start_all(secs(2)).await?;

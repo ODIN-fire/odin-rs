@@ -29,7 +29,7 @@ static ELASPED_ROUNDTRIP: Mutex<Duration> = Mutex::new( Duration::new(0,0));
 #[derive(Debug)]
 pub struct Cycle { start_time: Instant, round: u64 }
 
-define_actor_msg_type! { TestMsg = Cycle }
+define_actor_msg_set! { TestMsg = Cycle }
 
 struct Test { max_rounds: u64 } // our actor state
 

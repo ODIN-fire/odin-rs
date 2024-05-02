@@ -26,7 +26,7 @@ use std::{sync::Arc, future::Future, pin::Pin};
 
 /* #region Updater ********************************************************/
 
-define_actor_msg_type! { UpdaterMsg = Subscribe }
+define_actor_msg_set! { UpdaterMsg = Subscribe }
 
 struct Updater {
     subscribers: MsgSubscriptions<Update>,
@@ -67,7 +67,7 @@ impl_actor! { match msg for Actor<Updater,UpdaterMsg> as
 
 /* #region Client ********************************************************/
 
-define_actor_msg_type! { ClientMsg = Update }
+define_actor_msg_set! { ClientMsg = Update }
 
 struct Client;
 

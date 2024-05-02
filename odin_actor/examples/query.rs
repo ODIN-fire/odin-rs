@@ -29,7 +29,7 @@ use anyhow::{anyhow,Result};
 
 /* #region questioner ************************************************************/
 #[derive(Debug)] struct AskNow;
-define_actor_msg_type! { QuestionerMsg = AskNow }
+define_actor_msg_set! { QuestionerMsg = AskNow }
 
 struct Questioner <M> where M: MsgReceiver<Query<Question,Answer>> + Sync {
     responder: M
@@ -49,7 +49,7 @@ impl_actor! { match msg for Actor<Questioner<M>,QuestionerMsg> where M: MsgRecei
             Ok(response) => println!("{} got the answer: {}", self.hself.id, response.0),
             Err(e) => match e {
                 OdinActorError::ReceiverClosed => println!("{} : deepthought is gone.", self.hself.id),
-                OdinActorError::TimeoutError(dur) => println!("{} : deepthought is still thinking after {:?}.", self.hself.id, dur),
+                OdinActorError::Timeout(dur) => println!("{} : deepthought is still thinking after {:?}.", self.hself.id, dur),
                 other => println!("{} : don't know what deepthought is doing", self.hself.id)
             }
         }
@@ -60,7 +60,7 @@ impl_actor! { match msg for Actor<Questioner<M>,QuestionerMsg> where M: MsgRecei
 /* #endregion */
 
 /* #region responder ************************************************************/
-define_actor_msg_type! { ResponderMsg = Query<Question,Answer> }
+define_actor_msg_set! { ResponderMsg = Query<Question,Answer> }
 
 struct Responder;
 

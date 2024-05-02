@@ -67,7 +67,7 @@ impl Default for SentinelAlarmMonitorConfig {
     }
 }
 
-define_actor_msg_type! { pub SentinelAlarmMonitorMsg = SentinelUpdate | Alarm }
+define_actor_msg_set! { pub SentinelAlarmMonitorMsg = SentinelUpdate | Alarm }
 
 /// the Sentinel Alarm Actor state
 define_struct! { pub SentinelAlarmMonitor<A> where A: AlarmMessenger =

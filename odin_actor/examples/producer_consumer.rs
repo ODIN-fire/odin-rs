@@ -24,7 +24,7 @@ use anyhow::{anyhow,Result};
 #[derive(Debug)]
 pub struct MyMsg(i64);
 
-define_actor_msg_type! { ProducerMsg }
+define_actor_msg_set! { ProducerMsg }
 
 // we don't need to know anything about the client other than it processes MyMsg
 pub struct Producer<Client> where Client: MsgReceiver<MyMsg> {
@@ -45,7 +45,7 @@ impl_actor! { match msg for Actor<Producer<T>,ProducerMsg> where T: MsgReceiver<
 /* #endregion producer */
 
 /* #region consumer *********************************************************************/
-define_actor_msg_type! { ConsumerMsg = MyMsg }
+define_actor_msg_set! { ConsumerMsg = MyMsg }
 
 pub struct Consumer;
 

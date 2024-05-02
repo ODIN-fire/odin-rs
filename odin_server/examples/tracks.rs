@@ -44,7 +44,7 @@ mod data {
         }  
     }
 
-    define_actor_msg_type! { TrackUpdaterMsg = SubscribeToJsonUpdate | ProcessJsonTracks<F,Fut> }
+    define_actor_msg_set! { TrackUpdaterMsg = SubscribeToJsonUpdate | ProcessJsonTracks<F,Fut> }
     
     /// this is just a simple data source actor we can subscribe to and not the focus of this example
     struct TrackUpdater {

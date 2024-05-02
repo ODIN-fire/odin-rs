@@ -40,7 +40,7 @@ use crate::ws::WsCmd;
 #[derive(Debug)] pub(crate) struct UpdateStore (pub(crate) SentinelUpdate);
 #[derive(Debug)] pub(crate) struct ConnectorError (pub(crate) OdinSentinelError);
 
-define_actor_msg_type! { pub SentinelActorMsg = 
+define_actor_msg_set! { pub SentinelActorMsg = 
     //-- messages we get from other actors
     ExecSnapshotAction |
     Query<GetSentinelUpdate,Result<SentinelUpdate>> |
@@ -52,15 +52,9 @@ define_actor_msg_type! { pub SentinelActorMsg =
     ConnectorError
 }
 
-pub trait InitAction = ActorAction<SentinelStore>;
-pub trait UpdateAction = ActorAction<SentinelUpdate>;
-pub trait SnapshotAction = ActorAction2<SentinelStore,String>;
-
-// convenience defs for empty action sets
-define_actor_action_type! { pub EmptyInitAction = hrcv <- (sentinels: &SentinelStore) }
-define_actor_action_type! { pub EmptyUpdateAction = hrcv <- (update: &SentinelUpdate) }
-define_actor_action2_type! { pub EmptySnapshotAction = hrcv <- (sentinels: &SentinelStore, client: &String) }
-
+pub trait InitAction = DataRefAction<SentinelStore>;
+pub trait UpdateAction = DataAction<SentinelUpdate>;
+pub trait SnapshotAction = LabeledDataRefAction<String,SentinelStore>;  // TODO - shall we replace this with a DynDataAction message ?
 
 pub struct SentinelActor<S,A,B,C> 
     where S: SentinelConnector + Send, A: InitAction, B: UpdateAction, C: SnapshotAction
@@ -89,7 +83,7 @@ impl<S,A,B,C> SentinelActor<S,A,B,C>
     async fn update (&mut self, sentinel_update: SentinelUpdate)->Result<()> {
         let SentinelChange { added, removed } = self.sentinels.update_with( sentinel_update, self.connector.max_history());
 
-        if let Some(ref added) = added {
+        if let Some(added) = added {
             self.update_action.execute(added).await;
         }
         // TODO- shall we also notify about removed records?
@@ -112,7 +106,7 @@ impl_actor! { match msg for Actor<SentinelActor<S,A,B,C>,SentinelActorMsg>
     as  
     //--- user messages
     ExecSnapshotAction => cont! {
-        self.snapshot_action.execute( &self.sentinels, &msg.0).await;
+        self.snapshot_action.execute( msg.0, &self.sentinels).await;
     }
     Query<GetSentinelUpdate,Result<SentinelUpdate>> => cont! { 
         let fut = self.handle_record_query(msg);
@@ -136,7 +130,7 @@ impl_actor! { match msg for Actor<SentinelActor<S,A,B,C>,SentinelActorMsg>
     _Start_ => cont! {
         let hself = self.hself.clone();
         if let Err(e) = self.connector.start( hself).await {  // this should eventually lead to an InitializeStore
-            error!("failed to start connector")
+            error!("failed to start connector: {:?}", e)
         }
     }
     _Terminate_ => stop! { 

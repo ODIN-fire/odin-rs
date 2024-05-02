@@ -22,6 +22,7 @@ serde = { version = "*", features = ["derive"] }
 parse_duration = "*"
 colored = "*"
 #quanta = "*"
+paste = "*"
 
 tracing = "*"
 tracing-subscriber = "*"

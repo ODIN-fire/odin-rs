@@ -18,18 +18,18 @@
 #![feature(trait_alias,min_specialization)]
 
 use std::{
-    collections::{VecDeque,HashMap},fmt::{self,Debug},cmp::{Ordering,min}, future::Future, ops::RangeBounds, 
-    time::Duration, sync::atomic::{self,AtomicU64}, path::{Path,PathBuf}, fs::File, io::Write, sync::Arc, rc::Rc,
+    cmp::{min, Ordering}, collections::{HashMap, VecDeque}, fmt::{self,Debug}, fs::File, future::Future, io::{Read, Write}, ops::RangeBounds, path::{Path,PathBuf}, rc::Rc, sync::{atomic::{self,AtomicU64}, Arc}, time::Duration
 };
-use serde::{Deserialize,Serialize,Serializer};
+use serde::{de::DeserializeOwned, Deserialize, Serialize, Serializer};
 use serde_json;
 use ron::{self, to_string};
 use chrono::{DateTime,Utc};
 use odin_common::{angle::{LatAngle, LonAngle, Angle},datetime::deserialize_duration};
 use odin_actor::ActorHandle;
 use strum::IntoStaticStr;
+use tokio_util::bytes::Buf;
 use uom::si::f64::{Velocity,ThermodynamicTemperature,ElectricCurrent,ElectricPotential};
-use reqwest::Client;
+use reqwest::{Client,Response};
 use paste::paste;
 
 use odin_actor::{MsgReceiver,Query};
@@ -208,7 +208,7 @@ define_sensor_data! { Cloudcover =
 
 define_sensor_data! { Event =
     pub event_code: String,
-    pub original_type: String,
+    pub original_type: Option<String>, // can have null value
 }
 
 define_sensor_data! { Fire =
@@ -689,10 +689,22 @@ pub type SentinelFileQuery = Query<GetSentinelFile,SentinelFileResult>;
 
 /* #region basic http getters *************************************************************************************************/
 
+// the reqwest::Response::json() alternative does not preserve enough error information
+async fn from_json<T> (response: Response)->Result<T> where T: DeserializeOwned {
+    let bytes = response.bytes().await?;
+    serde_json::from_slice( &bytes).map_err(|e| {
+        //let mut s = String::new();
+        //bytes.reader().read_to_string(&mut s);
+        //println!("{s}");
+
+        OdinSentinelError::JsonError(e.to_string())
+    })
+}
+
 pub async fn get_device_list (client: &Client, base_uri: &str, access_token: &str)->Result<DeviceList> {
     let uri = format!("{base_uri}/devices");
     let response = client.get(uri).bearer_auth(access_token).send().await?;
-    let device_list: DeviceList = response.json().await?;
+    let device_list: DeviceList = from_json(response).await?;
     Ok(device_list)
 }
 
@@ -703,7 +715,7 @@ pub async fn get_device_list_from_config (client: &Client, config: &SentinelConf
 pub async fn get_sensor_list (client: &Client, base_uri: &str, access_token: &str, device_id: &str) -> Result<SensorList> {
     let uri =  format!("{base_uri}/devices/{device_id}/sensors");
     let response = client.get(uri).bearer_auth(access_token).send().await?;
-    let sensor_list: SensorList = response.json().await?;
+    let sensor_list: SensorList = from_json(response).await?;
     Ok(sensor_list)
 }
 
@@ -714,7 +726,7 @@ pub async fn get_time_sorted_records <T> (client: &Client, base_uri: &str, acces
     let capability = T::capability();
     let uri = format!("{base_uri}/devices/{device_id}/sensors/{sensor_no}/{capability:?}?sort=timeRecorded,DESC&limit={n_last}");
     let response = client.get(uri).bearer_auth(access_token).send().await?;
-    let record_list: RecordList<T> = response.json().await?; // FIXME - response.json() has inadequate error details
+    let record_list: RecordList<T> = from_json(response).await?; 
     Ok(record_list.data)
 } 
 

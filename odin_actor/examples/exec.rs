@@ -26,18 +26,21 @@ use anyhow::{anyhow,Result};
 #[derive(Debug)] struct Greet (&'static str);
 
 //... define any other message struct our actor would process here
-define_actor_msg_type! { GreeterMsg = Greet }
+define_actor_msg_set! { GreeterMsg = Greet }
 
 struct Greeter; // look ma - no fields
 
 
 impl_actor! { match msg for Actor<Greeter,GreeterMsg> as
     Greet => cont! { 
-        println!("hello {}!", msg.0); 
+        println!("got greeting: hello {}!", msg.0); 
 
         if msg.0 != "me" {
             let myself = self.hself.clone();
-            self.exec( move|| { myself.try_send_msg(Greet("me")); });
+            self.exec( move|| { // this is turned into a generic _Exec_ system message sent to ourself
+                println!("now trying to be nice to myself..");
+                myself.try_send_msg(Greet("me")); 
+            });
         }
     }
 }

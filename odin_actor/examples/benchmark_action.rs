@@ -23,20 +23,20 @@ mod provider {
 
     #[derive(Debug)] pub struct ExecuteActions{}
 
-    define_actor_msg_type!{ pub ProviderMsg = ExecuteActions }
+    define_actor_msg_set!{ pub ProviderMsg = ExecuteActions }
 
-    pub struct Provider<A> where A: ActorAction<u64> {
+    pub struct Provider<A> where A: DataAction<u64> {
         data: u64,
         actions: A,
     }
-    impl<A> Provider<A> where A: ActorAction<u64> {
+    impl<A> Provider<A> where A: DataAction<u64> {
         pub fn new(actions: A)->Self { Provider{ data: 0, actions } }
     }
 
-    impl_actor! { match msg for Actor<Provider<A>,ProviderMsg> where A: ActorAction<u64> as
+    impl_actor! { match msg for Actor<Provider<A>,ProviderMsg> where A: DataAction<u64> as
         ExecuteActions => cont! { 
             self.data += 1;
-            self.actions.execute(&self.data).await 
+            self.actions.execute(self.data).await 
         }
     }
 }
@@ -50,7 +50,7 @@ mod client {
     #[derive(Debug)] pub struct PingSelf(u64);
     #[derive(Debug)] pub struct TryPingSelf(u64);
 
-    define_actor_msg_type!{ pub ClientMsg = PingSelf | TryPingSelf | Update }
+    define_actor_msg_set!{ pub ClientMsg = PingSelf | TryPingSelf | Update }
 
     pub struct Client {
         max_rounds: u64,
@@ -115,6 +115,8 @@ use tokio;
 use std::time::{Instant,Duration};
 use odin_actor::prelude::*;
 use odin_actor::errors::Result;
+use client::{Client,Update};
+use provider::Provider;
 
 //#[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 //#[tokio::main(flavor = "current_thread")]
@@ -126,13 +128,11 @@ async fn main()->Result<()> {
     let mut actor_system = ActorSystem::new("benchmark_cb");
 
     let pre_prov = PreActorHandle::new(&actor_system, "provider",8);
-    let cli = spawn_actor!( actor_system, "client", client::Client::new(max_rounds, pre_prov.as_actor_handle()))?;
+    let cli = spawn_actor!( actor_system, "client", Client::new(max_rounds, pre_prov.as_actor_handle()))?;
 
-    define_actor_action_type!{ ProviderActions = actor_handle <-  (data: &u64) for
-        client::ClientMsg => actor_handle.try_send_msg( client::Update(*data))
-    }
-    let prov = spawn_pre_actor!( actor_system, pre_prov, provider::Provider::new( ProviderActions(cli)))?;
-
+    let prov = spawn_pre_actor!( actor_system, pre_prov, Provider::new( 
+        data_action!( cli as MsgReceiver<Update> => |data: u64| cli.try_send_msg( Update(data)))
+    ))?;
 
     actor_system.timeout_start_all(millis(20)).await?;
     actor_system.process_requests().await?;

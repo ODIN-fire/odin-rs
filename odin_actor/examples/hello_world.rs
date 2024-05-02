@@ -25,12 +25,12 @@ use anyhow::{anyhow,Result};
 pub struct Greet (pub &'static str);
 //... define any other message struct our actor would process here
 
-define_actor_msg_type! { pub GreeterMsg = Greet }
+define_actor_msg_set! { pub GreeterMsg = Greet }
 
 pub struct Greeter; // look ma - no fields (those would be the actor state)
 
 impl_actor! { match msg for Actor<Greeter,GreeterMsg> as
-    Greet => cont! { println!("hello {}!", msg.0); }
+    Greet => term! { println!("hello {}!", msg.0); }
 }
 
 //--- the application using the actor
@@ -42,9 +42,8 @@ async fn main() ->Result<()> {
     let actor_handle = spawn_actor!( actor_system, "greeter", Greeter{})?;
 
     actor_handle.send_msg( Greet("world")).await?;
-    actor_handle.send_msg( Greet("me")).await?;
 
-    actor_system.terminate_and_wait( secs(5)).await?;
+    actor_system.process_requests().await?;
 
     Ok(())
 }

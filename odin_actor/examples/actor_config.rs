@@ -32,7 +32,7 @@ impl Default for TickerConfig {
     fn default()->Self { TickerConfig { interval_sec: 1 } }
 }
 
-define_actor_msg_type! { TickerMsg }
+define_actor_msg_set! { TickerMsg }
 
 struct Ticker {
     config: TickerConfig,
