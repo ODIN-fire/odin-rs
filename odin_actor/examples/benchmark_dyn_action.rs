@@ -21,26 +21,26 @@
 mod provider {
     use odin_actor::prelude::*;
 
-    #[derive(Debug)] pub struct TriggerCb{}
-    #[derive(Debug)] pub struct AddCb(pub Callback<u64>);
+    #[derive(Debug)] pub struct TriggerAction{}
+    #[derive(Debug)] pub struct AddAction(pub DynDataAction<u64>);
 
-    define_actor_msg_type!{ pub ProviderMsg = AddCb | TriggerCb }
+    define_actor_msg_set!{ pub ProviderMsg = AddAction | TriggerAction }
 
     pub struct Provider {
         data: u64,
-        callbacks: CallbackList<u64>,
+        actions: DynDataActionList<u64>,
     }
     impl Provider {
-        pub fn new()->Self { Provider{ data: 0, callbacks: CallbackList::new() } }
+        pub fn new()->Self { Provider{ data: 0, actions: DynDataActionList::new() } }
     }
 
     impl_actor! { match msg for Actor<Provider,ProviderMsg> as
-        AddCb => cont! { 
-            self.callbacks.push( msg.0) 
+        AddAction => cont! { 
+            self.actions.push( msg.0) 
         }
-        TriggerCb => cont! { 
+        TriggerAction => cont! { 
             self.data += 1;
-            self.callbacks.execute(&self.data).await 
+            self.actions.execute( &self.data).await 
         }
     }
 }
@@ -48,13 +48,13 @@ mod provider {
 mod client {
     use std::time::{Instant,Duration};
     use odin_actor::prelude::*;
-    use crate::provider::{ProviderMsg,AddCb,TriggerCb};
+    use crate::provider::{ProviderMsg,AddAction,TriggerAction};
 
     #[derive(Debug)] pub struct Update(u64);
     #[derive(Debug)] pub struct PingSelf(u64);
     #[derive(Debug)] pub struct TryPingSelf(u64);
 
-    define_actor_msg_type!{ pub ClientMsg = PingSelf | TryPingSelf | Update }
+    define_actor_msg_set!{ pub ClientMsg = PingSelf | TryPingSelf | Update }
 
     pub struct Client {
         max_rounds: u64,
@@ -72,9 +72,9 @@ mod client {
     impl_actor! { match msg for Actor<Client,ClientMsg> as
         _Start_ => cont! {
             //let cb = Callback::from( try_send_msg_callback!( &self.hself, |v:&u64| Update(*v) ));
-            let cb = Callback::from( send_msg_callback!( &self.hself, |v:&u64| Update(*v) ));
+            let a = send_msg_dyn_action!( &self.hself, |v:&u64| Update(*v) );
 
-            self.provider.send_msg( AddCb(cb)).await;
+            self.provider.send_msg( AddAction(a)).await;
             self.start_time = Instant::now();
             self.hself.try_send_msg( TryPingSelf(0));
         }
@@ -100,12 +100,12 @@ mod client {
 
                 // done measuring raw msg roundtrip, now start callback loop
                 self.start_time = Instant::now();
-                self.provider.try_send_msg( TriggerCb{});
+                self.provider.try_send_msg( TriggerAction{});
             }
         }
         Update => {
             if msg.0 < self.max_rounds { 
-                self.provider.try_send_msg( TriggerCb{});
+                self.provider.try_send_msg( TriggerAction{});
                 ReceiveAction::Continue 
             } else {
                 let elapsed = Instant::now() - self.start_time;

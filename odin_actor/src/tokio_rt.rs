@@ -86,7 +86,7 @@ pub async fn sleep (dur: Duration) {
 pub async fn timeout<F,R,E> (to: Duration, fut: F)->Result<R> where F: Future<Output= std::result::Result<R,E>> {
     match time::timeout( to, fut).await {
         Ok(result) => result.map_err(|_| OdinActorError::SendersDropped),
-        Err(e) => Err(OdinActorError::TimeoutError(to))
+        Err(e) => Err(OdinActorError::Timeout(to))
     }
 }
 
@@ -146,7 +146,7 @@ pub fn block_on_timeout_send_msg<Msg> (tgt: impl MsgReceiver<Msg>, msg: Msg, to:
             Err(e) => match e {
                 OdinActorError::ReceiverFull => {
                     if elapsed > to {
-                        return Err(OdinActorError::TimeoutError(to))
+                        return Err(OdinActorError::Timeout(to))
                     }
                     let dt = millis(30);
                     std::thread::sleep(dt); // note this is just an approximation but we don't try to minimize latency here
@@ -770,8 +770,8 @@ impl ActorSystem {
         }
     }
 
-    pub fn start_all(&self)->impl Future<Output=Result<()>> {
-        self.timeout_start_all(millis(100))
+    pub async fn start_all(&self)->Result<()> {
+        self.timeout_start_all(millis(100)).await
     }
 
     pub async fn timeout_start_all (&self, to: Duration)->Result<()> {

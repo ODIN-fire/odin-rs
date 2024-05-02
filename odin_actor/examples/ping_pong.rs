@@ -26,7 +26,7 @@ use odin_actor::errors::Result;
 
 //--- the Pinger
 
-define_actor_msg_type! { PingerMsg = Pong }
+define_actor_msg_set! { PingerMsg = Pong }
 
 struct Pinger<P> where P: MsgReceiver<Ping> {
     ponger: P
@@ -43,7 +43,7 @@ impl_actor! { match msg for Actor<Pinger<P>,PingerMsg> where P: MsgReceiver<Ping
 
 //--- the Ponger
 
-define_actor_msg_type! { PongerMsg = Ping }
+define_actor_msg_set! { PongerMsg = Ping }
 
 struct Ponger<P> where P: MsgReceiver<Pong> {
     pinger: P

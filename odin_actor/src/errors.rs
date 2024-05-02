@@ -35,7 +35,7 @@ pub enum OdinActorError {
     SendersDropped,
 
     #[error("timeout error: {0:?}")]
-    TimeoutError(Duration),
+    Timeout(Duration),
 
     #[error("{op} failed for {failed} out of {all} items")]
     IterOpFailed { op: String, all: usize, failed: usize },

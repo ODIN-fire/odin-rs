@@ -48,13 +48,12 @@ use colored::Colorize;
 //-- to make semantics more clear
 type TProviderUpdate = i64;
 type TProviderSnapshot = Vec<TProviderUpdate>;
-type TClientRequest = String;
-type TAddr = String; // client data
+type TLabel = String;
 
 /* #region provider ***************************************************************************/
 
 /// provider example, modeling some async changed data store (tracks, sensor readings etc.)
-struct Provider<A1,A2> where A1: ActorAction<TProviderUpdate>, A2: ActorAction2<TProviderSnapshot,TClientRequest>
+struct Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: LabeledDataRefAction<TLabel,TProviderSnapshot>
 {
     data: TProviderSnapshot,
     count: usize,
@@ -62,23 +61,25 @@ struct Provider<A1,A2> where A1: ActorAction<TProviderUpdate>, A2: ActorAction2<
     update_actions: A1, // actions to be triggered when our data changes
     snapshot_action: A2 // actions to be triggered when a client requests a snapshot
 }
-impl<A1,A2> Provider<A1,A2> where A1: ActorAction<TProviderUpdate>, A2: ActorAction2<TProviderSnapshot,TClientRequest>
+impl<A1,A2> Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: LabeledDataRefAction<TLabel,TProviderSnapshot>
 {
-    fn new(update_actions: A1, snapshot_action: A2)->Self {
-        Provider { data: Vec::new(), count: 0, update_actions, snapshot_action }
+    fn new(update_action: A1, snapshot_action: A2)->Self {
+        Provider { data: Vec::new(), count: 0, update_actions: update_action, snapshot_action }
     }
 
-    fn update(&mut self) {
-        self.data.push( self.count as TProviderUpdate);
+    fn update(&mut self) -> TProviderUpdate {
+        let update_data = self.count as TProviderUpdate;
+        self.data.push( update_data);
+        update_data
     }
 }
 
-#[derive(Debug)] struct ExecSnapshotAction { client_data: TClientRequest }
+#[derive(Debug)] struct ExecSnapshotAction { label: TLabel }
 
-define_actor_msg_type! { ProviderMsg = ExecSnapshotAction }
+define_actor_msg_set! { ProviderMsg = ExecSnapshotAction }
 
 impl_actor! { match msg for Actor<Provider<A1,A2>,ProviderMsg> 
-                    where A1: ActorAction<TProviderUpdate>, A2: ActorAction2<TProviderSnapshot,TClientRequest> as
+                    where A1: DataAction<TProviderUpdate>, A2: LabeledDataRefAction<TLabel,TProviderSnapshot> as
     _Start_ => cont! {
         self.hself.start_repeat_timer( 1, secs(1));
         println!("{} started", self.id().white());
@@ -86,19 +87,19 @@ impl_actor! { match msg for Actor<Provider<A1,A2>,ProviderMsg>
     _Timer_ => { // simulate async change of data (e.g. through some external I/O)
         self.count += 1;
         println!("{} update cycle {}", self.id().white(), self.count);
-        self.update();
+        let update_data = self.update();
 
         if self.count < 10 {
-            self.update_actions.execute( self.data.last().unwrap()).await;
+            self.update_actions.execute( update_data).await;
             ReceiveAction::Continue
         } else {
             println!("{} had enough of it, request termination.", self.id().white()); 
             ReceiveAction::RequestTermination 
         }
     }
-    ExecSnapshotAction => cont! { // client requests a full data snapshot
+    ExecSnapshotAction => cont! { // client requests a full data snapshot - pass on the label of the request
         println!("{} received {msg:?}", self.id().white());
-        self.snapshot_action.execute( &self.data, &msg.client_data).await;
+        self.snapshot_action.execute( msg.label, &self.data).await;
     }
 
 }
@@ -107,12 +108,14 @@ impl_actor! { match msg for Actor<Provider<A1,A2>,ProviderMsg>
 
 /* #region client *********************************************************************************/
 
+type TAddr = String; // used as action label, i.e. has to be the same as TLabel in the Provider
+
 /// client example, modeling a web server that manages web socket connections
-pub struct WsServer<A> where A: ActorAction<TAddr> {
+pub struct WsServer<A> where A: DataAction<TAddr> {
     connections: Vec<TAddr>,
-    new_request_action: A // action to be triggered when server gets a new (external) connection request
+    new_request_action: A // action to be triggered when WsServer gets a new (external) connection request
 }
-impl <A> WsServer<A> where A: ActorAction<TAddr> {
+impl <A> WsServer<A> where A: DataAction<TAddr> {
     pub fn new (new_request_action: A)->Self { WsServer{connections: Vec::new(), new_request_action} }
 }
 
@@ -124,24 +127,24 @@ impl <A> WsServer<A> where A: ActorAction<TAddr> {
 
 #[derive(Debug)] struct SimulateNewRequest { addr: TAddr }
 
-define_actor_msg_type! { WsServerMsg = PublishUpdate | SendSnapshot | SimulateNewRequest }
+define_actor_msg_set! { WsServerMsg = PublishUpdate | SendSnapshot | SimulateNewRequest }
 
-impl_actor! { match msg for Actor<WsServer<A>,WsServerMsg> where A: ActorAction<TAddr> as
+impl_actor! { match msg for Actor<WsServer<A>,WsServerMsg> where A: DataAction<TAddr> as
     SimulateNewRequest => cont! { // mockup simulating a new external connection event from 'addr'
         // note we don't add msg.addr to connections yet since that could cause sending updates before init snapshots
-        println!("{} got new connection request from {:?}", self.id().yellow(), msg.addr);
-        self.new_request_action.execute( &msg.addr).await;
+        println!("{} got new connection request from addr {:?}", self.id().yellow(), msg.addr);
+        self.new_request_action.execute( msg.addr).await;
     }
     PublishUpdate => cont! {
         if self.connections.is_empty() { 
-            println!("{} doesn't have connections yet, ignore data update", self.id().yellow())
+            println!("{} doesn't have connections yet, ignore received data update", self.id().yellow())
         } else {
-            println!("{} publishing data '{}' to connections {:?}", self.id().yellow(), msg.ws_msg, self.connections)
+            println!("{} publishing data update '{}' to connection addrs {:?}", self.id().yellow(), msg.ws_msg, self.connections)
         }
     }
     SendSnapshot => cont! {
         self.connections.push(msg.addr.clone());
-        println!("{} sending snapshot data '{}' to connection '{}'", self.id().yellow(), msg.ws_msg, msg.addr);
+        println!("{} sending snapshot data '{}' to connection addr '{}'", self.id().yellow(), msg.ws_msg, msg.addr);
     }
 }
 
@@ -150,28 +153,28 @@ impl_actor! { match msg for Actor<WsServer<A>,WsServerMsg> where A: ActorAction<
 #[tokio::main]
 async fn main ()->Result<()> {
     let mut actor_system = ActorSystem::new("main");
-    let pre_provider = PreActorHandle::new( &actor_system, "provider", 8); // we need it to construct the client
+    let provider = PreActorHandle::new( &actor_system, "provider", 8); // we need it to construct the client
 
-    //--- 1: set up the client (WsServer)
-    define_actor_action_type! { NewRequestAction = actor_handle <- (addr: &TAddr) for
-        ProviderMsg => {
-            let client_data = addr.clone(); // transform TAddr into TClientRequest should the two not be the same
-            actor_handle.try_send_msg( ExecSnapshotAction{client_data})
-        }
-    }
+    //--- set up the client
     let client = spawn_actor!( actor_system, "client", 
-        WsServer::new( NewRequestAction( pre_provider.as_actor_handle()) )
+        WsServer::new( 
+            data_action!( provider.as_actor_handle() as MsgReceiver<ExecSnapshotAction> => 
+                              |addr:TAddr| provider.try_send_msg( ExecSnapshotAction{label: addr})) 
+        )
     )?;
 
-    //--- 2: set up the provider (data source)
-    define_actor_action_type!{ UpdateAction = actor_handle <- (v: &TProviderUpdate) for
-        WsServerMsg =>  actor_handle.try_send_msg( PublishUpdate{ws_msg: format!("{{\"update\": \"{v}\"}}")})
-    }
-    define_actor_action2_type! { SnapshotAction = actor_handle <- (v: &TProviderSnapshot, addr: &TClientRequest) for
-        WsServerMsg => actor_handle.try_send_msg( SendSnapshot{ addr: addr.clone(), ws_msg: format!("{v:?}")} )
-    }
-    let provider = spawn_pre_actor!( actor_system, pre_provider, 
-        Provider::new( UpdateAction(client.clone()), SnapshotAction(client.clone()))
+    //--- set up the provider
+    let provider = spawn_pre_actor!( actor_system, provider, 
+        Provider::new(
+            data_action!( client.clone() as MsgReceiver<PublishUpdate> => |data: TProviderUpdate| {
+                let msg = PublishUpdate{ws_msg: format!("{{\"update\": \"{data}\"}}")}; // construct client message from provider data
+                client.try_send_msg( msg)
+            }),
+            labeled_dataref_action!( client.clone() as MsgReceiver<SendSnapshot> => |label: TAddr, data: &TProviderSnapshot| {
+                let msg = SendSnapshot{ addr: label, ws_msg: format!("{data:?}") }; // construct client message from label and provider data ref
+                client.try_send_msg( msg)
+            })     
+        )
     )?;
 
 

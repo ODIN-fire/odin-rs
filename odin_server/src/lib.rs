@@ -224,7 +224,7 @@ pub struct PushWsMsgToConnection {
     pub data: String 
 }
 
-define_actor_msg_type! { ServerMsg = 
+define_actor_msg_set! { ServerMsg = 
     AddConnection | 
     PushWsMsgToAll |
     PushWsMsgToConnection

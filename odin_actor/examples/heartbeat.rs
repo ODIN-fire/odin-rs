@@ -27,7 +27,7 @@ use anyhow::{anyhow,Result};
 #[derive(Debug)] struct MsgA(usize);
 #[derive(Debug)] struct MsgB(usize);
 
-define_actor_msg_type! { Actor1Msg = MsgA | MsgB }
+define_actor_msg_set! { Actor1Msg = MsgA | MsgB }
 
 struct Actor1State {
     n_a: usize,
@@ -42,7 +42,7 @@ impl_actor! { match msg for Actor<Actor1State,Actor1Msg> as
 //--- Actor2
 
 #[derive(Debug)] struct MsgC(usize);
-define_actor_msg_type! { Actor2Msg = MsgC }
+define_actor_msg_set! { Actor2Msg = MsgC }
 
 struct Actor2State {
     n: usize,
@@ -64,7 +64,7 @@ impl_actor! { match msg for Actor<Actor2State,Actor2Msg> as
 
 //--- Actor3
 
-define_actor_msg_type! { Actor3Msg }
+define_actor_msg_set! { Actor3Msg }
 
 struct Actor3State {
     a1: ActorHandle<Actor1Msg>,

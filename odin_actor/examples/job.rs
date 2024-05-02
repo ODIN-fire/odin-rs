@@ -25,7 +25,7 @@ use anyhow::{anyhow,Result};
 
 #[derive(Debug)] pub struct Greet (&'static str);
 #[derive(Debug)] pub struct Tick(usize);
-define_actor_msg_type! { GreeterMsg = Greet | Tick }
+define_actor_msg_set! { GreeterMsg = Greet | Tick }
 
 struct OnceGreeter { count: usize }
 

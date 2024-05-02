@@ -23,7 +23,7 @@ use anyhow::{anyhow,Result};
 /* #region ChildActor ************************************************** */
 
 #[derive(Debug)] pub struct ChildRequest { data: i64 }
-define_actor_msg_type! { ChildMsg = ChildRequest }
+define_actor_msg_set! { ChildMsg = ChildRequest }
 
 struct Child<A: MsgReceiver<ChildResponse>> { 
     parent: A 
@@ -42,7 +42,7 @@ impl_actor! { match msg for Actor<Child<A>,ChildMsg> where A: MsgReceiver<ChildR
 /* #region ParentActor ************************************************** */
 
 #[derive(Debug)] pub struct ChildResponse(String);
-define_actor_msg_type! { ParentMsg  = ChildResponse }
+define_actor_msg_set! { ParentMsg  = ChildResponse }
 
 struct Parent {
     child_handle: Option<ActorHandle<ChildMsg>>

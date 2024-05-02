@@ -20,7 +20,7 @@
  use odin_config::prelude::*;
  use odin_sentinel::{
     SentinelUpdate,LiveSentinelConnector,SentinelActor,
-    SentinelAlarmMonitor,SentinelAlarmMonitorMsg,ConsoleMessenger,EmptyInitAction,EmptySnapshotAction
+    SentinelAlarmMonitor,ConsoleMessenger
 };
  
  use_config!();
@@ -29,23 +29,19 @@
 async fn main ()->Result<()> {
     let mut actor_system = ActorSystem::with_env_tracing("main");
 
-    let pre_hsentinel = PreActorHandle::new( &actor_system, "sentinel", 8); 
+    let hsentinel = PreActorHandle::new( &actor_system, "sentinel", 8); 
 
     let hmonitor = spawn_actor!( actor_system, "monitor", SentinelAlarmMonitor::new(
         config_for!("sentinel-alarm")?,
-        pre_hsentinel.as_actor_handle(),
+        hsentinel.as_actor_handle(),
         ConsoleMessenger{}
     ))?;
 
-    define_actor_action_type! { UpdateAction = hrcv <- (update: &SentinelUpdate) for
-        SentinelAlarmMonitorMsg => hrcv.try_send_msg( update.clone())
-    }
-
-    let hsentinel = spawn_pre_actor!( actor_system, pre_hsentinel, SentinelActor::new(
+    let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
         LiveSentinelConnector::new( config_for!( "sentinel")?), 
-        EmptyInitAction(),
-        UpdateAction( hmonitor.clone()),
-        EmptySnapshotAction()
+        NoDataRefAction::new(),
+        data_action!( hmonitor as MsgReceiver<SentinelUpdate> => |data:SentinelUpdate| hmonitor.try_send_msg(data)),
+        NoLabeledDataRefAction::new()
     ))?;
 
     actor_system.timeout_start_all(millis(20)).await?;

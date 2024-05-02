@@ -1,0 +1,16 @@
+[book]
+title = "ODIN"
+description = "the Open Data Integration Framework"
+authors = ["Peter Mehlitz"]
+
+[build]
+build-dir = "../target/book"
+create-missing = true
+
+[output.html]
+additional-css = ["odin.css"]
+no-section-label = true
+
+[output.html.fold]
+enable = true
+level = 1

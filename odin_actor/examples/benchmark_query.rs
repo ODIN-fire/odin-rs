@@ -26,7 +26,7 @@ use anyhow::{anyhow,Result};
 
 /* #region responder ***********************************************************************************/
 
-define_actor_msg_type! { ResponderMsg = Query<Question,Answer> }
+define_actor_msg_set! { ResponderMsg = Query<Question,Answer> }
 
 struct Responder;
 
@@ -45,7 +45,7 @@ impl_actor! { match msg for Actor<Responder,ResponderMsg> as
 
 #[derive(Debug)] struct StartQueries;
 
-define_actor_msg_type! { RequesterMsg = StartQueries }
+define_actor_msg_set! { RequesterMsg = StartQueries }
 
 struct Requester <M> where M: MsgReceiver<Query<Question,Answer>> {
     responder: M,

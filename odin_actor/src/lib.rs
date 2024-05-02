@@ -48,9 +48,8 @@ pub use msg_patterns::*;
 extern crate odin_macro;
 #[doc(hidden)]
 pub use odin_macro::{
-    define_actor_msg_type, match_actor_msg, cont, stop, term, impl_actor, 
-    spawn_actor, spawn_dyn_actor, spawn_pre_actor, 
-    define_actor_msg_action_type, define_actor_action_type, define_actor_action2_type
+    define_actor_msg_set, match_actor_msg, cont, stop, term, impl_actor, 
+    spawn_actor, spawn_dyn_actor, spawn_pre_actor
 };
 
 
@@ -126,7 +125,7 @@ pub enum ReceiveAction {
     RequestTermination, // ask actor system to send _Terminate_ messages
 }
 
-pub trait MsgReceiverConstraints = Identifiable + Debug + Send;
+pub trait MsgReceiverConstraints = Identifiable + Debug + Send + Sync;
 
 /// single message type receiver trait to abstract concrete ActorHandle<MsgSet> instances that would
 /// force the client to know all messages the receiver understands, which reduces re-usability of the
@@ -160,31 +159,6 @@ pub trait DynMsgReceiver<T>: TryMsgReceiver<T> + MsgReceiverConstraints {
 /// Note that it is up to the user to handle backpressure (upon OdinError::ReceiverFull)
 pub trait TryMsgReceiver<T>: MsgReceiverConstraints {
     fn try_send_msg (&self, msg: T) -> Result<()>;
-}
-
-/// a list of ActorHandles implementing MsgReceiver<T> that we async send the same message to.
-/// Use this if the list owner is in control of what message to send.
-/// To create an ActorMsgList use the define_actor_msg_list!() macro
-pub trait ActorMsgAction<T>: Send where T: Clone + Debug + Send {
-    fn execute (&self,m:T) -> impl Future<Output=Result<()>> + Send;
-} 
-
-/// a list of ActorHandles with associated expressions we execute with list owner provided data. Conceptually
-/// this is like a list of AsyncFn(ActorHandle,&D) if there would be such a thing.
-/// Use this if the Actor call site (e.g. main()) is in control of actions.
-/// To create an ActorActionList use the define_actor_action_list!() macro
-pub trait ActorAction<D>: Send {
-    fn execute (&self, data: &D) -> impl Future<Output=Result<()>> + Send;
-}
-
-/// an action list that is executed with two arguments. One of them is typically is a reference to own data, the
-/// other one to external data received through the activation trigger. This is useful to implement async callbacks
-/// that have to carry over information from the request.
-/// While this could also be implemented with an ActorActionList that takes a tuple as argument type this would force us
-/// to add lifetime parameters to the ActorActionList in case we want to pass in values as references, which
-/// is the normal case for non-trivial owned data (which to maintain is the main reason for having the owner in the first place)
-pub trait ActorAction2<A,B>: Send {
-    fn execute (&self, a: &A,b: &B) -> impl Future<Output=Result<()>> + Send;
 }
 
 
@@ -300,7 +274,7 @@ pub trait DefaultReceiveAction {
 /* #endregion runtime/channel agnostic sytem messages */
 
 // a message set that only contains our system messages
-define_actor_msg_type! {
+define_actor_msg_set! {
     pub SysMsg // only the automatically added system message variants
 }
 

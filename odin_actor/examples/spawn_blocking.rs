@@ -24,7 +24,7 @@ use std::thread;
 #[derive(Debug)] struct Spawn;
 #[derive(Debug,Clone)] struct DataAvailable(i64);
 
-define_actor_msg_type! { SpawnerMsg = Spawn | DataAvailable }
+define_actor_msg_set! { SpawnerMsg = Spawn | DataAvailable }
 
 struct Spawner {
     count: usize,

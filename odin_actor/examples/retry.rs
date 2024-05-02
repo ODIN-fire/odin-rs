@@ -43,7 +43,7 @@ type TAddr = String; // client data
 /* #region provider ***************************************************************************/
 
 /// provider example, modeling some async changed data store (tracks, sensor readings etc.)
-struct Provider<A1,A2> where A1: ActorAction<TProviderUpdate>, A2: ActorAction2<TProviderSnapshot,TClientRequest>
+struct Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: Data2Action<TProviderSnapshot,TClientRequest>
 {
     data: TProviderSnapshot,
     count: usize,
@@ -51,7 +51,7 @@ struct Provider<A1,A2> where A1: ActorAction<TProviderUpdate>, A2: ActorAction2<
     update_actions: A1, // actions to be triggered when our data changes
     snapshot_action: A2 // actions to be triggered when a client requests a snapshot
 }
-impl<A1,A2> Provider<A1,A2> where A1: ActorAction<TProviderUpdate>, A2: ActorAction2<TProviderSnapshot,TClientRequest>
+impl<A1,A2> Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: Data2Action<TProviderSnapshot,TClientRequest>
 {
     fn new(update_actions: A1, snapshot_action: A2)->Self {
         Provider { data: Vec::new(), count: 0, update_actions, snapshot_action }
@@ -64,10 +64,10 @@ impl<A1,A2> Provider<A1,A2> where A1: ActorAction<TProviderUpdate>, A2: ActorAct
 
 #[derive(Debug)] struct ExecSnapshotAction { client_data: TClientRequest }
 
-define_actor_msg_type! { ProviderMsg = ExecSnapshotAction }
+define_actor_msg_set! { ProviderMsg = ExecSnapshotAction }
 
 impl_actor! { match msg for Actor<Provider<A1,A2>,ProviderMsg> 
-                    where A1: ActorAction<TProviderUpdate>, A2: ActorAction2<TProviderSnapshot,TClientRequest> as
+                    where A1: DataAction<TProviderUpdate>, A2: Data2Action<TProviderSnapshot,TClientRequest> as
     _Start_ => cont! {
         self.hself.start_repeat_timer( 1, secs(1));
         println!("{} started", self.id().white());
@@ -97,13 +97,13 @@ impl_actor! { match msg for Actor<Provider<A1,A2>,ProviderMsg>
 /* #region client *********************************************************************************/
 
 /// client example, modeling a web server that manages web socket connections
-pub struct WsServer<A> where A: ActorAction<TAddr> {
+pub struct WsServer<A> where A: DataAction<TAddr> {
     connections: Vec<TAddr>,
     new_request_action: A,// action to be triggered when server gets a new (external) connection request
 
     n_exec: usize
 }
-impl <A> WsServer<A> where A: ActorAction<TAddr> {
+impl <A> WsServer<A> where A: DataAction<TAddr> {
     pub fn new (new_request_action: A)->Self { WsServer{connections: Vec::new(), new_request_action, n_exec:0} }
 }
 
@@ -119,9 +119,9 @@ impl <A> WsServer<A> where A: ActorAction<TAddr> {
 
 #[derive(Debug)] struct FloodMsg{} // just used to flood the WsServer queue and create backpressure
 
-define_actor_msg_type! { WsServerMsg = PublishUpdate | SendSnapshot | ExecNewRequest | DelayMsg | FloodMsg }
+define_actor_msg_set! { WsServerMsg = PublishUpdate | SendSnapshot | ExecNewRequest | DelayMsg | FloodMsg }
 
-impl_actor! { match msg for Actor<WsServer<A>,WsServerMsg> where A: ActorAction<TAddr> as
+impl_actor! { match msg for Actor<WsServer<A>,WsServerMsg> where A: DataAction<TAddr> as
     ExecNewRequest => cont! { // mockup simulating a new external connection event from 'addr'
         println!("{} send connection request for {:?}", self.id().yellow(), msg.addr);
 
@@ -161,7 +161,7 @@ async fn main ()->Result<()> {
     let pre_provider = PreActorHandle::new( &actor_system, "provider", 8); // we need it to construct the client
 
     //--- 1: set up the client (WsServer)
-    define_actor_action_type! { NewRequestAction = actor_handle <-  (addr: &TAddr) for
+    define_msg_data_action! { NewRequestAction = actor_handle <-  (addr: &TAddr) for
         ProviderMsg => actor_handle.try_send_msg( ExecSnapshotAction{client_data: addr.clone()})
     }
     let client = spawn_actor!( actor_system, "client", 
@@ -170,10 +170,10 @@ async fn main ()->Result<()> {
     )?;
 
     //--- 2: set up the provider (data source)
-    define_actor_action_type!{ UpdateAction = actor_handle <-  (v: &TProviderUpdate) for
+    define_msg_data_action!{ UpdateAction = actor_handle <-  (v: &TProviderUpdate) for
         WsServerMsg =>  actor_handle.try_send_msg( PublishUpdate{ws_msg: format!("{{\"update\": \"{v}\"}}")})
     }
-    define_actor_action2_type! { SnapshotAction = actor_handle <-  (v: &TProviderSnapshot, addr: &TClientRequest) for
+    define_msg_data2_action! { SnapshotAction = actor_handle <-  (v: &TProviderSnapshot, addr: &TClientRequest) for
         WsServerMsg => {
             ///////////////// this is the main change compared to alist.rs
             match actor_handle.try_send_msg( SendSnapshot{ addr: addr.clone(), ws_msg: format!("{v:?}")}) {

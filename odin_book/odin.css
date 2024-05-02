@@ -1,0 +1,52 @@
+/* custom css for ODIN mdbooks (still needs rust, coal, ayu classes)*/
+
+:root {
+  --content-max-width: 80%;
+}
+
+.coal,.navy,.ayu {
+    img.mono[src*='.svg'] {
+      filter: invert(90%);
+    }
+}
+
+.light,.rust {
+    img.mono[src*='.svg'] {
+      filter: none;
+    }
+}
+
+img.left {
+  /*float: left;*/
+  display: inline-block;
+  vertical-align: middle;
+  /*padding: 1rem 2rem 0 1rem; */
+  margin: 15px 30px 15px 15px;
+}
+
+img.right {
+  /*float: right;*/
+  display: inline-block;
+  vertical-align: middle;
+  /* padding: 1rem 1rem 0 2rem; */
+  margin: 15px 15px 15px 30px;
+}
+
+p.box {
+  display: block;
+  border: 2px solid;
+  padding: 0.5em;
+  margin: 0.5em;
+}
+
+p.standout {
+  display: block;
+  padding: 0.5em;
+  margin: 0.5em;
+  text-align: Center;
+  font-weight: bolder;
+}
+
+.bottom-sep {
+  border-bottom: 1px solid;
+}

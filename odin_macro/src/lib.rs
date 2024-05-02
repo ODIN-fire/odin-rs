@@ -506,7 +506,7 @@ impl<'a> Visit<'a> for BlockAnalyzer {
 /// 
 /// Example:
 /// ```
-/// define_actor_msg_type! { pub MyActorMsg = A | B }
+/// define_actor_msg_set! { pub MyActorMsg = A | B }
 /// ```
 /// This is expanded into
 /// ```
@@ -518,11 +518,11 @@ impl<'a> Visit<'a> for BlockAnalyzer {
 /// }
 /// impl FromSysMsg for MyActorMsg {...}
 /// impl From<A> for MyActorMsg {...}
-/// impl From<B> for MyMsg {...}
+/// impl From<B> for MyActorMsg {...}
 /// impl DefaultReceiveAction for MyActorMsg {...}
 /// 
 #[proc_macro]
-pub fn define_actor_msg_type (item: TokenStream) -> TokenStream {
+pub fn define_actor_msg_set (item: TokenStream) -> TokenStream {
     let AdtEnum {visibility, name, derives, mut variant_types, methods }= syn::parse(item).unwrap();
     for var_type in get_sys_msg_types() {
         variant_types.push(var_type)
@@ -1101,240 +1101,6 @@ impl Parse for SpawnPreActor {
 }
 
 /* #endregion spawn_actor */
-
-/* #region actor lists ***********************************************************/
-
-/// macro to define structs that implement [`ActorMsgAction`] 
-///  ```
-///  define_actor_msg_action_type!{ MyMsgAction = Msg1 for Actor1Msg, Actor2Msg }
-///  let my_msg_action = MyMsgAction( ah1, ah2);
-///  ... async { .. my_msg_action.executeg( Msg1(42)).await }
-///  ```
-///  which gets expanded into:    
-///  ```
-///  struct MyMsgAction (ActorHandle<Actor1Msg>,ActorHandle<Actor2Msg>);
-///  impl ActorMsgAction<Msg1> for MyMsgAction {
-///      async fn execute(&self,m:Msg1)->Result<()> {
-///          self.0.send_msg(m.clone()).await?;
-///          self.1.send_msg(m).await
-///      }
-///  }
-///  ```
-#[proc_macro]
-pub fn define_actor_msg_action_type (item: TokenStream)->TokenStream {
-    let ActorMsgActionSpec{ name, data_type, msg_types} = match syn::parse(item) {
-        Ok(msg_list) => msg_list,
-        Err(e) => panic!( "expected define_actor_msg_action_type!(«actionType» = «msgVariant» <- «msgType», ...) ,error: {:?}", e)
-    };
-
-    let max_idx = msg_types.len()-1;
-    let stmts: Vec<TokenStream2> = msg_types.iter().enumerate().map(|(idx,a)| {
-        let idx_tok = Literal::usize_unsuffixed(idx); 
-        if idx < max_idx { quote!{ self.#idx_tok.send_msg(msg.clone()).await? } } else { quote!{ self.#idx_tok.send_msg(msg).await } }
-    }).collect();
-
-    let new_item: TokenStream = quote! {
-        struct #name ( #( ActorHandle< #msg_types > ),* );
-        impl ActorMsgAction< #data_type > for #name {
-            async fn execute(&self, msg: #data_type)->odin_actor::Result<()> {
-                #( #stmts );*
-            }
-        }
-    }.into();
-    //println!("-----\n{}\n-----", new_item.to_string());
-
-    new_item
-}
-
-struct ActorMsgActionSpec {
-    name: Ident,
-    data_type: Path,  // the message variant that is sent to all actor handles
-    msg_types: Vec<Path>
-}
-
-impl Parse for ActorMsgActionSpec {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let name: Ident = input.parse()?;
-        let _ : Token![=] = input.parse()?;
-        let data_type: Path = input.parse()?;
-        let _: For = input.parse()?;
-
-        let mut msg_types: Vec<Path> = Vec::new();
-        while !input.is_empty() {
-            let msg_type: Path = input.parse()?;
-            msg_types.push(msg_type);
-
-            let lookahead = input.lookahead1();
-            if lookahead.peek( Comma) { let _: Comma = input.parse()?; }
-        }
-
-        Ok( ActorMsgActionSpec{ name, data_type, msg_types } )
-    }
-}
-
-/// macro to define structs that implement [`ActorActionList`]
-/// ```
-/// define_actor_action_type! { MyAction = actor_handle <- (data:&u64) for
-///   Actor1Msg => actor_handle.send_msg( Msg1(*data)).await,
-///   Actor2Msg => actor_handle.try_send_msg( Msg2(*data))
-/// }
-/// let my_action_list = MyAction( ah1, ah2);
-/// ... async { let my_data: u64; ... my_action_list.execute( &my_data).await }
-/// ```
-/// which gets expanded into
-/// ```
-/// struct MyAction (ActorHandle<Actor1Msg>,ActorHandle<Actor2Msg>);
-/// impl ActorAction<u64> for MyAction {
-/// async fn execute (&self, data: &u64)->Result<()> {
-///     let mut actor_handle;
-///     actor_handle = &self.0; actor_handle.send_msg( Msg1(*data).into()).await?;
-///     actor_handle = &self.1; actor_handle.try_send_msg( Msg2(*data).into())
-/// }
-/// ```
-/// Note that the provided execute() argument type has to be a simple reference
-/// (no slices such as `&'static str` allowed) since we don't want to add explicit
-/// lifetimes to the definition
-#[proc_macro]
-pub fn define_actor_action_type (item: TokenStream)->TokenStream {
-    let ActorActionSpec{ visibility, struct_name, handle_name, data_vars, actions} = match syn::parse(item) {
-        Ok(action_list) => action_list,
-        Err(e) => panic!( "expected define_actor_action_type!(«actionType» = «actor_handle» <- («execArg» : «dataType»)), error: {:?}", e)
-    };
-
-    if data_vars.len() != 1 { panic!("expected single execute(arg) argument") }
-    let v_base = get_type_base( &data_vars.first().unwrap().var_type);
-
-    let msg_types: Vec<&Path> = actions.iter().map(|a| &a.msg_type).collect();
-    let stmts = get_action_stmts( &handle_name, &actions);
-    let exec_body = if stmts.is_empty() { 
-        quote!{ Ok(()) } 
-    } else { 
-        quote!{ #( #stmts );* } 
-    };
-
-    let new_item: TokenStream = quote! {
-        #visibility struct #struct_name ( #( ActorHandle< #msg_types > ),* );
-        impl ActorAction< #v_base > for #struct_name {
-            async fn execute (&self, #data_vars)->odin_actor::Result<()> {
-                #exec_body
-            }
-        }
-    }.into();
-    //println!("-----\n{}\n-----", new_item.to_string());
-
-    new_item
-}
-
-
-/// macro to define structs that implement [`ActorAction2`]
-/// this follows the same pattern as [`define_actor_action_type`] with the difference
-/// that we provide two `execute(..)` arguments. One is from the action owner state, 
-/// the other one provided by the trigger (message). It is up to the concrete owner (actor)
-/// to decide which one is which.
-#[proc_macro]
-pub fn define_actor_action2_type (item: TokenStream)->TokenStream {
-    let ActorActionSpec{ visibility, struct_name, handle_name, data_vars, actions} = match syn::parse(item) {
-        Ok(action_list) => action_list,
-        Err(e) => panic!( "expected define_actor_action2_type!(«actionType» = «actor_handle» <- («execArg1» : «dataType», «execArg2» : «dataType»)), error: {:?}", e)
-    };
-
-    if data_vars.len() != 2 { panic!("expected two execute(arg1,arg2) arguments") }
-    let v1_base = get_type_base(&data_vars.first().unwrap().var_type);
-    let v2_base = get_type_base(&data_vars.last().unwrap().var_type);
-
-    let msg_types: Vec<&Path> = actions.iter().map(|a| &a.msg_type).collect();
-    let stmts = get_action_stmts( &handle_name, &actions);
-    let exec_body = if stmts.is_empty() { 
-        quote!{ Ok(()) } 
-    } else { 
-        quote!{ #( #stmts );* } 
-    };
-
-    let new_item: TokenStream = quote! {
-        #visibility struct #struct_name ( #( ActorHandle< #msg_types > ),* );
-        impl ActorAction2< #v1_base, #v2_base > for #struct_name {
-            async fn execute (&self, #data_vars)->odin_actor::Result<()> {
-                #exec_body
-            }
-        }
-    }.into();
-    //println!("-----\n{}\n-----", new_item.to_string());
-
-    new_item
-}
-
-fn get_action_stmts (handle_name: &Ident, actions: &Vec<ActorActionArm>)->Vec<TokenStream2> {
-    if actions.is_empty() {
-        Vec::with_capacity(0)
-    } else {
-        let max_idx = actions.len()-1;
-
-        actions.iter().enumerate().map(|(idx,a)| {
-            let result_expr = &a.result_expr;
-            let idx_tok = Literal::usize_unsuffixed(idx); 
-            if idx < max_idx { 
-                quote!{ let #handle_name = &self.#idx_tok; #result_expr; } 
-            } else { 
-                quote!{ let #handle_name = &self.#idx_tok; #result_expr } 
-            }
-        }).collect()
-    }
-}
-
-struct ActorActionSpec {
-    visibility: Visibility,
-    struct_name: Ident,
-    handle_name: Ident,
-    data_vars: Punctuated<TypedVar,Comma>,
-    actions: Vec<ActorActionArm>
-}
-
-impl Parse for ActorActionSpec {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let visibility: Visibility = parse_visibility(input);
-        let struct_name: Ident = input.parse()?;
-        let _ : Token![=] = input.parse()?;
-        let handle_name: Ident = input.parse()?;
-        let _ : Token![<-] = input.parse()?;
-        let data_vars: Punctuated<TypedVar,Comma> = {
-            let arg_input;
-            let _data_paren: Paren = parenthesized!( arg_input in input);
-            Punctuated::parse_separated_nonempty(&arg_input)?
-        };
-
-        let mut actions = Vec::<ActorActionArm>::new();
-        let lookahead = input.lookahead1();
-        if lookahead.peek( For) {
-            let _: For = input.parse()?;
-
-            while !input.is_empty() {
-                let a: ActorActionArm = input.parse()?;
-                actions.push(a);
-        
-                let lookahead = input.lookahead1();
-                if lookahead.peek( Comma) { let _: Comma = input.parse()?; }
-            }
-        }
-    
-        Ok( ActorActionSpec{visibility, struct_name, handle_name, data_vars, actions} )
-    }
-}
-
-struct ActorActionArm {
-    msg_type: Path,
-    result_expr: Expr
-}
-impl Parse for ActorActionArm {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let msg_type: Path = input.parse()?;
-        let _: Token![=>] = input.parse()?;
-        let result_expr: Expr = input.parse()?;
-        // TODO - should check here if expr type is Result<(),OdinActorError>
-        Ok(ActorActionArm{ msg_type, result_expr })
-    }
-}
-
-/* #endergion actor lists */
 
 /* #region fnmut *****************************************************************/
 
