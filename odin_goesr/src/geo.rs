@@ -163,18 +163,6 @@ pub fn get_lat_lon_grid(data: &GoesRData) -> Result<LatLonGrid>{
     let r_pol = proj.semi_minor_axis;
     // Equations to calculate latitude and longitude
     let lambda_0 = (lon_origin*PI)/180.0;
-    // // let sin_x = x_grid.mapv(|x| f64::sin(x).powf(2.0));
-    // // let cos_x = x_grid.mapv(|x| f64::cos(x).powf(2.0));
-    // // let cos_y = y_grid.mapv(|y| f64::cos(y).powf(2.0));
-    // // let sin_y = y_grid.mapv(|y| f64::sin(y).powf(2.0));
-    // let a_var = &x_grid.mapv(|x| f64::sin(x).powf(2.0)) + (&x_grid.mapv(|x| f64::cos(x).powf(2.0))*((&y_grid.mapv(|y| f64::cos(y).powf(2.0)))+(((r_eq*r_eq)/(r_pol*r_pol))*(&y_grid.mapv(|y| f64::sin(y).powf(2.0))))));
-    // let b_var = -2.0*h*&x_grid.mapv(|x| f64::cos(x)) * &y_grid.mapv(|y| f64::cos(y)); 
-    // let c_var = (&h.powf(2.0))-(&r_eq.powf(2.0));
-    // let r_s = (-1.0*&b_var - ((&b_var.mapv(|x| x.powf(2.0)))-(4.0 * &a_var * c_var)).mapv(|x| f64::sqrt(x)))/(2.0*&a_var);
-    // let s_x = &r_s * &x_grid.mapv(|x| f64::cos(x)) * &y_grid.mapv(|y| f64::cos(y)); 
-    // let s_y = - &r_s * &x_grid.mapv(|x| f64::sin(x));
-    // let s_z = &r_s * &x_grid.mapv(|x| f64::cos(x)) * &y_grid.mapv(|y| f64::sin(y));
-    // chatgpt optimization
 
     // Precalculate sine and cosine values
     let sin_x = x_grid.mapv(f64::sin);
