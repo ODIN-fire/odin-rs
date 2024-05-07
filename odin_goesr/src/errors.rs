@@ -50,6 +50,13 @@ pub enum OdinGoesRError {
      // pass through for errors in gdal crate
      #[error("gdal error {0}")]
      GdalError( #[from] gdal::errors::GdalError),
+
+     #[error("serde error {0}")]
+     SerdeError( #[from] serde_json::Error),
+
+     #[error("ODIN Actor error {0}")]
+     OdinActorError( #[from] odin_actor::errors::OdinActorError),
+
 }
 
 pub fn no_object  (msg: impl ToString)->OdinGoesRError {

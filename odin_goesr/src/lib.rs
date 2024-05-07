@@ -22,11 +22,10 @@ use odin_actor::error;
 
 use std::{fs::File, path::PathBuf, time::Duration, io::Write};
 use std::collections::HashMap;
-use aws_sdk_s3::primitives::DateTime;
+use aws_smithy_types_convert::date_time::DateTimeExt;
 use serde::{Deserialize,Serialize};
 use odin_common::geo::LatLon;
-//use chrono::{DateTime,Utc};
-use chrono::{Datelike, Utc, Timelike};
+use chrono::{Datelike, DateTime, Utc, Timelike};
 use uom::si::area::square_meter;
 use uom::si::f32::{Power,ThermodynamicTemperature, Area, Length};
 use uom::si::length::meter;
@@ -38,6 +37,7 @@ use aws_config::Region;
 use gdal::Dataset;
 use paste::paste;
 use std::time::Instant;
+use futures::Future;
 
 mod errors;
 pub mod actor;
@@ -53,7 +53,7 @@ pub struct GoesRData {
     pub sat_id: u8,
     pub file: PathBuf,
     pub product: GoesRProduct,
-    pub date: DateTime
+    pub date: DateTime<Utc>
 }
 #[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]
 pub struct GoesRProduct {
@@ -62,10 +62,10 @@ pub struct GoesRProduct {
     pub history: String
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone, Serialize)]
 pub struct GoesRHotSpot {
     pub sat_id: u8,
-    pub date: DateTime,
+    pub date: DateTime<Utc>,
     pub position: LatLon,
     //center: LatLog, 
     pub bounds: GoesRBoundingBox,
@@ -103,10 +103,10 @@ impl GoesRHotSpot {
     }
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone, Serialize)] // to do: add to json, to json pretty
 pub struct GoesRHotSpots {
     pub sat_id: u8,
-    pub date: DateTime,
+    pub date: DateTime<Utc>,
     pub source: String,
     pub hotspots: Vec<GoesRHotSpot>
 }
@@ -119,6 +119,9 @@ impl GoesRHotSpots {
             source: data.product.name.clone(),
             hotspots: hotspot_vec
         }
+    }
+    pub fn to_json_pretty (&self)->Result<String> {
+        Ok(serde_json::to_string_pretty( &self )?)
     }
 }
 
@@ -134,29 +137,69 @@ pub struct GoesRImportActorConfig {
     pub max_records:usize
 }
 
+pub trait GoesRDataImporter {
+    fn start (&mut self, hself: ActorHandle<GoesRActorMsg>) -> impl Future<Output=Result<()>> + Send;
+    // fn terminate (&mut self);
+    // fn max_history(&self)->usize;
+}
+
+#[derive(Debug,Clone)]
+pub struct LiveGoesRDataImporter {
+    pub config: GoesRImportActorConfig,
+    pub data_dir: PathBuf,
+    pub task: Option<LiveGoesRDataAcquisitionTask>
+}
+
+impl LiveGoesRDataImporter {
+    pub fn new (config: GoesRImportActorConfig) -> Self {
+        LiveGoesRDataImporter {
+            data_dir: config.data_dir.clone(),
+            config: config,
+            task: None
+        }
+    }
+    async fn initialize  (&mut self, hself: ActorHandle<GoesRActorMsg>) -> Result<()> { 
+        self.task = Some(LiveGoesRDataAcquisitionTask::new(self.config.clone(), hself).await);
+        Ok(())
+    }
+}
+
+impl GoesRDataImporter for LiveGoesRDataImporter {
+    async fn start (&mut self, hself: ActorHandle<GoesRActorMsg>) -> Result<()> {
+        self.initialize(hself).await?;
+        if let Some(ref mut task) = self.task {
+            task.spawn_data_acquitision_task().await; // this will send and initilize message, set up future downloads
+        }
+        Ok(())
+    }
+
+    // fn terminate (&mut self);
+    // fn max_history(&self)->usize;
+}
+
+
 // init action
 #[derive(Clone, Debug)]
-pub struct GoesRDataAcquisitionThread {
+pub struct LiveGoesRDataAcquisitionTask { 
     pub latest_objs: HashMap<String, Object>,
-    // hself: actor_ref,
     pub sat_id: u8,
     pub polling_interval: Duration,
     pub s3_client:Client,
     pub products: Vec<GoesRProduct>,
     pub data_dir: PathBuf,
     pub init_records:usize,
-    pub hself: ActorHandle<GoesRMsg>
+    pub hself: ActorHandle<GoesRActorMsg>
 
 }
 
-impl GoesRDataAcquisitionThread {
+impl LiveGoesRDataAcquisitionTask {
 
-    pub async fn new(config:GoesRImportActorConfig, hself:ActorHandle<GoesRMsg>) -> Self {
+    pub async fn new(config:GoesRImportActorConfig, hself:ActorHandle<GoesRActorMsg>) -> Self {
         let region_provider = RegionProviderChain::first_try(Region::new(config.s3_region.clone()));
         let aws_config = aws_config::from_env().no_credentials().region(region_provider).load().await; // add anonymous creditials
         let s3_client = Client::new(&aws_config);
         let latest_objs:HashMap<String, Object> = HashMap::new();
-        GoesRDataAcquisitionThread {
+        LiveGoesRDataAcquisitionTask {
             latest_objs: latest_objs,
             sat_id: config.satellite,
             polling_interval: config.polling_interval,
@@ -185,7 +228,7 @@ impl GoesRDataAcquisitionThread {
             let hotspots = hotspots_res?;
             Ok(hotspots)
         } else {
-                Err(OdinGoesRError::NoObjectError(String::from("No objects for GOES-R product and datetime initialization")))
+            Err(OdinGoesRError::NoObjectError(String::from("No objects for GOES-R product and datetime initialization")))
         }
     }
     
@@ -223,29 +266,29 @@ impl GoesRDataAcquisitionThread {
     async fn sleep_for_remainder_of_cycle(&self) {
         sleep(minutes(5)).await;
     }
-    pub async fn spawn_data_acquitision_task(&mut self) {
-         match  self.initial_download().await {
-                Ok(init_hotspots) => {
-                    self.hself.try_send_msg( Initialize(init_hotspots) );
+    pub async fn spawn_data_acquitision_task(&mut self) -> Result<()>{
+        match  self.initial_download().await {
+            Ok(init_hotspots) => {
+                self.hself.send_msg( Initialize(init_hotspots) ).await?;
+            }
+            Err(e) => {
+                error!("failed to download initial GOES-R data: {e:?}")
+            }
+        }
+        loop {
+            self.sleep_for_remainder_of_cycle().await;
+            match  self.download_updates().await {
+                Ok(hotspots) => {
+                    self.hself.send_msg( Update(hotspots) ).await?;
                 }
                 Err(e) => {
-                    error!("failed to download initial GOES-R data: {e:?}")
+                    error!("failed to download updated GOES-R data: {e:?}")
                 }
             }
-            loop {
-                self.sleep_for_remainder_of_cycle().await;
-                match  self.download_updates().await {
-                    Ok(hotspots) => {
-                        self.hself.try_send_msg( Update(hotspots) );
-                    }
-                    Err(e) => {
-                        error!("failed to download updated GOES-R data: {e:?}")
-                    }
-                }
-            }
-        
+        }
     }
 }
+
 
 /* #endregion GoesR data structure */
 
@@ -271,12 +314,14 @@ async fn get_multiple_objects(client: &Client, bucket: &String, prefix: &String,
     }
 }
 
-pub async fn get_multiple_last_hour_objects (client: &Client, dt: &chrono::DateTime<Utc>, bucket:&String, product:&GoesRProduct,  num_obj: &usize) -> Result<Option<Vec<Object>>> {
+pub async fn get_multiple_last_hour_objects (client: &Client, dt: &DateTime<Utc>, bucket:&String, product:&GoesRProduct,  num_obj: &usize) -> Result<Option<Vec<Object>>> {
     let mut prev_hour = (dt.hour() as i16 -1 as i16) as i16;
+    let mut day = dt.ordinal();
     if prev_hour<0 {
-        prev_hour = 23
+        prev_hour = 23;
+        day = day-1;
     }
-    let prefix_last_hour  = format!("{}/{}/{:03}/{:02}/", product.name, dt.year(), dt.ordinal(), prev_hour); // https://stackoverflow.com/questions/76651472/do-rust-s3-sdk-datetimes-work-with-chrono
+    let prefix_last_hour  = format!("{}/{}/{:03}/{:02}/", product.name, dt.year(), day, prev_hour); // https://stackoverflow.com/questions/76651472/do-rust-s3-sdk-datetimes-work-with-chrono
     let last_hour_objects = get_multiple_objects(&client, bucket, &prefix_last_hour, &num_obj).await?;
     Ok(last_hour_objects)
 }
@@ -325,14 +370,11 @@ async fn get_most_recent_object(client: &Client, bucket: &String, prefix: &Strin
 pub async fn get_goesr_data(client: &Client, obj: Object, destination: &PathBuf, product:&GoesRProduct, sat_id:u8) -> Result<GoesRData>{
     let obj_dt = obj.last_modified.clone().unwrap();
     let file = download_object(&client, &get_bucket(&sat_id), obj, destination).await?;
-    let data = GoesRData{sat_id: sat_id, file:file, product:product.clone(), date: obj_dt};
+    let data = GoesRData{sat_id: sat_id, file:file, product:product.clone(), date: obj_dt.to_chrono_utc().unwrap()};
     Ok(data)
 }
 
 async fn download_object(client: &Client, bucket: &String, object: Object, destination: &PathBuf) -> Result<PathBuf>{
-    // trace!("bucket:      {}", bucket);
-    // // trace!("object:      {}", object.key);
-    // trace!("destination: {}", destination.display());
     if let Some(key) = object.key {
         let file_name = key.split("/").collect::<Vec<&str>>().last().copied().unwrap();
         let file_path = PathBuf::from(destination).join(file_name);
@@ -348,20 +390,20 @@ async fn download_object(client: &Client, bucket: &String, object: Object, desti
         while let Some(bytes) = object.body.try_next().await? {
             file.write_all(&bytes)?;
         }
-
         Ok(file_path)
     } else {
         Err(OdinGoesRError::NoObjectKeyError())
     }
-    
 }
 
-pub async fn get_last_hour_objects (client: &Client, dt: &chrono::DateTime<Utc>, bucket:&String, product:&GoesRProduct, prev_obj: Option<&Object>) -> Result<Option<Object>> {
+pub async fn get_last_hour_objects (client: &Client, dt: &DateTime<Utc>, bucket:&String, product:&GoesRProduct, prev_obj: Option<&Object>) -> Result<Option<Object>> {
     let mut prev_hour = (dt.hour() as i16 -1 as i16) as i16;
-    if prev_hour<0 {
-        prev_hour = 23
+    let mut prev_date = dt.ordinal();
+    if prev_hour<0 { // update to read the previous days objects
+        prev_hour = 23;
+        prev_date = prev_date -1;
     }
-    let prefix_last_hour  = format!("{}/{}/{:03}/{:02}/", product.name, dt.year(), dt.ordinal(), prev_hour); // https://stackoverflow.com/questions/76651472/do-rust-s3-sdk-datetimes-work-with-chrono
+    let prefix_last_hour  = format!("{}/{}/{:03}/{:02}/", product.name, dt.year(), prev_date, prev_hour); 
     let last_hour_object = get_most_recent_object(&client, bucket, &prefix_last_hour, prev_obj).await?;
     Ok(last_hour_object)
 }
@@ -429,7 +471,6 @@ pub fn get_hotspots (data: &GoesRData, areas: Vec<u16>, masks: Vec<u16>, powers:
 pub fn read_goesr_data(data: &GoesRData) -> Result<GoesRHotSpots> {
     let start = Instant::now();
     let lat_lon_grid = get_lat_lon_grid(&data)?;
-    println!("grid time: {:?}", start.elapsed());
     let mut x_vals: Vec<usize> = vec![];
     let mut y_vals: Vec<usize> = vec![];
     let mut mask_vals:Vec<u16> = vec![];

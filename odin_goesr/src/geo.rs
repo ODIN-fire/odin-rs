@@ -20,6 +20,7 @@ use gdal::{Dataset, Metadata, MetadataEntry};
 use meshgridrs::{meshgrid, Indexing};
 use ndarray::{Array, ArrayBase, OwnedRepr, Dim, IxDynImpl};
 use odin_common::geo::LatLon;
+use serde::Serialize;
 use crate::{errors::*, GoesRData};
 
  #[derive(Debug)]
@@ -89,7 +90,7 @@ pub struct LatLonGrid {
     lon_grid: ArrayBase<OwnedRepr<f64>, Dim<IxDynImpl>>
 }
 
-#[derive(Debug,Clone, Copy)]
+#[derive(Debug,Clone, Copy, Serialize)]
 pub struct GoesRBoundingBox {
     pub ne: LatLon,
     pub nw:LatLon,
@@ -194,16 +195,16 @@ pub fn get_lat_lon_grid(data: &GoesRData) -> Result<LatLonGrid>{
     let abi_lat = (180.0/PI)*((((&r_eq * &r_eq)/(&r_pol * &r_pol))*(&s_z/((&s_x.mapv(|x| (&h - x).powf(2.0)))+(&s_y.mapv(|x| x.powf(2.0)))).mapv(|x| f64::sqrt(x))).mapv(|x| f64::atan(x))));
     let abi_lon =  (&s_y / (&s_x.mapv(|x| &h - x))).mapv(|x| (&lambda_0 -f64::atan(x)))*(180.0/PI);
     // return an array of latlons
-    let max_value = abi_lat.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-    println!("Lat Maximum value: {}", max_value);
-    // Get the minimum value
-    let min_value = abi_lat.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-    println!("Lat Minimum value: {}", min_value);
-    let max_value = abi_lon.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-    println!("Lon Maximum value: {}", max_value);
-    // Get the minimum value
-    let min_value = abi_lon.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-    println!("Lon Minimum value: {}", min_value);
+    // let max_value = abi_lat.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+    // println!("Lat Maximum value: {}", max_value);
+    // // Get the minimum value
+    // let min_value = abi_lat.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+    // println!("Lat Minimum value: {}", min_value);
+    // let max_value = abi_lon.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+    // println!("Lon Maximum value: {}", max_value);
+    // // Get the minimum value
+    // let min_value = abi_lon.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+    // println!("Lon Minimum value: {}", min_value);
     // let lat_lons = abi_lat.iter().zip(abi_lon.iter()).map(|(lat, lon)| LatLon{lat_deg:*lat, lon_deg:*lon}).collect::<Array2<LatLon>>();
     // println!("lat lon grid {:?}", lat_lons.dim());
     Ok(LatLonGrid{lat_grid:abi_lat,lon_grid: abi_lon})

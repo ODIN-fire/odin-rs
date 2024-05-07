@@ -19,13 +19,14 @@ ron = "*"
 serde = { version = "*", features = ["rc"] }
 serde_with = "*" 
 anyhow = "*"
-chrono = "*"
+chrono = { version = "*", features = ["serde"] }
 thiserror = "*"
 tokio = { version = "*", features = ["full"] }
 aws-config = { version = "1.0.1", features = ["behavior-version-latest"] }
 aws-sdk-s3 = { version = "1.4.0", features = ["rt-tokio"] }
 aws-smithy-runtime-api = "1.3.0"
-aws-smithy-types = "*"
+aws-smithy-types-convert = { version = "*", features = ["convert-chrono"] }
+aws-smithy-types = { version = "*", features = ["serde-serialize"] }
 gdal = {version="*", features=["array"]}
 uom = { version = "*", features = ["serde", "f32"] }
 meshgridrs = "0.1.1"

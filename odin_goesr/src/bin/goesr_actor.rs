@@ -19,9 +19,8 @@ use anyhow::Result;
 use std::time::Duration;
 use std::path::PathBuf;
 use odin_actor::prelude::*;
-use odin_actor::{error,debug,warn,info};
 use odin_goesr::actor::GoesRImportActor;
-use odin_goesr::{GoesRImportActorConfig, GoesRProduct};
+use odin_goesr::{GoesRImportActorConfig, LiveGoesRDataImporter, GoesRProduct};
 
 #[tokio::main]
 async fn main() -> Result<()>{
@@ -44,9 +43,9 @@ async fn main() -> Result<()>{
     
     let mut actor_system = ActorSystem::new("main");
 
-    let actor_handle = spawn_actor!( actor_system, "goesr",  GoesRImportActor::new(config).await)?;
+    let _actor_handle = spawn_actor!( actor_system, "goesr",  GoesRImportActor::new(config.clone(), LiveGoesRDataImporter::new(config.clone())).await)?;
     actor_system.start_all().await?;
-    actor_system.process_requests().await;
+    let _ = actor_system.process_requests().await;
 
     Ok(())
 }
