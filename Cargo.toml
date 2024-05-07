@@ -15,7 +15,7 @@ members = [
   "odin_windninja",
 
   "odin_sentinel",
-
+  "odin_goesr",
   "gpshub",
 
   "opendata_splitter",
