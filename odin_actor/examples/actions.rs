@@ -48,12 +48,12 @@ use colored::Colorize;
 //-- to make semantics more clear
 type TProviderUpdate = i64;
 type TProviderSnapshot = Vec<TProviderUpdate>;
-type TLabel = String;
+type TRequest = String;
 
 /* #region provider ***************************************************************************/
 
 /// provider example, modeling some async changed data store (tracks, sensor readings etc.)
-struct Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: LabeledDataRefAction<TLabel,TProviderSnapshot>
+struct Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: BiDataRefAction<TProviderSnapshot,TRequest>
 {
     data: TProviderSnapshot,
     count: usize,
@@ -61,7 +61,7 @@ struct Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: LabeledDataRef
     update_actions: A1, // actions to be triggered when our data changes
     snapshot_action: A2 // actions to be triggered when a client requests a snapshot
 }
-impl<A1,A2> Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: LabeledDataRefAction<TLabel,TProviderSnapshot>
+impl<A1,A2> Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: BiDataRefAction<TProviderSnapshot,TRequest>
 {
     fn new(update_action: A1, snapshot_action: A2)->Self {
         Provider { data: Vec::new(), count: 0, update_actions: update_action, snapshot_action }
@@ -74,12 +74,12 @@ impl<A1,A2> Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: LabeledDa
     }
 }
 
-#[derive(Debug)] struct ExecSnapshotAction { label: TLabel }
+#[derive(Debug)] struct ExecSnapshotAction { request: TRequest }
 
 define_actor_msg_set! { ProviderMsg = ExecSnapshotAction }
 
 impl_actor! { match msg for Actor<Provider<A1,A2>,ProviderMsg> 
-                    where A1: DataAction<TProviderUpdate>, A2: LabeledDataRefAction<TLabel,TProviderSnapshot> as
+                    where A1: DataAction<TProviderUpdate>, A2: BiDataRefAction<TProviderSnapshot,TRequest> as
     _Start_ => cont! {
         self.hself.start_repeat_timer( 1, secs(1));
         println!("{} started", self.id().white());
@@ -99,7 +99,7 @@ impl_actor! { match msg for Actor<Provider<A1,A2>,ProviderMsg>
     }
     ExecSnapshotAction => cont! { // client requests a full data snapshot - pass on the label of the request
         println!("{} received {msg:?}", self.id().white());
-        self.snapshot_action.execute( msg.label, &self.data).await;
+        self.snapshot_action.execute( &self.data, msg.request).await;
     }
 
 }
@@ -108,7 +108,7 @@ impl_actor! { match msg for Actor<Provider<A1,A2>,ProviderMsg>
 
 /* #region client *********************************************************************************/
 
-type TAddr = String; // used as action label, i.e. has to be the same as TLabel in the Provider
+type TAddr = String; // used as action bi_data, i.e. has to be the same as TLabel in the Provider
 
 /// client example, modeling a web server that manages web socket connections
 pub struct WsServer<A> where A: DataAction<TAddr> {
@@ -125,12 +125,12 @@ impl <A> WsServer<A> where A: DataAction<TAddr> {
 
 #[derive(Debug)] struct SendSnapshot { addr: TAddr, ws_msg: String }
 
-#[derive(Debug)] struct SimulateNewRequest { addr: TAddr }
+#[derive(Debug)] struct SimulateNewConnectionRequest { addr: TAddr }
 
-define_actor_msg_set! { WsServerMsg = PublishUpdate | SendSnapshot | SimulateNewRequest }
+define_actor_msg_set! { WsServerMsg = PublishUpdate | SendSnapshot | SimulateNewConnectionRequest }
 
 impl_actor! { match msg for Actor<WsServer<A>,WsServerMsg> where A: DataAction<TAddr> as
-    SimulateNewRequest => cont! { // mockup simulating a new external connection event from 'addr'
+    SimulateNewConnectionRequest => cont! { // mockup simulating a new external connection event from 'addr'
         // note we don't add msg.addr to connections yet since that could cause sending updates before init snapshots
         println!("{} got new connection request from addr {:?}", self.id().yellow(), msg.addr);
         self.new_request_action.execute( msg.addr).await;
@@ -158,20 +158,20 @@ async fn main ()->Result<()> {
     //--- set up the client
     let client = spawn_actor!( actor_system, "client", 
         WsServer::new( 
-            data_action!( provider.as_actor_handle() as MsgReceiver<ExecSnapshotAction> => 
-                              |addr:TAddr| provider.try_send_msg( ExecSnapshotAction{label: addr})) 
+            data_action!( provider.as_actor_handle(): ActorHandle<ProviderMsg> => 
+                              |addr:TAddr| provider.try_send_msg( ExecSnapshotAction{request: addr}))
         )
     )?;
 
     //--- set up the provider
     let provider = spawn_pre_actor!( actor_system, provider, 
         Provider::new(
-            data_action!( client.clone() as MsgReceiver<PublishUpdate> => |data: TProviderUpdate| {
+            data_action!( client.clone(): ActorHandle<WsServerMsg> => |data: TProviderUpdate| {
                 let msg = PublishUpdate{ws_msg: format!("{{\"update\": \"{data}\"}}")}; // construct client message from provider data
                 client.try_send_msg( msg)
             }),
-            labeled_dataref_action!( client.clone() as MsgReceiver<SendSnapshot> => |label: TAddr, data: &TProviderSnapshot| {
-                let msg = SendSnapshot{ addr: label, ws_msg: format!("{data:?}") }; // construct client message from label and provider data ref
+            bi_dataref_action!( client.clone(): ActorHandle<WsServerMsg> => |data: &TProviderSnapshot, req:TRequest| {
+                let msg = SendSnapshot{ addr: req, ws_msg: format!("{data:?}") }; // construct client message from label and provider data ref
                 client.try_send_msg( msg)
             })     
         )
@@ -182,9 +182,10 @@ async fn main ()->Result<()> {
 
     //--- 3: actor system running - now simulate external requests
     sleep( secs(2)).await;
-    client.send_msg( SimulateNewRequest{addr: "42".to_string()}).await?;
+    client.send_msg( SimulateNewConnectionRequest{addr: "42".to_string()}).await?;
+
     sleep( secs(3)).await;
-    client.send_msg( SimulateNewRequest{addr: "43".to_string()}).await?;
+    client.send_msg( SimulateNewConnectionRequest{addr: "43".to_string()}).await?;
 
     actor_system.process_requests().await?;
 

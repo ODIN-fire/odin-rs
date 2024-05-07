@@ -271,7 +271,7 @@ too restrictive for a general actor framework supporting multiple application do
 and having to hard-code message construction in the sender (which simply might not know the messages understood
 by receivers).
 
-`DataAction<T>` is a trait with a generic `async fn execute(t: T)` method that can be used to create arbitrary actor
+`DataAction<T>` is a trait with a generic `async fn execute(&self,t: T)` method that can be used to create arbitrary actor
 actions that are passed into the sender constructor. Just as in the `MsgAction<M>` described above we leave definition
 of the concrete receivers and send operations to the actor system construction site, but this time the sender actor code does not
 need to know what and how to construct message instances - it only needs to know what data to feed into the
@@ -297,7 +297,7 @@ need to know what and how to construct message instances - it only needs to know
    ...  spawn_actor!( actor_system, "sender", Sender::new(MyDataAction{..}))
 ```
 
-`DataAction<T>::execute(data:T)` is not even limited to sending messages to other actors - it could also
+`DataAction<T>::execute(&self,data:T)` is not even limited to sending messages to other actors - it could also
 call normal functions. However, since we are focused on actors and hence message passing as the primary interaction
 there is a dedicated `data_action!{..}` macro supporting definition and creation of concrete `DataActions` that
 can capture receiver actor handles from its call environment:

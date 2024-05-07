@@ -19,8 +19,7 @@
  use odin_actor::prelude::*;
  use odin_config::prelude::*;
  use odin_sentinel::{
-    SentinelUpdate,LiveSentinelConnector,SentinelActor,
-    SentinelAlarmMonitor,ConsoleMessenger
+    ConsoleMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, SentinelUpdate
 };
  
  use_config!();
@@ -39,9 +38,8 @@ async fn main ()->Result<()> {
 
     let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
         LiveSentinelConnector::new( config_for!( "sentinel")?), 
-        NoDataRefAction::new(),
-        data_action!( hmonitor as MsgReceiver<SentinelUpdate> => |data:SentinelUpdate| hmonitor.try_send_msg(data)),
-        NoLabeledDataRefAction::new()
+        no_dataref_action(),
+        data_action!( hmonitor: ActorHandle<SentinelAlarmMonitorMsg> => |data:SentinelUpdate| hmonitor.try_send_msg(data)),
     ))?;
 
     actor_system.timeout_start_all(millis(20)).await?;

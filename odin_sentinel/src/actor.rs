@@ -25,12 +25,10 @@ use crate::ws::WsCmd;
 
 //-- external messages (from other actors)
 
-#[derive(Debug)] pub struct ExecSnapshotAction(String);
+#[derive(Debug)] pub struct ExecSnapshotAction(DynDataRefAction<SentinelStore>);
 
 /// request a specific update record
 #[derive(Debug)] pub struct GetSentinelUpdate {  pub record_id: String }
-
-
 
 /// send a command to Sentinel devices
 #[derive(Debug)] pub struct SendSentinelCmd { sentinel_cmd: WsCmd }
@@ -54,24 +52,22 @@ define_actor_msg_set! { pub SentinelActorMsg =
 
 pub trait InitAction = DataRefAction<SentinelStore>;
 pub trait UpdateAction = DataAction<SentinelUpdate>;
-pub trait SnapshotAction = LabeledDataRefAction<String,SentinelStore>;  // TODO - shall we replace this with a DynDataAction message ?
 
-pub struct SentinelActor<S,A,B,C> 
-    where S: SentinelConnector + Send, A: InitAction, B: UpdateAction, C: SnapshotAction
+pub struct SentinelActor<C,A1,A2> 
+    where C: SentinelConnector + Send, A1: InitAction, A2: UpdateAction
 {
-    connector: S,             // where we get the external data from
+    connector: C,             // where we get the external data from
     sentinels: SentinelStore, // our internal store
 
-    init_action: A,           // initialized interaction (triggered by self)
-    update_action: B,         // update interactions (triggered by self)
-    snapshot_action: C,       // on-demand interactions based on the whole store
+    init_action: A1,           // initialized interaction (triggered by self)
+    update_action: A2,         // update interactions (triggered by self)
 }
 
-impl<S,A,B,C> SentinelActor<S,A,B,C> 
-    where S: SentinelConnector + Send, A: InitAction, B: UpdateAction, C: SnapshotAction
+impl<C,A1,A2> SentinelActor<C,A1,A2> 
+    where C: SentinelConnector + Send, A1: InitAction, A2: UpdateAction
 {
-    pub fn new (connector: S, init_action: A, update_action: B, snapshot_action: C)->Self {
-        SentinelActor { connector, sentinels: SentinelStore::new(), init_action, update_action, snapshot_action }
+    pub fn new (connector: C, init_action: A1, update_action: A2)->Self {
+        SentinelActor { connector, sentinels: SentinelStore::new(), init_action, update_action }
     }
 
     async fn init_store (&mut self, sentinels: SentinelStore)->Result<()> {
@@ -101,12 +97,12 @@ impl<S,A,B,C> SentinelActor<S,A,B,C>
 
 }
 
-impl_actor! { match msg for Actor<SentinelActor<S,A,B,C>,SentinelActorMsg> 
-    where S: SentinelConnector + Send + Sync, A: InitAction + Sync, B: UpdateAction + Sync, C: SnapshotAction + Sync
+impl_actor! { match msg for Actor<SentinelActor<C,A1,A2>,SentinelActorMsg> 
+    where C: SentinelConnector + Send + Sync, A1: InitAction + Sync, A2: UpdateAction + Sync
     as  
     //--- user messages
     ExecSnapshotAction => cont! {
-        self.snapshot_action.execute( msg.0, &self.sentinels).await;
+        msg.0.execute( &self.sentinels).await;
     }
     Query<GetSentinelUpdate,Result<SentinelUpdate>> => cont! { 
         let fut = self.handle_record_query(msg);

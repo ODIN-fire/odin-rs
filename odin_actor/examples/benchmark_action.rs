@@ -101,9 +101,9 @@ mod client {
                 ReceiveAction::Continue 
             } else {
                 let elapsed = Instant::now() - self.start_time;
-                println!("{} callback roundtrips in {} μs -> {} ns/callback", 
+                println!("{} action roundtrips in {} μs -> {} ns/callback", 
                         self.max_rounds, elapsed.as_micros(), (elapsed.as_nanos() as u64 / self.max_rounds));
-                println!("callback overhead per roundtrip: {} ns", 
+                println!("action overhead per roundtrip: {} ns", 
                     (elapsed.as_nanos() - self.elapsed_try_ping.as_nanos() - self.elapsed_ping.as_nanos()) as u64/self.max_rounds);
                 ReceiveAction::RequestTermination 
             }
@@ -115,7 +115,7 @@ use tokio;
 use std::time::{Instant,Duration};
 use odin_actor::prelude::*;
 use odin_actor::errors::Result;
-use client::{Client,Update};
+use client::{Client,Update,ClientMsg};
 use provider::Provider;
 
 //#[tokio::main(flavor = "multi_thread", worker_threads = 3)]
@@ -123,15 +123,15 @@ use provider::Provider;
 #[tokio::main]
 async fn main()->Result<()> {
     let max_rounds = get_max_rounds();
-    println!("-- running benchmark_alist with {} rounds", max_rounds);
+    println!("-- running benchmark_action with {} rounds", max_rounds);
 
-    let mut actor_system = ActorSystem::new("benchmark_cb");
+    let mut actor_system = ActorSystem::new("benchmark_action");
 
     let pre_prov = PreActorHandle::new(&actor_system, "provider",8);
     let cli = spawn_actor!( actor_system, "client", Client::new(max_rounds, pre_prov.as_actor_handle()))?;
 
     let prov = spawn_pre_actor!( actor_system, pre_prov, Provider::new( 
-        data_action!( cli as MsgReceiver<Update> => |data: u64| cli.try_send_msg( Update(data)))
+        data_action!( cli: ActorHandle<ClientMsg> => |data: u64| cli.try_send_msg( Update(data)))
     ))?;
 
     actor_system.timeout_start_all(millis(20)).await?;
