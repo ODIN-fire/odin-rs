@@ -5,7 +5,8 @@ authors = ["Peter Mehlitz"]
 
 [build]
 build-dir = "../target/book"
-create-missing = false
+create-missing = true
+extra-watch-dirs = [ "../odin_action/doc" ]
 
 [output.html]
 additional-css = ["odin.css"]

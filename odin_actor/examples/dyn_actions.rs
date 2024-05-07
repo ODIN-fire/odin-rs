@@ -24,14 +24,11 @@ use colored::Colorize;
 use odin_actor::{dyn_data_action, prelude::*};
 use odin_actor::errors::Result;
 
-/* #region updater ***************************************************************************/
+/// version of actions.rs example that uses dyn actions to dynamically register for updates
+/// upon the first connection request and obtains the initial data snapshot via dyn_dataref_action
+/// that is send to the Updater wrapped in an ExecuteAction message
 
-// note - updater does not need to know anything about potential clients - it only feeds
-// its data into provided callbacks
-// Note also that async callbacks are not particularly efficient since they have to
-// wrap opaque futures on each invocation. This is mostly tolerable (for now) because
-// high frequent (update) callback executions probably use the sync try_send_msg_callback
-// if the update data has a short lifespan
+/* #region updater ***************************************************************************/
 
 type TUpdate = usize;
 

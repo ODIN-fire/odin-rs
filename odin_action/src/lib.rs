@@ -16,99 +16,12 @@
  */
 #![allow(unused_macros)]
 
+#[doc = include_str!("../doc/odin_action.md")]
+
 use std::{fmt::Debug, marker::PhantomData, future::{Future,ready}, 
     any::{type_name,type_name_of_val}, ops::{Deref,DerefMut},
 };
 pub use async_trait::async_trait;
-
-/// the `odin_action` crate provides several variants of "action" types together with macros to define and instantiate
-/// ad hoc actions. The action constructs are used to make operations that depend on action owner data configurable,
-/// i.e. turn them into fields that can be used to execute the action at the owners discretion. They are some
-/// sort of "callback" mechanism that allows the owner to inject its state into the callback execution.
-/// 
-/// The basis for all this are "Action" traits with a single `async fn execute(&self,data..)->Result<()>` method.
-/// Instances of these traits are normally created where we assemble an application (e.g. in `main()`), i.e. where
-/// we know all the relevant types. They are then passed either as generic type constructor arguments or later-on
-/// (at runtime) as trait objects to their owners, to be invoked either on-demand or when the owner state changes.
-/// 
-/// The main purpose of this mechanism is to make the action owners more generic, i.e. to delegate functionality
-/// to the context that creates (or drives) the action owner. All the owner has to know is its own state (data)
-/// and when to invoke its actions.
-/// 
-/// Technically, actions represent a special case of async closures in which capture is done by either `Copy`
-/// or `Clone`.
-/// 
-/// We support the following variants:
-/// 
-/// - [`DataAction<T>`] trait and ['data_action`] macro
-/// - [`DataRefAction<T>`] trait and ['dataref_action`] macro
-/// - [`BiDataAction<T,A>`] trait and [`bi_data_action`] macro
-/// - [`BiDataRefAction<T,A>`] trait and [`bi_dataref_action`] macro
-/// - [`DynDataAction<T>`] type and ['dyn_data_action`] macro
-/// - [`DynDataRefAction<T>`] type and ['dyn_dataref_action`] macro
-///
-/// The difference between `..DataAction` and `..DataRefAction` is how the owner data is passed into the trait's
-/// `execute(..)` function: as a moved value (`execute(&self,data:T)`) or as a reference (`execute(&self,data:&T)`).
-/// 
-/// The `Bi..Action` traits have `execute(..)` functions that take two arguments (of different types). This is
-/// helpful in a context where the action body requires both owner state and information that was passed to the 
-/// owner in the request that triggers the action execution and can avoid the runtime overhead of async action trait
-/// objects (requiring `Pin<Box<dyn Future ..>>` execute return values).
-///
-/// `Dyn..Action` types are used where we need to send and/or store action objects in homogenous containers (e.g.
-/// a `Vec<DynDataAction>`). This does incur runtime overhead per action execution.
-/// 
-/// Since actions are typically one-of types we provide macros for all the above variants that both define the type
-/// and return an instance of this type. Those macros all follow the same pattern:
-/// 
-/// ```ignore
-/// //--- system construction site:
-/// let v1: String = ...
-/// let v2: u64 = ...
-/// let action = data_action!( value1.clone() : String, value2 => |data: Foo| {
-///    println!("action executed with arg {:?} and captures v1={}, v2={}", data, v1, v2);
-///    Ok(())
-/// });
-/// let actor = MyActor::new(..action..);
-/// ...
-/// //--- generic MyActor implementation:
-/// struct MyActor<A> where A: DataAction<Foo> { ... action: A ... }
-/// impl<A> MyActor<A> where A: DataAction<Foo> {
-///   ... let data = Foo{..}
-///   ... self.action.execute(data).await ...
-/// }
-/// ```
-/// the example above expands into a block with three different parts: capture struct definition, action trait impl and capture struct instantiation
-/// 
-/// ```ignore
-/// {
-///     struct SomeDataAction { v1: String, v2: u64 }
-/// 
-///     impl DataAction<Foo> for SomeDataAction {
-///          async fn execute (&self, data: Foo)->std::result::Result<(),OdinActionError> {
-///              let v1 = &self.v1; let v2 = &self.v2;
-///              println!(...);
-///              Ok(())
-///          }
-///     }
-/// 
-///     SomeDataAction{ v1: v1.clone(), v2 }
-/// }
-/// ```
-/// The action bodies are expressions that have to return a `Result<(),OdinActionError>` so that we can coerce errors in crates using
-/// `odin_action`. This means that we can use the `?` operator to shortcut within action bodies, but we have to map respective results
-/// by means of our `map_action_err()` function like so:
-/// 
-/// ```ignore
-/// data_action!( ... => |data: MyData| {
-///     ...
-///     map_action_err( fallible() )?
-///     ...
-///     Ok(())
-/// })
-/// ```
-/// 
-/// [`OdinActionError`] instances can be created from anything that implements [`ToString`]`
 
 /// return only the last part of a type path
 pub fn abbrev_type_name<T>()->String {
@@ -119,7 +32,6 @@ pub fn abbrev_type_name<T>()->String {
         Some(idx) => unsafe { full_name.get_unchecked(idx+1..).to_string() }
     }
 }
-
 
 /// wrapper error type for actions.
 /// We do need a dedicated error type for actions so that they can be easily mapped or coerced within
@@ -203,11 +115,9 @@ macro_rules! data_action {
     }
 }
 
-/// an empty `DataAction<T>`. Alternative for `Option<DataAction<T>>`
+/// an empty `DataAction<T>`. Transparent alternative for `Option<DataAction<T>>`
 pub struct NoDataAction<T> where T: Send { _phantom: PhantomData<T> }
-impl <T> NoDataAction<T> where T: Send{ 
-    pub fn new ()->Self { NoDataAction { _phantom: PhantomData } }
-}
+
 impl<T> DataAction<T> for NoDataAction<T> where T: Send {
     fn execute (&self, _data: T) -> impl Future<Output = std::result::Result<(),OdinActionError>> + Send { ready(Ok(()) )}
 }
@@ -216,6 +126,8 @@ impl<T> Debug for NoDataAction<T> where T: Send {
         write!(f, "NoDataAction<{}>", abbrev_type_name::<T>())
     }
 }
+
+pub fn no_data_action<T>()->NoDataAction<T> where T: Send { NoDataAction { _phantom: PhantomData } }
 
 /// a [`DataAction<T>`] with an `async execute(..)` function that takes a second `bidata` parameter.
 /// This can be used for actions that combine owned and passed-in data in their action bodies.
@@ -252,11 +164,9 @@ macro_rules! bi_data_action {
     }
 }
 
-/// an empty [`BiDataAction<T,A>`]. Alternative for `Option<DataAction<T,A>>`
+/// an empty [`BiDataAction<T,A>`]. Transparent alternative for `Option<DataAction<T,A>>`
 pub struct NoBiDataAction<T,A> where T: Send, A: Send { _phantom1: PhantomData<T>, _phantom2: PhantomData<A> }
-impl <T,A> NoBiDataAction<T,A> where T: Send, A: Send { 
-    pub fn new ()->Self { NoBiDataAction { _phantom1: PhantomData, _phantom2: PhantomData } }
-}
+
 impl<T,A> BiDataAction<T,A> for NoBiDataAction<T,A> where T: Send, A: Send {
     fn execute (&self, _data: T, _bidata: A) -> impl std::future::Future<Output = std::result::Result<(),OdinActionError>> + Send { ready(Ok(()) )}
 }
@@ -264,6 +174,9 @@ impl<T,A> Debug for NoBiDataAction<T,A> where T: Send, A: Send {
     fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "NoBiDataAction<{},{}>", abbrev_type_name::<T>(), abbrev_type_name::<A>())
     }
+}
+pub fn no_bi_data_action<T,A>()->NoBiDataAction<T,A>  where T: Send, A: Send { 
+    NoBiDataAction { _phantom1: PhantomData, _phantom2: PhantomData } 
 }
 
 /// a sendable [`DataAction<T>`] that can be stored in a homogenous container (as respective trait objects).
@@ -342,11 +255,9 @@ macro_rules! dataref_action {
 }
 
 
-/// an empty [`DataRefAction<T>`]. Alternative for `Option<DataRefAction<T>>`
+/// an empty [`DataRefAction<T>`]. Transparent alternative for `Option<DataRefAction<T>>`
 pub struct NoDataRefAction<T> where T: Send { _phantom: PhantomData<T> }
-impl <T> NoDataRefAction<T> where T: Send { 
-    pub fn new ()->Self { NoDataRefAction { _phantom: PhantomData } }
-}
+
 impl<T> DataRefAction<T> for NoDataRefAction<T> where T: Send {
     fn execute (&self, _data: &T) -> impl std::future::Future<Output = std::result::Result<(),OdinActionError>> + Send { ready(Ok(()) )}
 }
@@ -355,6 +266,7 @@ impl<T> Debug for NoDataRefAction<T> where T: Send {
         write!(f, "NoDataRefAction<{}>", abbrev_type_name::<T>())
     }
 }
+pub fn no_dataref_action<T>()->NoDataRefAction<T> where T: Send { NoDataRefAction { _phantom: PhantomData } }
 
 /// a [`DataRefAction`] with a second `bidata` execute argument, which can be used to pass information
 /// from the triggering request.
@@ -391,11 +303,9 @@ macro_rules! bi_dataref_action {
 }
 
 
-/// an empty [`BiDataRefAction<T,A>`]. Alternative for `Option<BiDataRefAction<T,A>>`
+/// an empty [`BiDataRefAction<T,A>`]. Transparent alternative for `Option<BiDataRefAction<T,A>>`
 pub struct NoBiDataRefAction<T,A>  where T: Send, A: Send { _phantom1: PhantomData<T>, _phantom2: PhantomData<A> }
-impl <T,A> NoBiDataRefAction<T,A>  where T: Send, A: Send { 
-    pub fn new ()->Self { NoBiDataRefAction { _phantom1: PhantomData, _phantom2: PhantomData } }
-}
+
 impl<T,A> BiDataRefAction<T,A> for NoBiDataRefAction<T,A>  where T: Send, A: Send {
     fn execute (&self, _data: &T, _bidata: A) -> impl std::future::Future<Output = std::result::Result<(),OdinActionError>> + Send { ready(Ok(()) )}
 }
@@ -403,6 +313,10 @@ impl<T,A> Debug for NoBiDataRefAction<T,A>  where T: Send, A: Send {
     fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "NoBiDataRefAction<{},{}>", abbrev_type_name::<T>(), abbrev_type_name::<A>())
     }
+}
+
+pub fn no_bi_dataref_action<T,A>()->NoBiDataRefAction<T,A>  where T: Send, A: Send { 
+    NoBiDataRefAction { _phantom1: PhantomData, _phantom2: PhantomData } 
 }
 
 /// analoguous to the [`DynDataActionTrait<T>`] but executing with a `&T` data reference.

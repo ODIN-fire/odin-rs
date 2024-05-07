@@ -9,6 +9,8 @@
   - [odin_config](odin_config/odin_config.md)
     - [Config Modes](odin_config/modes.md)
 
+  - [odin_action](odin_action/odin_action.md)
+
   - [odin_actor](odin_actor/odin_actor.md)
     - [Actor Programming Model](odin_actor/actor_basics.md)
     - [Basic Design](odin_actor/actor_impl.md)
@@ -26,9 +28,9 @@
       - [`query`](odin_actor/examples/query.md)
       - [`dyn_actor`](odin_actor/examples/dyn_actor.md)
       - [`actions`](odin_actor/examples/actions.md)
+      - [`dyn_actions`](odin_actor/examples/dyn_actions.md)
       - [`retry`](odin_actor/examples/retry.md)
       - [`requests`](odin_actor/examples/requests.md)
-      - [`callbacks`](odin_actor/examples/callbacks.md)
       - [`actor_config`](odin_actor/examples/actor_config.md)
       - [`heartbeat`](odin_actor/examples/heartbeat.md)
 

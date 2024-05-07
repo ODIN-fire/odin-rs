@@ -54,15 +54,14 @@ async fn main ()->Result<()> {
 
     let _hsentinel = spawn_actor!( actor_system, "sentinel", SentinelActor::new(
         LiveSentinelConnector::new( config_for!( "sentinel")?), 
-        dataref_action!( hmonitor.clone() as MsgReceiver<Snapshot> => |data:&SentinelStore| {
+        dataref_action!( hmonitor.clone(): ActorHandle<SentinelMonitorMsg> => |data:&SentinelStore| {
             let msg = Snapshot(data.to_json_pretty().unwrap());
             hmonitor.try_send_msg( msg)
         }),
-        data_action!( hmonitor as MsgReceiver<Update> => |data:SentinelUpdate| {
+        data_action!( hmonitor: ActorHandle<SentinelMonitorMsg> => |data:SentinelUpdate| {
             let msg = Update(data.to_json_pretty().unwrap());
             hmonitor.try_send_msg( msg)
         }),
-        NoLabeledDataRefAction::new()
     ))?;
 
     actor_system.timeout_start_all(secs(2)).await?;

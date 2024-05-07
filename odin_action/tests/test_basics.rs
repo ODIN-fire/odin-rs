@@ -90,8 +90,8 @@ async fn test_bdra() {
     //bdra.execute(&data).await;
     exec_bdra( bdra, &data, 42).await;
 
-    let adra = NoBiDataRefAction::new();
-    exec_bdra( adra, &data, 42).await;
+    let bdra = no_bi_dataref_action();
+    exec_bdra( bdra, &data, 42).await;
 }
 
 async fn exec_bdra <T,A> (adra: impl BiDataRefAction<T,A>, data: &T, bidata: A) {
