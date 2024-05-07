@@ -52,6 +52,9 @@ pub use odin_macro::{
     spawn_actor, spawn_dyn_actor, spawn_pre_actor
 };
 
+// re-export actions - they are ubiquitous with actors
+pub use odin_action::*;
+
 
 #[inline] pub fn days (n: u64)->Duration { Duration::from_secs(n*60*60*24) }
 #[inline] pub fn hours (n: u64)->Duration { Duration::from_secs(n*60*60) }

@@ -58,6 +58,9 @@ pub enum OdinActorError {
     #[error("job error {0}")]
     JobError( #[from] odin_job::OdinJobError),
 
+    #[error("action error {0}")]
+    ActionError( #[from] odin_action::OdinActionError),
+
     // a generic error
     #[error("operation failed {0}")]
     OpFailed(String)

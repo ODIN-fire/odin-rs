@@ -21,16 +21,16 @@ pub use crate::{
     Query, QueryBuilder, query, query_ref, timeout_query, timeout_query_ref, RequestProcessor,
     MpscSender, MpscReceiver, create_mpsc_sender_receiver, send, recv,
     ActorReceiver, ReceiveAction, MsgReceiver, DynMsgReceiver, TryMsgReceiver, SysMsgReceiver, SysMsg, DefaultReceiveAction, FromSysMsg, 
-    Identifiable, MsgAction, MsgSubscriptions, MsgSubscriber, DynDataAction, DynDataActionList, SyncDynDataAction, AsyncDynDataAction,
+    Identifiable, MsgAction, MsgSubscriptions, MsgSubscriber,
     _Start_, _Ping_, _Timer_, _Exec_, _Pause_, _Resume_, _Terminate_,
     OdinActorError,
     secs,millis,micros,nanos,minutes,hours,
     DEFAULT_CHANNEL_BOUNDS,
     define_actor_msg_set, match_actor_msg, cont, stop, term, impl_actor, spawn_actor, spawn_pre_actor, spawn_dyn_actor,
-    DataAction, DataRefAction, LabeledDataAction, LabeledDataRefAction, 
-    NoDataAction, NoDataRefAction, NoLabeledDataAction, NoLabeledDataRefAction,
-    data_action, dataref_action, labeled_data_action, labeled_dataref_action,
-    msg_subscriber,sync_dyn_data_action,async_dyn_data_action,send_msg_dyn_action,try_send_msg_dyn_action,
+    DataAction, DataRefAction, BiDataAction, BiDataRefAction, DynDataAction, DynDataRefAction, DynDataActionList, DynDataRefActionList,
+    NoDataAction, NoDataRefAction, NoBiDataAction, NoBiDataRefAction,
+    data_action, dataref_action, bi_data_action, bi_dataref_action, dyn_data_action, dyn_dataref_action, 
+    map_action_err, action_err, action_ok, OdinActionError,  
+    msg_subscriber, 
     trace,debug,info,warn,error
 };
-

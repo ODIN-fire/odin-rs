@@ -19,7 +19,9 @@
 use tokio;
 use std::collections::VecDeque;
 use std::{future::Future,sync::Arc};
-use odin_actor::prelude::*;
+use colored::Colorize;
+
+use odin_actor::{dyn_data_action, prelude::*};
 use odin_actor::errors::Result;
 
 /* #region updater ***************************************************************************/
@@ -31,109 +33,142 @@ use odin_actor::errors::Result;
 // high frequent (update) callback executions probably use the sync try_send_msg_callback
 // if the update data has a short lifespan
 
+type TUpdate = usize;
+
 struct Updater {
-    data: Vec<String>,
+    data: Vec<TUpdate>,
     count: usize,
-    update_action: DynDataActionList<String>,
+    update_actions: DynDataActionList<TUpdate>,
 }
 impl Updater {
     fn new()->Self {
-        Updater { data: Vec::new(), count: 0, update_action: DynDataActionList::new() }
+        Updater { data: Vec::new(), count: 0, update_actions: DynDataActionList::new_infallible() }
     }
 
-    fn update (&mut self)->bool {
-        let new_value = format!("{} Missisippi", self.count);
-        self.data.push( new_value);
-        true
-    }
-}
-
-#[derive(Debug)] struct AddUpdateAction(DynDataAction<String>);
-
-#[derive(Debug)] struct ExecuteAction(Arc<DynDataAction<Vec<String>>>);
-impl ExecuteAction {
-    pub async fn execute (&self, data: &Vec<String>)->Result<()> {
-        self.0.execute(data).await
+    fn update (&mut self)->TUpdate {
+        self.count += 1;
+        self.data.push( self.count);
+        self.count
     }
 }
+
+#[derive(Debug)] struct AddUpdateAction(DynDataAction<TUpdate>);
+
+#[derive(Debug)] struct ExecuteAction(DynDataRefAction<Vec<TUpdate>>);
+
 
 define_actor_msg_set! { UpdaterMsg = AddUpdateAction | ExecuteAction }
 
 impl_actor! { match msg for Actor<Updater,UpdaterMsg> as
     _Start_ => cont! {
         self.hself.start_repeat_timer( 1, secs(1));
-        println!("{} started update timer", self.hself.id);
+        println!("{} started update timer", self.id().white());
     }
     _Timer_ => {
-        self.count += 1;
-        println!("update cycle {}", self.count);
-        if self.update() {
-            self.update_action.execute( self.data.last().unwrap()).await;
-        }
+        let update = self.update();
+        println!("update cycle {}", update);
+        self.update_actions.execute(update).await;
 
-        if self.count >= 5 {
-            println!("{} had enough of it, request termination.", self.hself.id); 
+        if self.count >= 10 {
+            println!("{} had enough of it, request termination.", self.id().white()); 
             ReceiveAction::RequestTermination 
         } else {
             ReceiveAction::Continue
         }
     }
     AddUpdateAction => cont! {
-        self.update_action.push( msg.0)
+        println!("{} adding new update action {:?}", self.id().white(), msg.0);
+        self.update_actions.push( msg.0)
     }
     ExecuteAction => cont! {
-        println!("updater received {msg:?}");
-        msg.execute(&self.data).await;
+        println!("{} received {msg:?}", self.id().white());
+        msg.0.execute(&self.data).await;
     }
 
 }
 
 /* #endregion updater */
 
-/* #region server *********************************************************************************/
-struct WsServer {} 
+/* #region WsServer *********************************************************************************/
+type TAddr = String;
 
-// these message types are too 'WsServer' specific to be forced upon a generic, reusable Updater
+struct ConnectActionData { hself: ActorHandle<WsServerMsg>, addr: TAddr, is_first: bool }
 
-#[derive(Debug)] struct PublishWsMsg { ws_msg: String }
+struct WsServer<A> where A: DataAction<ConnectActionData> {
+    connections: Vec<TAddr>,
+    connect_action: A
+}
+impl<A> WsServer<A> where A: DataAction<ConnectActionData> {
+    pub fn new (connect_action: A)->Self { WsServer { connections: Vec::new(), connect_action } }
+}
 
-#[derive(Debug)] struct SendWsMsg { addr: &'static str, ws_msg: String }
+#[derive(Debug)] struct PublishUpdate { ws_msg: String } // sent from updater (via action)
+#[derive(Debug)] struct SendSnapshot { addr: TAddr, ws_msg: String } // send from updater (via action)
+#[derive(Debug)] struct SimulateNewConnectionRequest { addr: TAddr } // simulate external event
 
-define_actor_msg_set! { WsServerMsg = PublishWsMsg | SendWsMsg }
+define_actor_msg_set! { WsServerMsg = PublishUpdate | SendSnapshot | SimulateNewConnectionRequest }
 
-impl_actor! { match msg for Actor<WsServer,WsServerMsg> as
-    PublishWsMsg => cont! {
-        println!("WsServer publishing data '{}' to all its connections", msg.ws_msg);
+impl_actor! { match msg for Actor<WsServer<A>,WsServerMsg> where A: DataAction<ConnectActionData> as
+    SimulateNewConnectionRequest => cont! {
+        println!("{} got new connection request from addr {:?}, executing connect action..", self.id().yellow(), msg.addr);
+
+        let action_data = ConnectActionData { hself: self.hself.clone(), addr: msg.addr.clone(), is_first: self.connections.is_empty() };
+        self.connections.push(msg.addr);
+
+        self.connect_action.execute( action_data).await;
     }
-    SendWsMsg => cont! {
-        println!("WsServer sending data '{}' to connection '{}'", msg.ws_msg, msg.addr);
+    PublishUpdate => cont! {
+        if self.connections.is_empty() { 
+            println!("{} doesn't have connections yet, ignore received update", self.id().yellow())
+        } else {
+            println!("{} publishing update '{}' to connection addrs {:?}", self.id().yellow(), msg.ws_msg, self.connections)
+        }
+    }
+    SendSnapshot => cont! {
+        println!("{} sending snapshot '{}' to connection '{}'", self.id().yellow(), msg.ws_msg, msg.addr);
     }
 }
 
-/* #endregion server */
+/* #endregion WsServer */
 
 #[tokio::main]
 async fn main ()->Result<()> {
-    let mut actor_system = ActorSystem::new("main");
+    let mut sys = ActorSystem::new("main");
 
-    let updater = spawn_actor!( actor_system, "updater", Updater::new())?;
-    let server = spawn_actor!( actor_system, "server", WsServer{}, 4)?;
+    let updater = spawn_actor!( sys, "updater", Updater::new())?;
 
-    // note how we construct the DynDataAction from a mix of captured sender/local (server, addr) and passed-in receiver/remote data
-    let addr = "fortytwo";
-    let on_demand_action = Arc::new( send_msg_dyn_action!(server, |v: &Vec<String>| SendWsMsg{addr, ws_msg: format!("{v:?}")}));
-    updater.send_msg( ExecuteAction( on_demand_action.clone())).await?; // we send multiple times so we have to clone
+    let ws_server = spawn_actor!( sys, "ws_server", WsServer::new(
+        data_action!( updater: ActorHandle<UpdaterMsg> => |cd: ConnectActionData| {
+            let ConnectActionData { hself, addr, is_first } = cd;
 
-    let update_action = try_send_msg_dyn_action!(server, |v: &String| PublishWsMsg{ws_msg: format!("{{\"update\": {v:?}}}")});
-    updater.send_msg( AddUpdateAction(update_action)).await?;
+             // if this is the first connection register for updates in a format the WsServer understands
+            if cd.is_first {
+                let hself = hself.clone();
+                let action = AddUpdateAction( dyn_data_action!( hself: ActorHandle<WsServerMsg> => |data: TUpdate| { // data is from updater
+                    let msg = PublishUpdate{ ws_msg: format!("{{\"update\": {data}}}") }; // turn data into JSON message
+                    hself.try_send_msg(msg)
+                }));
+                map_action_err( updater.send_msg( action).await)?;
+            }
 
-    actor_system.timeout_start_all(millis(20)).await?;
+            // now ask for a snapshot of the current Updater data in a format the WsServer understands
+            let action = dyn_dataref_action!( hself: ActorHandle<WsServerMsg>, addr: TAddr => |data: &Vec<TUpdate>| {
+                let msg = SendSnapshot{ addr: addr.clone(), ws_msg: format!("{:?}", data) }; // turn data into JSON message
+                hself.try_send_msg( msg)
+            });
+            updater.send_msg( ExecuteAction(action)).await
+        })
+    ))?;
+
+    sys.start_all().await?;
 
     sleep( secs(2)).await;
+    ws_server.send_msg( SimulateNewConnectionRequest{addr: "42".to_string()}).await?;
 
-    updater.send_msg( ExecuteAction( on_demand_action)).await?;
+    sleep( secs(3)).await;
+    ws_server.send_msg( SimulateNewConnectionRequest{addr: "43".to_string()}).await?;
 
-    actor_system.process_requests().await?;
+    sys.process_requests().await?;
 
     Ok(())
 }

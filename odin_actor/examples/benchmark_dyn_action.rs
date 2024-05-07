@@ -40,7 +40,7 @@ mod provider {
         }
         TriggerAction => cont! { 
             self.data += 1;
-            self.actions.execute( &self.data).await 
+            self.actions.execute( self.data).await 
         }
     }
 }
@@ -72,9 +72,10 @@ mod client {
     impl_actor! { match msg for Actor<Client,ClientMsg> as
         _Start_ => cont! {
             //let cb = Callback::from( try_send_msg_callback!( &self.hself, |v:&u64| Update(*v) ));
-            let a = send_msg_dyn_action!( &self.hself, |v:&u64| Update(*v) );
+            let hself = self.hself.clone();
+            let action = dyn_data_action!( hself: ActorHandle<ClientMsg> =>  |v:u64| hself.try_send_msg( Update(v)) );
 
-            self.provider.send_msg( AddAction(a)).await;
+            self.provider.send_msg( AddAction(action)).await;
             self.start_time = Instant::now();
             self.hself.try_send_msg( TryPingSelf(0));
         }
@@ -109,9 +110,9 @@ mod client {
                 ReceiveAction::Continue 
             } else {
                 let elapsed = Instant::now() - self.start_time;
-                println!("{} callback roundtrips in {} μs -> {} ns/callback", 
+                println!("{} action roundtrips in {} μs -> {} ns/callback", 
                         self.max_rounds, elapsed.as_micros(), (elapsed.as_nanos() as u64 / self.max_rounds));
-                println!("callback overhead per roundtrip: {} ns", 
+                println!("action overhead per roundtrip: {} ns", 
                     (elapsed.as_nanos() - self.elapsed_try_ping.as_nanos() - self.elapsed_ping.as_nanos()) as u64/self.max_rounds);
                 ReceiveAction::RequestTermination 
             }
@@ -127,9 +128,9 @@ use odin_actor::errors::Result;
 #[tokio::main]
 async fn main()->Result<()> {
     let max_rounds = get_max_rounds();
-    println!("-- running benchmark_cb with {} rounds", max_rounds);
+    println!("-- running benchmark_dyn_action with {} rounds", max_rounds);
 
-    let mut actor_system = ActorSystem::new("benchmark_cb");
+    let mut actor_system = ActorSystem::new("benchmark_dyn_action");
     let prov = spawn_actor!( actor_system, "provider", provider::Provider::new())?;
     let cli = spawn_actor!( actor_system, "client", client::Client::new(max_rounds, prov))?;
 

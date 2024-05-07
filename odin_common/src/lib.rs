@@ -24,8 +24,6 @@ pub mod angle;
 pub mod geo;
 pub mod sim_clock;
 
-//pub mod config;
-
 // syntactic sugar - this is just more readable
 fn sin(x:f64) -> f64 { x.sin() }
 fn cos(x:f64) -> f64 { x.cos() }
