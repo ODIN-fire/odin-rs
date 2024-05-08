@@ -1,7 +1,7 @@
 # odin_action
 
 The `odin_action` crate provides several variants of **action** types together with macros to define and instantiate ad
-hoc actions. The generic **action** construct represents pplication specific objects that encapsulate async
+hoc actions. The generic **action** construct represents application specific objects that encapsulate async
 computations, to be executed by an *action owner* that can invoke such computations with its own data (e.g. sending
 messages in actor systems that are built from its data).
 
@@ -44,12 +44,16 @@ expect semantically).
 `Dyn..Action` types (which represent trait objects) are used in two different contexts:
 
 - to execute actions that were received as function arguments (e.g. through async messages)
-- to store such actions in homogenous containers for later execution
+- to store such actions in homogenous `Dyn..ActionList` containers for later execution
+
+The `Dyn..ActionList` containers use an additional `ignore_err: bool` argument in their `execute(..)` methods
+that specifies if the execution should shortcut upon encountering error results when executing its stored actions
+or if return values of stored actions should be ignored.
 
 ```rust
 struct MyActor { ...
     data: MyData, 
-    actions: Vec<DynDataAction<MyData>>
+    actions: DynDataActionList<MyData>
 }
 ...
 impl MyActor {
@@ -60,21 +64,20 @@ impl MyActor {
     fn store (&mut self, da: DynDataAction<MyData> ) { 
         .. self actions.push( da) ..
     }
-    ... self.actions.execute(&self.data).await ...
+    ... self.actions.execute(&self.data, ignore_err).await ...
 }
 ```
 
-Note this does incur runtime cost per execution of such actions.
+Note that `Dyn..Action` instances do have runtime overhead (allocation) per `execute(..)` call.
 
- 
-Since actions are typically one-of types we provide macros for all the above variants that both define the type
+Since actions are typically one-of-a-kind types we provide macros for all the above variants that both define the type
 and return an instance of this type. Those macros all follow the same pattern:
 
 ```rust
 //--- system construction site:
 let v1: String = ...
 let v2: u64 = ...
-let action = data_action!( value1.clone() : String, value2 => |data: Foo| {
+let action = data_action!( v1.clone() : String, v2 => |data: Foo| {
    println!("action executed with arg {:?} and captures v1={}, v2={}", data, v1, v2);
    Ok(())
 });
