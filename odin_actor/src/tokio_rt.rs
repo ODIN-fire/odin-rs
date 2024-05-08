@@ -37,11 +37,7 @@ use std::{
 };
 use futures::TryFutureExt;
 use crate::{
-    create_sfc, debug, error, errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, 
-    info, micros, millis, nanos, secs, trace, unpack_ping_response, warn, ActorReceiver, ActorSystemRequest, 
-    DefaultReceiveAction, DynMsgReceiver, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints, MsgSendFuture, 
-    MsgTypeConstraints, ObjSafeFuture, ReceiveAction, SendableFutureCreator, SysMsgReceiver, TryMsgReceiver, 
-    _Exec_, _Pause_, _Ping_, _Resume_, _Start_, _Terminate_, _Timer_
+    create_sfc, debug, error, errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, info, micros, millis, nanos, secs, trace, unpack_ping_response, warn, ActorReceiver, ActorSystemRequest, DefaultReceiveAction, DynMsgReceiver, DynMsgReceiverTrait, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints, MsgSendFuture, MsgTypeConstraints, ObjSafeFuture, ReceiveAction, SendableFutureCreator, SysMsgReceiver, TryMsgReceiver, _Exec_, _Pause_, _Ping_, _Resume_, _Start_, _Terminate_, _Timer_
 };
 use odin_macro::fn_mut;
 
@@ -451,17 +447,23 @@ impl <T,M> MsgReceiver <T> for ActorHandle <M>
 /// blanket impl of object safe trait that can send anything that can be turned into a MsgType 
 /// Note - this has to pin-box futures upon every send and hence is less efficient than [`MsgReceiver`]
 /// hence this should only be used where we need sendable MsgReceivers
-impl <T,M> DynMsgReceiver <T> for ActorHandle <M>
+impl <T,M> DynMsgReceiverTrait <T> for ActorHandle <M>
     where T: Send + Debug + 'static,  M: From<T> + MsgTypeConstraints
 {
-    // TODO - explore if we can use special allocators to mitigate runtime costs
-
     fn send_msg (&self, msg: T) -> MsgSendFuture {
         Box::pin( self.send_actor_msg( msg.into()))
     }
 
     fn timeout_send_msg (&self, msg: T, to: Duration) -> MsgSendFuture {
         Box::pin( self.timeout_send_actor_msg( msg.into(), to))
+    }
+}
+
+impl <T,M> From<ActorHandle<M>> for DynMsgReceiver<T> 
+    where T: Send + Debug + 'static,  M: From<T> + MsgTypeConstraints
+{
+    fn from (a:ActorHandle<M>)->DynMsgReceiver<T> {
+        Box::new(a.clone())
     }
 }
 

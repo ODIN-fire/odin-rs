@@ -20,74 +20,167 @@
 use std::{fmt::Debug, future::{ready, Future, Ready}, marker::PhantomData, ops::{Deref, DerefMut, Fn}, pin::Pin, time::Duration};
 use paste::paste;
 use tracing_subscriber::registry::Data;
-use crate::{DynMsgReceiver, MsgReceiver,errors::{Result, OdinActorError}};
+use crate::{DynMsgReceiverTrait, DynMsgReceiver, MsgReceiver,errors::{Result, OdinActorError}};
 
 
-/* #region MsgSubscriber *******************************************************************************/
+/* #region MsgReceiverList ********************************************************************************/
 
-/// MsgSubscriber is the pattern to use if the publisher is defining the message to send out. While
-/// this hides the type of the receiver it still requires all the receivers to be partly homogenous
-/// (processing the same message). 
-/// This is a trait object safe subscriber for receiving messages of type `M`, which
-/// are created by the actor we subscribe to. While this has a low runtime overhead
-/// it requires the subscribers to be homogenous (all receiving the same message type `M`),
-/// i.e. it exposes subscriber details to the actor we subscribe to and hence reduces
-/// re-usability. Use the more abstract `ActionSubscriptions` if this is not suitable
-pub type MsgSubscriber<M> = Box<dyn DynMsgReceiver<M> + Send + Sync + 'static>;
-
-pub fn msg_subscriber<M> (s: impl DynMsgReceiver<M> + Send + Sync + 'static)->MsgSubscriber<M> {
-    Box::new(s)
-}
-
-/// container to keep a dynamically updated list of homogenous DynMsgReceiver instances.
-/// MsgSubscriptions objects are used as fields within the actor we subscribe to, to implement a
-/// publish/subscribe pattern that hides the concrete types of the subscribers (which don't even have to be actors) 
-pub struct MsgSubscriptions<M>
-    where M: Send + Clone + Debug + 'static
-{
-    list: Vec<MsgSubscriber<M>>, 
-}
-
-// TODO - should we automatically remove subscribers we fail to send to?
-impl<M> MsgSubscriptions<M> 
-    where M: Send + Clone + Debug + 'static
-{
-    pub fn new()->Self {
-        MsgSubscriptions { list: Vec::new() }
-    }
-
-    pub fn add (&mut self, subscriber: MsgSubscriber<M>) {
-        self.list.push( subscriber);
-    }
-
-    pub async fn publish_msg (&self, msg: M) -> Result<()> {
-        for p in &self.list {
-            p.send_msg( msg.clone()).await?;
-        }
-        Ok(())
-    }
-
-    pub async fn timeout_publish_msg (&self, msg: M, to: Duration) -> Result<()> {
-        for ref p in &self.list {
-            p.timeout_send_msg( msg.clone(), to).await?;
-        }
-        Ok(())
-    }
-}
-
-/* #endregion MsgSubscriber */
-
-/* region message actions ********************************************************************************/
-
-/// an actor action that sends a message to fixed set of actors.
-/// This is basically a list of ActorHandles implementing the same MsgReceiver<T> that we async send the same message T.
-/// Use this if the action owner is in control of what message to send.
-/// To create an ActorMsgList use the define_actor_msg_list!() macro
-pub trait MsgAction<T>: Send where T: Clone + Debug + Send {
-    fn execute (&self,m: T) -> impl Future<Output=Result<()>> + Send;
+pub trait MsgReceiverList<T> where T: Send + Clone + Debug, Self: Send {
+    fn send_msg (&self, msg: T, ignore_err: bool)->impl Future<Output=Result<()>> + Send;
+    fn timeout_send_msg (&self, msg: T, to: Duration, ignore_err: bool)->impl Future<Output=Result<()>> + Send;
+    fn try_send_msg (&self, msg:T, ignore_err: bool)->Result<()>;
 } 
 
+#[macro_export]
+macro_rules! msg_receiver_list {
+    (@inc $n:ident, $v:tt) => {
+        $n += 1
+    };
+    ( $( $recv:ident $(. $op:ident ())? ),* : MsgReceiver < $msg_t:ty > ) => {
+        paste::paste! {
+            {
+                let mut len=0;
+                $( msg_receiver_list!(@inc len, $recv); )*
 
-/* end region message actions */
+                struct SomeMsgReceiverList < $( [<T $recv>]: MsgReceiver<$msg_t> ),* > { $( $recv: [<T $recv>], )* len:usize }
+
+                impl< $( [<T $recv>] : MsgReceiver<$msg_t>),* > MsgReceiverList <$msg_t> for SomeMsgReceiverList < $( [<T $recv>] ),* > {
+                    async fn send_msg (&self, msg: $msg_t, ignore_err: bool)->Result<()> {
+                        let mut i=1;
+                        if ignore_err { 
+                            $(
+                                if i < self.len {
+                                    let _ = self.$recv.send_msg( msg.clone()).await; i += 1
+                                } else {
+                                    let _ = self.$recv.send_msg( msg).await; return Ok(())
+                                }
+                            )* 
+                        } else {
+                            $(
+                                if i < self.len {
+                                    self.$recv.send_msg( msg.clone()).await?; i += 1
+                                } else {
+                                    return self.$recv.send_msg( msg).await
+                                }
+                            )*
+                        }
+                        Ok(()) 
+                    }
+                    async fn timeout_send_msg (&self, msg: $msg_t, to: std::time::Duration, ignore_err: bool)->Result<()> {
+                        let mut i=1;
+                        if ignore_err { 
+                            $(
+                                if i < self.len {
+                                    let _ = self.$recv.timeout_send_msg( msg.clone(), to).await; i += 1
+                                } else {
+                                    let _ = self.$recv.timeout_send_msg( msg, to).await; return Ok(())
+                                }
+                            )* 
+                        } else {
+                            $(
+                                if i < self.len {
+                                    self.$recv.timeout_send_msg( msg.clone(), to).await?; i += 1
+                                } else {
+                                    return self.$recv.timeout_send_msg( msg, to).await
+                                }
+                            )*
+                        }
+                        Ok(()) 
+                    }
+                    fn try_send_msg (&self, msg: $msg_t, ignore_err: bool)->Result<()> {
+                        let mut i=1;
+                        if ignore_err { 
+                            $(
+                                if i < self.len {
+                                    let _ = self.$recv.try_send_msg( msg.clone()); i += 1
+                                } else {
+                                    let _ = self.$recv.try_send_msg( msg); return Ok(())
+                                }
+                            )* 
+                        } else {
+                            $(
+                                if i < self.len {
+                                    self.$recv.try_send_msg( msg.clone())?; i += 1
+                                } else {
+                                    return self.$recv.try_send_msg( msg)
+                                }
+                            )*
+                        }
+                        Ok(()) 
+                    }
+                }
+
+                SomeMsgReceiverList{ $( $recv: $recv $(. $op () )?, )* len }
+            }
+        }
+    }
+}
+
+pub struct DynMsgReceiverList<T> where T: Send + Clone + Debug {
+    entries: Vec<DynMsgReceiver<T>>
+}
+
+impl<T> DynMsgReceiverList<T> where T: Send + Clone + Debug {
+    pub fn new()->Self {
+        DynMsgReceiverList { entries: Vec::new() }
+    }
+
+    pub async fn send_msg (&self, msg: T, ignore_err: bool)->Result<()> {
+        if !self.is_empty() {
+            let n = self.entries.len()-1;
+            if ignore_err {
+                for i in 0..n { let _ = self.entries[i].send_msg(msg.clone()).await; }
+                let _ = self.entries[n].send_msg(msg).await;
+            } else {
+                for i in 0..n { self.entries[i].send_msg(msg.clone()).await?; }
+                self.entries[n].send_msg(msg).await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn timeout_send_msg (&self, msg: T, to: Duration, ignore_err: bool)->Result<()> {
+        if !self.is_empty() {
+            let n = self.entries.len()-1;
+            if ignore_err {
+                for i in 0..n { let _ = self.entries[i].timeout_send_msg(msg.clone(), to).await; }
+                let _ = self.entries[n].timeout_send_msg(msg, to).await;
+            } else {
+                for i in 0..n { self.entries[i].timeout_send_msg(msg.clone(), to).await?; }
+                self.entries[n].timeout_send_msg(msg, to).await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn try_send_msg (&self, msg:T, ignore_err: bool)->Result<()> {
+        if !self.is_empty() {
+            let n = self.entries.len()-1;
+            if ignore_err {
+                for i in 0..n { let _ = self.entries[i].try_send_msg(msg.clone()); }
+                let _ = self.entries[n].try_send_msg(msg);
+            } else {
+                for i in 0..n { self.entries[i].try_send_msg(msg.clone())?; }
+                self.entries[n].try_send_msg(msg)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl <T> Deref for DynMsgReceiverList<T> where T: Send + Clone + Debug {
+    type Target = Vec<DynMsgReceiver<T>>;
+    fn deref(& self) -> &Self::Target {
+        &self.entries
+    }
+}
+
+impl <T> DerefMut for DynMsgReceiverList<T> where T: Send + Clone + Debug {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.entries
+    }
+}
+
+/* #endregion MsgReceiverList */
 
 // Data[Ref]Actions have been generalized and moved to odin_action (which is automatically re-exported by odn_actor)

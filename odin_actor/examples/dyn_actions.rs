@@ -39,7 +39,7 @@ struct Updater {
 }
 impl Updater {
     fn new()->Self {
-        Updater { data: Vec::new(), count: 0, update_actions: DynDataActionList::new_infallible() }
+        Updater { data: Vec::new(), count: 0, update_actions: DynDataActionList::new() }
     }
 
     fn update (&mut self)->TUpdate {
@@ -64,7 +64,7 @@ impl_actor! { match msg for Actor<Updater,UpdaterMsg> as
     _Timer_ => {
         let update = self.update();
         println!("update cycle {}", update);
-        self.update_actions.execute(update).await;
+        self.update_actions.execute(update, true).await;
 
         if self.count >= 10 {
             println!("{} had enough of it, request termination.", self.id().white()); 

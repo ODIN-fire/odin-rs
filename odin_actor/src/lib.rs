@@ -145,15 +145,21 @@ pub trait MsgReceiver<T>: TryMsgReceiver<T> + MsgReceiverConstraints + Clone {
 
 /// this is a single message type receiver trait that is object safe, which means its
 /// async [`send_msg`] and [`timeout_send_msg`] methods return [`ObjSafeFuture`] futures
-/// (`Pin<Box<dyn Future<..>>>`), hence they incur runtime cost.
+/// (`Pin<Box<dyn Future<..>>>`), hence they have to be pinboxed and therefore incur runtime cost.
 /// Since this trait needs to be object safe we cannot add Clone to its super-traits (which would imply Sized).
 /// This trait is used to store abstract ActorHandles in places that cannot be parameterized
 /// with concrete receiver types (e.g. if we need to store collections of potentially heterogenous receivers)
 /// TODO.- explore if we can reduce runtime cost by means of specialized allocators (e.g. one that is actor
 /// specific, i.e. only has to deal with one allocation at a time)
-pub trait DynMsgReceiver<T>: TryMsgReceiver<T> + MsgReceiverConstraints {
+pub trait DynMsgReceiverTrait<T>: TryMsgReceiver<T> + MsgReceiverConstraints {
     fn send_msg (&self, msg: T) -> MsgSendFuture;
     fn timeout_send_msg (&self, msg: T, to: Duration) -> MsgSendFuture;
+}
+
+pub type DynMsgReceiver<T> = Box<dyn DynMsgReceiverTrait<T>>;
+
+pub fn into_dyn_msg_receiver<T>( r: impl DynMsgReceiverTrait<T> + Sized + 'static)->DynMsgReceiver<T> {
+    Box::new(r)
 }
 
 /// a MsgReceiver that only supports non-async send. This trait is object safe and does not require

@@ -20,8 +20,9 @@ pub use crate::{
     sleep, timeout, yield_now, spawn, spawn_blocking, block_on, block_on_send_msg, block_on_timeout_send_msg, // from respective cfg module
     Query, QueryBuilder, query, query_ref, timeout_query, timeout_query_ref, RequestProcessor,
     MpscSender, MpscReceiver, create_mpsc_sender_receiver, send, recv,
-    ActorReceiver, ReceiveAction, MsgReceiver, DynMsgReceiver, TryMsgReceiver, SysMsgReceiver, SysMsg, DefaultReceiveAction, FromSysMsg, 
-    Identifiable, MsgAction, MsgSubscriptions, MsgSubscriber,
+    ActorReceiver, ReceiveAction, MsgReceiver, DynMsgReceiverTrait, DynMsgReceiver, into_dyn_msg_receiver, TryMsgReceiver, 
+    MsgReceiverList, DynMsgReceiverList, msg_receiver_list,
+    SysMsgReceiver, SysMsg, DefaultReceiveAction, FromSysMsg, Identifiable,
     _Start_, _Ping_, _Timer_, _Exec_, _Pause_, _Resume_, _Terminate_,
     OdinActorError,
     secs,millis,micros,nanos,minutes,hours,
@@ -31,6 +32,5 @@ pub use crate::{
     no_data_action, no_dataref_action, no_bi_data_action, no_bi_dataref_action,
     data_action, dataref_action, bi_data_action, bi_dataref_action, dyn_data_action, dyn_dataref_action, 
     map_action_err, action_err, action_ok, OdinActionError,  
-    msg_subscriber, 
     trace,debug,info,warn,error
 };
