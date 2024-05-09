@@ -17,11 +17,9 @@
 #![allow(unused)]
 
 use tokio;
-use std::collections::VecDeque;
-use std::{future::Future,sync::Arc};
 use colored::Colorize;
 
-use odin_actor::{dyn_data_action, prelude::*};
+use odin_actor::prelude::*;
 use odin_actor::errors::Result;
 
 /// version of actions.rs example that uses dyn actions to dynamically register for updates

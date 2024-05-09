@@ -17,7 +17,7 @@
 #![allow(unused)]
 
 use std::{any, fmt::Debug, time::Duration};
-use odin_actor::prelude::*;
+use odin_actor::{console_ui::ConsoleUI, prelude::*};
 use odin_macro::fn_mut;
 use tokio::task::JoinHandle;
 use anyhow::{anyhow,Result};
@@ -93,6 +93,7 @@ impl_actor! { match msg for Actor<Actor3State,Actor3Msg> as
 
 //--- the application using the actor
 
+//#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 #[tokio::main]
 async fn main() ->Result<()> {
     //console_subscriber::init();
@@ -101,6 +102,7 @@ async fn main() ->Result<()> {
     // for some reason the tokio main task can be very slow so we run the whole app in a spawned one
     let jh: JoinHandle<Result<()>> = tokio::spawn( async {
         let mut actor_system = ActorSystem::new("main");
+        actor_system.set_ui( ConsoleUI::boxed( actor_system.clone_handle()));
 
         let a1 = spawn_actor!( actor_system, "actor1", Actor1State{n_a: 0, n_b: 0})?;
         let a2 = spawn_actor!( actor_system, "actor2", Actor2State{n: 0, a1: a1.clone()})?;

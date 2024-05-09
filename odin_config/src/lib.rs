@@ -185,7 +185,7 @@ pub fn config_from_xdg_file<C> (app: &AppMetaData, id: &str)->Result<C>   where 
 
 /// RON config lookup through ODIN_LOCAL env var or ./local directory as a fallback. The config pathname is constructed
 /// from «local-root»/config/«id».ron
-#[cfg(not(any(feature="config_embedded",feature="config_embedded_gpg",feature="config_xdg")))]
+#[cfg(not(any(feature="config_embedded",feature="config_embedded_pgp",feature="config_xdg")))]
 pub fn config_from_local_file<C> (id: &str)->Result<C>   where C: for <'a> Deserialize<'a> {
     use errors::file_not_found;
 
