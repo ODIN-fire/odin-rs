@@ -16,31 +16,33 @@
  */
 #![allow(unused)]
 
-use odin_actor::{prelude::*, DynMsgReceiverList, MsgReceiverList};
+use odin_actor::{prelude::*, DynMsgReceiverList};
 use odin_actor::errors::Result;
 use std::{sync::Arc, future::Future, pin::Pin};
 
-/// example for static publish/subscribe using [`MsgReceiverList<T>`]`
+/// example for using publish/subscribe with [`DynMsgReceiverList<T>`]
 
 #[derive(Debug,Clone)] struct Update(u64);
 
+#[derive(Debug)] struct Subscribe(DynMsgReceiver<Update>);
+
 /* #region Updater ********************************************************/
 
-define_actor_msg_set! { UpdaterMsg }
+define_actor_msg_set! { UpdaterMsg = Subscribe }
 
-struct Updater<L> where L: MsgReceiverList<Update> {
-    subscribers: L,
+struct Updater {
+    subscribers: DynMsgReceiverList<Update>,
     count: u64,
     timer: Option<AbortHandle>
 }
 
-impl<L> Updater<L> where L: MsgReceiverList<Update> {
-    fn new (subscribers: L)->Self {
-        Updater { subscribers, count: 0, timer: None }
+impl Updater {
+    fn new ()->Self {
+        Updater { subscribers: DynMsgReceiverList::new(), count: 0, timer: None }
     }
 }
 
-impl_actor! { match msg for Actor<Updater<L>,UpdaterMsg> where L: MsgReceiverList<Update> as
+impl_actor! { match msg for Actor<Updater,UpdaterMsg> as
     _Start_ => cont! {
         if let Ok(timer) = self.hself.start_repeat_timer( 1, secs(1)) {
             self.timer = Some(timer);
@@ -57,44 +59,37 @@ impl_actor! { match msg for Actor<Updater<L>,UpdaterMsg> where L: MsgReceiverLis
             ReceiveAction::RequestTermination 
         }
     }
+    Subscribe => cont! {
+        println!("got new subscription: {:?}", msg);
+        self.subscribers.push( msg.0)
+    }
 }
 
 /* #endregion Updater */
 
-/* #region Clients ********************************************************/
+/* #region Client ********************************************************/
 
-#[derive(Debug)] struct Foo {}
-define_actor_msg_set! { Client1Msg = Update | Foo }
+define_actor_msg_set! { ClientMsg = Update }
 
-struct Client1;
+struct Client;
 
-impl_actor! { match msg for Actor<Client1,Client1Msg> as
-    Update => cont! { println!("{} got {:?}", self.id(), msg) }
-    Foo => cont! { println!("{} got Foo", self.id())}
+impl_actor! { match msg for Actor<Client,ClientMsg> as
+    Update => cont! { println!("{} got {:?}", self.hself.id, msg) }
 }
 
-
-#[derive(Debug)] struct Bar {}
-define_actor_msg_set! { Client2Msg = Update | Bar }
-
-struct Client2;
-
-impl_actor! { match msg for Actor<Client2,Client2Msg> as
-    Update => cont! { println!("{} got {:?}", self.id(), msg) }
-    Bar => cont! { println!("{} got Bar", self.id())}
-}
-
-/* #endregion Clients */
+/* #endregion Client */
 
 
 #[tokio::main]
 async fn main ()->Result<()> {
     let mut actor_system = ActorSystem::new("main");
 
-    let client_1 = spawn_actor!( actor_system, "client-1", Client1{})?;
-    let client_2 = spawn_actor!( actor_system, "client-2", Client2{})?;
+    let updater = spawn_actor!( actor_system, "updater", Updater::new())?;
+    let client_1 = spawn_actor!( actor_system, "client-1", Client{})?;
+    let client_2 = spawn_actor!( actor_system, "client-2", Client{})?;
 
-    let updater = spawn_actor!( actor_system, "updater", Updater::new( msg_receiver_list!( client_1, client_2 : MsgReceiver<Update>)))?;
+    updater.send_msg( Subscribe( client_1.into())).await;
+    updater.send_msg( Subscribe( client_2.into())).await;
 
     actor_system.timeout_start_all(millis(20)).await?;
     actor_system.process_requests().await

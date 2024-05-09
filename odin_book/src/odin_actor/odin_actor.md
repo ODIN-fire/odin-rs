@@ -1,1 +1,1 @@
-# odin_actor
+../../../odin_actor/doc/odin_actor.md

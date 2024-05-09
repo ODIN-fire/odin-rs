@@ -367,26 +367,22 @@ macro_rules! dyn_dataref_action {
 
 /// container to store DynDataAction objects
 pub struct DynDataActionList<T> where T: Clone {
-    is_infallible: bool,
     entries: Vec<DynDataAction<T>> 
 }
 
 impl <T> DynDataActionList<T> where T: Clone {
-    pub fn new ()->Self { DynDataActionList{ is_infallible: false, entries: Vec::new() } }
-    pub fn new_infallible ()->Self { DynDataActionList{ is_infallible: true, entries: Vec::new() } }
-
-    pub async fn execute (&self, data: T) -> std::result::Result<(),OdinActionError> {
+    pub fn new ()->Self { 
+        DynDataActionList{ entries: Vec::new() } 
+    }
+    
+    pub async fn execute (&self, data: T, ignore_err: bool) -> std::result::Result<(),OdinActionError> {
         if !self.is_empty() {
             let n = self.entries.len()-1;
-            if self.is_infallible {
-                for i in 0..n {
-                    let _ = self.entries[i].execute(data.clone()).await;
-                }
+            if ignore_err {
+                for i in 0..n { let _ = self.entries[i].execute(data.clone()).await; }
                 let _ = self.entries[n].execute(data).await;
             } else {
-                for i in 0..n {
-                    self.entries[i].execute(data.clone()).await?;
-                }
+                for i in 0..n { self.entries[i].execute(data.clone()).await?; }
                 self.entries[n].execute(data).await?;
             }
         }
@@ -410,16 +406,16 @@ impl <T> DerefMut for DynDataActionList<T> where T: Clone {
 
 /// container to store DynDataRefAction objects
 pub struct DynDataRefActionList<T> where T: Send + Sync {
-    is_infallible: bool,
     entries: Vec<DynDataRefAction<T>> 
 }
 
 impl <T> DynDataRefActionList<T> where T: Send + Sync {
-    pub fn new ()->Self { DynDataRefActionList{ is_infallible: false, entries: Vec::new() } }
-    pub fn new_infallible ()->Self { DynDataRefActionList{ is_infallible: true, entries: Vec::new() } }
+    pub fn new ()->Self { 
+        DynDataRefActionList{ entries: Vec::new() }
+    }
 
-    pub async fn execute (&self, data: &T) -> std::result::Result<(),OdinActionError> {
-        if self.is_infallible {
+    pub async fn execute (&self, data: &T, ignore_err: bool) -> std::result::Result<(),OdinActionError> {
+        if ignore_err {
             for e in &self.entries {
                 let _ = e.execute(data).await;
             }

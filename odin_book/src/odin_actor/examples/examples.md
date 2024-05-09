@@ -10,7 +10,8 @@ The `odin_actor/examples` directory contains a set of runnable example applicati
 - [`exec`](odin_actor/examples/exec.md) : using the generic `exec(..)` to execute closures within actor tasks
 - [`jobs`](odin_actor/examples/jobs.md) : scheduling generic jobs with the actor system global `JobScheduler`
 - [`producer_consumer`](odin_actor/examples/producer_consumer.md) : point-to-point actor communication with `MsgReceiver`
-- [`pub_sub`](odin_actor/examples/pub_sub.md) : publish/subscribe communication with `MsgSubscriptions`
+- [`pub_sub`](odin_actor/examples/pub_sub.md) : publish/subscribe communication using a static `MsgReceiverList<T>`
+- [`dyn_pub_sub`](odin_actor/examples/dyn_pub_sub.md) : dynamic publish/subscribe communication using `DynMsgReceiver<T>` and `DynMsgReceiverList<T>`
 - [`ping_pong`](odin_actor/examples/pin_pong.md) : managing cyclic actor dependencies with `PreActorHandle`
 - [`query`](odin_actor/examples/query.md) : using `Query<Q,A>` to send a message and wait for an answer 
 - [`dyn_actor`](odin_actor/examples/dyn_actor.md) : dynamically create actors from within actors

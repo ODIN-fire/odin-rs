@@ -18,7 +18,7 @@
 
 /* #region data model ***********************************************************************************/
 mod data {
-    use odin_actor::prelude::*;
+    use odin_actor::{prelude::*, DynMsgReceiverList};
     use odin_actor::tokio_kanal::{Actor, AbortHandle,};
     use odin_server::PushWsMsgToAll;
     use std::fmt::Debug;
@@ -32,7 +32,7 @@ mod data {
         lon: f64, // degrees
     }
 
-    #[derive(Debug)] struct SubscribeToJsonUpdate(MsgSubscriber<PushWsMsgToAll>);
+    #[derive(Debug)] struct SubscribeToJsonUpdate(DynMsgReceiver<PushWsMsgToAll>);
 
     #[derive(Debug)] 
     struct ProcessJsonTracks <F,Fut> where F: FnOnce(String)->Fut, Fut: Future<Output=Result<()>> {
@@ -48,7 +48,7 @@ mod data {
     
     /// this is just a simple data source actor we can subscribe to and not the focus of this example
     struct TrackUpdater {
-        json_subscribers: MsgSubscriptions<TrackUpdate>,
+        json_subscribers: DynMsgReceiverList<TrackUpdate>,
         timer: Option<AbortHandle>
     }
 
@@ -66,7 +66,10 @@ mod data {
             self.update_tracks();
         }
         SubscribeToJsonUpdate => cont! {
-            self.json_subscribers.add( msg.0)
+            self.json_subscribers.push( msg.0)
+        }
+        ProcessJsonTracks => cont! {
+            todo!()
         }
     }
 }
@@ -127,7 +130,7 @@ async fn main()->Result<()> {
         ) 
     );
 
-    htrack_updater.send_msg( SubscribeToJsonUpdate( subscriber(hserver))).await?;
+    htrack_updater.send_msg( SubscribeToJsonUpdate( hserver.into())).await?;
 
     asys.start_all(millis(20)).await?;
     asys.process_requests().await

@@ -1,21 +1,24 @@
 # odin_action
 
-The `odin_action` crate provides several variants of "action" types together with macros to define and instantiate
-ad hoc actions. The action constructs are used to make operations that depend on action owner data configurable,
-i.e. turn them into fields that can be used to execute the action at the owners discretion. They are some
-sort of "callback" mechanism that allows the owner to inject its state into the callback execution.
+The `odin_action` crate provides several variants of **action** types together with macros to define and instantiate ad
+hoc actions. The generic **action** construct represents application specific objects that encapsulate async
+computations, to be executed by an *action owner* that can invoke such computations with its own data (e.g. sending
+messages in actor systems that are built from its data).
 
-The basis for all this are "Action" traits with a single `async fn execute(&self,data..)->Result<()>` method.
-Instances of these traits are normally created where we assemble an application (e.g. in `main()`), i.e. where
-we know all the relevant types. They are then passed either as generic type constructor arguments or later-on
-(at runtime) as trait objects to their owners, to be invoked either on-demand or when the owner state changes.
- 
-The main purpose of this mechanism is to make the action owners more generic, i.e. to delegate functionality
-to the context that creates (or drives) the action owner. All the owner has to know is its own state (data)
-and when to invoke its actions.
+The primary purpose of actions is to build re-usable action owners that do not have to be aware of in which
+application context they are used. All the owner has to know is when to execute an action and what of its own data
+it should provide as an argument.
+
+In a synchronous world this is often described as a "callback".
+
+The basis for this are "Action" traits with a single `async fn execute(&self,data..)->Result<()>` method. Instances of
+these traits are normally created where we assemble an application (e.g. in `main()`), i.e. where we know all the
+relevant interaction types. They are then passed either as generic type constructor arguments or later-on (at runtime)
+as trait objects to their owners, to be invoked either on-demand or when the owner state changes.
 
 Technically, actions represent a special case of async closures in which capture is done by either `Copy`
-or `Clone`.
+or `Clone`. Reference capture is not useful here since actions are executed within another task, without any
+lifetime relationship to the context in which the actions were created.
  
 We support the following variants:
  
@@ -41,12 +44,16 @@ expect semantically).
 `Dyn..Action` types (which represent trait objects) are used in two different contexts:
 
 - to execute actions that were received as function arguments (e.g. through async messages)
-- to store such actions in homogenous containers for later execution
+- to store such actions in homogenous `Dyn..ActionList` containers for later execution
+
+The `Dyn..ActionList` containers use an additional `ignore_err: bool` argument in their `execute(..)` methods
+that specifies if the execution should shortcut upon encountering error results when executing its stored actions
+or if return values of stored actions should be ignored.
 
 ```rust
 struct MyActor { ...
     data: MyData, 
-    actions: Vec<DynDataAction<MyData>>
+    actions: DynDataActionList<MyData>
 }
 ...
 impl MyActor {
@@ -57,21 +64,20 @@ impl MyActor {
     fn store (&mut self, da: DynDataAction<MyData> ) { 
         .. self actions.push( da) ..
     }
-    ... self.actions.execute(&self.data).await ...
+    ... self.actions.execute(&self.data, ignore_err).await ...
 }
 ```
 
-Note this does incur runtime cost per execution of such actions.
+Note that `Dyn..Action` instances do have runtime overhead (allocation) per `execute(..)` call.
 
- 
-Since actions are typically one-of types we provide macros for all the above variants that both define the type
+Since actions are typically one-of-a-kind types we provide macros for all the above variants that both define the type
 and return an instance of this type. Those macros all follow the same pattern:
 
 ```rust
 //--- system construction site:
 let v1: String = ...
 let v2: u64 = ...
-let action = data_action!( value1.clone() : String, value2 => |data: Foo| {
+let action = data_action!( v1.clone() : String, v2 => |data: Foo| {
    println!("action executed with arg {:?} and captures v1={}, v2={}", data, v1, v2);
    Ok(())
 });

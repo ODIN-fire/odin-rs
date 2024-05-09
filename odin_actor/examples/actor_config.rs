@@ -16,6 +16,9 @@
  */
 #![allow(unused)]
 
+// example for actor configuration
+// has to be run from odin_actor/ dir
+
 use odin_actor::prelude::*;
 use odin_config::load_config;
 
