@@ -76,8 +76,13 @@ need to know (other than to understand related compiler error messages).
 
 Using an enum to encode all possible input messages for an actor also explains why message types should not be large. Not
 only would this increase `clone()` cost but it also would enlarge the message set enum, which is sized according to its largest
-variant. Since this message set enum is the type of the actor mailbox (channel) this size matters.
+variant. 
 
+<a id="message-size"></a>
+Since this message set enum is the type of the actor mailbox (channel) this size matters - a Rust `enum` is sized according to
+its largest variant. If the ratio of max to min size of variants is too large then the channel can waste a lot of memory. If this is
+a problem we can always wrap (part of) large messages within heap-allocated containers (`Box`, `Arc`, `Vec` etc.) which collapses
+the size of the wrapped data to a pointer.
 
 ## How to Send Messages
 
@@ -414,3 +419,44 @@ sender.send_msg( AddUpdateAction(action)).await?;
 Actions sent in messages can also be executed when the receiver processes such messages. Since dyn actions can capture
 data from the creation site (within the sender code) this can be useful as a less expensive alternative to the `query()`
 mechanism described above (only using the normal actor task context).
+
+With power comes responsibility - being able to use loops within action bodies we have to be aware of two potential 
+problems:
+
+- back pressure and
+- loss-of-information
+
+The back pressure problem arises if we send messages from within iteration cycles, as in:
+
+```rust
+... dataref_action( ... |data: &Vec<SomeData>| {...
+      for e in data {
+         ... receiver.try_send_msg( SomeMessage::new(e)); ...
+      }
+    }) ...
+```
+
+This can result in `OdinActorError::ReceiverFull` results when sending messages. If we use `try_send_msg(..)` without
+processing the return value (as in above snippet) this might even be silently ignored. The solution for this is to
+either check the return value or use 
+
+```rust
+         ... receiver.send_msg( SomeMessage::new(e)).await ...
+```
+
+In this case we have to be aware though that the sender might get blocked, i.e. becomes un-responsive if it is also
+a potential message receiver. Should this apply we can run the loop from within a spawned task.
+
+There also might be a (semantic) loss-of-information problem if we need to preserve that all messages sent from within
+the loop came from the same input data (the `execute()` argument). Unless receivers could easily reconstruct this from
+the respective message payload the solution is to collect the payloads into a container and send that container as one
+message, which turns the above case into:
+
+```rust
+... dataref_action( ... |data: &Vec<SomeData>| {...
+      let msg_payload: Vec<SomePayload> = data.iter().map(|e| payload(e)).collect();
+      receiver.try_send_msg( SomeMessage::new( msg_payload)) ...
+    }) ...
+```
+
+This also addresses the message variant size problem mentioned (above)[#message-size].

@@ -502,53 +502,6 @@ impl <M> SysMsgReceiver for ActorHandle<M> where M: MsgTypeConstraints
 
 /* #region ActorSystem *****************************************************************************************/
 
-/// actor heartbeat status 
-/// TODO - should we reduce this to micro-sec to shave off memory?
-#[derive(Debug,Copy,Clone)]
-pub struct PingStatus {
-    pub last_cycle: u32,
-    pub last_ns: u64,
-    pub min_ns: u64,
-    pub max_ns: u64,
-    pub avg_ns: u64,
-    pub outlier: usize,
-
-    pub was_outlier: bool, // state 
-    // we could add variance here
-}
-
-impl PingStatus {
-    pub fn new ()->Self { PingStatus{ last_cycle: 0, last_ns: 0, min_ns: 0, max_ns: 0, avg_ns: 0, outlier: 0, was_outlier: false } }
-
-    fn update (&mut self, cycle: u32, last_ns: u64) {
-        if cycle > 1 {
-            if last_ns > 10* self.avg_ns && !self.was_outlier { // ignore one outlier
-                //println!("@@ outlier: {}", last_ns);
-                self.outlier += 1;
-                self.was_outlier = true;
-
-            } else {
-                if last_ns < self.min_ns { self.min_ns = last_ns }
-                if last_ns > self.max_ns { self.max_ns = last_ns }
-        
-                // we could round here but 1 nano_sec is already more resolution than realistic
-                if last_ns > self.avg_ns {
-                    self.avg_ns = self.avg_ns + (last_ns - self.avg_ns)/cycle as u64;
-                } else {
-                    self.avg_ns = self.avg_ns - (self.avg_ns - last_ns)/cycle as u64;
-                }
-
-                self.was_outlier = false;
-            }
-        } else {
-            self.min_ns = last_ns; self.max_ns = last_ns; self.avg_ns = last_ns;
-        }
-        
-        self.last_cycle = cycle;
-        self.last_ns = last_ns;
-    }
-}
-
 /// abstraction layer for ActorSystem user interfaces. The methods are called by the actor system to transmit/update
 /// display relevant information. This trait has to be object-safe.
 /// 
@@ -560,9 +513,9 @@ pub trait ActorSystemUITrait where Self: Send + 'static {
     fn remove_actor (&mut self, idx: usize);
     fn no_start_actor (&mut self, idx: usize);
     fn heartbeats_started (&mut self); // just a notification about an actor system state change 
-    fn heartbeat (&mut self, cycle: u32); // when we start a new heartbeat cycle
-    fn heartbeat_response (&mut self, cycle: u32, entries: Vec<PingStatus>); // order of entries reflects display list
-    fn unresponsive_actor (&mut self, idx: usize);
+    fn heartbeat_cycle_started (&mut self, cycle: u32); // when we start a new heartbeat cycle
+    fn actor_heartbeat (&mut self, idx: usize, cycle: u32, last_ns: u64); // latest heartbeat response of actor
+    fn unresponsive_actor (&mut self, idx: usize); // we report that separately if we detect there was no response from an actor within cycle
     fn no_terminate_actor (&mut self, idx: usize);
     fn actors_terminated (&mut self); // just a notification about an actor system state change 
     //... more to follow
@@ -579,7 +532,6 @@ struct ActorEntry {
     abortable: AbortHandle,
     receiver: Box<dyn SysMsgReceiver>,
     ping_response: Arc<AtomicU64>, // see `Ping` for details (packed cycle/response-ns value)
-    ping_status: PingStatus
 }
 
 #[derive(Clone)]
@@ -732,7 +684,6 @@ impl ActorSystem {
             abortable: abort_handle,
             receiver: Box::new(actor_handle.clone()), // stores it as a SysMsgReceiver trait object
             ping_response: Arc::new(AtomicU64::new(0)),
-            ping_status: PingStatus::new()
 
         };
 
@@ -751,7 +702,6 @@ impl ActorSystem {
             abortable: abort_handle,
             receiver: sys_msg_receiver, // stores it as a SysMsgReceiver trait object
             ping_response: Arc::new(AtomicU64::new(0)),
-            ping_status: PingStatus::new()
         };
 
         if let Some(ui) = &mut self.ui { ui.add_actor( actor_entry.id.clone(), actor_entry.type_name) }
@@ -775,7 +725,6 @@ impl ActorSystem {
         iter_op_result("start_all", len, len-closed)   
     }
 
-
     pub async fn abort_all (&mut self) {
         let mut join_set = &mut self.join_set;
         join_set.abort_all();
@@ -784,7 +733,7 @@ impl ActorSystem {
     pub async fn ping_all (&mut self)->Result<()> {
         self.ping_cycle += 1;
 
-        if let Some(ui) = &mut self.ui { ui.heartbeat(self.ping_cycle) }
+        if let Some(ui) = &mut self.ui { ui.heartbeat_cycle_started(self.ping_cycle) }
 
         for actor_entry in &self.actor_entries {
             let response = actor_entry.ping_response.clone();
@@ -806,20 +755,15 @@ impl ActorSystem {
         for mut actor_entry in &mut self.actor_entries {
             let (cycle,last_ns) = unpack_ping_response( actor_entry.ping_response.load(Ordering::Relaxed));
             if (cycle == cur_cycle) {
-                actor_entry.ping_status.update( cur_cycle, last_ns);
-
-                // FIXME - this should just forward to UI abstraction
-                //let status = &actor_entry.ping_status;
-                //println!("{:<10} = {:>6} ns,  avg: {:>5}, min: {:>5}, max: {:>6}, outlier: {:>2}", 
-                //           actor_entry.id, status.last_ns, status.avg_ns, status.min_ns, status.max_ns, status.outlier)
+                if let Some(ui) = &mut self.ui { ui.actor_heartbeat(idx, cycle, last_ns) }
             } else {
                 warn!("actor {} failed to respond in ping cycle {}", actor_entry.id, cur_cycle);
+
+                // we leave it up to the UI to terminate
                 if let Some(ui) = &mut self.ui { ui.unresponsive_actor(idx) }
             }
             idx += 1;
         }
-
-        if let Some(ui) = &mut self.ui { ui.heartbeat_response( cur_cycle, self.actor_entries.iter().map(|e| e.ping_status.clone()).collect()) }
     }
 
     pub async fn start_all(&mut self)->Result<()> {

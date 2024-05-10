@@ -37,7 +37,7 @@ pub use tokio_rt::{
     sleep, timeout, yield_now, spawn, spawn_blocking, block_on, block_on_send_msg, block_on_timeout_send_msg,
     query, query_ref, timeout_query, timeout_query_ref,
     MpscSender, MpscReceiver, create_mpsc_sender_receiver, send, recv,
-    PingStatus, ActorSystemUITrait, DynActorSystemUI,
+    ActorSystemUITrait, DynActorSystemUI,
 };
 
 pub mod console_ui;

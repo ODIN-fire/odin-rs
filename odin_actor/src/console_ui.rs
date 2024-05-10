@@ -18,7 +18,51 @@
 #![allow(unused)]
 
 use std::{sync::Arc,fmt};
-use crate::{ActorSystemHandle, ActorSystemUITrait, DynActorSystemUI, PingStatus};
+use crate::{ActorSystemHandle, ActorSystemUITrait, DynActorSystemUI};
+
+pub struct PingStatus {
+    pub last_cycle: u32,
+    pub last_ns: u64,
+    pub min_ns: u64,
+    pub max_ns: u64,
+    pub avg_ns: u64,
+    pub outlier: usize,
+
+    pub was_outlier: bool, // state 
+    // we could add variance here
+}
+
+impl PingStatus {
+    pub fn new ()->Self { PingStatus{ last_cycle: 0, last_ns: 0, min_ns: 0, max_ns: 0, avg_ns: 0, outlier: 0, was_outlier: false } }
+
+    fn update (&mut self, cycle: u32, last_ns: u64) {
+        if cycle > 1 {
+            if last_ns > 10* self.avg_ns && !self.was_outlier { // ignore one outlier
+                //println!("@@ outlier: {}", last_ns);
+                self.outlier += 1;
+                self.was_outlier = true;
+
+            } else {
+                if last_ns < self.min_ns { self.min_ns = last_ns }
+                if last_ns > self.max_ns { self.max_ns = last_ns }
+        
+                // we could round here but 1 nano_sec is already more resolution than realistic
+                if last_ns > self.avg_ns {
+                    self.avg_ns = self.avg_ns + (last_ns - self.avg_ns)/cycle as u64;
+                } else {
+                    self.avg_ns = self.avg_ns - (self.avg_ns - last_ns)/cycle as u64;
+                }
+
+                self.was_outlier = false;
+            }
+        } else {
+            self.min_ns = last_ns; self.max_ns = last_ns; self.avg_ns = last_ns;
+        }
+        
+        self.last_cycle = cycle;
+        self.last_ns = last_ns;
+    }
+}
 
 /// example struct for display relevant actor data
 struct ActorDisplayData {
@@ -72,16 +116,18 @@ impl ActorSystemUITrait for ConsoleUI {
         println!("-- heartbeats started");
     }
 
-    fn heartbeat (&mut self, cycle: u32) {
-        println!("-- heartbeat: {}", cycle);
+    fn heartbeat_cycle_started (&mut self, cycle: u32) {
+        // print response for previous cycle
+        if cycle > 1 {
+            println!("-- heartbeat response: #{}", cycle -1);
+            for (idx,e) in self.actor_entries.iter().enumerate() {
+                println!("[{}]: {}", idx, e);
+            }
+        }
     }
 
-    fn heartbeat_response (&mut self, cycle: u32, entries: Vec<PingStatus>) {
-        println!("-- heartbeat response: {}", cycle);
-        for (idx,s) in entries.iter().enumerate() {
-            self.actor_entries[idx].status = *s;
-            println!("{}", self.actor_entries[idx]);
-        }
+    fn actor_heartbeat (&mut self, idx: usize, cycle: u32, last_ns: u64) {
+        self.actor_entries[idx].status.update( cycle, last_ns);
     }
 
     fn unresponsive_actor (&mut self, idx: usize) {
