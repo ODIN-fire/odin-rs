@@ -14,12 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#![feature(trait_alias)]
 
 use futures::future::join_all;
 use odin_actor::ActorHandle;
 use odin_actor::prelude::*;
 use odin_actor::error;
 
+use std::collections::VecDeque;
 use std::{fs::File, path::PathBuf, time::Duration, io::Write};
 use std::collections::HashMap;
 use aws_smithy_types_convert::date_time::DateTimeExt;
@@ -36,7 +38,6 @@ use aws_config::meta::region::RegionProviderChain;
 use aws_config::Region;
 use gdal::Dataset;
 use paste::paste;
-use std::time::Instant;
 use futures::Future;
 
 mod errors;
@@ -86,8 +87,7 @@ impl GoesRHotSpot {
             sat_id: data.sat_id,
             date: data.date,
             //location info
-            position: center,
-            //center: None, 
+            position: center, 
             bounds: bounds,
             // data info
             bright: ThermodynamicTemperature::new::<kelvin>(bright.into()), 
@@ -125,6 +125,41 @@ impl GoesRHotSpots {
     }
 }
 
+#[derive(Debug,Clone, Serialize)]
+pub struct HotspotStore {
+    hotspots: VecDeque<GoesRHotSpots>,
+    max_capacity: usize
+}
+impl HotspotStore {
+    pub fn new(capacity: usize) -> Self {
+        HotspotStore {
+            hotspots:VecDeque::with_capacity(capacity),
+            max_capacity:capacity
+        }
+    }
+    pub fn update_hotspots(&mut self, new_hotspots: GoesRHotSpots) -> () {
+        // if vec is not max add in - assume update is from newer date
+        if self.hotspots.len() < self.max_capacity {
+            self.hotspots.push_front(new_hotspots);
+        } else {
+            // remove last, add newest
+            self.hotspots.pop_back();
+            self.hotspots.push_front(new_hotspots);
+        }
+    }
+
+    pub fn initialize_hotspots(&mut self, init_hotspots: Vec<GoesRHotSpots>) -> () {
+        for hs in init_hotspots {
+            self.hotspots.push_front(hs);
+        }
+    }
+    pub fn to_json_pretty (&self)->Result<String> {
+        Ok(serde_json::to_string_pretty( &self.hotspots )?)
+    }
+        
+}
+
+
 #[derive(Serialize,Deserialize,Debug,PartialEq,Clone)]
 pub struct GoesRImportActorConfig {
     pub polling_interval: Duration,
@@ -132,15 +167,13 @@ pub struct GoesRImportActorConfig {
     pub data_dir: PathBuf,
     pub keep_files: bool,
     pub s3_region: String,
-    pub products: Vec<GoesRProduct>,
+    pub product: GoesRProduct,
     pub init_records: usize,
     pub max_records:usize
 }
 
 pub trait GoesRDataImporter {
     fn start (&mut self, hself: ActorHandle<GoesRActorMsg>) -> impl Future<Output=Result<()>> + Send;
-    // fn terminate (&mut self);
-    // fn max_history(&self)->usize;
 }
 
 #[derive(Debug,Clone)]
@@ -172,20 +205,15 @@ impl GoesRDataImporter for LiveGoesRDataImporter {
         }
         Ok(())
     }
-
-    // fn terminate (&mut self);
-    // fn max_history(&self)->usize;
 }
 
-
-// init action
 #[derive(Clone, Debug)]
 pub struct LiveGoesRDataAcquisitionTask { 
     pub latest_objs: HashMap<String, Object>,
     pub sat_id: u8,
     pub polling_interval: Duration,
     pub s3_client:Client,
-    pub products: Vec<GoesRProduct>,
+    pub product: GoesRProduct,
     pub data_dir: PathBuf,
     pub init_records:usize,
     pub hself: ActorHandle<GoesRActorMsg>
@@ -204,7 +232,7 @@ impl LiveGoesRDataAcquisitionTask {
             sat_id: config.satellite,
             polling_interval: config.polling_interval,
             s3_client: s3_client,
-            products: config.products,
+            product: config.product,
             data_dir: config.data_dir,
             init_records: config.init_records,
             hself: hself
@@ -214,7 +242,7 @@ impl LiveGoesRDataAcquisitionTask {
     pub async fn initial_download(&mut self) -> Result<Vec<GoesRHotSpots>> {
         //downloads x amount of files
         // updates latest obj
-        let product = &self.products[0];
+        let product = &self.product;
         let dt = Utc::now();
         let num_obj=self.init_records;
         let init_objs = get_inital_objects(&self.s3_client, dt, product, &self.sat_id,  num_obj).await?;
@@ -234,13 +262,12 @@ impl LiveGoesRDataAcquisitionTask {
     
     pub async fn download_updates(&mut self) -> Result<GoesRHotSpots> {
         //downloads latest file
-        let product = &self.products[0];
+        let product = &self.product;
         let last_object = if let Some(l_obj) = self.latest_objs.get(&product.name) {
             Some(l_obj)
         } else { 
             None
         };
-        //download_most_recent_object(&self.s3_client, Utc::now(), &self.products[0], &self.sat_id, &self.data_dir).await?;
         let dt = Utc::now();
         let prefix = format!("{}/{}/{:03}/{:02}/", product.name, dt.year(), dt.ordinal(), dt.hour()); // https://stackoverflow.com/questions/76651472/do-rust-s3-sdk-datetimes-work-with-chrono
         let destination = PathBuf::from(&self.data_dir);
@@ -306,7 +333,7 @@ async fn get_multiple_objects(client: &Client, bucket: &String, prefix: &String,
         if object_vec.len() <= *num_obj { // add all of them to the vector
             init_objs.extend(object_vec);
         } else { // take last num_obj objects from the vector - we can assume it is sorted in order since it is UTF-8 sorted https://docs.aws.amazon.com/AmazonS3/latest/userguide/ListingKeysUsingAPIs.html
-            init_objs.extend(object_vec[object_vec.len()-num_obj .. object_vec.len()].to_vec());//.into_iter().map(|x| init_objs.push(x));
+            init_objs.extend(object_vec[object_vec.len()-num_obj .. object_vec.len()].to_vec());
         }
         Ok(Some(init_objs))
     } else {
@@ -314,14 +341,19 @@ async fn get_multiple_objects(client: &Client, bucket: &String, prefix: &String,
     }
 }
 
-pub async fn get_multiple_last_hour_objects (client: &Client, dt: &DateTime<Utc>, bucket:&String, product:&GoesRProduct,  num_obj: &usize) -> Result<Option<Vec<Object>>> {
+pub fn get_prefix_last_hour (dt: &DateTime<Utc>, product:&GoesRProduct) -> String {
     let mut prev_hour = (dt.hour() as i16 -1 as i16) as i16;
     let mut day = dt.ordinal();
     if prev_hour<0 {
         prev_hour = 23;
         day = day-1;
     }
-    let prefix_last_hour  = format!("{}/{}/{:03}/{:02}/", product.name, dt.year(), day, prev_hour); // https://stackoverflow.com/questions/76651472/do-rust-s3-sdk-datetimes-work-with-chrono
+    format!("{}/{}/{:03}/{:02}/", product.name, dt.year(), day, prev_hour)
+    
+}
+
+pub async fn get_multiple_last_hour_objects (client: &Client, dt: &DateTime<Utc>, bucket:&String, product:&GoesRProduct,  num_obj: &usize) -> Result<Option<Vec<Object>>> {
+    let prefix_last_hour  = get_prefix_last_hour (&dt, &product);
     let last_hour_objects = get_multiple_objects(&client, bucket, &prefix_last_hour, &num_obj).await?;
     Ok(last_hour_objects)
 }
@@ -397,13 +429,7 @@ async fn download_object(client: &Client, bucket: &String, object: Object, desti
 }
 
 pub async fn get_last_hour_objects (client: &Client, dt: &DateTime<Utc>, bucket:&String, product:&GoesRProduct, prev_obj: Option<&Object>) -> Result<Option<Object>> {
-    let mut prev_hour = (dt.hour() as i16 -1 as i16) as i16;
-    let mut prev_date = dt.ordinal();
-    if prev_hour<0 { // update to read the previous days objects
-        prev_hour = 23;
-        prev_date = prev_date -1;
-    }
-    let prefix_last_hour  = format!("{}/{}/{:03}/{:02}/", product.name, dt.year(), prev_date, prev_hour); 
+    let prefix_last_hour  = get_prefix_last_hour (&dt, &product);
     let last_hour_object = get_most_recent_object(&client, bucket, &prefix_last_hour, prev_obj).await?;
     Ok(last_hour_object)
 }
@@ -469,7 +495,6 @@ pub fn get_hotspots (data: &GoesRData, areas: Vec<u16>, masks: Vec<u16>, powers:
 }
 
 pub fn read_goesr_data(data: &GoesRData) -> Result<GoesRHotSpots> {
-    let start = Instant::now();
     let lat_lon_grid = get_lat_lon_grid(&data)?;
     let mut x_vals: Vec<usize> = vec![];
     let mut y_vals: Vec<usize> = vec![];

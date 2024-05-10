@@ -16,34 +16,47 @@
  */
 use tokio;
 use anyhow::Result;
-use std::time::Duration;
-use std::path::PathBuf;
 use odin_actor::prelude::*;
 use odin_goesr::actor::GoesRImportActor;
-use odin_goesr::{GoesRImportActorConfig, LiveGoesRDataImporter, GoesRProduct};
+use odin_goesr::{LiveGoesRDataImporter, GoesRHotSpots};
+use odin_config::prelude::*;
+
+use_config!();
+
+#[derive(Debug)] pub struct Update(String);
+
+define_actor_msg_set! { GoesRMonitorMsg = Update }
+struct GoesRMonitor {}
+
+impl_actor! { match msg for Actor<GoesRMonitor,GoesRMonitorMsg> as
+    Update => cont! { 
+        println!("------------------------------ update");
+        println!("{}", msg.0) 
+    }
+}
+
 
 #[tokio::main]
 async fn main() -> Result<()>{
-    let goesr_product:GoesRProduct = GoesRProduct {
-      name: String::from("ABI-L2-FDCC"),
-      bucket: String::from("noaa-goes18"),
-      history: String::from("1d")
-    };
-    
-    let config:GoesRImportActorConfig = GoesRImportActorConfig{
-      polling_interval: Duration::from_secs(60*5),
-      satellite: 18,
-      data_dir: PathBuf::from("..\\..\\race-data\\goesr_test"),
-      keep_files: true,
-      s3_region: String::from("us-east-1"),
-      products: vec![goesr_product],
-      init_records: 3,
-      max_records:10
-    };
     
     let mut actor_system = ActorSystem::new("main");
+    let hmonitor = spawn_actor!( actor_system, "monitor", GoesRMonitor{})?;
 
-    let _actor_handle = spawn_actor!( actor_system, "goesr",  GoesRImportActor::new(config.clone(), LiveGoesRDataImporter::new(config.clone())).await)?;
+    let _actor_handle = spawn_actor!( actor_system, "goesr",  
+    GoesRImportActor::new(config_for!( "goesr")?, 
+    LiveGoesRDataImporter::new(config_for!( "goesr")?),
+    data_action!( hmonitor.clone(): ActorHandle<GoesRMonitorMsg> => |data:Vec<GoesRHotSpots>| {
+      for hs in data.into_iter(){
+       let msg = Update(hs.to_json_pretty().unwrap());
+       hmonitor.try_send_msg(msg);
+      }
+      action_ok()
+    }),
+    data_action!( hmonitor: ActorHandle<GoesRMonitorMsg> => |data:GoesRHotSpots| {
+        let msg = Update(data.to_json_pretty().unwrap());
+        hmonitor.try_send_msg( msg)
+    }),
+    ).await)?;
     actor_system.start_all().await?;
     let _ = actor_system.process_requests().await;
 

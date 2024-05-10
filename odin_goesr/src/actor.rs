@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
- use std::collections::VecDeque;
-
  use odin_actor::prelude::*;
  use crate::*;
  
@@ -31,91 +29,83 @@
  - live task - actual task
   */
  
- #[derive(Clone, Debug)]
- //to do: Add generic types, T goesrdata acquisition task, init/update actions?
+  pub trait InitAction = DataAction<Vec<GoesRHotSpots>>;
+  pub trait UpdateAction = DataAction<GoesRHotSpots>;
+
+  
+ #[derive(Debug)]
+ //to do: factor out hotspot store functions into hotspot store struct, remove vec for product
  //add: update -> msg reciver send json of updated hotspots
 //      initialize -> msg reciever send json of init hotspots
 //      snapshot -> msg resever send snapshot
- pub struct GoesRImportActor<T> where T: GoesRDataImporter + Send {
-    pub config:GoesRImportActorConfig,
-    pub hotspot_store: HashMap<String, VecDeque<GoesRHotSpots>>,
-    pub task: T
+ pub struct GoesRImportActor<T, A1, A2> where T: GoesRDataImporter + Send, A1:InitAction, A2: UpdateAction {
+    hotspot_store: HotspotStore,
+    goesr_importer: T,
+    task: Option<JoinHandle<()>>,
+    init_action: A1,
+    update_action: A2
  }
  
- impl <T>GoesRImportActor<T> where T: GoesRDataImporter + Send {
-    pub async fn new(config: GoesRImportActorConfig, task:T) -> Self {
+ impl <T, A1, A2>GoesRImportActor<T, A1, A2> where T: GoesRDataImporter + Send, A1:InitAction, A2: UpdateAction {
+    pub async fn new(config: GoesRImportActorConfig, importer:T, init_action:A1, update_action: A2) -> Self {
         // Set up hotspot store
         let capacity = config.max_records.clone();
-        let hotspot_store: HashMap<String, VecDeque<GoesRHotSpots>> = config.products.iter().map(|x| (x.name.clone(), VecDeque::with_capacity(capacity))).collect();
+        let hotspot_store = HotspotStore::new(capacity);//HashMap<String, VecDeque<GoesRHotSpots>> = config.products.iter().map(|x| (x.name.clone(), VecDeque::with_capacity(capacity))).collect();
         GoesRImportActor {
-            config: config,
             hotspot_store: hotspot_store,
-            task: task
+            goesr_importer: importer,
+            task: None,
+            init_action: init_action,
+            update_action: update_action
         }
-    }
-    pub fn update_hotspots(&mut self, new_hotspots: GoesRHotSpots) -> () {
-        // if vec is not max add in - assume update is from newer date
-        println!("in update");
-    let hs_source = new_hotspots.source.clone();
-    match self.hotspot_store.get_mut(&hs_source) {
-        Some(hotspots) => {
-            if hotspots.len() < self.config.max_records {
-                hotspots.push_front(new_hotspots);
-            } else {
-                // remove last, add newest
-                hotspots.pop_back();
-                hotspots.push_front(new_hotspots);
-            }
-            
-        },
-        None => {
-            let mut new_hs_vec = VecDeque::with_capacity(self.config.max_records.clone());
-            new_hs_vec.push_front(new_hotspots);
-            self.hotspot_store.insert(hs_source, new_hs_vec);
-        }
-    }
     }
 
-    pub fn initialize_hotspots(&mut self, init_hotspots: Vec<GoesRHotSpots>) -> () {
-    for hs in init_hotspots {
-        match self.hotspot_store.get_mut(&hs.source.clone()) {
-            Some(hotspots) => {
-                hotspots.push_front(hs);
-            },
-            None => {
-                let source = hs.source.clone();
-                let mut new_hs_vec = VecDeque::with_capacity(self.config.max_records.clone());
-                new_hs_vec.push_front(hs);
-                self.hotspot_store.insert(source, new_hs_vec);
-            }
-        }
+    pub async fn init(&mut self, init_hotspots: Vec<GoesRHotSpots>) -> Result<()> {
+        self.hotspot_store.initialize_hotspots(init_hotspots.clone());
+        self.init_action.execute(init_hotspots).await;
+        Ok(())
     }
+
+    pub async fn update (&mut self, new_hotspots: GoesRHotSpots) -> Result<()> {
+        self.hotspot_store.update_hotspots(new_hotspots.clone());
+        self.update_action.execute(new_hotspots).await;
+        Ok(())
     }
-    
  }
  
 
- impl_actor! { match msg for Actor<GoesRImportActor<T>,GoesRActorMsg> 
-    where T:GoesRDataImporter + Send + Sync + Clone
+ impl_actor! { match msg for Actor<GoesRImportActor<T, A1, A2>,GoesRActorMsg> 
+    where T:GoesRDataImporter + Send + Sync + Clone, A1: InitAction + Sync, A2: UpdateAction + Sync
     as
-    _Start_ => cont! { // TODO: add non-critical error handling -> error!()/ warning!() 
+    _Start_ => cont! { 
         let hself = self.hself.clone(); 
-        let mut task = self.task.clone();
-        let data_task = spawn( "goesr-data-acquisition", async move {
-            let _ = task.start(hself).await;
+        let mut goesr_importer = self.goesr_importer.clone();
+        if let Ok(join_handle) = spawn( "goesr-data-acquisition", async move {
+            let _ = goesr_importer.start(hself).await;
+            }
+        ){
+            self.task = Some(join_handle);
         }
-        );
     }
 
     Initialize => cont! {
         println!("got initial hotspots");
-        self.initialize_hotspots(msg.0);
+        self.init(msg.0).await;
+        //self.initialize_hotspots(msg.0);
     }
 
     Update => {
         println!("got updated hotspots");
-        self.update_hotspots(msg.0);
+        self.update(msg.0).await;
+        //self.update_hotspots(msg.0);
         ReceiveAction::RequestTermination
+    }
+
+    _Terminate_ => stop! {
+        if let Some(task) = &self.task {
+            task.abort();
+            self.task = None;
+        }
     }
  }
  
