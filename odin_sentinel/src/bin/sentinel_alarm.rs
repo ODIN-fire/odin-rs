@@ -15,16 +15,18 @@
  * limitations under the License.
  */
 
+#![allow(unused)]
+
  use anyhow::Result;
  use odin_actor::prelude::*;
  use odin_config::prelude::*;
  use odin_sentinel::{
-    ConsoleMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, SentinelUpdate
+    ConsoleAlarmMessenger, SignalAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, SentinelUpdate
 };
  
- use_config!();
+use_config!();
 
- #[tokio::main]
+#[tokio::main]
 async fn main ()->Result<()> {
     let mut actor_system = ActorSystem::with_env_tracing("main");
 
@@ -33,7 +35,8 @@ async fn main ()->Result<()> {
     let hmonitor = spawn_actor!( actor_system, "monitor", SentinelAlarmMonitor::new(
         config_for!("sentinel-alarm")?,
         hsentinel.as_actor_handle(),
-        ConsoleMessenger{}
+        //ConsoleAlarmMessenger{}
+        SignalAlarmMessenger::new( config_for!( "signal")?)
     ))?;
 
     let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(

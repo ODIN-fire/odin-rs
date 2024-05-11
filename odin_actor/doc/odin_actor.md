@@ -33,8 +33,7 @@ use tokio;
 use odin_actor::prelude::*;
 
 // define actor message set ①
-#[derive(Debug)]
-pub struct Greet(&'static str);
+#[derive(Debug)] pub struct Greet(&'static str);
 define_actor_msg_set! { pub GreeterMsg = Greet }
 
 // define actor state ②

@@ -46,6 +46,9 @@ pub mod ws;
 mod live_connector;
 pub use live_connector::*;
 
+mod signal;
+pub use signal::*;
+
 mod errors;
 pub use errors::*;
 

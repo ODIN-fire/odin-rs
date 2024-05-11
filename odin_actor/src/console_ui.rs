@@ -88,7 +88,7 @@ pub struct ConsoleUI {
 }
 
 impl ConsoleUI {
-    pub fn boxed( hsys: Arc<ActorSystemHandle>)->Box<Self> { 
+    pub fn new_boxed( hsys: Arc<ActorSystemHandle>)->Box<Self> { 
         Box::new( ConsoleUI { hsys, actor_entries: Vec::new() } ) 
     }
 }

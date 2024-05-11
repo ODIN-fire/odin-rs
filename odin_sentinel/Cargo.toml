@@ -51,4 +51,4 @@ structopt = "*"
 displaydoc = "*"
 strum = { version = "*", features = ["derive"]}
 paste = "*"
-
+jsonrpsee =  { version = "*",  features = ["macros","async-client","http-client"]}
