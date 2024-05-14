@@ -66,6 +66,7 @@
 
         let creds = Credentials::new( config.username.clone(), config.pw.clone());
         let mailer = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay( config.smtp_uri.as_str())
+        //let mailer = AsyncSmtpTransport::<Tokio1Executor>::relay( config.smtp_uri.as_str())
         //let mailer = SmtpTransport::relay( config.smtp_uri.as_str())
             .map_err(|e| op_failed!("could not connect to SMTP: {e}"))?
             .credentials(creds)
