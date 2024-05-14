@@ -31,7 +31,6 @@
  pub struct GoesRImportActor<T, A1, A2> where T: GoesRDataImporter + Send, A1:InitAction, A2: UpdateAction {
     hotspot_store: HotspotStore,
     goesr_importer: T,
-    task: Option<JoinHandle<()>>,
     init_action: A1,
     update_action: A2
  }
@@ -44,7 +43,6 @@
         GoesRImportActor {
             hotspot_store: hotspot_store,
             goesr_importer: importer,
-            task: None,
             init_action: init_action,
             update_action: update_action
         }
