@@ -21,23 +21,13 @@
  #[derive(Debug)] pub struct Update(pub(crate) GoesRHotSpots);
  #[derive(Debug)] pub struct Initialize(pub(crate) Vec<GoesRHotSpots>);
  define_actor_msg_set! { pub GoesRActorMsg = Initialize | Update }
- /*
- Refactor:
- - goesr import actor
- - goesr data acquisition task - trait, start, send cmd, terminate, max_history, data dir
- - live goesr data aquisition task impls above trait, has config, connection, data_dir
- - live task - actual task
-  */
+
  
   pub trait InitAction = DataAction<Vec<GoesRHotSpots>>;
   pub trait UpdateAction = DataAction<GoesRHotSpots>;
 
   
  #[derive(Debug)]
- //to do: factor out hotspot store functions into hotspot store struct, remove vec for product
- //add: update -> msg reciver send json of updated hotspots
-//      initialize -> msg reciever send json of init hotspots
-//      snapshot -> msg resever send snapshot
  pub struct GoesRImportActor<T, A1, A2> where T: GoesRDataImporter + Send, A1:InitAction, A2: UpdateAction {
     hotspot_store: HotspotStore,
     goesr_importer: T,
@@ -50,7 +40,7 @@
     pub async fn new(config: GoesRImportActorConfig, importer:T, init_action:A1, update_action: A2) -> Self {
         // Set up hotspot store
         let capacity = config.max_records.clone();
-        let hotspot_store = HotspotStore::new(capacity);//HashMap<String, VecDeque<GoesRHotSpots>> = config.products.iter().map(|x| (x.name.clone(), VecDeque::with_capacity(capacity))).collect();
+        let hotspot_store = HotspotStore::new(capacity);
         GoesRImportActor {
             hotspot_store: hotspot_store,
             goesr_importer: importer,
@@ -75,17 +65,11 @@
  
 
  impl_actor! { match msg for Actor<GoesRImportActor<T, A1, A2>,GoesRActorMsg> 
-    where T:GoesRDataImporter + Send + Sync + Clone, A1: InitAction + Sync, A2: UpdateAction + Sync
+    where T:GoesRDataImporter + Send + Sync, A1: InitAction + Sync, A2: UpdateAction + Sync
     as
     _Start_ => cont! { 
         let hself = self.hself.clone(); 
-        let mut goesr_importer = self.goesr_importer.clone();
-        if let Ok(join_handle) = spawn( "goesr-data-acquisition", async move {
-            let _ = goesr_importer.start(hself).await;
-            }
-        ){
-            self.task = Some(join_handle);
-        }
+        self.goesr_importer.start(hself).await;
     }
 
     Initialize => cont! {
@@ -102,10 +86,11 @@
     }
 
     _Terminate_ => stop! {
-        if let Some(task) = &self.task {
-            task.abort();
-            self.task = None;
-        }
+        self.goesr_importer.terminate();
     }
  }
  
+ pub trait GoesRDataImporter {
+    fn start (&mut self, hself: ActorHandle<GoesRActorMsg>) -> impl Future<Output=Result<()>> + Send;
+    fn terminate (&mut self);
+}

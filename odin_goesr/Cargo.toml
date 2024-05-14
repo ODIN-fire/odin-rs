@@ -3,11 +3,6 @@ name = "odin_goesr"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-[[bin]]
-name = "main"
-path = "src/bin/main.rs"
-
 [dependencies]
 # our ODIN crates
 odin_actor = { workspace = true }
