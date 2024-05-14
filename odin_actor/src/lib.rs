@@ -36,8 +36,11 @@ pub use tokio_rt::{
     ActorSystem,ActorSystemHandle,Actor,ActorHandle,PreActorHandle,JoinHandle,AbortHandle,Query,QueryBuilder,RequestProcessor,
     sleep, timeout, yield_now, spawn, spawn_blocking, block_on, block_on_send_msg, block_on_timeout_send_msg,
     query, query_ref, timeout_query, timeout_query_ref,
-    MpscSender, MpscReceiver, create_mpsc_sender_receiver, send, recv
+    MpscSender, MpscReceiver, create_mpsc_sender_receiver, send, recv,
+    ActorSystemUITrait, DynActorSystemUI,
 };
+
+pub mod console_ui;
 
 pub mod errors;
 pub use errors::{OdinActorError,Result};
@@ -233,7 +236,7 @@ pub struct _Ping_ {
     /// this is where the receiver stores ping results as 26 bit cycle and 38 bit ns response time.
     /// If the response time exceeds 38 bit it is set to the maximum (which corresponds to ~4.6min)
     /// 24-bit give us 16777215 cycles, which with a 30sec ping interval would amount to an uptime of 5825 days
-    /// we cram this into a single atomic u64 so that we only have one memory fence operation per actor update
+    /// we cram this into a single atomic u64 so that we only have one atomic operation per actor update
     /// (heartbeat implementation should have minimal runtime impact)
     response: Arc<AtomicU64>  
 } 

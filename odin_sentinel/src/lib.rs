@@ -49,6 +49,13 @@ pub use live_connector::*;
 mod errors;
 pub use errors::*;
 
+//--- alarm messengers
+#[cfg(feature="signal")] mod signal;
+#[cfg(feature="signal")] pub use signal::*;
+
+#[cfg(feature="smtp")] mod smtp;
+#[cfg(feature="smtp")] pub use smtp::*;
+
 #[macro_use]
 extern crate lazy_static;
 
@@ -57,7 +64,7 @@ lazy_static! {
 }
 
 pub fn get_next_msg_id ()->String {
-    MSG_COUNTER.fetch_add( 1, atomic::Ordering::SeqCst).to_string()
+    MSG_COUNTER.fetch_add( 1, atomic::Ordering::Relaxed).to_string()
 }
 
 /* #region snesor record  ***************************************************************************/

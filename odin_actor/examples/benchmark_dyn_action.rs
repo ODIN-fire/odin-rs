@@ -40,7 +40,7 @@ mod provider {
         }
         TriggerAction => cont! { 
             self.data += 1;
-            self.actions.execute( self.data).await 
+            self.actions.execute( self.data, true).await 
         }
     }
 }

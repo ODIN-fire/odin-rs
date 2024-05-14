@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::{time::Duration,sync::Arc,future::Future};
+use std::{time::Duration,sync::Arc,future::Future, path::PathBuf};
 use serde::{Deserialize,Serialize,Serializer};
 use serde_json;
 use chrono::TimeDelta;
@@ -29,15 +29,15 @@ use crate::errors::Result;
 /// abstract alarm data
 #[derive(Debug)]
 pub struct Alarm {
-    description: String,
-    evidence_info: Vec<EvidenceInfo>,
+    pub description: String,
+    pub evidence_info: Vec<EvidenceInfo>,
 }
 
 /// abstract data to describe an evidence record
 #[derive(Debug)]
-struct EvidenceInfo {
-    description: String,
-    img: Option<SentinelFile>,
+pub struct EvidenceInfo {
+    pub description: String,
+    pub img: Option<SentinelFile>,
 }
 
 /// abstract interface for messenger services (SMS< Signal, WhatsApp etc)
@@ -125,7 +125,6 @@ impl<A> SentinelAlarmMonitor<A> where A: AlarmMessenger {
     }
 
     async fn process_fire (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, rec: Arc<SensorRecord<FireData>>) {
-        println!("got fire record: {:?}", rec);
         if rec.data.fire_prob >= self.config.fire_prob {
             if !self.is_reported_alarm( &rec, &self.reported_fire_alarms) {
                 self.reported_fire_alarms.push( rec.clone());
@@ -170,9 +169,9 @@ impl_actor! { match msg for Actor<SentinelAlarmMonitor<M>,SentinelAlarmMonitorMs
 /* #region Messenger *****************************************************************************************/
 
 /// this is just a dummy Messenger that prints out alarms to the console (used for testing)
-pub struct ConsoleMessenger {}
+pub struct ConsoleAlarmMessenger {}
 
-impl AlarmMessenger for ConsoleMessenger {
+impl AlarmMessenger for ConsoleAlarmMessenger {
     async fn send_alarm (&self, alarm: Alarm)->Result<()> {
         println!("ALARM: {alarm:?}");
         Ok(())

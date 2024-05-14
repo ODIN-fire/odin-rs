@@ -502,51 +502,36 @@ impl <M> SysMsgReceiver for ActorHandle<M> where M: MsgTypeConstraints
 
 /* #region ActorSystem *****************************************************************************************/
 
-#[derive(Debug)]
-struct PingStats {
-    min_ns: u64,
-    max_ns: u64,
-    avg_ns: u64,
-    was_outlier: bool,
-    outlier: usize,
-    // we could add variance here
-}
-impl PingStats {
-    fn new ()->Self { PingStats{ min_ns: 0, max_ns: 0, avg_ns: 0, was_outlier: false, outlier: 0 } }
-
-    fn update (&mut self, cycle: u32, last_ns: u64) {
-        if cycle > 1 {
-            if last_ns > 10* self.avg_ns && !self.was_outlier { // ignore one outlier
-                //println!("@@ outlier: {}", last_ns);
-                self.outlier += 1;
-                self.was_outlier = true;
-
-            } else {
-                if last_ns < self.min_ns { self.min_ns = last_ns }
-                if last_ns > self.max_ns { self.max_ns = last_ns }
-        
-                // we could round here but 1 nano_sec is already more resolution than realistic
-                if last_ns > self.avg_ns {
-                    self.avg_ns = self.avg_ns + (last_ns - self.avg_ns)/cycle as u64;
-                } else {
-                    self.avg_ns = self.avg_ns - (self.avg_ns - last_ns)/cycle as u64;
-                }
-
-                self.was_outlier = false;
-            }
-        } else {
-            self.min_ns = last_ns; self.max_ns = last_ns; self.avg_ns = last_ns;
-        }
-    }
+/// abstraction layer for ActorSystem user interfaces. The methods are called by the actor system to transmit/update
+/// display relevant information. This trait has to be object-safe.
+/// 
+/// Note the ActorSystemUITrait impl might be async and therefore we should (a) minimize the amount of data passed
+/// in arguments, and (b) all the arguments have to be Send
+pub trait ActorSystemUITrait where Self: Send + 'static {
+    fn actors_started (&mut self);  // just a notification about an actor system state change
+    fn add_actor (&mut self, id: Arc<String>, type_name: &'static str); // to let the UI populate an actor display list (names/types don't change)
+    fn remove_actor (&mut self, idx: usize);
+    fn no_start_actor (&mut self, idx: usize);
+    fn heartbeats_started (&mut self); // just a notification about an actor system state change 
+    fn heartbeat_cycle_started (&mut self, cycle: u32); // when we start a new heartbeat cycle
+    fn actor_heartbeat (&mut self, idx: usize, cycle: u32, last_ns: u64); // latest heartbeat response of actor
+    fn unresponsive_actor (&mut self, idx: usize); // we report that separately if we detect there was no response from an actor within cycle
+    fn no_terminate_actor (&mut self, idx: usize);
+    fn actors_terminated (&mut self); // just a notification about an actor system state change 
+    //... more to follow
 }
 
+/// the type for ActorSystemUITrait trait objects
+pub type DynActorSystemUI = Box<dyn ActorSystemUITrait>;
+
+/// this is our **internal** per-actor data stored in the actor system. It is not supposed to leak (e.g. to a UI)
+/// since it contains fields to control the actor (send system messages or abort task)
 struct ActorEntry {
     id: Arc<String>,
     type_name: &'static str,
     abortable: AbortHandle,
     receiver: Box<dyn SysMsgReceiver>,
-    ping_response: Arc<AtomicU64>, // see `Ping` for details
-    ping_stats: PingStats
+    ping_response: Arc<AtomicU64>, // see `Ping` for details (packed cycle/response-ns value)
 }
 
 #[derive(Clone)]
@@ -611,7 +596,8 @@ pub struct ActorSystem {
     join_set: task::JoinSet<()>, 
     actor_entries: Vec<ActorEntry>,
     heartbeat_job: Option<JobHandle>,
-    hsys: Arc<ActorSystemHandle>
+    hsys: Arc<ActorSystemHandle>,
+    ui: Option<DynActorSystemUI>
 }
 
 impl ActorSystem {
@@ -632,13 +618,18 @@ impl ActorSystem {
             join_set: JoinSet::new(),
             actor_entries: Vec::new(),
             heartbeat_job: None,
-            hsys
+            hsys,
+            ui: None
         }
     }
 
     pub fn with_env_tracing (id: impl ToString)->Self {
         tracing_subscriber::fmt::init();
         Self::new(id)
+    }
+
+    pub fn set_ui (&mut self, ui: DynActorSystemUI) {
+        self.ui = Some(ui);
     }
 
     pub fn handle (&self)->&ActorSystemHandle {
@@ -693,9 +684,10 @@ impl ActorSystem {
             abortable: abort_handle,
             receiver: Box::new(actor_handle.clone()), // stores it as a SysMsgReceiver trait object
             ping_response: Arc::new(AtomicU64::new(0)),
-            ping_stats: PingStats::new()
 
         };
+
+        if let Some(ui) = &mut self.ui { ui.add_actor( actor_entry.id.clone(), actor_entry.type_name) }
         self.actor_entries.push( actor_entry);
 
         Ok(actor_handle)
@@ -710,9 +702,9 @@ impl ActorSystem {
             abortable: abort_handle,
             receiver: sys_msg_receiver, // stores it as a SysMsgReceiver trait object
             ping_response: Arc::new(AtomicU64::new(0)),
-            ping_stats: PingStats::new()
         };
 
+        if let Some(ui) = &mut self.ui { ui.add_actor( actor_entry.id.clone(), actor_entry.type_name) }
         self.actor_entries.push( actor_entry);
     }
 
@@ -733,7 +725,6 @@ impl ActorSystem {
         iter_op_result("start_all", len, len-closed)   
     }
 
-
     pub async fn abort_all (&mut self) {
         let mut join_set = &mut self.join_set;
         join_set.abort_all();
@@ -741,6 +732,8 @@ impl ActorSystem {
 
     pub async fn ping_all (&mut self)->Result<()> {
         self.ping_cycle += 1;
+
+        if let Some(ui) = &mut self.ui { ui.heartbeat_cycle_started(self.ping_cycle) }
 
         for actor_entry in &self.actor_entries {
             let response = actor_entry.ping_response.clone();
@@ -756,49 +749,55 @@ impl ActorSystem {
     // this is called at the beginning of the next cycle but before incrementing the ping_cycle
     fn process_ping_responses (&mut self) {
         let cur_cycle: u32 = self.ping_cycle;
-        println!("--- processing ping cycle: {cur_cycle}");
+        //println!("--- processing ping cycle: {cur_cycle}");
 
+        let mut idx = 0;
         for mut actor_entry in &mut self.actor_entries {
             let (cycle,last_ns) = unpack_ping_response( actor_entry.ping_response.load(Ordering::Relaxed));
             if (cycle == cur_cycle) {
-                actor_entry.ping_stats.update( cur_cycle, last_ns);
-
-                let stats = &actor_entry.ping_stats;
-                println!("{:<10} = {:>6} ns,  avg: {:>5}, min: {:>5}, max: {:>6}, outlier: {:>2}", 
-                           actor_entry.id, last_ns, stats.avg_ns, stats.min_ns, stats.max_ns, stats.outlier)
+                if let Some(ui) = &mut self.ui { ui.actor_heartbeat(idx, cycle, last_ns) }
             } else {
-                println!("ACTOR FAILED TO RESPOND!");
+                warn!("actor {} failed to respond in ping cycle {}", actor_entry.id, cur_cycle);
+
+                // we leave it up to the UI to terminate
+                if let Some(ui) = &mut self.ui { ui.unresponsive_actor(idx) }
             }
+            idx += 1;
         }
     }
 
-    pub async fn start_all(&self)->Result<()> {
+    pub async fn start_all(&mut self)->Result<()> {
         self.timeout_start_all(millis(100)).await
     }
 
-    pub async fn timeout_start_all (&self, to: Duration)->Result<()> {
+    pub async fn timeout_start_all (&mut self, to: Duration)->Result<()> {
         let actor_entries = &self.actor_entries;
         let mut failed = 0;
 
         self.start_scheduler();
 
-        for actor_entry in actor_entries {
-            if actor_entry.receiver.send_start(_Start_{}, to).await.is_err() { failed += 1 }
+        for (idx,actor_entry) in actor_entries.iter().enumerate() {
+            if actor_entry.receiver.send_start(_Start_{}, to).await.is_err() { 
+                if let Some(ui) = &mut self.ui { ui.no_start_actor(idx) }
+                failed += 1 
+            }
         }
         // TODO - do we need to wait until everybody has processed _Start_ ?
         iter_op_result("start_all", actor_entries.len(), failed)
     }
 
-    pub async fn terminate_all (&self, to: Duration)->Result<()>  {
-        let mut len = 0;
+    pub async fn terminate_all (&mut self, to: Duration)->Result<()>  {
+        let mut len = self.actor_entries.len();
         let mut failed = 0;
 
         self.stop_scheduler();
 
         //for actor_entry in self.actors.iter().rev() { // send terminations in reverse ?
-        for actor_entry in self.actor_entries.iter() {
-            len += 1;
-            if actor_entry.receiver.send_terminate(_Terminate_{}, to).await.is_err() { failed += 1 };
+        for (idx,actor_entry) in self.actor_entries.iter().enumerate() {
+            if actor_entry.receiver.send_terminate(_Terminate_{}, to).await.is_err() { 
+                if let Some(ui) = &mut self.ui { ui.no_terminate_actor(idx) }
+                failed += 1 
+            };
         }
 
         // no need to wait for responses since we use the join_set to sync

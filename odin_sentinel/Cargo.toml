@@ -21,6 +21,11 @@ path = "src/bin/send_ws_cmd.rs"
 name = "sentinel_alarm"
 path = "src/bin/sentinel_alarm.rs"
 
+[[bin]]
+name = "test_smtp_alarm"
+path = "src/bin/test_smtp_alarm.rs"
+
+
 [dependencies]
 # our ODIN crates
 odin_actor = { workspace = true }
@@ -52,3 +57,11 @@ displaydoc = "*"
 strum = { version = "*", features = ["derive"]}
 paste = "*"
 
+# TODO put behind features
+jsonrpsee =  { version = "*",  features = ["macros","async-client","http-client"], optional = true }
+lettre = { version = "*", features = ["tokio1", "tokio1-native-tls"], optional = true }
+
+[features]
+default = ["smtp", "signal"]
+smtp = ["dep:lettre"]
+signal = ["dep:jsonrpsee"]

@@ -37,13 +37,13 @@ use colored::Colorize;
 //-- to make semantics more clear
 type TProviderUpdate = i64;
 type TProviderSnapshot = Vec<TProviderUpdate>;
-type TClientRequest = String;
+type TRequest = String;
 type TAddr = String; // client data
 
 /* #region provider ***************************************************************************/
 
 /// provider example, modeling some async changed data store (tracks, sensor readings etc.)
-struct Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: Data2Action<TProviderSnapshot,TClientRequest>
+struct Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: BiDataRefAction<TProviderSnapshot,TRequest>
 {
     data: TProviderSnapshot,
     count: usize,
@@ -51,23 +51,25 @@ struct Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: Data2Action<TP
     update_actions: A1, // actions to be triggered when our data changes
     snapshot_action: A2 // actions to be triggered when a client requests a snapshot
 }
-impl<A1,A2> Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: Data2Action<TProviderSnapshot,TClientRequest>
+impl<A1,A2> Provider<A1,A2> where A1: DataAction<TProviderUpdate>, A2: BiDataRefAction<TProviderSnapshot,TRequest>
 {
     fn new(update_actions: A1, snapshot_action: A2)->Self {
         Provider { data: Vec::new(), count: 0, update_actions, snapshot_action }
     }
 
-    fn update(&mut self) {
-        self.data.push( self.count as TProviderUpdate);
+    fn update(&mut self) -> TProviderUpdate {
+        let update_data = self.count as TProviderUpdate;
+        self.data.push( update_data);
+        update_data
     }
 }
 
-#[derive(Debug)] struct ExecSnapshotAction { client_data: TClientRequest }
+#[derive(Debug)] struct ExecSnapshotAction { client_data: TRequest }
 
 define_actor_msg_set! { ProviderMsg = ExecSnapshotAction }
 
 impl_actor! { match msg for Actor<Provider<A1,A2>,ProviderMsg> 
-                    where A1: DataAction<TProviderUpdate>, A2: Data2Action<TProviderSnapshot,TClientRequest> as
+                    where A1: DataAction<TProviderUpdate>, A2: BiDataRefAction<TProviderSnapshot,TRequest> as
     _Start_ => cont! {
         self.hself.start_repeat_timer( 1, secs(1));
         println!("{} started", self.id().white());
@@ -75,10 +77,10 @@ impl_actor! { match msg for Actor<Provider<A1,A2>,ProviderMsg>
     _Timer_ => { // simulate async change of data (e.g. through some external I/O)
         self.count += 1;
         println!("{} update cycle {}", self.id().white(), self.count);
-        self.update();
+        let update_data = self.update();
 
         if self.count < 10 {
-            self.update_actions.execute( self.data.last().unwrap()).await;
+            self.update_actions.execute( update_data).await;
             ReceiveAction::Continue
         } else {
             println!("{} had enough of it, request termination.", self.id().white()); 
@@ -87,7 +89,7 @@ impl_actor! { match msg for Actor<Provider<A1,A2>,ProviderMsg>
     }
     ExecSnapshotAction => cont! { // client requests a full data snapshot
         println!("{} received {msg:?}", self.id().white());
-        self.snapshot_action.execute( &self.data, &msg.client_data).await;
+        self.snapshot_action.execute( &self.data, msg.client_data).await;
     }
 
 }
@@ -128,7 +130,7 @@ impl_actor! { match msg for Actor<WsServer<A>,WsServerMsg> where A: DataAction<T
         self.n_exec += 1;
         if self.n_exec == 2 { self.hself.try_send_msg( DelayMsg{}); }
         
-        self.new_request_action.execute( &msg.addr).await;
+        self.new_request_action.execute( msg.addr).await;
     }
     PublishUpdate => cont! {
         if self.connections.is_empty() { 
@@ -158,49 +160,49 @@ impl_actor! { match msg for Actor<WsServer<A>,WsServerMsg> where A: DataAction<T
 #[tokio::main]
 async fn main ()->Result<()> {
     let mut actor_system = ActorSystem::new("main");
-    let pre_provider = PreActorHandle::new( &actor_system, "provider", 8); // we need it to construct the client
+    let provider = PreActorHandle::new( &actor_system, "provider", 8); // we need it to construct the client
 
     //--- 1: set up the client (WsServer)
-    define_msg_data_action! { NewRequestAction = actor_handle <-  (addr: &TAddr) for
-        ProviderMsg => actor_handle.try_send_msg( ExecSnapshotAction{client_data: addr.clone()})
-    }
     let client = spawn_actor!( actor_system, "client", 
-        WsServer::new( NewRequestAction( pre_provider.as_actor_handle())), 
+        WsServer::new( 
+            data_action!( provider.as_actor_handle(): ActorHandle<ProviderMsg> => 
+                              |addr:TAddr| provider.try_send_msg( ExecSnapshotAction{client_data: addr.clone()}))
+        ),
         1 // give the actor a really small queue so that we can saturate it
     )?;
 
     //--- 2: set up the provider (data source)
-    define_msg_data_action!{ UpdateAction = actor_handle <-  (v: &TProviderUpdate) for
-        WsServerMsg =>  actor_handle.try_send_msg( PublishUpdate{ws_msg: format!("{{\"update\": \"{v}\"}}")})
-    }
-    define_msg_data2_action! { SnapshotAction = actor_handle <-  (v: &TProviderSnapshot, addr: &TClientRequest) for
-        WsServerMsg => {
-            ///////////////// this is the main change compared to alist.rs
-            match actor_handle.try_send_msg( SendSnapshot{ addr: addr.clone(), ws_msg: format!("{v:?}")}) {
-                Err(OdinActorError::ReceiverFull) => {
-                    println!("{} queue full, retry..", actor_handle.id.red());
-                    // this is a critical msg - retry if it failed. While we could directly resend the SendSnapshot()
-                    // to the client this would be suboptimal since the provider data has most likely changed
-                    // at the time this will succeed, which means all updates in-between original request and success
-                    // would be lost. Just sending a control message to the client also means we don't have to clone
-                    // a potentially huge message
-                    actor_handle.retry_send_msg( 5, millis(300), ExecNewRequest{addr: addr.clone()})
+    let provider = spawn_pre_actor!( actor_system, provider, 
+        Provider::new(
+            data_action!( client.clone(): ActorHandle<WsServerMsg> => |data: TProviderUpdate| {
+                let msg = PublishUpdate{ws_msg: format!("{{\"update\": \"{data}\"}}")}; // construct client message from provider data
+                client.try_send_msg( msg)
+            }),
+            bi_dataref_action!( client.clone(): ActorHandle<WsServerMsg> => |data: &TProviderSnapshot, req:TRequest| {
+                let addr = req.clone();
+                let msg = SendSnapshot{ addr: req, ws_msg: format!("{data:?}") }; // construct client message from label and provider data ref
+                match client.try_send_msg( msg) {
+                    Err(OdinActorError::ReceiverFull) => {
+                        println!("{} queue full, retry..", client.id.red());
+                        // this is a critical msg - retry if it failed. While we could directly resend the SendSnapshot()
+                        // to the client this would be suboptimal since the provider data has most likely changed
+                        // at the time this will succeed, which means all updates in-between original request and success
+                        // would be lost. Just sending a control message to the client also means we don't have to clone
+                        // a potentially huge message
+                        client.retry_send_msg( 5, millis(300), ExecNewRequest{addr})
+                    }
+                    other => other
                 }
-                other => other
-            }
-            ///////////////// end change
-        }
-    }
-    let provider = spawn_pre_actor!( actor_system, pre_provider, 
-        Provider::new( UpdateAction(client.clone()), SnapshotAction(client.clone()))
+            })     
+        )
     )?;
-
 
     actor_system.start_all().await?;
 
     //--- 3: actor system running - now simulate external requests
     sleep( secs(2)).await;
     client.send_msg( ExecNewRequest{addr: "42".to_string()}).await?;
+
     sleep( secs(3)).await;
     client.send_msg( ExecNewRequest{addr: "43".to_string()}).await?;
 
