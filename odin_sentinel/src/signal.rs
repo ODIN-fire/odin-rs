@@ -24,6 +24,7 @@ use jsonrpsee::core::client::{Error as RpcError, SubscriptionClientT};
 use jsonrpsee::async_client::Client;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 
+use odin_common::if_let;
 use crate::{Alarm,AlarmMessenger,EvidenceInfo};
 use crate::errors::{op_failed,Result as SentinelResult};
 
@@ -31,24 +32,26 @@ use crate::errors::{op_failed,Result as SentinelResult};
 pub struct SignalConfig {
     pub signal_uri: String,
     pub signal_account: String,
-    pub recipients: Option<Vec<String>>,
-    pub group_ids: Option<Vec<String>>,
+    pub recipients: Vec<String>,
+    pub group_ids: Vec<String>,
 }
 
-// send-message RPC definition.
-// this expands into both a 'trait RpcClient' plus a 'impl<T> RpcClient for T where T: SubscriptionClient'
-// that is picked up by the HttpClient we are about to create
+/// send-message RPC definition.
+/// this expands into both a 'trait RpcClient' plus a 'impl<T> RpcClient for T where T: SubscriptionClient'
+/// that is picked up by the HttpClient we are about to create
+/// from https://github.com/AsamK/signal-cli/blob/master/client/src/jsonrpc.rs
 #[rpc(client)] 
 pub trait Rpc { 
     #[serde(rename_all="camelCase")]
     #[method(name = "send", param_kind = map)]
     fn send(
         &self,
-        account: Option<&String>,
-        recipients: &Option<Vec<String>>,
-        group_ids: &Option<Vec<String>>,
+        account: Option<&String>,  // use ref since it directly comes from config
+        recipients: &Vec<String>,  // also directly from config
+        group_ids: &Vec<String>,   // also directly from config
         message: String,
-        attachments:Option<Vec<PathBuf>>,
+        attachments:Vec<String>,
+        note_to_self: bool,
     ) -> Result<Value, ErrorObjectOwned>;
 }
 
@@ -60,6 +63,8 @@ fn create_client (uri: &str)->HttpClient {
 }
 
 /// `AlarmMessenger` implementation that send alarms as text messages to Signal accounts
+/// this requires a running [`signal-cli`](https://github.com/AsamK/signal-cli) server at the configured uri
+/// (see [signal-cli man page](https://github.com/AsamK/signal-cli/blob/master/man/signal-cli.1.adoc))
 pub struct SignalAlarmMessenger {
     config: SignalConfig,
     client: HttpClient
@@ -81,18 +86,24 @@ impl AlarmMessenger for SignalAlarmMessenger {
         let config = &self.config;
         let message = alarm.description;
 
-        let mut pb: Vec<PathBuf> = Vec::new();
+        let mut attachments: Vec<String> = Vec::new();
         for e in alarm.evidence_info {
-            if let Some(img) = e.img { pb.push( img.pathname) }
+            if_let! {
+                Some(sentinel_file) = e.img,
+                Ok(pb) = sentinel_file.pathname.canonicalize(),
+                Some(pn) = pb.to_str() => {
+                    attachments.push(pn.into())
+                }
+            }
         }
-        let attachments = if pb.is_empty() { None } else { Some(pb) };
 
         let res = self.client.send(
             Some(&config.signal_account),
             &config.recipients,
             &config.group_ids,
             message,
-            attachments
+            attachments,
+            false
         ).await;
 
         match res {

@@ -21,8 +21,11 @@
  use odin_actor::prelude::*;
  use odin_config::prelude::*;
  use odin_sentinel::{
-    ConsoleAlarmMessenger, SignalAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, SentinelUpdate
+    ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, SentinelUpdate
 };
+
+#[cfg(feature="signal")] use odin_sentinel::SignalAlarmMessenger;
+#[cfg(feature="smtp")] use odin_sentinel::SmtpAlarmMessenger;
  
 use_config!();
 
@@ -36,7 +39,8 @@ async fn main ()->Result<()> {
         config_for!("sentinel-alarm")?,
         hsentinel.as_actor_handle(),
         //ConsoleAlarmMessenger{}
-        SignalAlarmMessenger::new( config_for!( "signal")?)
+        //SignalAlarmMessenger::new( config_for!( "signal")?)
+        SmtpAlarmMessenger::new( config_for!("smtp")?)
     ))?;
 
     let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(

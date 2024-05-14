@@ -106,3 +106,10 @@ pub fn connector_error (msg: impl ToString)->OdinSentinelError {
 pub fn send_error (msg: impl ToString)->OdinSentinelError {
     OdinSentinelError::ConnectorError(msg.to_string())
 }
+
+#[macro_export]
+macro_rules! op_failed {
+    ($fmt:literal $(, $arg:expr )* ) => {
+        op_failed( format!( $fmt $(, $arg)* ))
+    };
+}
