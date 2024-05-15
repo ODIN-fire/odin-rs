@@ -168,7 +168,6 @@ impl HotspotStore {
 pub struct GoesRImportActorConfig {
     pub polling_interval: Duration,
     pub satellite: u8,
-    pub data_dir: PathBuf,
     pub keep_files: bool,
     pub s3_region: String,
     pub product: GoesRProduct,

@@ -19,7 +19,7 @@ use crate::*;
  #[derive(Debug)]
 pub struct LiveGoesRDataImporter {
     pub config: GoesRImportActorConfig,
-    pub data_dir: PathBuf,
+    pub data_dir: Arc<PathBuf>,
     pub file_cleanup_task: Option<AbortHandle>,
     pub import_task: Option<AbortHandle>
 }
@@ -27,7 +27,7 @@ pub struct LiveGoesRDataImporter {
 impl LiveGoesRDataImporter {
     pub fn new (config: GoesRImportActorConfig) -> Self {
         LiveGoesRDataImporter {
-            data_dir: config.data_dir.clone(),
+            data_dir: Arc::new( odin_config::app_metadata().data_dir.join("goesr")),
             config: config,
             file_cleanup_task: None,
             import_task: None
@@ -107,7 +107,7 @@ impl LiveGoesRDataAcquisitionTask {
             polling_interval: config.polling_interval,
             s3_client: s3_client,
             product: config.product,
-            data_dir: config.data_dir,
+            data_dir:   odin_config::app_metadata().data_dir.join(format!("goesr-{}", config.satellite)),
             init_records: config.init_records,
             hself: hself
         };
