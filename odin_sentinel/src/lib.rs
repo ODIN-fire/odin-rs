@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 #![allow(unused)]
-#![feature(trait_alias,min_specialization)]
+#![feature(trait_alias,exit_status_error)]
 
 use std::{
     cmp::{min, Ordering}, collections::{HashMap, VecDeque}, fmt::{self,Debug}, fs::File, future::Future, io::{Read, Write}, ops::RangeBounds, path::{Path,PathBuf}, rc::Rc, sync::{atomic::{self,AtomicU64}, Arc}, time::Duration
@@ -50,8 +50,11 @@ mod errors;
 pub use errors::*;
 
 //--- alarm messengers
-#[cfg(feature="signal")] mod signal;
-#[cfg(feature="signal")] pub use signal::*;
+mod signal_cmd; // this is always included
+pub use signal_cmd::*;
+
+#[cfg(feature="signal_rpc")] mod signal_rpc;
+#[cfg(feature="signal_rpc")] pub use signal_rpc::*;
 
 #[cfg(feature="smtp")] mod smtp;
 #[cfg(feature="smtp")] pub use smtp::*;

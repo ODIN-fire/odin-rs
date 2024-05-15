@@ -72,6 +72,9 @@ pub enum OdinSentinelError {
     #[error("error retrieving file {0}")]
     FileRequestError(String),
 
+    #[error("command error {0}")]
+    CommandError(String),
+
     // ...add specific errors here
 
     /// a generic error
