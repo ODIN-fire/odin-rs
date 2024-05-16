@@ -23,6 +23,7 @@ use odin_actor::ActorHandle;
 use odin_actor::prelude::*;
 use odin_actor::error;
 use odin_common::fs::remove_old_files;
+use odin_gdal::geo_goesr::*;
 
 use std::sync::Arc;
 use std::collections::VecDeque;
@@ -47,9 +48,7 @@ use futures::Future;
 mod errors;
 pub mod actor;
 pub use errors::*;
-pub mod geo;
 pub mod live_importer;
-use geo::*;
 use actor::*;
 
 /* #region Goes R data structures  ***************************************************************************/
@@ -353,7 +352,7 @@ pub fn get_hotspots (data: &GoesRData, areas: Vec<u16>, masks: Vec<u16>, powers:
 }
 
 pub fn read_goesr_data(data: &GoesRData) -> Result<GoesRHotSpots> {
-    let lat_lon_grid = get_lat_lon_grid(&data)?;
+    let lat_lon_grid = get_lat_lon_grid(&data.file)?;
     let mut x_vals: Vec<usize> = vec![];
     let mut y_vals: Vec<usize> = vec![];
     let mut mask_vals:Vec<u16> = vec![];

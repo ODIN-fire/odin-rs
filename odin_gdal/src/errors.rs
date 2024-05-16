@@ -40,6 +40,9 @@ pub enum OdinGdalError {
     #[error("IO error {0}")]
     IOError( #[from] std::io::Error),
 
+    #[error("String to float conversion error {0}")]
+    FloatConversionError( #[from] std::num::ParseFloatError),
+
     // pass through for errors in gdal crate
     #[error("gdal error {0}")]
     Error( #[from] gdal::errors::GdalError),
