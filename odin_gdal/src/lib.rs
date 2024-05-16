@@ -19,6 +19,7 @@
 pub mod errors;
 pub mod warp;
 pub mod contour;
+pub mod geo_goesr;
 
 use gdal;
 use gdal_sys;

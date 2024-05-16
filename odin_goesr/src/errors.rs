@@ -56,6 +56,9 @@ pub enum OdinGoesRError {
     #[error("ODIN Actor error {0}")]
     OdinActorError( #[from] odin_actor::errors::OdinActorError),
 
+    #[error("ODIN GDAL error {0}")]
+    OdinGdalError( #[from] odin_gdal::errors::OdinGdalError)
+
 }
 
 pub fn no_object  (msg: impl ToString)->OdinGoesRError {

@@ -14,14 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::f64::consts::PI;
+use std::{f64::consts::PI, path::PathBuf};
 use std::collections::HashMap;
 use gdal::{Dataset, Metadata, MetadataEntry};
 use meshgridrs::{meshgrid, Indexing};
 use ndarray::{Array, ArrayBase, OwnedRepr, Dim, IxDynImpl};
 use odin_common::geo::LatLon;
 use serde::Serialize;
-use crate::{errors::*, GoesRData};
+use crate::errors::*;
 
  #[derive(Debug)]
 pub struct Projection { // goesr projection needed to convert to latlon grid
@@ -136,10 +136,10 @@ pub fn get_lat_lons(x_vals: &Vec<usize>, y_vals: &Vec<usize>, lat_lon_grid: &Lat
     Ok(lat_lons)
 }
 
-pub fn get_lat_lon_grid(data: &GoesRData) -> Result<LatLonGrid>{
+pub fn get_lat_lon_grid(data_file: &PathBuf) -> Result<LatLonGrid>{
     // adapted from https://www.star.nesdis.noaa.gov/atmospheric-composition-training/python_abi_lat_lon.php
     // get x, y data - need add_offset and scale_factor
-    let area_file = format!("NETCDF:{:?}:Area", data.file);
+    let area_file = format!("NETCDF:{:?}:Area", data_file);
     let ds = Dataset::open(area_file)?;
     let proj = get_projection(&ds)?;
     let grid_params = get_xy_grid_params(&ds)?;
