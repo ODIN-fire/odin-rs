@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #![allow(unused,uncommon_codepoints,non_snake_case)]
+use serde::Serialize;
 
 use crate::*;
 use crate::angle;
@@ -95,7 +96,7 @@ impl UtmBoundingBox {
 }
 
 
-#[derive(Debug,Copy,Clone)]
+#[derive(Debug,Copy,Clone,Serialize)]
 pub struct LatLon {
     pub lat_deg: f64,
     pub lon_deg: f64,

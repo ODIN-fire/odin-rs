@@ -16,14 +16,14 @@ members = [
   "odin_windninja",
 
   "odin_sentinel",
-
+  "odin_goesr",
   "gpshub",
 
   "opendata_splitter",
   "mkslides",
   "servedoc",
   "webrun"
-, "odin_action"]
+]
 
 [workspace.dependencies]
 

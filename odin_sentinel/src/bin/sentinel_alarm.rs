@@ -24,7 +24,8 @@
     ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, SentinelUpdate
 };
 
-#[cfg(feature="signal")] use odin_sentinel::SignalCmdAlarmMessenger;
+use odin_sentinel::SignalCmdAlarmMessenger;
+#[cfg(feature="signal_rpc")] use odin_sentinel::SignalRpcAlarmMessenger;
 #[cfg(feature="smtp")] use odin_sentinel::SmtpAlarmMessenger;
  
 use_config!();

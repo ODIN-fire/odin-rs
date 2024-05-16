@@ -18,14 +18,17 @@ name = "translate_bbox"
 path = "src/bin/translate_bbox.rs"
 
 [dependencies]
-odin_common = { path = "../odin_common" }
+odin_common = { workspace = true }
 
 gdal-sys = { version = "*", features = ["bindgen"]}
-gdal = { version = "*" }
+gdal = { version = "*", features = ["array"] }
 lazy_static = "*"
 libc = "*"
 geo = "*"
 anyhow = "*"
 thiserror = "*"
 structopt = "*"
+meshgridrs = "*"
+ndarray = "*"
+serde = { version = "*", features = ["rc"] }
 
