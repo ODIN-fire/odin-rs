@@ -23,7 +23,7 @@ members = [
   "mkslides",
   "servedoc",
   "webrun"
-, "odin_action"]
+, "odin_action", "odin_jpss"]
 
 [workspace.dependencies]
 
