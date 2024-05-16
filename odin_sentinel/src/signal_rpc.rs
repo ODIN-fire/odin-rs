@@ -29,7 +29,7 @@ use crate::{Alarm,AlarmMessenger,EvidenceInfo};
 use crate::errors::{op_failed,Result as SentinelResult};
 
 #[derive(Deserialize,Serialize)]
-pub struct SignalConfig {
+pub struct SignalRpcConfig {
     pub signal_uri: String,
     pub signal_account: String,
     pub recipients: Vec<String>,
@@ -38,8 +38,8 @@ pub struct SignalConfig {
 
 /// send-message RPC definition.
 /// this expands into both a 'trait RpcClient' plus a 'impl<T> RpcClient for T where T: SubscriptionClient'
-/// that is picked up by the HttpClient we are about to create
-/// from https://github.com/AsamK/signal-cli/blob/master/client/src/jsonrpc.rs
+/// that is picked up by the HttpClient we are about to create.
+/// see https://github.com/AsamK/signal-cli/blob/master/client/src/jsonrpc.rs
 #[rpc(client)] 
 pub trait Rpc { 
     #[serde(rename_all="camelCase")]
@@ -51,7 +51,7 @@ pub trait Rpc {
         group_ids: &Vec<String>,   // also directly from config
         message: String,
         attachments:Vec<String>,
-        note_to_self: bool,
+        notify_self: bool,  // TODO - as of signal-cli 0.13.4-SNAPSHOT this is only working when invoking the "send" command interactively
     ) -> Result<Value, ErrorObjectOwned>;
 }
 
@@ -65,23 +65,23 @@ fn create_client (uri: &str)->HttpClient {
 /// `AlarmMessenger` implementation that send alarms as text messages to Signal accounts
 /// this requires a running [`signal-cli`](https://github.com/AsamK/signal-cli) server at the configured uri
 /// (see [signal-cli man page](https://github.com/AsamK/signal-cli/blob/master/man/signal-cli.1.adoc))
-pub struct SignalAlarmMessenger {
-    config: SignalConfig,
+pub struct SignalRpcAlarmMessenger {
+    config: SignalRpcConfig,
     client: HttpClient
 }
 
-impl SignalAlarmMessenger {
-    pub fn new (config: SignalConfig)->Self {
+impl SignalRpcAlarmMessenger {
+    pub fn new (config: SignalRpcConfig)->Self {
         let client = create_client( config.signal_uri.as_str());
 
-        SignalAlarmMessenger {
+        SignalRpcAlarmMessenger {
             config,
             client
         }
     }
 }
 
-impl AlarmMessenger for SignalAlarmMessenger {
+impl AlarmMessenger for SignalRpcAlarmMessenger {
     async fn send_alarm (&self, alarm: Alarm)->SentinelResult<()> {
         let config = &self.config;
         let message = alarm.description;
@@ -103,7 +103,7 @@ impl AlarmMessenger for SignalAlarmMessenger {
             &config.group_ids,
             message,
             attachments,
-            false
+            true, // always notify self - it's an alarm
         ).await;
 
         match res {

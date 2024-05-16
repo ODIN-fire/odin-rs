@@ -24,7 +24,8 @@
     ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, SentinelUpdate
 };
 
-#[cfg(feature="signal")] use odin_sentinel::SignalAlarmMessenger;
+use odin_sentinel::SignalCmdAlarmMessenger;
+#[cfg(feature="signal_rpc")] use odin_sentinel::SignalRpcAlarmMessenger;
 #[cfg(feature="smtp")] use odin_sentinel::SmtpAlarmMessenger;
  
 use_config!();
@@ -39,8 +40,9 @@ async fn main ()->Result<()> {
         config_for!("sentinel-alarm")?,
         hsentinel.as_actor_handle(),
         //ConsoleAlarmMessenger{}
-        //SignalAlarmMessenger::new( config_for!( "signal")?)
-        SmtpAlarmMessenger::new( config_for!("smtp")?)
+        //SmtpAlarmMessenger::new( config_for!("smtp")?)
+        //SignalRpcAlarmMessenger::new( config_for!( "signal_rpc")?)
+        SignalCmdAlarmMessenger::new( config_for!("signal_cmd")?)
     ))?;
 
     let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
