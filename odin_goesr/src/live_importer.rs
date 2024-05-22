@@ -14,55 +14,66 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use crate::*;
 
- #[derive(Debug)]
+use crate::*;
+use odin_common::fs::ensure_writable_dir;
+use std::{path::Path,time::Instant};
+
+#[derive(Serialize,Deserialize,Debug,Clone)]
+pub struct LiveGoesRDataImporterConfig {
+    pub satellite: u8,  // 16 or 18
+    pub s3_region: String, // e.g. "us-east-1"
+    pub bucket: String, // e.g. "noaa-goes18"
+    pub source: String, // e.g. "ABI-L2-FDCC"
+    pub polling_interval: Duration,
+    pub keep_files: bool,
+    pub init_records: usize, // number of most recent data files to retrieve
+    pub cleanup_interval: Duration,
+    pub max_age: Duration,
+}
+
+#[derive(Debug)]
 pub struct LiveGoesRDataImporter {
-    pub config: GoesRImportActorConfig,
-    pub data_dir: Arc<PathBuf>,
-    pub file_cleanup_task: Option<AbortHandle>,
-    pub import_task: Option<AbortHandle>
+    config: LiveGoesRDataImporterConfig,
+    data_dir: Arc<PathBuf>,
+    import_task: Option<AbortHandle>,
+    file_cleanup_task: Option<AbortHandle>,
 }
 
 impl LiveGoesRDataImporter {
-    pub fn new (config: GoesRImportActorConfig) -> Self {
-        LiveGoesRDataImporter {
-            data_dir: Arc::new( odin_config::app_metadata().data_dir.join("goesr")),
-            config: config,
-            file_cleanup_task: None,
-            import_task: None
-        }
+    pub fn new (config: LiveGoesRDataImporterConfig) -> Self {
+        let data_dir = Arc::new( odin_config::app_metadata().data_dir.join("goesr"));
+        ensure_writable_dir(&data_dir).unwrap(); // Ok to panic - this is a toplevel application object
+
+        LiveGoesRDataImporter{ config, data_dir, import_task:None, file_cleanup_task:None }
     }
 
     async fn initialize  (&mut self, hself: ActorHandle<GoesRActorMsg>) -> Result<()> { 
-        self.run_import_task(hself).await?;
-        self.run_file_cleanup_task()?;
+        let s3_client = create_s3_client( self.config.s3_region.clone()).await?; // no point spawning tasks if we can't create an s3_client
+        self.import_task = Some( self.spawn_import_task( s3_client, hself)? );
+        self.file_cleanup_task = Some( self.spawn_file_cleanup_task()? );
         Ok(())
     }
 
-    async fn file_cleanup_loop (config: GoesRImportActorConfig)->Result<()> {
-        let interval = minutes(60);
-        let data_dir = odin_config::app_metadata().data_dir.join("goesr");
-        loop {
-            sleep(interval).await;
-            remove_old_files( &data_dir, config.max_age);
-        }
+    fn spawn_import_task(&mut self, client: Client, hself: ActorHandle<GoesRActorMsg>) -> Result<AbortHandle> { 
+        let data_dir = self.data_dir.clone();
+        let config = self.config.clone();
+
+        Ok( spawn( &format!("goes-{}-data-acquisition", self.config.satellite), async move {
+                run_data_acquisition( hself, config, data_dir, client).await
+            })?.abort_handle()
+        )
     }
 
-    async fn run_import_task(&mut self, hself: ActorHandle<GoesRActorMsg>) -> Result<()> { 
-        let mut task = LiveGoesRDataAcquisitionTask::new(self.config.clone(), hself).await?;
-        let import_task = spawn( "goesr-data-acquisition", async move {
-            let _ = task.spawn_data_acquitision_task().await;
-            }
-        )?.abort_handle();
-        self.import_task = Some(import_task);
-        Ok(())
-    }
+    fn spawn_file_cleanup_task(&mut self)-> Result<AbortHandle> {
+        let data_dir = self.data_dir.clone();
+        let cleanup_interval = self.config.cleanup_interval;
+        let max_age = self.config.max_age;
 
-    fn run_file_cleanup_task(&mut self)-> Result<()> {
-        let file_cleanup_task = spawn("goesr-file-cleanup", Self::file_cleanup_loop( self.config.clone()))?.abort_handle();
-        self.file_cleanup_task = Some(file_cleanup_task);
-        Ok(())
+        Ok( spawn( &format!("goes-{}-file-cleanup", self.config.satellite), async move {
+                run_file_cleanup( data_dir, cleanup_interval, max_age).await
+            })?.abort_handle()
+        )
     }
 }
 
@@ -71,123 +82,80 @@ impl GoesRDataImporter for LiveGoesRDataImporter {
         self.initialize(hself).await?;
         Ok(())
     }
+
     fn terminate (&mut self) {
-        if let Some(task) = &self.import_task {
-            task.abort();
-        }
-        if let Some(task) = &self.file_cleanup_task {
-            task.abort();
-        }
+        if let Some(task) = &self.import_task { task.abort() }
+        if let Some(task) = &self.file_cleanup_task { task.abort() }
     }
 }
 
-#[derive(Debug)]
-pub struct LiveGoesRDataAcquisitionTask { 
-    pub latest_objs: HashMap<String, Object>,
-    pub sat_id: u8,
-    pub polling_interval: Duration,
-    pub s3_client:Client,
-    pub product: GoesRProduct,
-    pub data_dir: PathBuf, // obtain from config
-    pub init_records:usize,
-    pub hself: ActorHandle<GoesRActorMsg>
+async fn run_data_acquisition ( hself: ActorHandle<GoesRActorMsg>, config: LiveGoesRDataImporterConfig, data_dir: Arc<PathBuf>, client: Client) {
+    let source = Arc::new( config.source); // no need to keep gazillions of copies
+    let bucket = &config.bucket;
+    let sat_id = config.satellite;
+    let mut last_key: Option<String> = None;
 
-}
-
-impl LiveGoesRDataAcquisitionTask {
-    // add download task, file cleanup task
-    pub async fn new(config:GoesRImportActorConfig, hself:ActorHandle<GoesRActorMsg>) -> Result<Self> {
-        let region_provider = RegionProviderChain::first_try(Region::new(config.s3_region.clone()));
-        let aws_config = aws_config::from_env().no_credentials().region(region_provider).load().await; // add anonymous creditials
-        let s3_client = Client::new(&aws_config);
-        let latest_objs:HashMap<String, Object> = HashMap::new();
-        let live_task = LiveGoesRDataAcquisitionTask {
-            latest_objs: latest_objs,
-            sat_id: config.satellite,
-            polling_interval: config.polling_interval,
-            s3_client: s3_client,
-            product: config.product,
-            data_dir:   odin_config::app_metadata().data_dir.join(format!("goesr-{}", config.satellite)),
-            init_records: config.init_records,
-            hself: hself
-        };
-        Ok(live_task)
-    }
-
-    pub async fn initial_download(&mut self) -> Result<Vec<GoesRHotSpots>> {
-        //downloads x amount of files
-        // updates latest obj
-        let product = &self.product;
-        let dt = Utc::now();
-        let num_obj=self.init_records;
-        let init_objs = get_inital_objects(&self.s3_client, dt, product, &self.sat_id,  num_obj).await?;
-        if init_objs.len() > 0 {
-            let most_recent = get_most_recent_obj_from_vec(&init_objs)?;
-            self.latest_objs.insert(product.name.clone(), most_recent.clone());
-            let data = join_all(init_objs.iter().map(|x| async{get_goesr_data(&self.s3_client, x.clone(), &self.data_dir, product, self.sat_id.clone()).await})).await;
-            let goesr_data: Result<Vec<GoesRData>> = data.into_iter().collect();
-            let goesr_data_vec = goesr_data?;
-            let hotspots_res:  Result<Vec<GoesRHotSpots>>  = goesr_data_vec.into_iter().map( |x| read_goesr_data(&x)).into_iter().collect();
-            let hotspots = hotspots_res?;
-            Ok(hotspots)
-        } else {
-            Err(OdinGoesRError::NoObjectError(String::from("No objects for GOES-R product and datetime initialization")))
+    match initial_download( &client, bucket, source.clone(), sat_id, config.init_records, &data_dir).await {
+        Ok( (key,hotspots) ) => {
+            last_key = key;
+            hself.send_msg( Initialize(hotspots) ).await;
+        }
+        Err(e) => {
+            //error!("failed to download initial goes-{} data: {:?}", config.satellite, e);
+            hself.try_send_msg( ImportError(e));
         }
     }
-    
-    pub async fn download_updates(&mut self) -> Result<GoesRHotSpots> {
-        //downloads latest file
-        let product = &self.product;
-        let last_object = if let Some(l_obj) = self.latest_objs.get(&product.name) {
-            Some(l_obj)
-        } else { 
-            None
-        };
-        let dt = Utc::now();
-        let prefix = format!("{}/{}/{:03}/{:02}/", product.name, dt.year(), dt.ordinal(), dt.hour()); // https://stackoverflow.com/questions/76651472/do-rust-s3-sdk-datetimes-work-with-chrono
-        let destination = PathBuf::from(&self.data_dir);
-        let object = get_most_recent_object(&self.s3_client, &get_bucket(&self.sat_id), &prefix, last_object).await?;
-        if let Some(obj) = object {
-            self.latest_objs.insert(product.name.clone(), obj.clone());
-            let data = get_goesr_data(&self.s3_client, obj, &destination, &product, self.sat_id.clone()).await?;
-            let hotspots = read_goesr_data(&data)?;
-            Ok(hotspots)
-        } else {
-            // try previous hour for case when we start the program before the data is up for the current hour (e.g., start at 5:00p - get error of no objects)
-            let last_hour_object = get_last_hour_objects(&self.s3_client, &dt, &get_bucket(&self.sat_id), &product, last_object).await?;
-            if let Some(obj) = last_hour_object {
-                self.latest_objs.insert(product.name.clone(), obj.clone());
-                let data = get_goesr_data(&self.s3_client, obj, &destination, &product, self.sat_id.clone()).await?;
-                let hotspots = read_goesr_data(&data)?;
-                Ok(hotspots)
-            } else {
-                Err(OdinGoesRError::NoObjectError(String::from("No objects for GOES-R product and datetime")))
-            }
-        }      
-    }
-    
-    async fn sleep_for_remainder_of_cycle(&self) {
-        sleep(minutes(5)).await;
-    }
-    pub async fn spawn_data_acquitision_task(&mut self) -> Result<()>{
-        match  self.initial_download().await {
-            Ok(init_hotspots) => {
-                self.hself.send_msg( Initialize(init_hotspots) ).await?;
+    let mut t_last = Instant::now();
+
+    loop {
+        sleep( config.polling_interval - (Instant::now() - t_last) ).await; // sleep for remainder of polling interval
+
+        match update_download( &client, bucket, source.clone(), sat_id, &data_dir, last_key.as_ref()).await {
+            Ok( (key,hs)) => {
+                last_key = key;
+                hself.send_msg( Update(hs)).await;
             }
             Err(e) => {
-                error!("failed to download initial GOES-R data: {e:?}")
+                //error!("failed to download goes-{} update data: {:?}", config.satellite, e);
+                hself.try_send_msg( ImportError(e));
             }
         }
-        loop {
-            self.sleep_for_remainder_of_cycle().await;
-            match  self.download_updates().await {
-                Ok(hotspots) => {
-                    self.hself.send_msg( Update(hotspots) ).await?;
-                }
-                Err(e) => {
-                    error!("failed to download updated GOES-R data: {e:?}")
-                }
-            }
+
+        t_last = Instant::now();
+    }
+}
+
+async fn initial_download (client: &Client, bucket: &str, source: Arc<String>, sat_id: u8, n_objs: usize, data_dir: &PathBuf) -> Result<(Option<String>,Vec<GoesRHotSpots>)> {
+    let init_objs = get_inital_objects( client, Utc::now(), bucket, &source, n_objs).await?;
+    let last_key: Option<String> = init_objs.last().and_then( |o| o.key.clone());
+    let mut hotspots: Vec<GoesRHotSpots> = Vec::with_capacity(init_objs.len());
+
+    for obj in init_objs {
+        let gdata = get_goesr_data( client, obj, data_dir, bucket, source.clone(), sat_id).await?;
+        match read_goesr_data( &gdata) {
+            Ok(hs) => hotspots.push(hs),
+            Err(e) => warn!("error parsing GOES-R data: {e:?}")
         }
+    }
+
+    Ok( (last_key,hotspots) )
+}
+
+async fn update_download (client: &Client, bucket: &str, source: Arc<String>, sat_id: u8, data_dir: &PathBuf, last_key: Option<&String>) -> Result<(Option<String>,GoesRHotSpots)> {
+    match get_most_recent_object( client, Utc::now(), bucket, &source, last_key).await? {
+        Some(obj) => {
+            let last_key = obj.key.clone();
+            let gdata = get_goesr_data( client, obj, data_dir, bucket, source, sat_id).await?;
+            let hs = read_goesr_data( &gdata)?;
+            Ok( (last_key,hs) )
+        }
+        None => Err( OdinGoesRError::NoObjectError(format!("failed to retrieve last object for goes-{}", sat_id)) )
+    }
+}
+
+async fn run_file_cleanup (data_dir: Arc<PathBuf>, interval: Duration, max_age: Duration) {
+    loop {
+        remove_old_files( &data_dir.as_path(), max_age);
+        sleep(interval).await; // no need to compensate for cycle execution time
     }
 }

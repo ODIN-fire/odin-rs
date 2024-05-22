@@ -18,6 +18,7 @@
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, OdinGoesRError>;
+
 #[derive(Error,Debug)]
 pub enum OdinGoesRError {
     #[error("IO error {0}")]
@@ -41,14 +42,23 @@ pub enum OdinGoesRError {
     #[error("No object key error")]
     NoObjectKeyError(),
 
+    #[error("AWS datetime conversion error {0}")]
+    ConversionError( #[from] aws_smithy_types_convert::date_time::Error),
+
+    #[error("NetCDF data set error: {0}")]
+    DatasetError( String ),
+
+    #[error("No object date error")]
+    NoObjectDateError(),
+
     #[error("String to float conversion error {0}")]
     FloatConversionError( #[from] std::num::ParseFloatError),
 
+    #[error("invalid filename")]
+    FilenameError(String),
+
     #[error("Misc error {0}")]
     MiscError( String ),
-
-    #[error("gdal error {0}")]
-    GdalError( #[from] gdal::errors::GdalError),
 
     #[error("serde error {0}")]
     SerdeError( #[from] serde_json::Error),
@@ -57,10 +67,16 @@ pub enum OdinGoesRError {
     OdinActorError( #[from] odin_actor::errors::OdinActorError),
 
     #[error("ODIN GDAL error {0}")]
-    OdinGdalError( #[from] odin_gdal::errors::OdinGdalError)
+    OdinGdalError( #[from] odin_gdal::errors::OdinGdalError),
 
+    #[error("ODIN GDAL error {0}")]
+    GdalError( #[from] odin_gdal::errors::GdalError)
 }
 
 pub fn no_object  (msg: impl ToString)->OdinGoesRError {
     OdinGoesRError::NoObjectError(msg.to_string())
+}
+
+pub fn filename_error (msg: impl ToString)->OdinGoesRError {
+    OdinGoesRError::FilenameError(msg.to_string())
 }

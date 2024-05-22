@@ -333,3 +333,51 @@ macro_rules! assert_unique_feature {
         assert_unique_feature!($($rest),*);
     }
 }
+
+/* #region define_cli  ****************************************************************************************/
+
+/// syntactic sugar macro for structopt based command line interface definition
+/// ```
+/// define_cli! { ARG [about="my silly prog"] = 
+///   verbose: bool        [help="run verbose", short],
+///   date: DateTime<Utc>  [help="start date", from_os_str=parse_utc_datetime_from_os_str_date],
+///   config: String       [help="pathname of config", long, default_value="blah"]
+/// }
+/// ```
+/// expands into:
+/// ```
+/// use structopt::StructOpt;
+/// use lazy_static::lazy_static;
+/// 
+/// #[derive(StructOpt)]
+/// #[structopt(about = "my silly prog")]
+/// struct CliOpts {
+///     #[structopt(help = "run verbose", short)]
+///     verbose: bool,
+/// 
+///     #[structopt(help = "blah date", from_os_str=parse_utc_datetime_from_os_str_date)]
+///     date: DateTime<Utc>,
+/// 
+///     #[structopt(help = "pathname of config", long, default_value = "blah")]
+///     config: String,
+/// }
+/// ```
+#[macro_export]
+macro_rules! define_cli {
+    ($name:ident [ $( $sopt:ident $(= $sx:expr)? ),* ] = $( $fname:ident : $ftype:ty [ $( $fopt:ident $(= $fx:expr)? ),* ] ),* ) => {
+        use structopt::StructOpt;
+        use lazy_static::lazy_static;
+
+        #[derive(StructOpt)]
+        #[structopt( $( $sopt $(=$sx)? ),* )]
+        struct CliOpts {
+            $(
+                #[structopt( $( $fopt $(=$fx)? ),* )]
+                $fname : $ftype
+            ),*
+        }
+        lazy_static! { static ref $name: CliOpts = CliOpts::from_args(); }
+    }
+}
+
+/* #endregion define_cli */

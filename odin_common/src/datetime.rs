@@ -20,6 +20,7 @@ use serde::{Serialize,Deserialize,Serializer,Deserializer};
 use std::time::Duration;
 use std::ffi::OsStr;
 use parse_duration::parse;
+use crate::if_let;
 
 /// return minutes since given given DateTime<Utc> (negative if in future)
 pub fn elapsed_minutes_since (dt: &DateTime<Utc>) -> i64 {
@@ -93,7 +94,13 @@ pub fn serialize_optional_duration<S>(dur: &Option<Duration>, s: S) -> Result<S:
 
 //--- support for structopt parsers
 
-pub fn parse_utc_datetime_from_date (s: &OsStr) -> DateTime<Utc> {
+pub fn parse_utc_datetime_from_os_str_date (s: &OsStr) -> DateTime<Utc> {
     let nd = NaiveDate::parse_from_str(s.to_str().unwrap(), "%Y-%m-%d").unwrap();
     naive_local_date_to_utc_datetime(nd).unwrap()
+}
+
+//--- misc string format parsing
+
+pub fn parse_utc_datetime_from_yyyydddhhmmss (s: &str) -> Option<DateTime<Utc>> {
+    NaiveDateTime::parse_from_str( s, "%Y%j%H%M%S").ok().map(|ndt| ndt.and_utc())
 }

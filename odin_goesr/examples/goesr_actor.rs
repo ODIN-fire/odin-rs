@@ -14,6 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+#![allow(unused)]
+
 use tokio;
 use anyhow::Result;
 use odin_actor::prelude::*;
@@ -38,27 +41,29 @@ impl_actor! { match msg for Actor<GoesRMonitor,GoesRMonitorMsg> as
 
 #[tokio::main]
 async fn main() -> Result<()>{
-    
-    let mut actor_system = ActorSystem::new("main");
+    let mut actor_system = ActorSystem::with_env_tracing("main");
+
     let hmonitor = spawn_actor!( actor_system, "monitor", GoesRMonitor{})?;
 
-    let _actor_handle = spawn_actor!( actor_system, "goesr",  
-    GoesRImportActor::new(config_for!( "goesr")?, 
-    LiveGoesRDataImporter::new(config_for!( "goesr")?),
-    data_action!( hmonitor.clone(): ActorHandle<GoesRMonitorMsg> => |data:Vec<GoesRHotSpots>| {
-      for hs in data.into_iter(){
-       let msg = Update(hs.to_json_pretty().unwrap());
-       hmonitor.try_send_msg(msg);
-      }
-      action_ok()
-    }),
-    data_action!( hmonitor: ActorHandle<GoesRMonitorMsg> => |data:GoesRHotSpots| {
-        let msg = Update(data.to_json_pretty().unwrap());
-        hmonitor.try_send_msg( msg)
-    }),
-    ).await)?;
+    let _actor_handle = spawn_actor!( actor_system, "goesr",  GoesRImportActor::new(
+        config_for!( "goesr")?, 
+        LiveGoesRDataImporter::new( config_for!( "goes_18_aws")?),
+        data_action!( hmonitor.clone(): ActorHandle<GoesRMonitorMsg> => |data:Vec<GoesRHotSpots>| {
+            for hs in data.into_iter(){
+                let msg = Update(hs.to_json_pretty().unwrap());
+                hmonitor.try_send_msg(msg);
+            }
+            action_ok()
+        }),
+        data_action!( hmonitor: ActorHandle<GoesRMonitorMsg> => |data:GoesRHotSpots| {
+            let msg = Update(data.to_json_pretty().unwrap());
+            hmonitor.try_send_msg( msg)
+        }),
+    ))?;
+
+
     actor_system.start_all().await?;
-    let _ = actor_system.process_requests().await;
+    actor_system.process_requests().await;
 
     Ok(())
 }

@@ -19,24 +19,22 @@
  use odin_sentinel::{Alarm, EvidenceInfo, SentinelFile, AlarmMessenger, SignalCmdConfig, SignalCmdAlarmMessenger};
  use structopt::StructOpt;
  use anyhow::Result;
+ use lazy_static::lazy_static;
  
- #[macro_use]
- extern crate lazy_static;
- 
-  #[derive(StructOpt)]
-  #[structopt(about = "Delphire Sentinel Signal command alarm test")]
-  struct CliOpts {
-     /// optional pathname of image to attach
-     #[structopt(short,long)]
-     img: Option<String>,
+ #[derive(StructOpt)]
+ #[structopt(about = "Delphire Sentinel Signal command alarm test")]
+ struct CliOpts {
+    /// optional pathname of image to attach
+    #[structopt(short,long)]
+    img: Option<String>,
  
      /// pathname of Signal alarm config to test
-     config: String,
-  }
+    config: String,
+}
  
-  lazy_static! {
-     static ref ARGS: CliOpts = CliOpts::from_args();
- }
+lazy_static! {
+    static ref ARGS: CliOpts = CliOpts::from_args();
+}
 
 /// stand alone test for alarm notification using a locally installed "signal-cli" executable
 /// that runs a single "send" command when invoked

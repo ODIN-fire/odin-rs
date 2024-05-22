@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 #![allow(unused,uncommon_codepoints,non_snake_case)]
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::*;
 use crate::angle;
 use num::{Num, ToPrimitive, traits, zero};
 
 #[repr(C)]
-#[derive(Debug,Copy, Clone)]
+#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
 pub struct BoundingBox <T: Num> {
     pub west: T,
     pub south: T,
@@ -33,7 +33,7 @@ pub struct BoundingBox <T: Num> {
 // no 'I' or 'O' bands
 const LAT_BAND: [char;22] = ['A','B','C','D','E','F','G','H','J','K','L','M','N','P','Q','R','S','T','U','V','W','X'];
 
-#[derive(Debug,Copy,Clone)]
+#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
 pub struct UtmZone {
     zone: u32,
     band: char,
@@ -96,13 +96,13 @@ impl UtmBoundingBox {
 }
 
 
-#[derive(Debug,Copy,Clone,Serialize)]
+#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
 pub struct LatLon {
     pub lat_deg: f64,
     pub lon_deg: f64,
 }
 
-#[derive(Debug,Copy,Clone)]
+#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
 pub struct UTM {
     pub easting: f64,
     pub northing: f64,

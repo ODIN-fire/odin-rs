@@ -3,6 +3,14 @@ name = "odin_goesr"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "read_hotspots"
+path = "src/bin/read_hotspots.rs"
+
+[[bin]]
+name = "download_goesr_hotspots"
+path = "src/bin/download_goesr_hotspots.rs"
+
 [dependencies]
 # our ODIN crates
 odin_actor = { workspace = true }
@@ -10,6 +18,7 @@ odin_common = { workspace = true }
 odin_config = { workspace = true }
 odin_macro = { workspace = true }
 odin_gdal = { workspace = true }
+
 serde_json = "*"
 ron = "*"
 serde = { version = "*", features = ["rc"] }
@@ -23,8 +32,12 @@ aws-sdk-s3 = { version = "*", features = ["rt-tokio"] }
 aws-smithy-runtime-api = "*"
 aws-smithy-types-convert = { version = "*", features = ["convert-chrono"] }
 aws-smithy-types = { version = "*", features = ["serde-serialize"] }
-gdal = { version="*", features=["array"] }
+meshgridrs = "*"
+ndarray = "*"
 uom = { version = "*", features = ["serde", "f32"] }
 paste = "*"
 futures = "*"
 tracing = "*"
+structopt = "*"
+lazy_static = "*"
+regex = "*"

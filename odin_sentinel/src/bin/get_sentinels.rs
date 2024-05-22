@@ -16,9 +16,7 @@
  */
 #![allow(unused)]
 
-#[macro_use]
-extern crate lazy_static;
-
+use lazy_static::lazy_static;
 use std::{process::Output, path::PathBuf, str::FromStr, fmt::{Display,Formatter}, fs::File, io::Write};
 use anyhow::Result;
 use structopt::StructOpt;

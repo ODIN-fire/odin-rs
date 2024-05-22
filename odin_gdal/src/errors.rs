@@ -18,10 +18,11 @@ use std::ffi::CStr;
 use std::ptr::null;
 use thiserror::Error;
 use crate::pc_char_to_string;
-use gdal::errors::GdalError;
 use gdal_sys::{CPLErr::CE_None, CPLErr};
 
 pub type Result<T> = std::result::Result<T, OdinGdalError>;
+
+pub type GdalError = gdal::errors::GdalError;
 
 #[derive(Error,Debug)]
 pub enum OdinGdalError {
