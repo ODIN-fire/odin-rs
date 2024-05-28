@@ -15,12 +15,17 @@
  * limitations under the License.
  */
 
-use chrono::{DateTime,Utc,NaiveDate,NaiveTime,NaiveDateTime,Local,TimeZone};
+use chrono::{DateTime, TimeDelta, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
 use serde::{Serialize,Deserialize,Serializer,Deserializer};
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH, SystemTime};
 use std::ffi::OsStr;
 use parse_duration::parse;
 use crate::if_let;
+
+/// return the full hour for given DateTime (minutes, seconds and nanos all zeroed)
+pub fn full_hour<Tz:TimeZone> ( dt: DateTime<Tz>)->DateTime<Tz> {
+    dt.with_minute(0).unwrap().with_second(0).unwrap().with_nanosecond(0).unwrap()
+}
 
 /// return minutes since given given DateTime<Utc> (negative if in future)
 pub fn elapsed_minutes_since (dt: &DateTime<Utc>) -> i64 {
@@ -101,6 +106,32 @@ pub fn parse_utc_datetime_from_os_str_date (s: &OsStr) -> DateTime<Utc> {
 
 //--- misc string format parsing
 
-pub fn parse_utc_datetime_from_yyyydddhhmmss (s: &str) -> Option<DateTime<Utc>> {
-    NaiveDateTime::parse_from_str( s, "%Y%j%H%M%S").ok().map(|ndt| ndt.and_utc())
+fn parse_datetime (s: &str)->Option<DateTime<Utc>> {
+    match DateTime::parse_from_str(s, "%+") {
+        Ok(dt) => Some(dt.to_utc()),
+        Err(_) => None
+    }
 }
+
+/* #region dated objects ****************************************************************************************/
+
+/// a type bound for something we can get a date for.
+/// The main purpose of this trait is to avoid having to extract DateTime lists out of already existing collections
+pub trait Dated {
+    fn date (&self)->DateTime<Utc>;
+}
+
+//--- some blanket impls
+
+impl<Tz:TimeZone> Dated for DateTime<Tz> {
+    fn date (&self)->DateTime<Utc> { self.to_utc() }
+}
+
+impl Dated for SystemTime {
+    /// note this might panic if the SystemTime is before UNIX_EPOCH or nanos are outside of i64 (in year 2262)
+    fn date (&self)->DateTime<Utc> {
+        DateTime::from_timestamp_nanos( self.duration_since( UNIX_EPOCH).unwrap().as_nanos() as i64)
+    }
+}
+
+/* #endregion dated objects */

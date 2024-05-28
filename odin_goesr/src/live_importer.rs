@@ -16,46 +16,58 @@
  */
 
 use crate::*;
+use odin_actor::ObjSafeFuture;
 use odin_common::fs::ensure_writable_dir;
+use odin_common::s3::{create_s3_client, get_s3_objects, get_last_s3_object};
+use odin_common::schedule::{get_hourly_schedule,Compaction,get_next_hourly_event_dtg};
 use std::{path::Path,time::Instant};
 
+/// configuration for live GoesR FDCC hotspot import
 #[derive(Serialize,Deserialize,Debug,Clone)]
-pub struct LiveGoesRDataImporterConfig {
+pub struct LiveGoesRHotspotImporterConfig {
     pub satellite: u8,  // 16 or 18
     pub s3_region: String, // e.g. "us-east-1"
     pub bucket: String, // e.g. "noaa-goes18"
     pub source: String, // e.g. "ABI-L2-FDCC"
-    pub polling_interval: Duration,
     pub keep_files: bool,
-    pub init_records: usize, // number of most recent data files to retrieve
+    pub init_files: usize, // number of most recent data files to retrieve
     pub cleanup_interval: Duration,
     pub max_age: Duration,
 }
 
+/// the structure representing objects to collect and announce availability of live GoesR FDCC fire product data (hotspots)
+/// 
+/// (REQ) instance should check availability of new data sets on a guaranteed time interval
+/// (REQ) instance should not miss any available data set once initialized 
 #[derive(Debug)]
-pub struct LiveGoesRDataImporter {
-    config: LiveGoesRDataImporterConfig,
+pub struct LiveGoesRHotspotImporter {
+    config: LiveGoesRHotspotImporterConfig,
     data_dir: Arc<PathBuf>,
+
+    /// values set during initialization
     import_task: Option<AbortHandle>,
     file_cleanup_task: Option<AbortHandle>,
 }
 
-impl LiveGoesRDataImporter {
-    pub fn new (config: LiveGoesRDataImporterConfig) -> Self {
+impl LiveGoesRHotspotImporter {
+    pub fn new (config: LiveGoesRHotspotImporterConfig) -> Self {
         let data_dir = Arc::new( odin_config::app_metadata().data_dir.join("goesr"));
         ensure_writable_dir(&data_dir).unwrap(); // Ok to panic - this is a toplevel application object
 
-        LiveGoesRDataImporter{ config, data_dir, import_task:None, file_cleanup_task:None }
+        LiveGoesRHotspotImporter{ config, data_dir, import_task:None, file_cleanup_task:None }
     }
 
-    async fn initialize  (&mut self, hself: ActorHandle<GoesRActorMsg>) -> Result<()> { 
-        let s3_client = create_s3_client( self.config.s3_region.clone()).await?; // no point spawning tasks if we can't create an s3_client
+    async fn initialize  (&mut self, hself: ActorHandle<GoesRHotspotImportActorMsg>) -> Result<()> { 
+        let config = &self.config;
+        let init_files = config.init_files;
+        let s3_client = create_s3_client( config.s3_region.clone()).await?;
+
         self.import_task = Some( self.spawn_import_task( s3_client, hself)? );
         self.file_cleanup_task = Some( self.spawn_file_cleanup_task()? );
         Ok(())
     }
 
-    fn spawn_import_task(&mut self, client: Client, hself: ActorHandle<GoesRActorMsg>) -> Result<AbortHandle> { 
+    fn spawn_import_task(&mut self, client: S3Client, hself: ActorHandle<GoesRHotspotImportActorMsg>) -> Result<AbortHandle> { 
         let data_dir = self.data_dir.clone();
         let config = self.config.clone();
 
@@ -77,8 +89,8 @@ impl LiveGoesRDataImporter {
     }
 }
 
-impl GoesRDataImporter for LiveGoesRDataImporter {
-    async fn start (&mut self, hself: ActorHandle<GoesRActorMsg>) -> Result<()> {
+impl GoesRHotspotImporter for LiveGoesRHotspotImporter {
+    async fn start (&mut self, hself: ActorHandle<GoesRHotspotImportActorMsg>) -> Result<()> {
         self.initialize(hself).await?;
         Ok(())
     }
@@ -89,68 +101,41 @@ impl GoesRDataImporter for LiveGoesRDataImporter {
     }
 }
 
-async fn run_data_acquisition ( hself: ActorHandle<GoesRActorMsg>, config: LiveGoesRDataImporterConfig, data_dir: Arc<PathBuf>, client: Client) {
+async fn run_data_acquisition (hself: ActorHandle<GoesRHotspotImportActorMsg>, config: LiveGoesRHotspotImporterConfig, data_dir: Arc<PathBuf>, client: S3Client)->Result<()> 
+{
     let source = Arc::new( config.source); // no need to keep gazillions of copies
     let bucket = &config.bucket;
     let sat_id = config.satellite;
-    let mut last_key: Option<String> = None;
+    let mut last_obj: Option<S3Object> = None;
 
-    match initial_download( &client, bucket, source.clone(), sat_id, config.init_records, &data_dir).await {
-        Ok( (key,hotspots) ) => {
-            last_key = key;
-            hself.send_msg( Initialize(hotspots) ).await;
-        }
-        Err(e) => {
-            //error!("failed to download initial goes-{} data: {:?}", config.satellite, e);
-            hself.try_send_msg( ImportError(e));
-        }
-    }
-    let mut t_last = Instant::now();
+    //--- get 3h most recent object entries so that we can build a schedule
+    let mut objs = get_most_recent_objects( &client, &config.bucket, &source, Duration::from_hours(3), Utc::now()).await?;
+    if objs.len() < 12 { return Err(no_object_error("not enough initial objects")) }
 
+    let hourly_schedule = get_hourly_schedule(&objs, Some(Compaction::BoundedRightEdge(3)));
+    let mut init_objs = if objs.len() > config.init_files { objs.split_off( objs.len()-config.init_files) } else { objs };
+
+    //--- now get the initial files and send an Initialize msg with the hotspots read from them
+    let hotspots = download_and_read_objects( &client, bucket, &source, sat_id, &data_dir, &init_objs).await?;
+    last_obj = init_objs.pop();
+    hself.send_msg( Initialize(hotspots) ).await;
+
+    //--- run update loop
     loop {
-        sleep( config.polling_interval - (Instant::now() - t_last) ).await; // sleep for remainder of polling interval
+        let dt_cycle = Utc::now();
+        let dt_next = get_next_hourly_event_dtg( dt_cycle, &hourly_schedule);
+        sleep( (dt_next - dt_cycle).to_std()?).await;
 
-        match update_download( &client, bucket, source.clone(), sat_id, &data_dir, last_key.as_ref()).await {
-            Ok( (key,hs)) => {
-                last_key = key;
-                hself.send_msg( Update(hs)).await;
-            }
-            Err(e) => {
-                //error!("failed to download goes-{} update data: {:?}", config.satellite, e);
-                hself.try_send_msg( ImportError(e));
-            }
-        }
+        let mut update_objs = get_objects_since( &client, &config.bucket, &source, &last_obj, dt_cycle, Utc::now()).await?;
+        let mut hotspots = download_and_read_objects( &client, bucket, &source, sat_id, &data_dir, &update_objs).await?;
+        last_obj = update_objs.pop().or( last_obj);
 
-        t_last = Instant::now();
-    }
-}
-
-async fn initial_download (client: &Client, bucket: &str, source: Arc<String>, sat_id: u8, n_objs: usize, data_dir: &PathBuf) -> Result<(Option<String>,Vec<GoesRHotSpots>)> {
-    let init_objs = get_inital_objects( client, Utc::now(), bucket, &source, n_objs).await?;
-    let last_key: Option<String> = init_objs.last().and_then( |o| o.key.clone());
-    let mut hotspots: Vec<GoesRHotSpots> = Vec::with_capacity(init_objs.len());
-
-    for obj in init_objs {
-        let gdata = get_goesr_data( client, obj, data_dir, bucket, source.clone(), sat_id).await?;
-        match read_goesr_data( &gdata) {
-            Ok(hs) => hotspots.push(hs),
-            Err(e) => warn!("error parsing GOES-R data: {e:?}")
+        for hs in hotspots {
+            hself.send_msg( Update(hs)).await?;
         }
     }
 
-    Ok( (last_key,hotspots) )
-}
-
-async fn update_download (client: &Client, bucket: &str, source: Arc<String>, sat_id: u8, data_dir: &PathBuf, last_key: Option<&String>) -> Result<(Option<String>,GoesRHotSpots)> {
-    match get_most_recent_object( client, Utc::now(), bucket, &source, last_key).await? {
-        Some(obj) => {
-            let last_key = obj.key.clone();
-            let gdata = get_goesr_data( client, obj, data_dir, bucket, source, sat_id).await?;
-            let hs = read_goesr_data( &gdata)?;
-            Ok( (last_key,hs) )
-        }
-        None => Err( OdinGoesRError::NoObjectError(format!("failed to retrieve last object for goes-{}", sat_id)) )
-    }
+    Ok(())
 }
 
 async fn run_file_cleanup (data_dir: Arc<PathBuf>, interval: Duration, max_age: Duration) {

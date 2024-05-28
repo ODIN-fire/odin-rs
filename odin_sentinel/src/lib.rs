@@ -17,6 +17,9 @@
 #![allow(unused)]
 #![feature(trait_alias,exit_status_error)]
 
+#[doc = include_str!("../doc/odin_sentinel.md")]
+
+
 use std::{
     cmp::{min, Ordering}, collections::{HashMap, VecDeque}, fmt::{self,Debug}, fs::File, future::Future, io::{Read, Write}, ops::RangeBounds, path::{Path,PathBuf}, rc::Rc, sync::{atomic::{self,AtomicU64}, Arc}, time::Duration
 };

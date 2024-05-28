@@ -25,6 +25,10 @@ pub mod angle;
 pub mod geo;
 pub mod sim_clock;
 pub mod ranges;
+pub mod schedule;
+
+#[cfg(feature="s3")]
+pub mod s3;
 
 // syntactic sugar - this is just more readable
 #[inline] pub fn sin(x:f64) -> f64 { x.sin() }

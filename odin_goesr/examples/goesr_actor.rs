@@ -17,11 +17,13 @@
 
 #![allow(unused)]
 
+//! example application of how to create and use a [GoesRHotspotImportActor] in a standalone, configured executable.
+
 use tokio;
 use anyhow::Result;
 use odin_actor::prelude::*;
-use odin_goesr::actor::GoesRImportActor;
-use odin_goesr::{live_importer::LiveGoesRDataImporter, GoesRHotSpots};
+use odin_goesr::actor::GoesRHotspotImportActor;
+use odin_goesr::{live_importer::LiveGoesRHotspotImporter, GoesRHotSpots};
 use odin_config::prelude::*;
 
 use_config!();
@@ -45,9 +47,9 @@ async fn main() -> Result<()>{
 
     let hmonitor = spawn_actor!( actor_system, "monitor", GoesRMonitor{})?;
 
-    let _actor_handle = spawn_actor!( actor_system, "goesr",  GoesRImportActor::new(
+    let _actor_handle = spawn_actor!( actor_system, "goesr",  GoesRHotspotImportActor::new(
         config_for!( "goesr")?, 
-        LiveGoesRDataImporter::new( config_for!( "goes_18_aws")?),
+        LiveGoesRHotspotImporter::new( config_for!( "goes_18_aws")?),
         data_action!( hmonitor.clone(): ActorHandle<GoesRMonitorMsg> => |data:Vec<GoesRHotSpots>| {
             for hs in data.into_iter(){
                 let msg = Update(hs.to_json_pretty().unwrap());

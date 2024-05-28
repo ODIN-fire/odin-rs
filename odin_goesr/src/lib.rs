@@ -14,19 +14,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#![feature(trait_alias,slice_take)]
+#![feature(trait_alias,slice_take,duration_constructors)]
 #![allow(unused)]
 
-use std::{fmt::{Debug,Display},f32::NAN,sync::Arc,fs::File, path::{Path,PathBuf}, time::Duration, io::Write};
+#[doc = include_str!("../doc/odin_goesr.md")]
+
+use std::{f32::NAN, fmt::{Debug,Display}, fs::File, io::Write, ops::Deref, path::{Path,PathBuf}, sync::Arc, time::Duration};
 use std::collections::VecDeque;
-use aws_smithy_types_convert::date_time::DateTimeExt;
 use serde::{Deserialize,Serialize};
-use odin_common::geo::LatLon;
-use chrono::{NaiveTime,NaiveDate,NaiveDateTime,Datelike, DateTime, Utc, Timelike};
-use uom::si::{area::square_meter,length::meter,power::milliwatt,thermodynamic_temperature::kelvin};
+use odin_common::{datetime::Dated, geo::LatLon};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Timelike, Utc};
+use uom::si::{area::square_meter, f32::Time, length::meter, power::milliwatt, thermodynamic_temperature::kelvin};
 use uom::si::f32::{Power,ThermodynamicTemperature, Area, Length};
-use aws_sdk_s3::{types::Object, Client, operation::list_objects::builders::ListObjectsFluentBuilder};
-use aws_config::{Region,meta::region::RegionProviderChain};
 use futures::Future;
 use regex::Regex;
 use lazy_static::lazy_static;
@@ -34,9 +33,9 @@ use lazy_static::lazy_static;
 use odin_actor::ActorHandle;
 use odin_actor::prelude::*;
 use odin_actor::error;
-use odin_common::if_let;
-use odin_common::fs::remove_old_files;
-use odin_common::{*,datetime::parse_utc_datetime_from_yyyydddhhmmss,ranges::LinearRange};
+use odin_common::{if_let};
+use odin_common::{*,fs::remove_old_files,datetime::full_hour,ranges::LinearRange};
+use odin_common::s3::{S3Client,S3Object,create_s3_client,get_s3_objects,download_s3_object};
 use odin_gdal::{Dataset, Metadata, MetadataEntry, GdalValueType}; // gdal re-exports
 use odin_gdal::gdal::{DatasetOptions,GdalOpenFlags};
 use odin_gdal::{GridPoint, find_grid_points_in_slice, get_grid_point_values, get_linear_range, nc_dataset, quiet_nc_dataset};
@@ -162,7 +161,7 @@ impl HotspotStore {
 /* #region GOES-R filename encoding *************************************************************************************/
 
 lazy_static! {
-    static ref FILENAME_RE: Regex = Regex::new(r#"(.*)_([^-]*)-([^-]*)-([^-]+)-(.*)_G(.*)_s(.*)_e(.*)_c(.*)\.(.*)"#).unwrap();
+    static ref FILENAME_RE: Regex = Regex::new(r#"(?:.*/)?(.*)_([^-]*)-([^-]*)-([^-]+)-(.*)_G(.*)_s(.*)_e(.*)_c(.*)\.(.*)"#).unwrap();
     static ref DTG_RE: Regex = Regex::new(r#"(\d\d\d\d)(\d\d\d)(\d\d)(\d\d)(\d\d)(\d)"#).unwrap();
 }
 
@@ -234,66 +233,94 @@ pub fn parse_goesr_dtg (s: &str)->Option<DateTime<Utc>> {
     None
 }
 
+pub fn parse_goesr_create_dtg (path: impl AsRef<Path>)->Option<DateTime<Utc>> {
+    let path: &Path = path.as_ref();
+    let filename = path.file_name()?.to_str()?;
+    filename.rfind("_c").and_then(|idx| parse_goesr_dtg(&filename[idx+2..]))
+}
+
 /* #endregion GOES-R filename encoding */
 
 /* #region S3 support *************************************************************************************************/
 
-pub async fn create_s3_client(region: String) -> Result<Client> {
-    let region_provider = RegionProviderChain::first_try( Region::new( region));
-    let aws_config = aws_config::from_env().no_credentials().region(region_provider).load().await; // add anonymous creditials
-    Ok( Client::new(&aws_config) ) 
+/// the S3 object prefix (some sort of a path) for GoesR. Built from year, day-of-year and hour
+fn get_prefix (dt: DateTime<Utc>, source: &str)->String {
+    format!("{}/{}/{:03}/{:02}/", source, dt.year(), dt.ordinal(), dt.hour())
 }
 
-pub async fn get_inital_objects (client: &Client, dt: DateTime<Utc>, bucket: &str, source: &str, num_obj: usize) -> Result<Vec<Object>> {
-    let prefix = get_prefix( dt, source); 
-    let mut objects = get_multiple_objects( client, bucket, &prefix, num_obj).await?;
+/// return all objects within the given duration, in ascending time order (newest last)
+/// Use this for getting initial data
+pub async fn get_most_recent_objects (client: &S3Client, bucket: &str, source: &str, dur: Duration, now: DateTime<Utc>) -> Result<Vec<S3Object>> {
+    let dt_start = now - dur;
+    let hours = dur.as_secs() as i64/ 3600;
+    let mut objects: Vec<S3Object> = Vec::with_capacity( 12 * (hours+1) as usize); // assuming update interval is 5min
 
-    if objects.len() < num_obj { // we didn't get enough objs for this hour - fill up from previous hour
-        let num_obj = num_obj - objects.len();
-        let prefix = get_prefix( dt - Duration::from_secs(3600), source);
-        let mut more_objects = get_multiple_objects( client, bucket, &prefix, num_obj).await?;
-        objects.append( &mut more_objects);
+    for h in (0..=hours).rev() {
+        let dt = now - TimeDelta::hours(h);
+        let prefix = get_prefix( dt, source);
+        let mut objs = get_s3_objects( client, bucket, &prefix, None).await?;
+
+        for o in objs {
+            if o.is_newer(dt_start)  {
+                objects.push(o)
+            }
+        }
     }
 
     Ok(objects)
 }
 
-fn get_prefix (dt: DateTime<Utc>, source: &str)->String {
-    format!("{}/{}/{:03}/{:02}/", source, dt.year(), dt.ordinal(), dt.hour())
-}
+/// return all objects since the given last one, in ascending time order (newest last)
+/// Use this for getting updates
+pub async fn get_objects_since_last (client: &S3Client, bucket: &str, source: &str, last_obj: &S3Object, now: DateTime<Utc>)  -> Result<Vec<S3Object>> {
+    let key = last_obj.key().ok_or(OdinGoesRError::NoObjectKeyError())?;
+    let dt_start = parse_goesr_create_dtg(key).ok_or(OdinGoesRError::NoObjectDateError())?;
+    let hours = (full_hour(now) - full_hour(dt_start)).num_hours();
+    let mut objects: Vec<S3Object> = Vec::with_capacity( 12 * (hours+1) as usize); // assuming update interval is 5min
 
-pub async fn get_multiple_objects (client: &Client, bucket: &str, prefix: &str, num_obj: usize) -> Result<Vec<Object>> {
-    let builder = client.list_objects().bucket(bucket).prefix(prefix);
-    let result = builder.send().await?;
-    let objs = result.contents();
+    for h in (0..=hours).rev() {
+        let dt = now - TimeDelta::hours(h);
+        let prefix = get_prefix( dt, source);
+        let marker = if h == hours { Some(key) } else { None };
 
-    let n = objs.len();
-    let last_objs = if n > num_obj { &objs[n - num_obj..n] } else { objs };
-    Ok( last_objs.to_vec() )
-}
-
-pub async fn get_most_recent_object (client: &Client, dt: DateTime<Utc>, bucket: &str, source: &str, prev_key: Option<&String>) -> Result<Option<Object>> {
-    fn get_builder (client: &Client, bucket: &str, prefix: String, prev_key: Option<&String>)->ListObjectsFluentBuilder {
-        let mut builder = client.list_objects().bucket(bucket).prefix(prefix);
-        if let Some(key) = prev_key { builder.marker(key) } else { builder }
+        let mut objs = get_s3_objects( client, bucket, &prefix, marker).await?;
+        for o in objs {
+            if o.is_newer(dt_start) && o.is_older_or_equal(now) {
+                objects.push(o)
+            }
+        }
     }
 
-    let mut result = get_builder( client, bucket, get_prefix( dt, source), prev_key).send().await?;
-    if result.contents.is_none() { // try previous hour but don't get recursive (this is an async fn)
-        result = get_builder( client, bucket, get_prefix( dt - Duration::from_secs(3600), source), prev_key).send().await?;
-    }
-    
-    if result.contents.is_none() { 
-        Err( OdinGoesRError::NoObjectError("no object found in last hour".into()))
+    Ok(objects)
+}
+
+// get all S3Objects either from last downloaded one or as a fallback since the provided DateTime<Utc>
+pub async fn get_objects_since (client: &S3Client, bucket: &str, source: &str, last_obj: &Option<S3Object>, dt: DateTime<Utc>, now: DateTime<Utc>)->Result<Vec<S3Object>> {
+    if let Some(last_obj) = last_obj {
+        get_objects_since_last( &client, bucket, &source, &last_obj, now).await
     } else {
-        Ok( result.contents().last().map(|o| o.clone()) )
+        get_most_recent_objects( &client, bucket, &source, (now - dt).to_std()?, now).await
     }
 }
 
-pub async fn get_goesr_data (client: &Client, obj: Object, path: &PathBuf, bucket: &str, source:Arc<String>, sat_id:u8) -> Result<GoesRData>{
-    if let Some(date) = obj.last_modified {
-        let date = date.to_chrono_utc()?;
-        let file = download_object(client, bucket, obj, path).await?;
+pub async fn download_and_read_objects (client: &S3Client, bucket: &str, source: &Arc<String>, sat_id: u8, data_dir: &PathBuf, objs: &Vec<S3Object>) -> Result<Vec<GoesRHotSpots>> {
+    let mut hotspots: Vec<GoesRHotSpots> = Vec::with_capacity(objs.len());
+
+    for obj in objs {
+        let gdata = get_goesr_data( client, obj, data_dir, bucket, source.clone(), sat_id).await?;
+        match read_goesr_data( &gdata) {
+            Ok(hs) => hotspots.push(hs),
+            Err(e) => warn!("error parsing GOES-R data: {e:?}")
+        }
+    }
+
+    Ok( hotspots )
+}
+
+pub async fn get_goesr_data (client: &S3Client, obj: &S3Object, path: &PathBuf, bucket: &str, source:Arc<String>, sat_id:u8) -> Result<GoesRData>{
+    if obj.is_dated() {
+        let date = obj.date();
+        let file = download_s3_object(client, bucket, obj, path).await?;
         let data = GoesRData{sat_id, file, source, date};
         Ok(data)
     } else {
@@ -301,58 +328,10 @@ pub async fn get_goesr_data (client: &Client, obj: Object, path: &PathBuf, bucke
     }
 }
 
-async fn download_object (client: &Client, bucket: &str, object: Object, path: &PathBuf) -> Result<PathBuf>{
-    if let Some(key) = object.key {
-        let file_name = key.split("/").collect::<Vec<&str>>().last().copied().unwrap();
-        let file_path = path.join(file_name);
-        let mut file = File::create(&file_path)?;
-
-        let mut object = client
-            .get_object()
-            .bucket(bucket)
-            .key(&key)
-            .send()
-            .await?; 
-
-        while let Some(bytes) = object.body.try_next().await? {
-            file.write_all(&bytes)?;
-        }
-        Ok(file_path)
-    } else {
-        Err(OdinGoesRError::NoObjectKeyError())
-    }
-}
 
 /* #endregion S3 support */
 
 /* #region hotspot parsing *************************************************************************************************/
-
-
-/// read hotspot data from GOES-R fire product as documented in
-/// `GoesR ABI L2 Fire (Hot Spot Characterization) data product` ("ABI-L2-FDCC")
-/// see https://www.goes-r.gov/products/docs/PUG-L2+-vol5.pdf (pg 472) for details
-/*
-pub fn _read_goesr_data (data: &GoesRData) -> Result<GoesRHotSpots> {
-    let lat_lon_grid = get_lat_lon_grid(&data.file)?;
-
-    let fire_pixels = find_2d_grid_points( netcdf_path( data, "Mask").as_str(), 1, is_valid_fire_pixel)?;
-
-    let area_vals: Vec<u16>  = get_2d_grid_point_values( netcdf_path( data, "Area").as_str(), 1, &fire_pixels)?;
-    let temp_vals: Vec<u16>  = get_2d_grid_point_values( netcdf_path( data, "Temp").as_str(), 1, &fire_pixels)?;
-    let power_vals: Vec<f32> = get_2d_grid_point_values( netcdf_path( data, "Power").as_str(), 1, &fire_pixels)?;
-    let dqf_vals: Vec<u8>    = get_2d_grid_point_values( netcdf_path( data, "DQF").as_str(), 1, &fire_pixels)?;
-
-    let hotspots = fire_pixels.iter().enumerate().fold( Vec::<GoesRHotSpot>::with_capacity(fire_pixels.len()), |mut acc, (i,p)| {
-        let center = get_lat_lon( &lat_lon_grid, p.i0, p.i1);
-        let bounds = get_bounds( &lat_lon_grid, p.i0, p.i1);
-        let hotspot = GoesRHotSpot::new( data, p.value, temp_vals[i], power_vals[i], dqf_vals[i], area_vals[i], bounds, center);
-        acc.push( hotspot);
-        acc
-    });
-
-    Ok( GoesRHotSpots::new( data, hotspots) )
-}
-*/
 
 fn find_fire_pixels_in_slice (i1: usize, row: &[u16], grid_points: &mut Vec<GridPoint<u16>>) {
     for i0 in 0..row.len() {
