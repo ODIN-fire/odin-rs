@@ -17,6 +17,8 @@
 #![allow(unused_imports)]
 #![feature(trait_alias)]
 
+#[doc = include_str!("../doc/odin_actor.md")]
+
 use std::{
     pin::{Pin,pin}, 
     future::Future, 

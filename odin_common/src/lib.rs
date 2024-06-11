@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #![allow(unused,uncommon_codepoints)]
+#![feature(trait_alias)]
 
 pub mod strings;
 pub mod macros;
@@ -23,14 +24,22 @@ pub mod datetime;
 pub mod angle;
 pub mod geo;
 pub mod sim_clock;
+pub mod ranges;
+pub mod schedule;
+
+#[cfg(feature="s3")]
+pub mod s3;
 
 // syntactic sugar - this is just more readable
-fn sin(x:f64) -> f64 { x.sin() }
-fn cos(x:f64) -> f64 { x.cos() }
-fn sinh(x:f64) -> f64 { x.sinh() }
-fn cosh(x:f64) -> f64 { x.cosh() }
-fn tan(x:f64) -> f64 { x.tan() }
-fn asin(x:f64) -> f64 {x.asin() }
-fn atan(x:f64) -> f64 { x.atan() }
-fn atanh(x:f64) -> f64 { x.atanh() }
-fn sqrt(x:f64) -> f64 { x.sqrt() }
+#[inline] pub fn sin(x:f64) -> f64 { x.sin() }
+#[inline] pub fn sin2(x:f64) -> f64 { let sin_x = x.sin(); sin_x*sin_x }
+#[inline] pub fn cos(x:f64) -> f64 { x.cos() }
+#[inline] pub fn cos2(x:f64) -> f64 { let cos_x = x.cos(); cos_x*cos_x }
+#[inline] pub fn sinh(x:f64) -> f64 { x.sinh() }
+#[inline] pub fn cosh(x:f64) -> f64 { x.cosh() }
+#[inline] pub fn tan(x:f64) -> f64 { x.tan() }
+#[inline] pub fn asin(x:f64) -> f64 {x.asin() }
+#[inline] pub fn atan(x:f64) -> f64 { x.atan() }
+#[inline] pub fn atanh(x:f64) -> f64 { x.atanh() }
+#[inline] pub fn sqrt(x:f64) -> f64 { x.sqrt() }
+#[inline] pub fn pow2(x:f64) -> f64 { x*x }

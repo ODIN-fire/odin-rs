@@ -95,7 +95,7 @@ use serde::Deserialize;
 #[macro_export]
 #[cfg(feature="config_embedded")]
 macro_rules! config_for {
-    ($id:literal) => {
+    ($id:expr) => {
         odin_config::config_from_embedded( __c_data__($id).ok_or_else( || odin_config::errors::file_not_found($id))?)
     }
 }
@@ -103,7 +103,7 @@ macro_rules! config_for {
 #[macro_export]
 #[cfg(feature="config_embedded_pgp")]
 macro_rules! config_for {
-    ($id:literal) => {
+    ($id:expr) => {
         odin_config::config_from_embedded_pgp( &PW_CACHE, __c_data__($id).ok_or_else( || odin_config::errors::file_not_found($id))?)
     }
 }
@@ -111,7 +111,7 @@ macro_rules! config_for {
 #[macro_export]
 #[cfg(feature="config_embedded_pw")]
 macro_rules! config_for {
-    ($id:literal) => {
+    ($id:expr) => {
         odin_config::config_from_embedded_pw( &PW_CACHE, __c_data__($id).ok_or_else( || odin_config::errors::file_not_found($id))?)
     }
 }
@@ -119,7 +119,7 @@ macro_rules! config_for {
 #[macro_export]
 #[cfg(feature="config_xdg")]
 macro_rules! config_for {
-    ($id:literal) => {
+    ($id:expr) => {
         odin_config::config_from_xdg_file( &APP, $id)
     }
 }
@@ -128,7 +128,7 @@ macro_rules! config_for {
 #[macro_export]
 #[cfg(not(any(feature="config_embedded",feature="config_embedded_pgp",feature="config_embedded_pw",feature="config_xdg")))]
 macro_rules! config_for {
-    ($id:literal) => {
+    ($id:expr) => {
         odin_config::config_from_local_file( $id)
     }
 }

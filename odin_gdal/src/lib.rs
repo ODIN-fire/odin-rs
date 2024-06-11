@@ -15,31 +15,33 @@
  * limitations under the License.
  */
 #![allow(unused)]
+#![feature(trait_alias)]
 
 pub mod errors;
 pub mod warp;
 pub mod contour;
-pub mod geo_goesr;
 
-use gdal;
-use gdal_sys;
-
-#[macro_use]
-extern crate lazy_static;
-
+use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::ptr::{null, null_mut};
 use std::ffi::{CString,CStr};
+use std::ops::{Sub,Index,Fn};
+use std::sync::Mutex;
+use std::path::Path;
 use libc::{c_void,c_char,c_uint, c_int};
-use gdal::{Driver, DriverManager, Metadata, errors::GdalError, GeoTransform};
-use gdal::spatial_ref::{CoordTransform, CoordTransformOptions, SpatialRef};
-use gdal_sys::{CPLErrorReset, OGRErr, OSRExportToWkt, OSRNewSpatialReference, OSRSetFromUserInput, CPLErr};
+
+// we re-export these so that other crates don't have to use a direct gdal depedency to import.
+// this is to ensure we run bindgen for new GDAL versions that don't yet have pre-computed bindings in gdal-sys
+pub use gdal::{self, Driver, DriverManager, Metadata, MetadataEntry, Dataset, errors::GdalError, GeoTransform};
+pub use gdal::raster::{GdalType,RasterBand,Buffer};
+pub use gdal::spatial_ref::{CoordTransform, CoordTransformOptions, SpatialRef};
+
+use gdal_sys::{self,CPLErrorReset, OGRErr, OSRExportToWkt, OSRNewSpatialReference, OSRSetFromUserInput, CPLErr};
 use geo::{Coord, Rect};
 use gdal::cpl::CslStringList;
 
-use odin_common::fs::*;
+use odin_common::{fs::*,geo::*,ranges::LinearRange};
 use odin_common::macros::if_let;
-use odin_common::geo::*;
 use crate::errors::{Result,misc_error, last_gdal_error, OdinGdalError, gdal_error, map_gdal_error};
 
 lazy_static! {
@@ -66,6 +68,9 @@ lazy_static! {
         //... and many more to follow (see http://gdal.org/drivers
     ]);
 }
+
+/// use this to protect non-threadsafe GDAL operations
+static GLOB_GDAL_MUTEX: Mutex<usize> = Mutex::new(0);
 
 pub fn initialize_gdal() -> bool {
     EXT_MAP.len() > 0
@@ -108,6 +113,42 @@ pub fn ok_ce_none (res: CPLErr::Type) -> Result<()> {
 
 pub fn gdal_badarg(details: String) -> GdalError {
     GdalError::BadArgument(details)
+}
+
+/// run the provided closure with the global GDAL error handler disabled. Note this does not
+/// change the return value but prevents GDAL from printing errors and warnings to the console
+pub fn run_quiet<T,F> (f: F)->Result<T> where F: Fn()->Result<T> {
+    let lock = GLOB_GDAL_MUTEX.lock().unwrap();
+    unsafe { gdal_sys::CPLPushErrorHandler( Some(gdal_sys::CPLQuietErrorHandler)); }
+    let result = f();
+    unsafe { gdal_sys::CPLPopErrorHandler(); }
+    result
+}
+
+// some NetCDF files (e.g. GoesR data sets) cause error messages printed to the console if
+// the SRS does not conform to CF-1. If the dataset still works correctly (e.g. because
+// we explicitly do coordinate transformation) use this function to open the Dataset without
+// annoying console output
+pub fn quiet_nc_dataset( nc_path: impl AsRef<Path>, var_name: &str) -> Result<Dataset> {
+    let path = format!("NETCDF:{:?}:{:?}", nc_path.as_ref(), var_name);
+
+    // work around the "Unhandled X/Y axis unit rad. SRS will ignore axis unit and be likely wrong" warning
+    /* does not work
+    let dso = DatasetOptions {
+        open_flags: GdalOpenFlags::GDAL_OF_READONLY,
+        allowed_drivers: None,
+        open_options: Some( &["IGNORE_XY_AXIS_NAME_CHECKS=YES"] ),
+        sibling_files: None
+    };
+    Ok( Dataset::open_ex(path, dso)? )
+    */
+
+    run_quiet( move || Ok( Dataset::open(&path)? ) )
+}
+
+pub fn nc_dataset( nc_path: impl AsRef<Path>, var_name: &str) -> Result<Dataset> {
+    let path = format!("NETCDF:{:?}:{:?}", nc_path.as_ref(), var_name);
+    Ok( Dataset::open(&path)? )
 }
 
 pub fn to_csl_string_list (strings: &Vec<String>) -> Result<Option<CslStringList>> {
@@ -264,7 +305,7 @@ pub fn transform_bounds_2d (s_srs: &SpatialRef, t_srs: &SpatialRef,
         })
 }
 
-//--- well known SpatialRefs
+/* #region well known SpatialRefs *********************************************************************************/
 
 pub fn srs_lon_lat () -> SpatialRef { SpatialRef::from_epsg(4326).unwrap() }
 pub fn srs_epsg_4326 () -> SpatialRef { SpatialRef::from_epsg(4326).unwrap() }
@@ -299,3 +340,146 @@ pub fn srs_utm_from_lon_lat (lon_deg: f64, lat_deg: f64, opt_zone: Option<u32>) 
     let epsg_base = if lat_deg < 0.0 { 32700 } else { 32600 };
     Ok(SpatialRef::from_epsg(epsg_base + utm_zone).map( |srs| (srs,utm_zone))?)
 }
+
+/* #endregion well known SpatialRefs */
+
+/* #region generic Dataset/Rasterband access *********************************************************************************/
+
+pub trait GdalValueType = std::fmt::Debug + std::fmt::Display + Copy + From<u8> + GdalType;
+
+/// aggregate of indices and corresponding value of a 2D grid point
+/// note this makes no assumption about axis order, it just uses whatever is in the dataset
+#[derive(Debug)]
+pub struct GridPoint<T> where T: GdalValueType {
+    pub i0: usize,
+    pub i1: usize,
+    pub value: T
+}
+
+impl <T> GridPoint<T> where T: GdalValueType {
+    #[inline]
+    pub fn position(&self)->(isize,isize) { (self.i0 as isize, self.i1 as isize) }
+
+    #[inline]
+    pub fn transposed_position(&self)->(isize,isize) { (self.i1 as isize, self.i0 as isize) }
+}
+
+
+/// get vec of GridPoint2D elements that match the provided predicate
+/// note that the RasterBand::read_* functions swap axis order
+pub fn find_grid_points<T,P> (ds: &Dataset, band_index: isize, predicate: P)->Result<Vec<GridPoint<T>>> 
+    where T: GdalValueType, P: Fn(T)->bool 
+{
+    let band = ds.rasterband(band_index)?;
+    let x_size = band.x_size();
+    let y_size = band.y_size();
+    let mut scan_line: Vec<T> = Vec::with_capacity( x_size);
+    scan_line.resize( x_size, 0.into());
+
+    // unfortunately we don't know the value upfront but with large grids a 2-pass solution would be probably more expensive
+    let mut result: Vec<GridPoint<T>> = Vec::new();
+
+    for i1 in 0..y_size {
+        band.read_into_slice( (0, i1 as isize), (x_size,1), (x_size,1), &mut scan_line, None)?;
+        for i0 in 0..x_size {
+            let value = scan_line[i0];
+            if predicate(value) {
+                result.push( GridPoint{i0,i1,value})
+            }
+        }
+    }
+    Ok(result)
+}
+
+// a version that uses a caller provided closure to iterate over a whole data row, thus allowing optimizations
+// such as inlining or simd to speed up
+pub fn find_grid_points_in_slice<T,F> (ds: &Dataset, band_index: isize, accumulator: F)->Result<Vec<GridPoint<T>>> 
+    where T: GdalValueType, F: Fn(usize,&[T],&mut Vec<GridPoint<T>>)
+{
+    let band = ds.rasterband(band_index)?;
+    let x_size = band.x_size();
+    let y_size = band.y_size();
+    let mut scan_line: Vec<T> = Vec::with_capacity( x_size);
+    scan_line.resize( x_size, 0.into());
+    let mut result: Vec<GridPoint<T>> = Vec::new();
+
+    for i1 in 0..y_size {
+        band.read_into_slice( (0, i1 as isize), (x_size,1), (x_size,1), &mut scan_line, None)?;
+        accumulator( i1, &scan_line, &mut result);
+    }
+    Ok(result)
+}
+
+
+/// get Vec of values for given Vec<GridPoint2D> reference
+pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: isize, sub_no_data: Option<T>, pts: &Vec<GridPoint<U>> )->Result<Vec<T>> 
+    where T: GdalValueType + Into<f64>, U: GdalValueType
+{
+    let band = ds.rasterband(band_index)?;
+    let mut result: Vec<T> = Vec::with_capacity(pts.len());
+    let mut data = [T::from(0u8);1];
+    let no_data = band.no_data_value();
+
+    if no_data.is_some() && sub_no_data.is_some() {
+        let no_data = no_data.unwrap();
+        let sub_no_data = sub_no_data.unwrap();
+
+        for p in pts {
+            band.read_into_slice( p.position(), (1,1), (1,1), &mut data, None)?;
+            if data[0].into() == no_data { data[0] = sub_no_data } 
+            result.push( data[0]);
+        }
+    } else {
+        for p in pts {
+            band.read_into_slice( p.position(), (1,1), (1,1), &mut data, None)?;
+            result.push( data[0]);
+        }
+    }
+
+    Ok(result)
+}
+
+
+pub fn get_vec_f64<T> (ds: &Dataset, band_index: isize)->Result<Vec<f64>> 
+    where T: GdalValueType + Into<f64>
+{
+    let band = ds.rasterband(band_index)?;
+    let scale = if let Some(v) = band.scale() { v } else { 1.0 };
+    let offset = if let Some(v) = band.offset() { v } else { 0.0 };
+    let buf: Buffer<T> = band.read_as( (0,0), band.size(), band.size(), None)?;
+    let data = buf.data;
+    let len = data.len();
+    let mut values: Vec<f64> = Vec::with_capacity(len);
+    values.resize( len, 0.0);
+
+    for i in 0..len { 
+        values[i] = (data[i].into()) * scale + offset;
+    }
+
+    Ok(values)
+}
+
+
+pub fn get_linear_range<T> (ds: &Dataset, band_index: isize)->Result<LinearRange<f64>>
+    where T: GdalValueType + Into<f64> + Sub<Output=T>
+{
+    let band = ds.rasterband(band_index)?;
+    let n = band.x_size();
+    let scale = if let Some(v) = band.scale() { v } else { 1.0 };
+    let offset = if let Some(v) = band.offset() { v } else { 0.0 };
+    let mut data = [T::from(0u8);1]; 
+
+    // this is slightly more expensive because of two reads but base this on the whole range to minimize truncation errors
+
+    band.read_into_slice( (0isize,0isize), (1,1), (1,1), &mut data, None)?;
+    let first = data[0].into() * scale + offset;
+
+    band.read_into_slice( ((n-1) as isize, 0isize), (1,1), (1,1), &mut data, None)?;
+    let last = data[0].into() * scale + offset;
+
+    let inc = (last - first) / (n as f64); 
+
+    Ok( LinearRange::new( first, inc, n) )
+}
+
+/* #endregion generic Dataset/Rasterband access */

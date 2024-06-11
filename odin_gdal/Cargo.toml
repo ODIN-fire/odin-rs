@@ -30,5 +30,5 @@ thiserror = "*"
 structopt = "*"
 meshgridrs = "*"
 ndarray = "*"
-serde = { version = "*", features = ["rc"] }
+serde = { version = "*", features = ["rc","derive"] }
 

@@ -50,23 +50,24 @@ define_actor_msg_set! { pub SentinelActorMsg =
     ConnectorError
 }
 
-pub trait InitAction = DataRefAction<SentinelStore>;
-pub trait UpdateAction = DataAction<SentinelUpdate>;
-
-pub struct SentinelActor<C,A1,A2> 
-    where C: SentinelConnector + Send, A1: InitAction, A2: UpdateAction
+pub struct SentinelActor <C,InitAction,UpdateAction> 
+    where C: SentinelConnector + Send, 
+          InitAction: DataRefAction<SentinelStore>, 
+          UpdateAction: DataAction<SentinelUpdate>
 {
     connector: C,             // where we get the external data from
     sentinels: SentinelStore, // our internal store
 
-    init_action: A1,           // initialized interaction (triggered by self)
-    update_action: A2,         // update interactions (triggered by self)
+    init_action: InitAction,           // initialized interaction (triggered by self)
+    update_action: UpdateAction,         // update interactions (triggered by self)
 }
 
-impl<C,A1,A2> SentinelActor<C,A1,A2> 
-    where C: SentinelConnector + Send, A1: InitAction, A2: UpdateAction
+impl<C,InitAction,UpdateAction> SentinelActor <C,InitAction,UpdateAction>
+    where C: SentinelConnector + Send, 
+          InitAction: DataRefAction<SentinelStore>, 
+          UpdateAction: DataAction<SentinelUpdate>
 {
-    pub fn new (connector: C, init_action: A1, update_action: A2)->Self {
+    pub fn new (connector: C, init_action: InitAction, update_action: UpdateAction)->Self {
         SentinelActor { connector, sentinels: SentinelStore::new(), init_action, update_action }
     }
 
@@ -97,8 +98,10 @@ impl<C,A1,A2> SentinelActor<C,A1,A2>
 
 }
 
-impl_actor! { match msg for Actor<SentinelActor<C,A1,A2>,SentinelActorMsg> 
-    where C: SentinelConnector + Send + Sync, A1: InitAction + Sync, A2: UpdateAction + Sync
+impl_actor! { match msg for Actor< SentinelActor<C,InitAction,UpdateAction>, SentinelActorMsg> 
+    where C: SentinelConnector + Send + Sync, 
+          InitAction: DataRefAction<SentinelStore> + Sync, 
+          UpdateAction: DataAction<SentinelUpdate> + Sync
     as  
     //--- user messages
     ExecSnapshotAction => cont! {

@@ -15,40 +15,52 @@
  * limitations under the License.
  */
 
- use odin_actor::prelude::*;
- use crate::*;
- 
- #[derive(Debug)] pub struct Update(pub(crate) GoesRHotSpots);
- #[derive(Debug)] pub struct Initialize(pub(crate) Vec<GoesRHotSpots>);
- define_actor_msg_set! { pub GoesRActorMsg = Initialize | Update }
+//! actors for odin_goesr data
 
- 
-  pub trait InitAction = DataAction<Vec<GoesRHotSpots>>;
-  pub trait UpdateAction = DataAction<GoesRHotSpots>;
+use odin_actor::prelude::*;
+use crate::*; 
 
-  
- #[derive(Debug)]
- pub struct GoesRImportActor<T, A1, A2> where T: GoesRDataImporter + Send, A1:InitAction, A2: UpdateAction {
+#[derive(Serialize,Deserialize,Debug)]
+pub struct GoesRImportActorConfig {
+    pub max_records: usize,
+}
+
+/// external message to request action execution with the current HotspotStore
+#[derive(Debug)] pub struct ExecSnapshotAction(DynDataRefAction<HotspotStore>);
+
+// internal messages sent by the GoesRDataImporter
+#[derive(Debug)] pub struct Update(pub(crate) GoesRHotSpots);
+#[derive(Debug)] pub struct Initialize(pub(crate) Vec<GoesRHotSpots>);
+#[derive(Debug)] pub struct ImportError(pub(crate) OdinGoesRError);
+
+define_actor_msg_set! { pub GoesRHotspotImportActorMsg = ExecSnapshotAction | Initialize | Update | ImportError }
+
+/// user part of the GoesR import actor
+/// this basically provides a message interface around an encapsulated, async updated HotspotStore
+#[derive(Debug)]
+pub struct GoesRHotspotImportActor<T, InitAction, UpdateAction> 
+    where T: GoesRHotspotImporter + Send, 
+          InitAction: DataAction<Vec<GoesRHotSpots>>, 
+          UpdateAction: DataAction<GoesRHotSpots>
+{
     hotspot_store: HotspotStore,
     goesr_importer: T,
-    init_action: A1,
-    update_action: A2
- }
+    init_action: InitAction,
+    update_action: UpdateAction
+}
  
- impl <T, A1, A2>GoesRImportActor<T, A1, A2> where T: GoesRDataImporter + Send, A1:InitAction, A2: UpdateAction {
-    pub async fn new(config: GoesRImportActorConfig, importer:T, init_action:A1, update_action: A2) -> Self {
-        // Set up hotspot store
-        let capacity = config.max_records.clone();
-        let hotspot_store = HotspotStore::new(capacity);
-        GoesRImportActor {
-            hotspot_store: hotspot_store,
-            goesr_importer: importer,
-            init_action: init_action,
-            update_action: update_action
-        }
+impl <T,InitAction,UpdateAction> GoesRHotspotImportActor<T, InitAction, UpdateAction> 
+    where T: GoesRHotspotImporter + Send, 
+          InitAction: DataAction<Vec<GoesRHotSpots>>, 
+          UpdateAction: DataAction<GoesRHotSpots>
+{
+    pub fn new (config: GoesRImportActorConfig, goesr_importer:T, init_action:InitAction, update_action: UpdateAction) -> Self {
+        let hotspot_store = HotspotStore::new(config.max_records);
+
+        GoesRHotspotImportActor{hotspot_store, goesr_importer, init_action, update_action}
     }
 
-    pub async fn init(&mut self, init_hotspots: Vec<GoesRHotSpots>) -> Result<()> {
+    pub async fn init (&mut self, init_hotspots: Vec<GoesRHotSpots>) -> Result<()> {
         self.hotspot_store.initialize_hotspots(init_hotspots.clone());
         self.init_action.execute(init_hotspots).await;
         Ok(())
@@ -59,36 +71,32 @@
         self.update_action.execute(new_hotspots).await;
         Ok(())
     }
- }
+}
  
-
- impl_actor! { match msg for Actor<GoesRImportActor<T, A1, A2>,GoesRActorMsg> 
-    where T:GoesRDataImporter + Send + Sync, A1: InitAction + Sync, A2: UpdateAction + Sync
+impl_actor! { match msg for Actor< GoesRHotspotImportActor<T,InitAction,UpdateAction>, GoesRHotspotImportActorMsg> 
+    where T:GoesRHotspotImporter + Send + Sync, 
+          InitAction: DataAction<Vec<GoesRHotSpots>> + Sync,
+          UpdateAction: DataAction<GoesRHotSpots> + Sync
     as
     _Start_ => cont! { 
-        let hself = self.hself.clone(); 
-        self.goesr_importer.start(hself).await;
+        let hself = self.hself.clone();
+        self.goesr_importer.start( hself).await; 
     }
 
-    Initialize => cont! {
-        println!("got initial hotspots");
-        self.init(msg.0).await;
-        //self.initialize_hotspots(msg.0);
-    }
+    ExecSnapshotAction => cont! { msg.0.execute( &self.hotspot_store).await; }
 
-    Update => {
-        println!("got updated hotspots");
-        self.update(msg.0).await;
-        //self.update_hotspots(msg.0);
-        ReceiveAction::RequestTermination
-    }
+    Initialize => cont! { self.init(msg.0).await; }
 
-    _Terminate_ => stop! {
-        self.goesr_importer.terminate();
-    }
- }
- 
- pub trait GoesRDataImporter {
-    fn start (&mut self, hself: ActorHandle<GoesRActorMsg>) -> impl Future<Output=Result<()>> + Send;
+    Update => cont! { self.update(msg.0).await; }
+
+    ImportError => cont! { error!("{:?}", msg.0); }
+    
+    _Terminate_ => stop! { self.goesr_importer.terminate(); }
+}
+
+/// abstraction for the data acquisition mechanism used by the GoesRImportActor
+/// impl objects are used as GoesRImportActor constructor arguments. It is Ok to panic in the instantiation
+pub trait GoesRHotspotImporter {
+    fn start (&mut self, hself: ActorHandle<GoesRHotspotImportActorMsg>) -> impl Future<Output=Result<()>> + Send;
     fn terminate (&mut self);
 }

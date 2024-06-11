@@ -11,3 +11,18 @@ serde = { version="*", features = ["derive"] }
 num = "*"
 thiserror = "*"
 parse_duration = "*"
+
+aws-config = { version = "*", features = ["behavior-version-latest"], optional = true }
+aws-sdk-s3 = { version = "*", features = ["rt-tokio"], optional = true }
+aws-smithy-types = { version = "*", features = ["serde-serialize"], optional = true }
+aws-smithy-types-convert = { version = "*", features = ["convert-chrono"], optional = true }
+aws-smithy-runtime-api = { version = "*", optional = true }
+
+# used by aws-smithy in version 0.6.5, which runs into a "unknown feature stdarch_arm_crc32" error with newer nightly toolchains
+# the alternative is to revert to an older toolchain with a rust-toolchain.toml but then we need to install all tools (such
+# as rust-analyzer) for it too.
+crc32c = { version = "0.6.7", optional = true }
+
+
+[features]
+s3 = ["dep:aws-sdk-s3", "dep:aws-config", "dep:aws-smithy-types-convert", "dep:aws-smithy-runtime-api", "dep:aws-smithy-types", "dep:crc32c"]

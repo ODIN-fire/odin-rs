@@ -73,4 +73,7 @@ signal-cli -a "+1<account-phone >" -v daemon --http localhost:9009
 
 ### open problems
 
-if recipient is account this is a note-to-self message that does (on Android) not trigger a notification
+if recipient is same as account signal-cli sends it as note-to-self, which does not trigger notification.
+The interactive command has a `--notify-self` option that does not work in the daemon (as of 0.13.3).
+Invocation through `signal-cli send --notify-self ...` does work.
+

@@ -43,7 +43,7 @@ use uom::si::f64::*;
 
 // odin's own imports
 use odin_common::fs::{ensure_writable_dir, existing_non_empty_file, file_contents_as_string, set_filepath_contents, set_filepath_contents_with_backup};
-use odin_common::datetime::{is_between_inclusive,ser_short_rfc3339,parse_utc_datetime_from_date};
+use odin_common::datetime::{is_between_inclusive,ser_short_rfc3339,parse_utc_datetime_from_os_str_date};
 use odin_common::macros::if_let;
 
 /// structopt command line arguments
@@ -61,11 +61,11 @@ struct CliOpts {
     estimate_date: bool,
 
     /// optional start date filter in yyyy-mm-dd format (interpreted as UTC, used to initialize new summary.json)
-    #[structopt(long,parse(from_os_str = parse_utc_datetime_from_date))]
+    #[structopt(long,parse(from_os_str = parse_utc_datetime_from_os_str_date))]
     start_date: Option<DateTime<Utc>>,
 
     /// optional end date filter in yyyy-mm-dd format (interpreted as UTC, used to initialize new summary.json)
-    #[structopt(long,parse(from_os_str = parse_utc_datetime_from_date))]
+    #[structopt(long,parse(from_os_str = parse_utc_datetime_from_os_str_date))]
     end_date: Option<DateTime<Utc>>,
 
     //--- output options

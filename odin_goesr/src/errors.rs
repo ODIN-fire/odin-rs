@@ -18,22 +18,21 @@
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, OdinGoesRError>;
+
 #[derive(Error,Debug)]
 pub enum OdinGoesRError {
+
+    #[error("config error {0}")]
+    ConfigError( #[from] odin_config::errors::OdinConfigError),
+
+    #[error("S3 error {0}")]
+    S3Error( #[from] odin_common::s3::OdinS3Error),
+
     #[error("IO error {0}")]
     IOError( #[from] std::io::Error),
 
-    #[error("config parse error {0}")]
-    ConfigParseError( String ),
-
-    #[error("AWS S3 get object error {0}")]
-    AWSS3ObjectError( #[from] aws_smithy_runtime_api::client::result::SdkError<aws_sdk_s3::operation::get_object::GetObjectError, aws_smithy_runtime_api::http::Response>),
-
-    #[error("AWS S3 list object error {0}")]
-    AWSS3ListObjectError( #[from] aws_smithy_runtime_api::client::result::SdkError<aws_sdk_s3::operation::list_objects::ListObjectsError, aws_smithy_runtime_api::http::Response>),
-
-    #[error("AWS byte stream download error {0}")]
-    AWSByteStreamError( #[from] aws_smithy_types::byte_stream::error::Error),
+    #[error("time delta out of range error {0}")]
+    DurationError( #[from] chrono::OutOfRangeError),
 
     #[error("No object error")]
     NoObjectError( String ),
@@ -41,14 +40,20 @@ pub enum OdinGoesRError {
     #[error("No object key error")]
     NoObjectKeyError(),
 
+    #[error("NetCDF data set error: {0}")]
+    DatasetError( String ),
+
+    #[error("No object date error")]
+    NoObjectDateError(),
+
     #[error("String to float conversion error {0}")]
     FloatConversionError( #[from] std::num::ParseFloatError),
 
+    #[error("invalid filename")]
+    FilenameError(String),
+
     #[error("Misc error {0}")]
     MiscError( String ),
-
-    #[error("gdal error {0}")]
-    GdalError( #[from] gdal::errors::GdalError),
 
     #[error("serde error {0}")]
     SerdeError( #[from] serde_json::Error),
@@ -57,10 +62,20 @@ pub enum OdinGoesRError {
     OdinActorError( #[from] odin_actor::errors::OdinActorError),
 
     #[error("ODIN GDAL error {0}")]
-    OdinGdalError( #[from] odin_gdal::errors::OdinGdalError)
+    OdinGdalError( #[from] odin_gdal::errors::OdinGdalError),
 
+    #[error("ODIN GDAL error {0}")]
+    GdalError( #[from] odin_gdal::errors::GdalError)
 }
 
-pub fn no_object  (msg: impl ToString)->OdinGoesRError {
+pub fn misc_error (msg: impl ToString)->OdinGoesRError {
+    OdinGoesRError::MiscError(msg.to_string())
+}
+
+pub fn no_object_error (msg: impl ToString)->OdinGoesRError {
     OdinGoesRError::NoObjectError(msg.to_string())
+}
+
+pub fn filename_error (msg: impl ToString)->OdinGoesRError {
+    OdinGoesRError::FilenameError(msg.to_string())
 }
