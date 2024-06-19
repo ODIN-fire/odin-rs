@@ -17,7 +17,7 @@
 #![allow(unused)]
 
 use std::{any, fmt::Debug, time::Duration};
-use odin_actor::{console_ui::ConsoleUI, prelude::*};
+use odin_actor::{console_ui::ConsoleUI, prelude::*, tui};
 use odin_macro::fn_mut;
 use tokio::task::JoinHandle;
 use anyhow::{anyhow,Result};
@@ -80,7 +80,7 @@ impl_actor! { match msg for Actor<Actor3State,Actor3Msg> as
                     a2.try_send_msg(MsgC(n));
                     n += 1;
                     if n % 100 == 0 { 
-                        println!("{n}");
+                        // println!("{n}");
                         //print!("\r\x1b[32;1m  \x1b[37m {}\x1b[0m", n) 
                     }
                 }  
@@ -102,7 +102,8 @@ async fn main() ->Result<()> {
     // for some reason the tokio main task can be very slow so we run the whole app in a spawned one
     let jh: JoinHandle<Result<()>> = tokio::spawn( async {
         let mut actor_system = ActorSystem::new("main");
-        actor_system.set_ui( ConsoleUI::new_boxed( actor_system.clone_handle()));
+        // actor_system.set_ui( ConsoleUI::new_boxed( actor_system.clone_handle()));
+        actor_system.set_ui(tui::create_tui(actor_system.clone_handle()).await?);
 
         let a1 = spawn_actor!( actor_system, "actor1", Actor1State{n_a: 0, n_b: 0})?;
         let a2 = spawn_actor!( actor_system, "actor2", Actor2State{n: 0, a1: a1.clone()})?;
