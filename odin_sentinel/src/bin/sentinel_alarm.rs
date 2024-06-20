@@ -20,7 +20,7 @@
 use anyhow::Result;
 use odin_actor::prelude::*;
 use odin_config::prelude::*;
-use odin_common::define_cli;
+use odin_common::{define_cli,check_cli};
 use odin_sentinel::{
     AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, SentinelUpdate
 };
@@ -37,12 +37,13 @@ define_cli! { ARGS [about="Delphire Sentinel Alarm Server"] =
 
 #[tokio::main]
 async fn main ()->Result<()> {
+    check_cli!(ARGS);
     let mut actor_system = ActorSystem::with_env_tracing("main");
 
     let hsentinel = PreActorHandle::new( &actor_system, "sentinel", 8); 
 
     let hmonitor = spawn_actor!( actor_system, "monitor", SentinelAlarmMonitor::new(
-        config_for!("sentinel-alarm")?,
+        config_for!("sentinel_alarm")?,
         hsentinel.as_actor_handle(),
         create_messengers()?
     ))?;

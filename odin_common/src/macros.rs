@@ -339,10 +339,17 @@ macro_rules! assert_unique_feature {
 
 /// syntactic sugar macro for structopt based command line interface definition
 /// ```
-/// define_cli! { ARG [about="my silly prog"] = 
+/// define_cli! { ARGS [about="my silly prog"] = 
 ///   verbose: bool        [help="run verbose", short],
 ///   date: DateTime<Utc>  [help="start date", from_os_str=parse_utc_datetime_from_os_str_date],
 ///   config: String       [help="pathname of config", long, default_value="blah"]
+/// }
+/// 
+/// fn main () {
+///    check_cli!(ARGS); // makes sure we exit on -h or --help (and do not execute anything until we know ARGS parsed)
+///    ... 
+///    let config = &ARGS.config; 
+///    ...
 /// }
 /// ```
 /// expands into:
@@ -361,6 +368,14 @@ macro_rules! assert_unique_feature {
 /// 
 ///     #[structopt(help = "pathname of config", long, default_value = "blah")]
 ///     config: String,
+/// 
+///     #[structopt(skip=true)] // hidden field to check initialization without referencing any of the arg fields
+///     _initialized: bool
+/// }
+/// 
+/// fn main () {
+///    { let _is_initialized = &ARGS._initialized; }
+///    ...
 /// }
 /// ```
 #[macro_export]
@@ -374,11 +389,18 @@ macro_rules! define_cli {
         struct CliOpts {
             $(
                 #[structopt( $( $fopt $(=$fx)? ),* )]
-                $fname : $ftype
-            ),*
+                $fname : $ftype,
+            )*
+            #[structopt(skip=true)]
+            _initialized: bool
         }
         lazy_static! { static ref $name: CliOpts = CliOpts::from_args(); }
     }
+}
+
+#[macro_export]
+macro_rules! check_cli {
+    ($sopt:ident) => { { let _is_initialized = &$sopt._initialized; } }
 }
 
 /* #endregion define_cli */

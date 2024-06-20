@@ -19,20 +19,16 @@
 /// test utility to send WsCmd messages to the Delphire server, supporting command line message arg or interactive modes.
 /// This uses the same sentinel.ron config as the other crate executables
 
-#[macro_use]
-extern crate lazy_static;
-
 use odin_actor::errors::op_failed;
 use tokio::{io,time::timeout};
 use tokio_util::codec::{FramedRead, LinesCodec};
 use tokio_tungstenite::tungstenite::{protocol::Message,error::Error};
 use futures::{SinkExt,StreamExt};
-use structopt::StructOpt;
 use std::{io::{stdin,stdout,Write},time::Duration,fmt::Debug};
 use strum::EnumString;
 
 use odin_config::prelude::*;
-use odin_common::if_let;
+use odin_common::{if_let,define_cli,check_cli};
 use odin_sentinel::{
     get_device_list_from_config,
     OdinSentinelError, SentinelConfig, Result,
@@ -45,32 +41,17 @@ use_config!();
 #[strum(serialize_all="snake_case")]
 enum InputFormat { Raw, Ron, Json }
 
-#[derive(StructOpt)]
-#[structopt(about = "Delphire Sentinel websocket monitoring tool")]
-struct CliOpts {
-
-    /// send command in non-interactive mode
-    #[structopt(short,long,name="CMD")]
-    execute: Vec<String>,
-
-    /// input format for commands ("raw","ron","json")
-    #[structopt(short,long,default_value="raw")]
-    format: InputFormat,
-
-    /// show ping/pong messages
-    #[structopt(long)]
-    show_ping: bool,
-
-}
-
-lazy_static! {
-    static ref ARGS: CliOpts = CliOpts::from_args();
+define_cli! { ARGS [about="Delphire Sentinel websocket command tool"] = 
+    execute: Vec<String>  [help="send command in non-interactive mode", short,long],
+    format: InputFormat   [help="input format for commands (raw,ron,json)", short,long,default_value="raw"],
+    show_ping: bool       [help="show ping/pong messages",long]
 }
 
 #[tokio::main]
 async fn main()->anyhow::Result<()> {
-    let config: SentinelConfig = config_for!( "sentinel")?;
+    check_cli!(ARGS);
 
+    let config: SentinelConfig = config_for!( "sentinel")?;
     if ARGS.execute.is_empty() {
         print_prolog(&config).await?;
     }
@@ -122,6 +103,7 @@ async fn run_interactive (ws: &mut WsStream) {
             break
         }
         process_cmd( ws, cmd.clone()).await;
+
         cmd.clear();
     }
 }
@@ -180,30 +162,6 @@ async fn process_ping (ws: &mut WsStream)->Result<()> {
         }
     }
 }
-/*
-async fn process_ping (ws: &mut WsStream)->Result<()> {
-    let ping = WsCmd::new_ping("ping");
-    let cmd = serde_json::to_string(&ping)?;
-    match ws.send( Message::Text(cmd)).await {
-        Ok(()) => {
-            match ws.next().await {
-                Some(response) => match response {
-                    Ok(msg) => match msg {
-                        Message::Text(msg) => match serde_json::from_str::<WsMsg>(&msg) {
-                            Ok(WsMsg::Pong{request_time,response_time,message_id}) => Ok(()),
-                            other => { eprintln!("\nERROR not a valid Ping response: {other:?}"); Ok(()) }
-                        }
-                        other => { eprintln!("\nERROR unexpected Ping response message type: {other:?}"); Ok(()) }
-                    }
-                    other => handle_ws_error(other, "receiving Ping response")
-                }
-                None => Err(OdinSentinelError::WsClosedError)
-            }
-        }
-        other => handle_ws_error(other, "sending ping")
-    }
-}
-*/
 
 async fn process_cmd (ws: &mut WsStream, cmd: String)->Result<()> {
     if_let! {
@@ -215,29 +173,6 @@ async fn process_cmd (ws: &mut WsStream, cmd: String)->Result<()> {
         }
     }
 }
-
-/*
-async fn process_cmd (ws: &mut WsStream, cmd: String)->Result<()> {
-    match ws.send( Message::Text(cmd)).await {
-        Ok(()) => {
-            match ws.next().await {
-                Some(response) => match response {
-                    Ok(msg) => match msg {
-                        Message::Text(msg) => {
-                            println!("{msg}");
-                            Ok(())
-                        }
-                        other => { println!("unexpected response message type: {other:?}"); Ok(()) }
-                    }
-                    Err(e) => { eprintln!("\nERROR reading response: {e:?}"); Ok(()) }
-                }
-                None => Err(OdinSentinelError::WsClosedError)
-            }
-        }
-        other => handle_ws_error(other, "sending cmd")
-    }
-}
-*/
 
 /// translate cmd to WsCmd and return JSON serialization of it
 fn to_message_text (cmd: &String)->Result<String> {
