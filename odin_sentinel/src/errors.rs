@@ -75,6 +75,15 @@ pub enum OdinSentinelError {
     #[error("command error {0}")]
     CommandError(String),
 
+    #[error("smtp error {0}")]
+    SmtpError(String),
+
+    #[error("rpc error {0}")]
+    RpcError(String),
+
+    #[error("timeout error {0}")]
+    TimeoutError(String),
+
     // ...add specific errors here
 
     /// a generic error
@@ -92,6 +101,10 @@ map_to_opaque_error!{ tokio_tungstenite::tungstenite::Error => OdinSentinelError
 map_to_opaque_error!{ odin_actor::errors::OdinActorError => OdinSentinelError::ActorError }
 map_to_opaque_error!{ odin_job::OdinJobError => OdinSentinelError::JobError }
 map_to_opaque_error!{ ron::error::Error => OdinSentinelError::ConfigError }
+map_to_opaque_error!{ tokio::time::error::Elapsed => OdinSentinelError::TimeoutError }
+map_to_opaque_error!{ std::process::ExitStatusError => OdinSentinelError::CommandError }
+map_to_opaque_error!{ lettre::transport::smtp::Error => OdinSentinelError::SmtpError }
+map_to_opaque_error!{ jsonrpsee::core::client::Error => OdinSentinelError::RpcError }
 
 
 pub fn no_data (msg: impl ToString)->OdinSentinelError {

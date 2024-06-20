@@ -17,23 +17,12 @@
 
  use std::{fs,path::Path};
  use odin_sentinel::{Alarm, EvidenceInfo, SentinelFile, AlarmMessenger, SignalCmdConfig, SignalCmdAlarmMessenger};
- use structopt::StructOpt;
+ use odin_common::define_cli;
  use anyhow::Result;
- use lazy_static::lazy_static;
  
- #[derive(StructOpt)]
- #[structopt(about = "Delphire Sentinel Signal command alarm test")]
- struct CliOpts {
-    /// optional pathname of image to attach
-    #[structopt(short,long)]
-    img: Option<String>,
- 
-     /// pathname of Signal alarm config to test
-    config: String,
-}
- 
-lazy_static! {
-    static ref ARGS: CliOpts = CliOpts::from_args();
+ define_cli! { ARGS [about="Delphire Sentinel Signal cmd alarm test"] = 
+ img: Option<String>    [help="optional pathname of image to attach", short, long],
+ config: String         [help="pathname of Signal cmd alarm config to test"]
 }
 
 /// stand alone test for alarm notification using a locally installed "signal-cli" executable
@@ -63,7 +52,7 @@ lazy_static! {
  
      let messenger = SignalCmdAlarmMessenger::new(config);
      
-     let res = messenger.send_alarm(alarm).await?;
+     let res = messenger.send_alarm(&alarm).await?;
      println!("result = {res:?}");
  
      Ok(())

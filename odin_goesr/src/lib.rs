@@ -49,6 +49,8 @@ pub use actor::*;
 pub mod live_importer;
 pub use live_importer::*;
 
+pub mod assets;
+
 mod geo;
 use geo::{GoesRBoundingBox,GoesRProjection,get_bounds};
 

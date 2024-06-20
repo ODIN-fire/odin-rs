@@ -50,7 +50,7 @@ thiserror = "*"
 chrono = { version = "*", features = ["serde"] }
 serde_json = "*"
 ron = "*"
-serde = { version = "*", features = ["rc"] }
+serde = { version = "*", features = ["derive", "rc"] }
 serde_with = "*" 
 uom = { version = "*", features = ["serde", "i64"] }
 tokio = { version = "*", features = ["full"] }
@@ -67,6 +67,7 @@ displaydoc = "*"
 strum = { version = "*", features = ["derive"]}
 paste = "*"
 which = "*"
+async-trait = "*"
 
 # TODO put behind features
 jsonrpsee =  { version = "*",  features = ["macros","async-client","http-client"], optional = true }

@@ -46,7 +46,7 @@ use crate::ws::{WsStream,WsCmd,WsMsg, init_websocket, send_ws_text_msg, read_nex
 /// 
 pub struct LiveSentinelConnector { 
     config: Arc<SentinelConfig>,
-    data_dir: Arc<PathBuf>, // where to store files
+    cache_dir: Arc<PathBuf>, // where to store files
     connection: Option<LiveConnection>
 }
 
@@ -54,22 +54,22 @@ impl LiveSentinelConnector {
 
     /// called before actor instantiation
     pub fn new (config: SentinelConfig)->Self {
-        let data_dir = Arc::new( odin_config::app_metadata().data_dir.join("sentinel"));
-        if let Err(e) = ensure_dir( &data_dir) { 
-            error!("failed to create data dir: {:?}", data_dir);
+        let cache_dir = Arc::new( odin_config::app_metadata().cache_dir.join("sentinel"));
+        if let Err(e) = ensure_dir( &cache_dir) { 
+            error!("failed to create data dir: {:?}", cache_dir);
         }
-        LiveSentinelConnector { config: Arc::new(config), data_dir, connection: None }
+        LiveSentinelConnector { config: Arc::new(config), cache_dir, connection: None }
     }
 
     /// called from actor ctor (2nd half of our initialization)
     async fn initialize (&mut self, hself: ActorHandle<SentinelActorMsg>)->Result<()> {
-        self.connection = Some(LiveConnection::new(self.config.clone(), self.data_dir.clone(), hself).await?);
+        self.connection = Some(LiveConnection::new(self.config.clone(), self.cache_dir.clone(), hself).await?);
         Ok(())
     }
 
     fn sentinel_file_for_query (&self, query: &Query<GetSentinelFile,Result<SentinelFile>>)->SentinelFile {
         let record_id = query.question.record_id.clone();
-        let pathname = self.data_dir.join(&query.question.filename);
+        let pathname = self.cache_dir.join(&query.question.filename);
         SentinelFile { record_id, pathname }   
     }
 }
@@ -141,7 +141,7 @@ struct LiveConnection {
 
     ping_task: Option<AbortHandle>, // optional periodic keepalive ping 
 
-    data_dir: Arc<PathBuf>,
+    cache_dir: Arc<PathBuf>,
     file_request_task: AbortHandle, // async task for file requests
     file_request_tx: MpscSender<FileRequest>, // channel to send file requests to the task
 
@@ -149,7 +149,7 @@ struct LiveConnection {
 }
 
 impl LiveConnection {
-    async fn new (config: Arc<SentinelConfig>, data_dir: Arc<PathBuf>, hself: ActorHandle<SentinelActorMsg>)->Result<Self> {
+    async fn new (config: Arc<SentinelConfig>, cache_dir: Arc<PathBuf>, hself: ActorHandle<SentinelActorMsg>)->Result<Self> {
         //--- get current sentinel data according to config (there is no point spawning tasks if we don't have a list of devices to watch)
         let http_client = Client::new();
         let mut sentinel_store = SentinelStore::new();
@@ -163,7 +163,7 @@ impl LiveConnection {
 
             let file_fetcher = FileFetcher {
                 config: config.clone(),
-                data_dir: data_dir.clone(),
+                cache_dir: cache_dir.clone(),
                 client: http_client
             };
 
@@ -172,7 +172,7 @@ impl LiveConnection {
             let ws_stream = init_websocket( &config, device_ids).await?;
             let (ws_write, ws_read) = ws_stream.split();
             let ws_rx_task = spawn( "ws-sentinel-rx", 
-                Self::ws_rx_loop( hself.clone(), config.clone(), data_dir.clone(), file_request_tx.clone(), ws_read)
+                Self::ws_rx_loop( hself.clone(), config.clone(), cache_dir.clone(), file_request_tx.clone(), ws_read)
             )?.abort_handle();
 
             let (ws_cmd_tx, ws_cmd_rx) = create_mpsc_sender_receiver::<String>(16);
@@ -194,7 +194,7 @@ impl LiveConnection {
                 last_recv_epoch, 
                 ws_rx_task, ws_tx_task, ws_cmd_tx, 
                 ping_task, 
-                data_dir,
+                cache_dir,
                 file_request_task, file_request_tx,
                 file_cleanup_task,
             };
@@ -210,7 +210,7 @@ impl LiveConnection {
 
     /// the websocket receiver loop
     async fn ws_rx_loop (hself: ActorHandle<SentinelActorMsg>, config: Arc<SentinelConfig>, 
-                           data_dir: Arc<PathBuf>, file_request_tx: MpscSender<FileRequest>,
+                           cache_dir: Arc<PathBuf>, file_request_tx: MpscSender<FileRequest>,
                            mut ws_read: SplitStream<WsStream>) -> Result<()> 
     {
         let client = reqwest::Client::new();
@@ -239,7 +239,7 @@ impl LiveConnection {
                         Valve         => Self::get_and_send_update::<ValveData>( &hself, &client, &config, &device_id, sensor_no).await,
                         Voc           => Self::get_and_send_update::<VocData>( &hself, &client, &config, &device_id, sensor_no).await,
 
-                        Image         => Self::get_and_send_image_update( &hself, &client, &config, &data_dir, &file_request_tx,
+                        Image         => Self::get_and_send_image_update( &hself, &client, &config, &cache_dir, &file_request_tx,
                                                                             &device_id, sensor_no).await,
                     };
                     Ok(())
@@ -259,12 +259,12 @@ impl LiveConnection {
     }
 
     async fn get_and_send_image_update (hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig, 
-                                        data_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest>,
+                                        cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest>,
                                         device_id: &str, sensor_no: u32) -> Result<()>  
     {
         let update = Self::get_update::<ImageData>( client, config, device_id, sensor_no).await?;
         match_algebraic_type! { update: SentinelUpdate as
-            ref Arc<SensorRecord<ImageData>> => { Self::request_image_file( config, data_dir, file_request_tx, update).await? }
+            ref Arc<SensorRecord<ImageData>> => { Self::request_image_file( config, cache_dir, file_request_tx, update).await? }
             _ => {}
         }
         Ok(hself.send_msg( UpdateStore( update)).await?)
@@ -306,18 +306,18 @@ impl LiveConnection {
     async fn request_all_files (&self, config: &SentinelConfig, sentinels: &SentinelStore) -> Result<()> {
         for sentinel in sentinels.values_iter() {
             for rec in &sentinel.image {
-                Self::request_image_file( config, &self.data_dir, &self.file_request_tx, rec).await?;
+                Self::request_image_file( config, &self.cache_dir, &self.file_request_tx, rec).await?;
             }
         }
         Ok(())
     }
 
-    async fn request_image_file (config: &SentinelConfig, data_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest>, 
+    async fn request_image_file (config: &SentinelConfig, cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest>, 
                                  rec: &SensorRecord<ImageData>) -> Result<()> 
     {
         let record_id = rec.id.clone();
         let uri = get_image_uri( &config.base_uri, &record_id);
-        let pathname = data_dir.join( &rec.data.filename);
+        let pathname = cache_dir.join( &rec.data.filename);
         let sentinel_file = SentinelFile { record_id, pathname };
         let req = FileRequest { uri, sentinel_file, query: None };
 
@@ -341,11 +341,11 @@ impl LiveConnection {
 
     async fn file_cleanup_loop (config: Arc<SentinelConfig>)->Result<()> {
         let interval = minutes(60); // should we configure this?
-        let data_dir = odin_config::app_metadata().data_dir.join("sentinel");
+        let cache_dir = odin_config::app_metadata().cache_dir.join("sentinel");
 
         loop {
             sleep(interval).await;
-            remove_old_files( &data_dir, config.max_age);
+            remove_old_files( &cache_dir, config.max_age);
         }
         Ok(())
     }
@@ -381,7 +381,7 @@ struct FileRequest {
 /// struct that holds all the info to resolve a Query<GetSentinelFile,Result<SentinelFile>>
 struct FileFetcher {
     config: Arc<SentinelConfig>,
-    data_dir: Arc<PathBuf>,
+    cache_dir: Arc<PathBuf>,
     client: Client,
 }
 

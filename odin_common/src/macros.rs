@@ -168,6 +168,7 @@ macro_rules! min {
 }
 pub use min;
 
+
 /// macros to reduce boilerplate for coercing errors into custom lib errors.
 /// This is a simplistic alternative to the 'thiserror' crate. It is aimed at providing
 /// specific, matchable error types for lib crates, optionally preserving underlying error chains

@@ -42,8 +42,8 @@ define_cli! { ARGS [about="GOES-R file download tool"] =
 #[tokio::main]
 async fn main()->Result<()> {
     let config: LiveGoesRHotspotImporterConfig = config_for!( &ARGS.config)?;
-    let data_dir = odin_config::app_metadata().data_dir.join("goesr");
-    ensure_writable_dir(&data_dir)?;
+    let cache_dir = odin_config::app_metadata().cache_dir.join("goesr");
+    ensure_writable_dir(&cache_dir)?;
 
     let client = create_s3_client( config.s3_region.clone()).await?;
     let bucket = &config.bucket;
@@ -63,7 +63,7 @@ async fn main()->Result<()> {
     let mut init_objs = if objs.len() > config.init_files { objs.split_off( objs.len()-config.init_files) } else { objs };
 
     for obj in &init_objs {
-        let gdata = get_goesr_data( &client, obj, &data_dir, bucket, source.clone(), sat_id).await?;
+        let gdata = get_goesr_data( &client, obj, &cache_dir, bucket, source.clone(), sat_id).await?;
         println!("downloaded initial dataset {:?}", gdata.file);
     }
     last_obj = init_objs.pop();
@@ -80,7 +80,7 @@ async fn main()->Result<()> {
         let mut update_objs = get_objects_since( &client, &config.bucket, &source, &last_obj, dt_cycle, Utc::now()).await?;
         println!("downloading {} objects...", update_objs.len());
         for obj in &update_objs {
-            let gdata = get_goesr_data( &client, obj, &data_dir, bucket, source.clone(), sat_id).await?;
+            let gdata = get_goesr_data( &client, obj, &cache_dir, bucket, source.clone(), sat_id).await?;
             println!("downloaded update dataset  {:?}", gdata.file);
         }
         last_obj = update_objs.pop().or( last_obj);

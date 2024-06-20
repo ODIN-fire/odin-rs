@@ -3,6 +3,7 @@
 resolver = "2"
 
 members = [
+  "odin_build",
   "odin_common",  
   "odin_config",  
   "odin_job",
@@ -27,6 +28,7 @@ members = [
 
 [workspace.dependencies]
 
+odin_build  = { version = "*", path = "odin_build" }
 odin_common = { version = "*", path = "odin_common" }
 odin_config = { version = "*", path = "odin_config" }
 odin_macro  = { version = "*", path = "odin_macro" }
@@ -34,8 +36,10 @@ odin_gdal   = { version = "*", path = "odin_gdal" }
 odin_action = { version = "*", path = "odin_action" }
 odin_actor  = { version = "*", path = "odin_actor" }
 odin_job    = { version = "*", path = "odin_job" }
+odin_server = { version = "*", path = "odin_server" }
 
 [profile.release]
 
 codegen-units = 1
 lto = "fat"
+strip = "debuginfo"

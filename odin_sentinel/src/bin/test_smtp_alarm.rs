@@ -15,30 +15,18 @@
  * limitations under the License.
  */
 
- use std::{fs,path::Path};
+use std::{fs,path::Path};
+use tokio;
+use odin_common::define_cli;
 use odin_sentinel::{Alarm, EvidenceInfo, AlarmMessenger, SmtpConfig, SmtpAlarmMessenger, SentinelFile};
-use structopt::StructOpt;
 use anyhow::Result;
 
-#[macro_use]
-extern crate lazy_static;
-
- #[derive(StructOpt)]
- #[structopt(about = "Delphire Sentinel SMTP alarm test")]
- struct CliOpts {
-    /// optional pathname of image to attach
-    #[structopt(short,long)]
-    img: Option<String>,
-
-    /// pathname of SMTP alarm config to test
-    config: String,
- }
-
- lazy_static! {
-    static ref ARGS: CliOpts = CliOpts::from_args();
+define_cli! { ARGS [about="Delphire Sentinel SMTP alarm test"] = 
+    img: Option<String>    [help="optional pathname of image to attach", short, long],
+    config: String         [help="pathname of SMTP alarm config to test"]
 }
 
- #[tokio::main]
+#[tokio::main]
 async fn main()->Result<()> {
     let config: SmtpConfig = ron::from_str(fs::read_to_string(&ARGS.config)?.as_str())?;
     
@@ -63,7 +51,7 @@ async fn main()->Result<()> {
 
     let messenger = SmtpAlarmMessenger::new(config);
     
-    let res = messenger.send_alarm(alarm).await?;
+    let res = messenger.send_alarm(&alarm).await?;
     println!("result = {res:?}");
 
     Ok(())
