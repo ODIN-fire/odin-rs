@@ -42,7 +42,7 @@ pub struct LiveGoesRHotspotImporterConfig {
 #[derive(Debug)]
 pub struct LiveGoesRHotspotImporter {
     config: LiveGoesRHotspotImporterConfig,
-    data_dir: Arc<PathBuf>,
+    cache_dir: Arc<PathBuf>,
 
     /// values set during initialization
     import_task: Option<AbortHandle>,
@@ -51,10 +51,10 @@ pub struct LiveGoesRHotspotImporter {
 
 impl LiveGoesRHotspotImporter {
     pub fn new (config: LiveGoesRHotspotImporterConfig) -> Self {
-        let data_dir = Arc::new( odin_config::app_metadata().data_dir.join("goesr"));
-        ensure_writable_dir(&data_dir).unwrap(); // Ok to panic - this is a toplevel application object
+        let cache_dir = Arc::new( odin_config::app_metadata().cache_dir.join("goesr"));
+        ensure_writable_dir(&cache_dir).unwrap(); // Ok to panic - this is a toplevel application object
 
-        LiveGoesRHotspotImporter{ config, data_dir, import_task:None, file_cleanup_task:None }
+        LiveGoesRHotspotImporter{ config, cache_dir, import_task:None, file_cleanup_task:None }
     }
 
     async fn initialize  (&mut self, hself: ActorHandle<GoesRHotspotImportActorMsg>) -> Result<()> { 
@@ -68,7 +68,7 @@ impl LiveGoesRHotspotImporter {
     }
 
     fn spawn_import_task(&mut self, client: S3Client, hself: ActorHandle<GoesRHotspotImportActorMsg>) -> Result<AbortHandle> { 
-        let data_dir = self.data_dir.clone();
+        let data_dir = self.cache_dir.clone();
         let config = self.config.clone();
 
         Ok( spawn( &format!("goes-{}-data-acquisition", self.config.satellite), async move {
@@ -78,12 +78,12 @@ impl LiveGoesRHotspotImporter {
     }
 
     fn spawn_file_cleanup_task(&mut self)-> Result<AbortHandle> {
-        let data_dir = self.data_dir.clone();
+        let cache_dir = self.cache_dir.clone();
         let cleanup_interval = self.config.cleanup_interval;
         let max_age = self.config.max_age;
 
         Ok( spawn( &format!("goes-{}-file-cleanup", self.config.satellite), async move {
-                run_file_cleanup( data_dir, cleanup_interval, max_age).await
+                run_file_cleanup( cache_dir, cleanup_interval, max_age).await
             })?.abort_handle()
         )
     }
@@ -101,7 +101,7 @@ impl GoesRHotspotImporter for LiveGoesRHotspotImporter {
     }
 }
 
-async fn run_data_acquisition (hself: ActorHandle<GoesRHotspotImportActorMsg>, config: LiveGoesRHotspotImporterConfig, data_dir: Arc<PathBuf>, client: S3Client)->Result<()> 
+async fn run_data_acquisition (hself: ActorHandle<GoesRHotspotImportActorMsg>, config: LiveGoesRHotspotImporterConfig, cache_dir: Arc<PathBuf>, client: S3Client)->Result<()> 
 {
     let source = Arc::new( config.source); // no need to keep gazillions of copies
     let bucket = &config.bucket;
@@ -116,7 +116,7 @@ async fn run_data_acquisition (hself: ActorHandle<GoesRHotspotImportActorMsg>, c
     let mut init_objs = if objs.len() > config.init_files { objs.split_off( objs.len()-config.init_files) } else { objs };
 
     //--- now get the initial files and send an Initialize msg with the hotspots read from them
-    let hotspots = download_and_read_objects( &client, bucket, &source, sat_id, &data_dir, &init_objs).await?;
+    let hotspots = download_and_read_objects( &client, bucket, &source, sat_id, &cache_dir, &init_objs).await?;
     last_obj = init_objs.pop();
     hself.send_msg( Initialize(hotspots) ).await;
 
@@ -127,7 +127,9 @@ async fn run_data_acquisition (hself: ActorHandle<GoesRHotspotImportActorMsg>, c
         sleep( (dt_next - dt_cycle).to_std()?).await;
 
         let mut update_objs = get_objects_since( &client, &config.bucket, &source, &last_obj, dt_cycle, Utc::now()).await?;
-        let mut hotspots = download_and_read_objects( &client, bucket, &source, sat_id, &data_dir, &update_objs).await?;
+        // here we could dynamically re-compute/adapt the hourly_schedule if we repeatedly get multiple objects
+
+        let mut hotspots = download_and_read_objects( &client, bucket, &source, sat_id, &cache_dir, &update_objs).await?;
         last_obj = update_objs.pop().or( last_obj);
 
         for hs in hotspots {
@@ -138,9 +140,9 @@ async fn run_data_acquisition (hself: ActorHandle<GoesRHotspotImportActorMsg>, c
     Ok(())
 }
 
-async fn run_file_cleanup (data_dir: Arc<PathBuf>, interval: Duration, max_age: Duration) {
+async fn run_file_cleanup (cache_dir: Arc<PathBuf>, interval: Duration, max_age: Duration) {
     loop {
-        remove_old_files( &data_dir.as_path(), max_age);
+        remove_old_files( &cache_dir.as_path(), max_age);
         sleep(interval).await; // no need to compensate for cycle execution time
     }
 }

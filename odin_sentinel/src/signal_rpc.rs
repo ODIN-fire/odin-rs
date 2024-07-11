@@ -15,9 +15,11 @@
  * limitations under the License.
  */
 
-use std::path::PathBuf;
+use std::{path::PathBuf,time::Duration};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::time::timeout;
+use async_trait::async_trait;
 
 use jsonrpsee::proc_macros::rpc;
 use jsonrpsee::core::client::{Error as RpcError, SubscriptionClientT};
@@ -26,7 +28,7 @@ use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 
 use odin_common::if_let;
 use crate::{Alarm,AlarmMessenger,EvidenceInfo};
-use crate::errors::{op_failed,Result as SentinelResult};
+use crate::errors::{op_failed,OdinSentinelError,Result as SentinelResult};
 
 #[derive(Deserialize,Serialize)]
 pub struct SignalRpcConfig {
@@ -34,6 +36,7 @@ pub struct SignalRpcConfig {
     pub signal_account: String,
     pub recipients: Vec<String>,
     pub group_ids: Vec<String>,
+    pub timeout: Duration,
 }
 
 /// send-message RPC definition.
@@ -81,15 +84,16 @@ impl SignalRpcAlarmMessenger {
     }
 }
 
+#[async_trait]
 impl AlarmMessenger for SignalRpcAlarmMessenger {
-    async fn send_alarm (&self, alarm: Alarm)->SentinelResult<()> {
+    async fn send_alarm (&self, alarm: &Alarm)->SentinelResult<()> {
         let config = &self.config;
-        let message = alarm.description;
+        let message = alarm.description.clone();
 
         let mut attachments: Vec<String> = Vec::new();
-        for e in alarm.evidence_info {
+        for e in &alarm.evidence_info {
             if_let! {
-                Some(sentinel_file) = e.img,
+                Some(sentinel_file) = &e.img,
                 Ok(pb) = sentinel_file.pathname.canonicalize(),
                 Some(pn) = pb.to_str() => {
                     attachments.push(pn.into())
@@ -97,18 +101,30 @@ impl AlarmMessenger for SignalRpcAlarmMessenger {
             }
         }
 
-        let res = self.client.send(
+        let rpc_fut = self.client.send(
             Some(&config.signal_account),
             &config.recipients,
             &config.group_ids,
             message,
             attachments,
             true, // always notify self - it's an alarm
-        ).await;
+        );
 
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => Err(op_failed( format!("RPC send of Signal alarm failed: {e:?}")))
+        // it seems the result is of the form: 
+        //       {"jsonrpc":"2.0","result":{"timestamp":999},"id":4}
+        // or otherwise
+        //       {"jsonrpc":"2.0","error":{...}}
+        // but there is no official documentation yet
+
+        match timeout( self.config.timeout, rpc_fut).await?? {
+            Value::Object(map) => {
+                if map.contains_key("result") { 
+                    Ok(()) 
+                } else {
+                    Err(OdinSentinelError::RpcError( format!("invalid RPC response: {map:?}")))
+                } 
+            }
+            other => Err( OdinSentinelError::RpcError( format!("invalid RPC response: {other:?}")))
         }
     }
 }

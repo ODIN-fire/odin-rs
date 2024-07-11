@@ -93,19 +93,19 @@ impl AppMetaData {
                     }
                 }
                 let pb = PathBuf::from(local_root);
-                ( pb.join("config"), pb.join("data"), pb.join("cache") )
+                ( pb.join("config"), pb.join("cache"), pb.join("data") )
 
             } else { // no ODIN_LOCAL env var set, use either platform specific XDG or if not supported a ./local/ dir
                 if let Some(project_dirs) = ProjectDirs::from(&domain.domain, &domain.organization, &domain.application) {
-                    ( project_dirs.config_dir().into(), project_dirs.data_dir().into(), project_dirs.cache_dir().into() )
+                    ( project_dirs.config_dir().into(), project_dirs.cache_dir().into(), project_dirs.data_dir().into() )
                 } else { // fallback is a ./local dir
-                    ( "local/config".into(), "local/data".into(), "local/cache".into() )
+                    ( "local/config".into(), "local/cache".into(), "local/data".into() )
                 }
             };
 
         ensure_dir(&config_dir).expect(format!("no valid config dir: {config_dir:?}").as_str());
-        ensure_dir(&data_dir).expect(format!("no valid data dir: {data_dir:?}").as_str());
         ensure_dir(&cache_dir).expect(format!("no valid cache dir: {cache_dir:?}").as_str());
+        ensure_dir(&data_dir).expect(format!("no valid data dir: {data_dir:?}").as_str());
 
         AppMetaData { domain, config_dir, cache_dir, data_dir }
     }

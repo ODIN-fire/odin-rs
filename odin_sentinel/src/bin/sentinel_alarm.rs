@@ -17,35 +17,38 @@
 
 #![allow(unused)]
 
- use anyhow::Result;
- use odin_actor::prelude::*;
- use odin_config::prelude::*;
- use odin_sentinel::{
-    ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, SentinelUpdate
+use anyhow::Result;
+use odin_actor::prelude::*;
+use odin_config::prelude::*;
+use odin_common::{define_cli,check_cli};
+use odin_sentinel::{
+    AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, SentinelUpdate
 };
 
-use odin_sentinel::SignalCmdAlarmMessenger;
-#[cfg(feature="signal_rpc")] use odin_sentinel::SignalRpcAlarmMessenger;
-#[cfg(feature="smtp")] use odin_sentinel::SmtpAlarmMessenger;
+use odin_sentinel::{SmtpAlarmMessenger,SignalCmdAlarmMessenger};
+// use odin_sentinel::SignalRpcAlarmMessenger; // don't use for now since it does not support notify-self
  
 use_config!();
 
+define_cli! { ARGS [about="Delphire Sentinel Alarm Server"] = 
+    smtp: bool        [help="enable smtp messenger", long],
+    signal_cli: bool  [help="enable signal-cli messenger (requires signal-cli installation)", long]
+}
+
 #[tokio::main]
 async fn main ()->Result<()> {
+    check_cli!(ARGS);
     let mut actor_system = ActorSystem::with_env_tracing("main");
 
     let hsentinel = PreActorHandle::new( &actor_system, "sentinel", 8); 
 
     let hmonitor = spawn_actor!( actor_system, "monitor", SentinelAlarmMonitor::new(
-        config_for!("sentinel-alarm")?,
+        config_for!("sentinel_alarm")?,
         hsentinel.as_actor_handle(),
-        //ConsoleAlarmMessenger{}
-        //SmtpAlarmMessenger::new( config_for!("smtp")?)
-        //SignalRpcAlarmMessenger::new( config_for!( "signal_rpc")?)
-        SignalCmdAlarmMessenger::new( config_for!("signal_cmd")?)
+        create_messengers()?
     ))?;
 
-    let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
+    let hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
         LiveSentinelConnector::new( config_for!( "sentinel")?), 
         no_dataref_action(),
         data_action!( hmonitor: ActorHandle<SentinelAlarmMonitorMsg> => |data:SentinelUpdate| hmonitor.try_send_msg(data)),
@@ -55,4 +58,18 @@ async fn main ()->Result<()> {
     actor_system.process_requests().await?;
 
     Ok(())
+}
+
+fn create_messengers()->Result<Vec<Box<dyn AlarmMessenger>>> {
+    let mut messengers: Vec<Box<dyn AlarmMessenger>> = Vec::new();
+
+    messengers.push( Box::new(ConsoleAlarmMessenger{})); // always enabled
+    if ARGS.smtp { 
+        messengers.push( Box::new( SmtpAlarmMessenger::new( config_for!("smtp")?))) 
+    }
+    if ARGS.signal_cli { 
+        messengers.push( Box::new( SignalCmdAlarmMessenger::new( config_for!("signal_cmd")?))) 
+    }
+
+    Ok(messengers)
 }

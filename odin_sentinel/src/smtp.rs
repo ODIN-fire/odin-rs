@@ -15,25 +15,28 @@
  * limitations under the License.
  */
 
- use lettre::transport::smtp::authentication::Credentials;
- use lettre::{Message, SmtpTransport, AsyncSmtpTransport, Transport, AsyncTransport, Tokio1Executor};
- use lettre::message::{Mailbox, MultiPart, SinglePart, Attachment, Body, header::ContentType};
- use std::{fs, path::{Path,PathBuf}};
- use serde::{Deserialize, Serialize};
+use lettre::transport::smtp::authentication::Credentials;
+use lettre::{Message, SmtpTransport, AsyncSmtpTransport, Transport, AsyncTransport, Tokio1Executor};
+use lettre::message::{Mailbox, MultiPart, SinglePart, Attachment, Body, header::ContentType};
+use std::{fs, path::{Path,PathBuf}, time::Duration};
+use serde::{Deserialize, Serialize};
+use async_trait::async_trait;
+use tokio::time::timeout;
 
- use odin_actor::{warn,error};
- use odin_common::if_let;
- use crate::{Alarm,AlarmMessenger,EvidenceInfo,op_failed};
- use crate::errors::Result;
+use odin_actor::{warn,error};
+use odin_common::if_let;
+use crate::{op_failed, Alarm, AlarmMessenger, EvidenceInfo, OdinSentinelError};
+use crate::errors::Result;
 
  #[derive(Deserialize,Serialize,Debug)]
- pub struct SmtpConfig {
-     pub smtp_uri: String,
-     pub username: String,
-     pub pw: String,
-     pub sender: String,
-     pub recipients: Vec<String>,
- }
+pub struct SmtpConfig {
+    pub smtp_uri: String,
+    pub username: String,
+    pub pw: String,
+    pub sender: String,
+    pub recipients: Vec<String>,
+    pub timeout: Duration,
+}
 
  /// SMTP based AlarmMessenger
  /// this sends alarm notifications as email, which also supports email-to-text message gateways
@@ -42,14 +45,14 @@
  /// - T-Mobile: <10-digit-phone>@tmomail.net) (text + mms)
  /// - Verizon: <10-digit-phone>@vtext.com (text) or <10-digit-phone>@vzwpix.com (mms)
  /// - Sprint: <10-digit-phone>@messaging.sprintpcs.com (text) or <10-digit-phone>@pm.sprint.com (mms)
- pub struct SmtpAlarmMessenger {
+pub struct SmtpAlarmMessenger {
     config: SmtpConfig,
 
     from_addr: Mailbox,
     bcc_addrs: Vec<Mailbox>
- }
+}
 
- impl SmtpAlarmMessenger {
+impl SmtpAlarmMessenger {
     pub fn new (config: SmtpConfig)->Self {
         // compute those first since there is not point sending alarms if they are wrong
         let from_addr = config.sender.parse::<Mailbox>().unwrap(); // this is a top level object, panic is Ok
@@ -58,10 +61,11 @@
 
         SmtpAlarmMessenger { config, from_addr, bcc_addrs }
     }
- }
+}
 
- impl AlarmMessenger for SmtpAlarmMessenger {
-    async fn send_alarm (&self, alarm: Alarm)->Result<()> {
+#[async_trait]
+impl AlarmMessenger for SmtpAlarmMessenger {
+    async fn send_alarm (&self, alarm: &Alarm)->Result<()> {
         let config = &self.config;
 
         let creds = Credentials::new( config.username.clone(), config.pw.clone());
@@ -75,13 +79,10 @@
         let evidences = get_attachments(&alarm);
         let message = create_message(&self.from_addr, &self.bcc_addrs, "alarm", &alarm.description, &evidences)?;
 
-        //match mailer.send(&message) {
-        match mailer.send(message).await {
-            Ok(res) => { println!("@@ res = {res:?}"); Ok(()) }
-            Err(e) => Err( op_failed!("sending smtp email failed: {e}")),
-        }
+        let response = timeout( self.config.timeout, mailer.send(message)).await??;
+        if response.is_positive() { Ok(()) } else { Err( OdinSentinelError::SmtpError( format!("{response:?}"))) }
     }
- }
+}
 
  pub fn get_attachments (alarm: &Alarm)->Vec<(String,PathBuf)> {
     alarm.evidence_info.iter().fold( Vec::<(String,PathBuf)>::new(), |mut acc, e|{

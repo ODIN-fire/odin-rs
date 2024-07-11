@@ -15,11 +15,12 @@
  * limitations under the License.
  */
 
-use std::path::PathBuf;
+use std::{path::PathBuf,time::Duration};
 use serde::{Deserialize, Serialize};
-use tokio::process::{Command,Child};
+use tokio::{process::{Command,Child},time::{timeout,error::Elapsed}};
 //use std::process::Command;
 use which::which;
+use async_trait::async_trait;
 use odin_common::if_let;
 use crate::{Alarm,AlarmMessenger,EvidenceInfo, OdinSentinelError};
 use crate::errors::{op_failed,Result};
@@ -29,6 +30,7 @@ pub struct SignalCmdConfig {
     pub cmd: String,
     pub recipients: Vec<String>,
     pub group_ids: Vec<String>,
+    pub timeout: Duration,
 }
 
 /// `AlarmMessenger` implementation that send alarms as text messages to Signal accounts
@@ -37,6 +39,10 @@ pub struct SignalCmdConfig {
 /// and panics if none is found.
 /// This messenger is always included and doesn't require odin_sentinel features.
 /// Note this is using a different config than [`SignalRpcAlarmMessenger``]
+/// 
+/// TODO - this should use a standalone presage/libsignal-service-rs based command but we have to support image attachments 
+/// for messages. While signal-cli does all we need (and is available on all platforms) it is a Java application that is not
+/// easy to install
 pub struct SignalCmdAlarmMessenger {
     config: SignalCmdConfig,
 }
@@ -49,10 +55,11 @@ impl SignalCmdAlarmMessenger {
     }
 }
 
+#[async_trait]
 impl AlarmMessenger for SignalCmdAlarmMessenger {
-    async fn send_alarm (&self, alarm: Alarm)->Result<()> {
+    async fn send_alarm (&self, alarm: &Alarm)->Result<()> {
         let config = &self.config;
-        let message = alarm.description;
+        let message = alarm.description.clone();
 
         let attachments: Vec<&PathBuf> = alarm.evidence_info.iter().fold( Vec::<&PathBuf>::new(), |mut acc, e|{
             if let Some(sentinel_file) = &e.img {
@@ -92,16 +99,11 @@ impl AlarmMessenger for SignalCmdAlarmMessenger {
         if !recipients.is_empty() {
             for r in recipients { cmd.arg(r); }
         }
-
-        //println!("executing {cmd:?}");
         
         match cmd.spawn() {
             Ok(mut child) => {
-                println!("executing {child:?}");
-                match child.wait().await {
-                    Ok(exit_status) =>  exit_status.exit_ok().map_err( |e| OdinSentinelError::CommandError(e.to_string())),
-                    Err(e) => Err( OdinSentinelError::CommandError(e.to_string()) )
-                }
+                //println!("executing {child:?}");                
+                Ok( timeout( self.config.timeout, child.wait()).await??.exit_ok()? )
             }
             Err(e) => Err( OdinSentinelError::CommandError(e.to_string()) )
         }

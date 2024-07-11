@@ -19,6 +19,7 @@ use std::{time::Duration,sync::Arc,future::Future, path::PathBuf};
 use serde::{Deserialize,Serialize,Serializer};
 use serde_json;
 use chrono::TimeDelta;
+use async_trait::async_trait;
 use odin_actor::prelude::*;
 use odin_macro::{match_algebraic_type, define_struct};
 
@@ -41,8 +42,21 @@ pub struct EvidenceInfo {
 }
 
 /// abstract interface for messenger services (SMS< Signal, WhatsApp etc)
-pub trait AlarmMessenger: Send {
-    fn send_alarm (&self, alarm: Alarm)->impl Future<Output=Result<()>> + Send;
+/// since this is a simple interface that is hopefully not called too often we use `async_trait`` to
+/// make it object-safe
+#[async_trait]
+pub trait AlarmMessenger: Send + Sync {
+    /// impls have to make sure this is guaranteed to return in bounded time so that we know if notifications were sent out
+    async fn send_alarm (&self, alarm: &Alarm)->Result<()>;
+}
+
+#[macro_export]
+macro_rules! create_messengers {
+    ( $( $msgr:expr ),* ) => {
+        vec![
+            $( Box::new($msgr) ),*
+        ]
+    }
 }
 
 /* #region SentinelAlarm ***************************************************************************************/
@@ -70,16 +84,16 @@ impl Default for SentinelAlarmMonitorConfig {
 define_actor_msg_set! { pub SentinelAlarmMonitorMsg = SentinelUpdate | Alarm }
 
 /// the Sentinel Alarm Actor state
-define_struct! { pub SentinelAlarmMonitor<A> where A: AlarmMessenger =
+define_struct! { pub SentinelAlarmMonitor =
     config: SentinelAlarmMonitorConfig,
     hupdater: ActorHandle<SentinelActorMsg>,
-    messenger: A,
+    messengers: Vec<Box<dyn AlarmMessenger>>,
 
     reported_fire_alarms: Vec<Arc<SensorRecord<FireData>>> = Vec::new(),
     reported_smoke_alarms: Vec<Arc<SensorRecord<SmokeData>>> = Vec::new()
 }
 
-impl<A> SentinelAlarmMonitor<A> where A: AlarmMessenger {
+impl SentinelAlarmMonitor {
 
     fn is_reported_alarm<T> (&self, rec: &SensorRecord<T>, reported_alarms: &Vec<Arc<SensorRecord<T>>>) -> bool where T: RecordDataBounds {
         for ref alarm in reported_alarms {
@@ -150,7 +164,7 @@ impl<A> SentinelAlarmMonitor<A> where A: AlarmMessenger {
     }
 }
 
-impl_actor! { match msg for Actor<SentinelAlarmMonitor<M>,SentinelAlarmMonitorMsg> where M: AlarmMessenger as
+impl_actor! { match msg for Actor<SentinelAlarmMonitor,SentinelAlarmMonitorMsg> as
     SentinelUpdate => cont! { // external - update notification
         let hself = self.hself.clone();
         match_algebraic_type! { msg: SentinelUpdate as 
@@ -159,8 +173,12 @@ impl_actor! { match msg for Actor<SentinelAlarmMonitor<M>,SentinelAlarmMonitorMs
             _ => {} // not a record we are interested in
         }
     }
-    Alarm => cont! { // internal - send out alarm message through configured messenger
-        self.messenger.send_alarm( msg).await
+    Alarm => cont! { // internal message that we have to send out notifications  
+        for msgr in &self.messengers {
+            if let Err(e) = msgr.send_alarm( &msg).await {
+                warn!("failed to send alarm notification: {e}");
+            }
+        }
     }
 }
 
@@ -171,8 +189,9 @@ impl_actor! { match msg for Actor<SentinelAlarmMonitor<M>,SentinelAlarmMonitorMs
 /// this is just a dummy Messenger that prints out alarms to the console (used for testing)
 pub struct ConsoleAlarmMessenger {}
 
+#[async_trait]
 impl AlarmMessenger for ConsoleAlarmMessenger {
-    async fn send_alarm (&self, alarm: Alarm)->Result<()> {
+    async fn send_alarm (&self, alarm: &Alarm)->Result<()> {
         println!("ALARM: {alarm:?}");
         Ok(())
     }

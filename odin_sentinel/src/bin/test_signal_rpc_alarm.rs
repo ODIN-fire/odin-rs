@@ -17,30 +17,17 @@
 
 use std::{fs,path::Path};
 use odin_sentinel::{Alarm, EvidenceInfo, SentinelFile, AlarmMessenger, SignalRpcConfig, SignalRpcAlarmMessenger};
-use structopt::StructOpt;
+use odin_common::define_cli;
 use anyhow::Result;
 
-#[macro_use]
-extern crate lazy_static;
-
- #[derive(StructOpt)]
- #[structopt(about = "Delphire Sentinel Signal RPC alarm test")]
- struct CliOpts {
-    /// optional pathname of image to attach
-    #[structopt(short,long)]
-    img: Option<String>,
-
-    /// pathname of Signal alarm config to test
-    config: String,
- }
-
- lazy_static! {
-    static ref ARGS: CliOpts = CliOpts::from_args();
+define_cli! { ARGS [about="Delphire Sentinel RPC alarm test"] = 
+    img: Option<String>    [help="optional pathname of image to attach", short, long],
+    config: String         [help="pathname of RPC alarm config to test"]
 }
 
 /// stand alone test for alarm notification using a signal-cli server that has to be started and reachable
 /// on the local network
- #[tokio::main]
+#[tokio::main]
 async fn main()->Result<()> {
     let config: SignalRpcConfig = ron::from_str(fs::read_to_string(&ARGS.config)?.as_str())?;
     
@@ -65,7 +52,7 @@ async fn main()->Result<()> {
 
     let messenger = SignalRpcAlarmMessenger::new(config);
     
-    let res = messenger.send_alarm(alarm).await?;
+    let res = messenger.send_alarm(&alarm).await?;
     println!("result = {res:?}");
 
     Ok(())

@@ -33,6 +33,7 @@
 ///!         ...
 ///!     }
 ///! ```
+// TODO - still needs optional generic_params and where_clause
 
 extern crate proc_macro;
 
@@ -59,56 +60,53 @@ macro_rules! stringify_path {
 
 /* #region define_service_type ***************************************************/
 
-/// macro to define a composite type from MicroService implementing types. This is used for [`odin_server::Server`] initialization
-/// and avoids the problem that we cannot use trait objects to put the service components into a generic container
+/// macro to define a composite SinglePageApplication type from a list of MicroServices. This is used for [`odin_server::Server`] 
+/// initialization and avoids the problem that we cannot use trait objects to put the micro services into a generic container
 /// (such as `Vec<Box<dyn MicroService>>`) since the MicroService trait is not object safe - it has methods returning
 /// `impl Future<..>` types. Use like so:
 /// ```
-///   define_service_type! { TrackServices = ImageryService + TrackService }
+///   define_spa! { TrackSPA = ImageryService + TrackService }
 /// ```
 /// which gets expanded into:
 /// ```
-///   struct TrackServices (ImageryService, TrackService);
-///   impl MicroService for TrackServices {
-///     fn router (&self, hserver: ActorHandle<ServerMsg>)->Option<Router> { 
-///       // merges routers
-///     }
-///     fn send_init_ws_msg (&self, hserver: ActorHandle<ServerMsg>)->impl Future<Output=Result<()>>+Send { 
-///       // calls send_init_ws_msg(hserver).await? for each component
-///     }
-///     fn handle_incoming_ws_msg (&self, hserver: ActorHandle<ServerMsg>, msg: &str)->impl Future<Output=Result<()>>+Send {
-///       // calls handle_incoming_ws_msg(hserver,msg).await? for each component
-///     }
+///   struct TrackSPA (ImageryService, TrackService);
+///   impl SpaServiceList for TrackSPA {
+///       fn add_components (&self, spa: &mut SpaComponents)->Result<()> {
+///            self.0.add_components(spa)?;
+///            self.1.add_components(spa)
+///       }
+///       async fn init_connection (&self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr)->Result<()> {
+///            self.0.init_connection( hself.clone(), remote_addr.clone()).await?;
+///            self.1.init_connection( hself, remote_addr).await
+///       }
 ///   }
 /// ```
 #[proc_macro]
-pub fn define_service_type (item: TokenStream) -> TokenStream {
-    let ServiceComposition {visibility, name, component_types }= syn::parse(item).unwrap();
-    let merged_routes: Vec<TokenStream2> = component_types.iter().enumerate().map( |(idx,ct)|{
-        quote! { if let Some(r) = self.#idx.router(hserver) { router = router.merge(r); } }
-    }).collect();
-    let init_msg: Vec<TokenStream2> = component_types.iter().enumerate().map( |(idx,ct)|{
-        quote! { self.#idx.send_init_ws_msg(hserver).await? }
-    }).collect();
-    let incoming_msg: Vec<TokenStream2> = component_types.iter().enumerate().map( |(idx,ct)|{
-        quote! { self.#idx.handle_incoming_ws_msg(hserver, msg).await? }
-    }).collect();
+pub fn define_spa (item: TokenStream) -> TokenStream {
+    let ServiceComposition { visibility, name, generic_params, component_types, where_clause }= syn::parse(item).unwrap();
+    let len = component_types.len();
+    let len1 = len-1;
+
+    let generics = if generic_params.is_empty() { quote!{} } else { quote! { < #( #generic_params ),* > } };
+
+    let mut add_components: Vec<TokenStream2> = Vec::with_capacity(len);
+    for i in 0..len1 { add_components.push( quote! { self.#i.add_components( spa)?; }) }
+    add_components.push( quote! { self.#len1.add_components( spa) });
+    
+    let mut init_connection: Vec<TokenStream2> = Vec::with_capacity(len);
+    for i in 0..len1 { init_connection.push( quote! { self.#i.init_connection( hserver.clone(), remote_addr.clone()).await?; }) }
+    init_connection.push( quote! { self.#len1.init_connection( hserver, remote_addr).await });
 
     let new_item: TokenStream = quote! {
-        #visibility struct #name (
+        #visibility struct #name #generics #where_clause (
             #( #component_types ),*
         );
-        impl MicroService for #name {
-            fn router (&self, hserver: ActorHandle<ServerMsg>)->Option<Router> {
-                let mut router = Router::new();
-                #(#merged_routes)*
-                Some(router)
+        impl SpaServiceList for #name {
+            fn add_components (&self, spa: &mut SpaComponents)->Result<()> {
+                #( #add_components )*
             }
-            fn send_init_ws_msg (&self, hserver: ActorHandle<ServerMsg>)->impl Future<Output=Result<()>> + Send {
-                #(#init_msg);*
-            }
-            fn handle_incoming_ws_msg (&self, hserver: ActorHandle<ServerMsg>, msg: &str)->impl Future<Output=Result<()>> + Send {
-                #(#incoming_msg);*
+            async fn init_connection (&self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr)->Result<()> {
+                #( #init_connection )*
             }
         }
     }.into();
@@ -120,7 +118,9 @@ pub fn define_service_type (item: TokenStream) -> TokenStream {
 struct ServiceComposition {
     visibility: Visibility,
     name: Ident,
-    component_types: Vec<Path>
+    generic_params:Vec<GenericParam>,
+    component_types: Vec<Path>,
+    where_clause: Option<WhereClause>,
 }
 
 impl Parse for ServiceComposition {
@@ -128,7 +128,15 @@ impl Parse for ServiceComposition {
         let visibility: Visibility = parse_visibility(input);
         let name: Ident = input.parse()?;
 
-        let lookahead = input.lookahead1();
+        let mut generic_params: Vec<GenericParam> = Vec::new();
+        let mut lookahead = input.lookahead1();
+        if !input.is_empty() && lookahead.peek(Token![<]) {
+            input.parse::<Token![<]>()?;
+            generic_params = Punctuated::<GenericParam,Token![,]>::parse_separated_nonempty(input)?.into_iter().collect();
+            input.parse::<Token![>]>()?;
+            lookahead = input.lookahead1();
+        }
+
         let component_types: Vec<Path> = if lookahead.peek(Token![=]) {
             let _: Token![=] = input.parse()?;
             let component_types = Punctuated::<Path,Token![+]>::parse_terminated(input)?;
@@ -136,8 +144,16 @@ impl Parse for ServiceComposition {
         } else {
             Vec::new()
         };
+
+        let mut where_clause: Option<WhereClause> = None;
+        if !input.is_empty() {
+            lookahead = input.lookahead1();
+            if lookahead.peek(Token![where]) {
+                where_clause = Some(input.parse::<WhereClause>()?);
+            }
+        }
         
-        Ok( ServiceComposition { visibility, name, component_types })
+        Ok( ServiceComposition { visibility, name, generic_params, component_types, where_clause })
     }
 }
 

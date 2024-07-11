@@ -1,0 +1,12 @@
+cargo-features = ["edition2024"]
+
+[package]
+name = "odin_build"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+brotli = "*"
+minifier = "*"
+minify-html-onepass = "*"
+anyhow = "*"

@@ -1068,7 +1068,7 @@ impl <A> QueryBuilder<A> where A: Send + Debug {
 /// This means we have to be able to check if two queries are about the same subject (hence `is_same_request()`) and
 /// we have to be able to duplicate the answer (hence A: Clone).
 /// The resolver task has to loop over a select() since it has to await both new queue requests and completed
-/// answers.The logic of this select loop is implemented in the generic (internal) process_requests() function.
+/// answers. The logic of this select loop is implemented in the generic (internal) process_requests() function.
 ///
 /// example sequence diagram:
 ///                                                 responder
