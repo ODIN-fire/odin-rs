@@ -22,7 +22,6 @@ use tokio_tungstenite::{tungstenite::protocol::Message, MaybeTlsStream};
 use reqwest::{Client};
 
 use odin_actor::prelude::*;
-use odin_config::prelude::*;
 use odin_common::{if_let,fs::{remove_old_files, ensure_dir}};
 
 use crate::*;
@@ -46,7 +45,6 @@ use crate::ws::{WsStream,WsCmd,WsMsg, init_websocket, send_ws_text_msg, read_nex
 /// 
 pub struct LiveSentinelConnector { 
     config: Arc<SentinelConfig>,
-    cache_dir: Arc<PathBuf>, // where to store files
     connection: Option<LiveConnection>
 }
 
@@ -54,22 +52,18 @@ impl LiveSentinelConnector {
 
     /// called before actor instantiation
     pub fn new (config: SentinelConfig)->Self {
-        let cache_dir = Arc::new( odin_config::app_metadata().cache_dir.join("sentinel"));
-        if let Err(e) = ensure_dir( &cache_dir) { 
-            error!("failed to create data dir: {:?}", cache_dir);
-        }
-        LiveSentinelConnector { config: Arc::new(config), cache_dir, connection: None }
+        LiveSentinelConnector { config: Arc::new(config), connection: None }
     }
 
     /// called from actor ctor (2nd half of our initialization)
     async fn initialize (&mut self, hself: ActorHandle<SentinelActorMsg>)->Result<()> {
-        self.connection = Some(LiveConnection::new(self.config.clone(), self.cache_dir.clone(), hself).await?);
+        self.connection = Some(LiveConnection::new(self.config.clone(), hself).await?);
         Ok(())
     }
 
     fn sentinel_file_for_query (&self, query: &Query<GetSentinelFile,Result<SentinelFile>>)->SentinelFile {
         let record_id = query.question.record_id.clone();
-        let pathname = self.cache_dir.join(&query.question.filename);
+        let pathname = odin_build::cache_dir().join(&query.question.filename);
         SentinelFile { record_id, pathname }   
     }
 }
@@ -141,7 +135,6 @@ struct LiveConnection {
 
     ping_task: Option<AbortHandle>, // optional periodic keepalive ping 
 
-    cache_dir: Arc<PathBuf>,
     file_request_task: AbortHandle, // async task for file requests
     file_request_tx: MpscSender<FileRequest>, // channel to send file requests to the task
 
@@ -149,7 +142,9 @@ struct LiveConnection {
 }
 
 impl LiveConnection {
-    async fn new (config: Arc<SentinelConfig>, cache_dir: Arc<PathBuf>, hself: ActorHandle<SentinelActorMsg>)->Result<Self> {
+    async fn new (config: Arc<SentinelConfig>, hself: ActorHandle<SentinelActorMsg>)->Result<Self> {
+        let cache_dir = Arc::new(Self::sentinel_cache_dir());
+
         //--- get current sentinel data according to config (there is no point spawning tasks if we don't have a list of devices to watch)
         let http_client = Client::new();
         let mut sentinel_store = SentinelStore::new();
@@ -178,7 +173,8 @@ impl LiveConnection {
             let (ws_cmd_tx, ws_cmd_rx) = create_mpsc_sender_receiver::<String>(16);
             let ws_tx_task = spawn( "ws-sentinel-tx", Self::ws_tx_loop(  ws_cmd_rx, ws_write))?.abort_handle();
 
-            let file_cleanup_task = spawn( "sentinel-file-purge", Self::file_cleanup_loop( config.clone()))?.abort_handle();
+            let file_cleanup_task = spawn( "sentinel-file-purge", 
+                                           Self::file_cleanup_loop( config.clone(), cache_dir.clone()))?.abort_handle();
 
             let ping_task = match config.ping_interval {
                 Some(interval) => {
@@ -194,7 +190,6 @@ impl LiveConnection {
                 last_recv_epoch, 
                 ws_rx_task, ws_tx_task, ws_cmd_tx, 
                 ping_task, 
-                cache_dir,
                 file_request_task, file_request_tx,
                 file_cleanup_task,
             };
@@ -206,6 +201,10 @@ impl LiveConnection {
         } else {
             Err( OdinSentinelError::NoDevicesError)
         }
+    }
+
+    pub fn sentinel_cache_dir()->PathBuf {
+        odin_build::cache_dir().join("sentinel")
     }
 
     /// the websocket receiver loop
@@ -304,9 +303,10 @@ impl LiveConnection {
     }
 
     async fn request_all_files (&self, config: &SentinelConfig, sentinels: &SentinelStore) -> Result<()> {
+        let sentinel_cache_dir = Self::sentinel_cache_dir();
         for sentinel in sentinels.values_iter() {
             for rec in &sentinel.image {
-                Self::request_image_file( config, &self.cache_dir, &self.file_request_tx, rec).await?;
+                Self::request_image_file( config, &sentinel_cache_dir, &self.file_request_tx, rec).await?;
             }
         }
         Ok(())
@@ -339,13 +339,12 @@ impl LiveConnection {
         Ok( get_image_uri( &config.base_uri, record_id) )
     }
 
-    async fn file_cleanup_loop (config: Arc<SentinelConfig>)->Result<()> {
+    async fn file_cleanup_loop (config: Arc<SentinelConfig>, cache_dir: Arc<PathBuf>)->Result<()> {
         let interval = minutes(60); // should we configure this?
-        let cache_dir = odin_config::app_metadata().cache_dir.join("sentinel");
 
         loop {
             sleep(interval).await;
-            remove_old_files( &cache_dir, config.max_age);
+            remove_old_files( cache_dir.as_ref(), config.max_age);
         }
         Ok(())
     }

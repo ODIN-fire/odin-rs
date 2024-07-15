@@ -25,11 +25,8 @@ use tokio;
 use reqwest;
 use strum::EnumString;
 
-use odin_sentinel::{SentinelStore,SentinelConfig};
-use odin_config::prelude::*;
-
-use_config!();
-
+use odin_sentinel::{SentinelStore,SentinelConfig,load_config};
+use odin_build;
 
 #[derive(Debug,EnumString)]
 #[strum(serialize_all="snake_case")]
@@ -64,7 +61,9 @@ lazy_static! {
 
 #[tokio::main]
 async fn main()->Result<()> {
-    let sentinel_config: SentinelConfig = config_for!( "sentinel")?;
+    odin_build::set_bin_context!();
+
+    let sentinel_config: SentinelConfig = load_config( "sentinel.ron")?;
     let http_client = reqwest::Client::new();
 
     let mut sentinel_store = SentinelStore::new();

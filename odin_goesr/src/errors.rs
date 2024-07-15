@@ -22,8 +22,8 @@ pub type Result<T> = std::result::Result<T, OdinGoesRError>;
 #[derive(Error,Debug)]
 pub enum OdinGoesRError {
 
-    #[error("config error {0}")]
-    ConfigError( #[from] odin_config::errors::OdinConfigError),
+    #[error("build error {0}")]
+    BuildError( #[from] odin_build::OdinBuildError),
 
     #[error("S3 error {0}")]
     S3Error( #[from] odin_common::s3::OdinS3Error),

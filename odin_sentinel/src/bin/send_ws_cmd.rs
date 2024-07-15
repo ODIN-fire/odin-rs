@@ -18,6 +18,11 @@
 
 /// test utility to send WsCmd messages to the Delphire server, supporting command line message arg or interactive modes.
 /// This uses the same sentinel.ron config as the other crate executables
+/// 
+/// example: 
+/// ```
+/// {"event": "trigger-alert", "data":{ "deviceIds": ["roo7gd1dldn3"]}}
+/// ```
 
 use odin_actor::errors::op_failed;
 use tokio::{io,time::timeout};
@@ -27,15 +32,14 @@ use futures::{SinkExt,StreamExt};
 use std::{io::{stdin,stdout,Write},time::Duration,fmt::Debug};
 use strum::EnumString;
 
-use odin_config::prelude::*;
+use odin_build;
 use odin_common::{if_let,define_cli,check_cli};
 use odin_sentinel::{
     get_device_list_from_config,
     OdinSentinelError, SentinelConfig, Result,
-    ws::{connect, expect_connected_response, WsCmd, WsMsg, WsStream}
+    ws::{connect, expect_connected_response, WsCmd, WsMsg, WsStream},
+    load_config,
 };
-
-use_config!();
 
 #[derive(Debug,EnumString)]
 #[strum(serialize_all="snake_case")]
@@ -49,9 +53,10 @@ define_cli! { ARGS [about="Delphire Sentinel websocket command tool"] =
 
 #[tokio::main]
 async fn main()->anyhow::Result<()> {
+    odin_build::set_bin_context!();
     check_cli!(ARGS);
 
-    let config: SentinelConfig = config_for!( "sentinel")?;
+    let config: SentinelConfig = load_config( "sentinel.ron")?;
     if ARGS.execute.is_empty() {
         print_prolog(&config).await?;
     }

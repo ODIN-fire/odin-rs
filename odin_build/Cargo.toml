@@ -1,12 +1,25 @@
-cargo-features = ["edition2024"]
-
 [package]
 name = "odin_build"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[[bin]]
+name = "bob"
 
 [dependencies]
+lazy_static = "*"
+anyhow = "*"
+thiserror = "*"
+ron = "*"
+toml = "*"
+cargo_toml = "*"
+serde = { version = "*", features = ["derive"] }
+bytes = "*"
 brotli = "*"
 minifier = "*"
 minify-html-onepass = "*"
-anyhow = "*"
+
+rand = "*"
+pgp = "*"
+magic-crypt = "*"
+

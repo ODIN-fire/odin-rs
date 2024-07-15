@@ -51,8 +51,8 @@ pub struct LiveGoesRHotspotImporter {
 
 impl LiveGoesRHotspotImporter {
     pub fn new (config: LiveGoesRHotspotImporterConfig) -> Self {
-        let cache_dir = Arc::new( odin_config::app_metadata().cache_dir.join("goesr"));
-        ensure_writable_dir(&cache_dir).unwrap(); // Ok to panic - this is a toplevel application object
+        let cache_dir = Arc::new( odin_build::cache_dir().join("goesr"));
+        ensure_writable_dir(cache_dir.as_ref()).unwrap(); // Ok to panic - this is a toplevel application object
 
         LiveGoesRHotspotImporter{ config, cache_dir, import_task:None, file_cleanup_task:None }
     }

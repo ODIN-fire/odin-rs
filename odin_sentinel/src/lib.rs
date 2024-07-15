@@ -21,21 +21,24 @@
 
 
 use std::{
-    cmp::{min, Ordering}, collections::{HashMap, VecDeque}, fmt::{self,Debug}, fs::File, future::Future, io::{Read, Write}, ops::RangeBounds, path::{Path,PathBuf}, rc::Rc, sync::{atomic::{self,AtomicU64}, Arc}, time::Duration
+    cmp::{min, Ordering}, collections::{HashMap, VecDeque}, fmt::{self,Debug}, 
+    fs::File, future::Future, io::{Read, Write}, ops::RangeBounds, path::{Path,PathBuf}, 
+    rc::Rc, sync::{atomic::{self,AtomicU64}, Arc}, time::Duration
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize, Serializer};
 use serde_json;
 use ron::{self, to_string};
 use chrono::{DateTime,Utc};
-use odin_common::{angle::{LatAngle, LonAngle, Angle},datetime::deserialize_duration};
-use odin_actor::ActorHandle;
 use strum::IntoStaticStr;
 use tokio_util::bytes::Buf;
 use uom::si::f64::{Velocity,ThermodynamicTemperature,ElectricCurrent,ElectricPotential};
 use reqwest::{Client,Response};
 use paste::paste;
+use lazy_static::lazy_static;
 
-use odin_actor::{MsgReceiver,Query};
+use odin_build::define_load_config;
+use odin_common::{angle::{LatAngle, LonAngle, Angle},datetime::deserialize_duration};
+use odin_actor::{MsgReceiver, Query, ActorHandle};
 use odin_macro::{define_algebraic_type, match_algebraic_type, define_struct};
 
 mod actor;
@@ -52,6 +55,8 @@ pub use live_connector::*;
 mod errors;
 pub use errors::*;
 
+define_load_config!{}
+
 //--- alarm messengers
 mod signal_cmd; // this is always included
 pub use signal_cmd::*;
@@ -62,8 +67,6 @@ pub use signal_cmd::*;
 #[cfg(feature="smtp")] mod smtp;
 #[cfg(feature="smtp")] pub use smtp::*;
 
-#[macro_use]
-extern crate lazy_static;
 
 lazy_static! {
     static ref MSG_COUNTER: AtomicU64 = AtomicU64::new(42);
@@ -73,7 +76,7 @@ pub fn get_next_msg_id ()->String {
     MSG_COUNTER.fetch_add( 1, atomic::Ordering::Relaxed).to_string()
 }
 
-/* #region snesor record  ***************************************************************************/
+/* #region sensor record  ***************************************************************************/
 
 pub trait CapabilityProvider {
     fn capability()->SensorCapability;

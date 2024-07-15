@@ -16,11 +16,9 @@
  */
 
 use anyhow::Result;
+use odin_build;
 use odin_actor::prelude::*;
-use odin_config::prelude::*;
-use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor};
-
-use_config!();
+use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor,load_config};
 
 
 /* #region monitor actor *****************************************************************/
@@ -48,12 +46,14 @@ impl_actor! { match msg for Actor<SentinelMonitor,SentinelMonitorMsg> as
 
 #[tokio::main]
 async fn main ()->Result<()> {
+    odin_build::set_bin_context!();
+    
     let mut actor_system = ActorSystem::with_env_tracing("main");
 
     let hmonitor = spawn_actor!( actor_system, "monitor", SentinelMonitor{})?;
 
     let _hsentinel = spawn_actor!( actor_system, "sentinel", SentinelActor::new(
-        LiveSentinelConnector::new( config_for!( "sentinel")?), 
+        LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
         dataref_action!( hmonitor.clone(): ActorHandle<SentinelMonitorMsg> => |data:&SentinelStore| {
             let msg = Snapshot(data.to_json_pretty().unwrap());
             hmonitor.try_send_msg( msg)

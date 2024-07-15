@@ -27,7 +27,8 @@ use crate::macros::io_error;
 
 type Result<T> = std::result::Result<T,std::io::Error>;
 
-pub fn ensure_dir (path: &Path)->io::Result<()> {
+pub fn ensure_dir (path: impl AsRef<Path>)->io::Result<()> {
+    let path = path.as_ref();
     if !path.is_dir() {
         std::fs::create_dir_all(path)?;
     }
@@ -35,7 +36,8 @@ pub fn ensure_dir (path: &Path)->io::Result<()> {
 }
 
 /// check if dir pathname exists and is writable, try to create dir otherwise
-pub fn ensure_writable_dir (path: &Path) -> io::Result<()> {
+pub fn ensure_writable_dir (path: impl AsRef<Path>) -> io::Result<()> {
+    let path = path.as_ref();
     if path.is_dir() {
         let md = fs::metadata(&path)?;
         if md.permissions().readonly() {
@@ -56,8 +58,8 @@ pub fn filepath (dir: &str, filename: &str) -> Result<PathBuf> {
     Ok(pb)
 }
 
-pub fn path_to_lossy_string (p: &dyn AsRef<Path>) -> String {
-    p.as_ref().to_string_lossy().as_ref().to_string()
+pub fn path_to_lossy_string (path: impl AsRef<Path>) -> String {
+    path.as_ref().to_string_lossy().as_ref().to_string()
 }
 
 pub fn readable_file (dir: &str, filename: &str) -> Result<File> {
@@ -153,9 +155,16 @@ pub fn set_filepath_contents_with_backup (dir: &str, filename: &str, backup_ext:
     set_file_contents(&mut file, new_contents)
 }
 
-pub fn get_filename_extension<'a> (filename: &'a str) -> Option<&'a str> {
-    let path = Path::new(filename);
-    path.extension().and_then( |ostr| ostr.to_str())
+pub fn get_filename_extension<'a> (path: &'a str) -> Option<&'a str> {
+    if let Some(idx) = path.rfind('.') {
+        if idx < path.len()-1 { 
+            return Some( path[idx+1..].as_ref() )
+        }
+    }
+    None
+
+    //let path = Path::new(path);
+    //path.extension().and_then( |ostr| ostr.to_str())
 }
 
 

@@ -24,15 +24,17 @@ colored = "*"
 #quanta = "*"
 paste = "*"
 async-trait = "*"
+lazy_static = "*"
 
 tracing = "*"
 tracing-subscriber = "*"
 console-subscriber = "*"
 
+odin_build = { workspace = true }
 odin_macro = { workspace = true }
-odin_config = { workspace = true }
 odin_job = { workspace = true }
 odin_action = { workspace = true }
+
 
 [features]
 default = ["tokio_kanal"]

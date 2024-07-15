@@ -30,6 +30,7 @@ use futures::Future;
 use regex::Regex;
 use lazy_static::lazy_static;
 
+use odin_build::define_load_config;
 use odin_actor::ActorHandle;
 use odin_actor::prelude::*;
 use odin_actor::error;
@@ -49,10 +50,10 @@ pub use actor::*;
 pub mod live_importer;
 pub use live_importer::*;
 
-pub mod assets;
-
 mod geo;
 use geo::{GoesRBoundingBox,GoesRProjection,get_bounds};
+
+define_load_config!{}
 
 /* #region Goes R data structures  ***************************************************************************/
 

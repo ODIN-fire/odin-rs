@@ -19,8 +19,8 @@
 // example for actor configuration
 // has to be run from odin_actor/ dir
 
+use odin_build;
 use odin_actor::prelude::*;
-use odin_config::load_config;
 
 use std::{time::Duration,default::Default};
 use anyhow::{anyhow,Result};
@@ -69,13 +69,14 @@ impl_actor! { match msg for Actor <Ticker,TickerMsg>  as
     }
 }
 
+
 #[tokio::main]
 async fn main() ->Result<()> {
     let mut actor_system = ActorSystem::new("main");
 
     // note this assumes the app is running in the parent workspace dir 
-    // (normally this would be loaded through the odin_config::config_for!(..) macro)
-    let ticker_config = load_config("examples/config/ticker.ron").expect("no valid config for Ticker actor");
+    // (normally this would be loaded through the load_config(..) function of the crate)
+    let ticker_config: TickerConfig = odin_build::load_config_path("examples/config/ticker.ron")?;
     let ticker_handle = spawn_actor!( actor_system, "ticker", Ticker::new( ticker_config))?;
 
     actor_system.timeout_start_all(millis(20)).await?; // sends out _Start_ messages

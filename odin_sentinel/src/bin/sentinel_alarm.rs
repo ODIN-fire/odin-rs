@@ -18,18 +18,17 @@
 #![allow(unused)]
 
 use anyhow::Result;
+use odin_build::define_load_config;
 use odin_actor::prelude::*;
-use odin_config::prelude::*;
 use odin_common::{define_cli,check_cli};
 use odin_sentinel::{
-    AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, SentinelUpdate
+    AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, 
+    SentinelUpdate, SmtpAlarmMessenger, SignalCmdAlarmMessenger,
+    load_config,
 };
 
-use odin_sentinel::{SmtpAlarmMessenger,SignalCmdAlarmMessenger};
 // use odin_sentinel::SignalRpcAlarmMessenger; // don't use for now since it does not support notify-self
  
-use_config!();
-
 define_cli! { ARGS [about="Delphire Sentinel Alarm Server"] = 
     smtp: bool        [help="enable smtp messenger", long],
     signal_cli: bool  [help="enable signal-cli messenger (requires signal-cli installation)", long]
@@ -37,19 +36,20 @@ define_cli! { ARGS [about="Delphire Sentinel Alarm Server"] =
 
 #[tokio::main]
 async fn main ()->Result<()> {
+    odin_build::set_bin_context!();
     check_cli!(ARGS);
     let mut actor_system = ActorSystem::with_env_tracing("main");
 
     let hsentinel = PreActorHandle::new( &actor_system, "sentinel", 8); 
 
     let hmonitor = spawn_actor!( actor_system, "monitor", SentinelAlarmMonitor::new(
-        config_for!("sentinel_alarm")?,
+        load_config("sentinel_alarm.ron")?,
         hsentinel.as_actor_handle(),
         create_messengers()?
     ))?;
 
     let hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
-        LiveSentinelConnector::new( config_for!( "sentinel")?), 
+        LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
         no_dataref_action(),
         data_action!( hmonitor: ActorHandle<SentinelAlarmMonitorMsg> => |data:SentinelUpdate| hmonitor.try_send_msg(data)),
     ))?;
@@ -65,10 +65,10 @@ fn create_messengers()->Result<Vec<Box<dyn AlarmMessenger>>> {
 
     messengers.push( Box::new(ConsoleAlarmMessenger{})); // always enabled
     if ARGS.smtp { 
-        messengers.push( Box::new( SmtpAlarmMessenger::new( config_for!("smtp")?))) 
+        messengers.push( Box::new( SmtpAlarmMessenger::new( load_config("smtp")?))) 
     }
     if ARGS.signal_cli { 
-        messengers.push( Box::new( SignalCmdAlarmMessenger::new( config_for!("signal_cmd")?))) 
+        messengers.push( Box::new( SignalCmdAlarmMessenger::new( load_config("signal_cmd")?))) 
     }
 
     Ok(messengers)

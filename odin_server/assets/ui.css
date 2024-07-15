@@ -1,0 +1,1098 @@
+/* generic themed CSS for race-client-ui based documents */
+
+
+/* general (themed root vars are lodaded first) */
+
+::-webkit-scrollbar {
+    width: var(--scrollbar-track-width);
+    height: var(--scrollbar-track-width);
+}
+
+::-webkit-scrollbar-track {
+    width: var(--scrollbar-track-width);
+    height: var(--scrollbar-track-width);
+    background: var(--scrollbar-track-color);
+}
+
+ ::-webkit-scrollbar-thumb {
+    width: var(--scrollbar-thumb-width);
+    height: var(--scrollbar-thumb-width);
+    background: var(--scrollbar-thumb-color);
+    border: 1px outset var(--border-color);
+}
+
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+.inset {
+    border-style: solid;
+    border-width: 2px;
+    border-top-color: var(--border-dark-color);
+    border-left-color: var(--border-dark-color);
+    border-right-color: var(--border-bright-color);
+    border-bottom-color: var(--border-bright-color);
+}
+
+.align_left {
+    text-align: left;
+}
+
+.align_right {
+    text-align: right;
+}
+
+.fixed {
+    font: var(--mono-font);
+}
+
+.small {
+    font-size: var(--font-size-small);
+}
+
+.fit {
+    /* min-width: 0; */
+    width: inherit;
+}
+
+.no_border {
+    border: none;
+}
+
+
+
+/* screen */
+
+div.ui_full_window {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+html {
+    font-size: var(--font-size);
+    background-color: var(--document-background);
+}
+
+
+/* color inputs (browser specific) */
+
+input[type="color"] {
+    -webkit-appearance: none;
+    border: var(--button-border);
+    padding: 0;
+    margin: 0;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+input[type="color"]::-webkit-color-swatch {
+    border: none;
+}
+
+
+/* movable windows */
+
+div.ui_window {
+    display: none;
+    position: absolute;
+    border: var(--window-border);
+    box-shadow: var(--window-shadow);
+    background: var(--window-background);
+}
+
+div.ui_window.show {
+    display: block;
+}
+
+div.ui_window.resizable {
+    /* display: inline-block; */
+    width: inherit;
+    height: inherit;
+}
+
+div.ui_titlebar {
+    padding: 5px;
+    color: var(--titlebar-color);
+    background: var(--titlebar-background);
+    font: var(--font);
+    font-size: 100%;
+    font-weight: normal;
+    text-align: center;
+    cursor: move;
+    height: var(--titlebar-height);
+}
+
+img.ui_titlebar_icon {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    height: var(--titlebar-height);
+    width: auto;
+}
+
+div.ui_titlebar button.ui_close_button {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    background: transparent;
+    border: none;
+    color: var(--color);
+}
+
+div.ui_window_content {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--window-gap);
+    padding: var(--window-padding);
+    color: var(--window-color);
+    background: var(--window-background);
+    border: none;
+    font: var(--font);
+    cursor: default;
+}
+
+div.ui_window.resizable div.ui_window_content {
+    resize: both;
+    overflow: auto;
+}
+
+
+/* screen icons */
+
+div.ui_icon {
+    display: block;
+    background: var(--icon-background);
+    color: var(--icon-color);
+    border: var(--icon-border);
+    border-radius: var(--icon-border-radius);
+    width: var(--icon-size);
+    height: var(--icon-size);
+    z-index: 3;
+}
+
+div.ui_icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+div.ui_icon:hover {
+    background: var(--icon-hover-background);
+}
+
+use.ui_icon_svg {
+    stroke: var(--icon-color);
+    fill: var(--icon-fill-color);
+}
+
+use.ui_icon_svg:hover {
+    stroke: var(--icon-hover-color);
+    fill: var(--icon-hover-fill-color);
+}
+
+div.ui_icon.on {
+    color: var(--icon-on-color);
+    background: var(--icon-on-background);
+    border: var(--icon-on-border);
+}
+
+
+/* collapsible panels */
+
+div.ui_panel_header {
+    position: relative;
+    padding-left: var(--padding);
+    padding-right: 0;
+    padding-top: var(--panel-padding-top);
+    padding-bottom: var(--panel-padding-bottom);
+    border: none;
+    border-top: var(--panel-border-top);
+    margin-top: var(--panel-header-margin-top);
+    margin-bottom: var(--panel-header-margin-bottom);
+    /*font-size: 115%;*/
+    /*font-weight: bold;*/
+    width: 100%;
+    align-items: flex-start;
+}
+
+div.ui_panel_header:first-child {
+    margin-top: 0;
+}
+
+div.ui_panel_header.expanded::before {
+    content: "▽ ";
+    font-size: smaller;
+}
+
+div.ui_panel_header.collapsed::before {
+    content: "▷ ";
+    font-size: smaller;
+}
+
+div.ui_panel_header.collapsed::after {
+    content: " …";
+}
+
+div.ui_panel {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    transition: max-height 0.4s ease-out;
+    overflow: hidden;
+    /*background: var(--panel-background);*/
+    background: transparent;
+    gap: var(--gap);
+}
+
+/* tabbed containers */
+
+div.ui_tab_container_wrapper {
+}
+
+div.ui_tab_header {
+    display: flex;
+    flex-direction: row;
+    gap: var(--gap);
+}
+
+div.ui_tab {
+    display: inline-block;
+    margin: 0 0 -1px 0.3rem;
+    padding: var(--padding);
+	border: 1px solid var(--border-color);
+	border-radius: 8px 8px 0 0;
+	overflow: hidden;
+    color: var(--tab-color);
+    background: var(--tab-background);
+}
+
+div.ui_tab:hover {
+    background: var(--button-hover-background);
+}
+
+div.ui_tab.show {
+    border-bottom: none;
+    color: var(--selected-tab-color);
+    background: var(--selected-tab-background);
+    overflow: visible;
+}
+
+div.ui_tab_container {
+    display: none;
+    visibility: hidden;
+    padding: var(--padding);
+    border: 1px solid var(--border-color);
+}
+
+div.ui_tab_container.show {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    visibility: visible;
+}
+
+/* stand-alone text elements */
+
+div.ui_text {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin-top: var(--margin);
+    margin-bottom: var(--margin);
+}
+
+div.ui_label {
+    display: inline-block;
+    white-space: pre;
+}
+
+div.ui_label.permanent {
+    height: var(--field-height);
+    line-height: var(--field-height);
+}
+
+textarea.ui_textarea {
+    resize: none;
+    font: var(--font);
+    background: var(--data-background);
+    color: var(--input-data-color);
+    white-space: pre;
+    overflow-wrap: normal;
+    overflow-x: scroll;  
+}
+
+textarea.ui_textarea.vresize {
+    resize: vertical;
+}
+
+textarea.ui_textarea.readonly {
+    color: var(--data-color);
+}
+
+textarea.ui_textarea.fixed {
+    font: var(--mono-font);
+}
+
+/* fields (label + display) */
+
+div.ui_field_label {
+    display: inline-block;
+    padding-right: 3px;
+    text-align: right;
+    line-height: var(--field-height);
+    vertical-align: middle;
+    /* width: var(--field-label-width); */
+    height: var(--field-height);
+    white-space: pre;
+    font: var(--font);
+}
+
+input.ui_field {
+    display: inline-block;
+    box-sizing: border-box;
+    border: var(--field-border);
+    color: var(--field-value-color);
+    background: var(--data-background);
+    width: var(--field-value-width);
+    height: var(--input-height);
+    text-align: left;
+    vertical-align: middle;
+    font: var(--font);
+}
+
+input.ui_field.fixed {
+    font: var(--mono-font);
+}
+
+input.ui_field.num {
+    text-align: right;
+    font: var(--mono-font);
+}
+
+/* table cell fields */
+
+
+td.ui_field_label {
+    padding-right: 0.5rem;
+    text-align: right;
+    line-height: var(--list-item-height);
+    vertical-align: middle;
+    /* width: var(--field-label-width); */
+    height: var(--list-item-height);
+    white-space: pre;
+    border: var(--table-border);
+}
+
+td.ui_field {
+    padding-left: 0.5rem;
+    color: var(--field-value-color);
+    background: var(--data-background);
+    /*width: var(--field-value-width); */
+    height: var(--list-item-height);
+    text-align: left;
+    font: var(--font);
+    white-space: nowrap;
+    border: var(--table-border);
+}
+
+td.ui_field.fixed {
+    font: var(--mono-font);
+}
+
+/* color box */
+
+div.ui_color_box {
+    display: list-item; /* required to show on Firefox */
+    margin: 3px;
+    width: 90%;
+    height: 90%;
+}
+
+/* clock widget */
+
+div.ui_clock {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+
+div.ui_clock_wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    border: var(--field-border);
+    background: var(--data-background);
+    padding: 5px;
+}
+
+div.ui_clock_date {
+    display: block;
+    color: var(--clock-color);
+    font: var(--clock-date-font);
+}
+
+div.ui_clock_time {
+    display: block;
+    color: var(--clock-color);
+    font: var(--clock-time-font);
+}
+
+
+/* timer widget */
+
+div.ui_timer {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+
+div.ui_timer_value {
+    display: block;
+    color: var(--clock-color);
+    font: var(--clock-time-font);
+    border: var(--field-border);
+    background: var(--data-background);
+    padding: 5px;
+}
+
+
+/* input field */
+
+input.ui_field.input {
+    color: var(--input-color);
+    font: var(--font);
+}
+
+input.ui_field.input.fixed {
+    color: var(--input-color);
+    font: var(--mono-font);
+    text-align: right;
+}
+
+input.ui_field.fixed {
+    color: var(--data-color);
+    font: var(--mono-font);
+    text-align: right;
+}
+
+input.ui_field.input:focus {
+    color: var(--input-active-color);
+    background: var(--input-active-background);
+    outline: var(--focus-outline);
+}
+
+input.ui_field.input:hover {
+    color: var(--input-active-color);
+    background: var(--input-active-background);
+}
+
+
+/* sliders */
+
+div.ui_slider {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 3px;
+}
+
+div.ui_slider:focus {
+    outline: var(--focus-outline);
+}
+
+div.ui_slider_track {
+    box-sizing: border-box;
+    height: var(--slider-height);
+    width: var(--slider-width);
+    border: var(--border);
+    background: var(--data-background);
+    position: relative;
+}
+
+div.ui_slider_track:hover {
+    color: var(--input-active-color);
+    background: var(--input-active-background);
+}
+
+div.ui_slider_range {
+    display: block;
+    background: var(--field-value-color);
+    height: 2px;
+    width: calc(100% - var(--slider-thumb-size));
+    position: relative;
+    left: calc(var(--slider-thumb-size)/2);
+}
+
+div.ui_slider_thumb {
+    display: inline-block;
+    color: var(--field-value-color);
+    background: transparent;
+    width: var(--slider-thumb-size);
+    height: var(--slider-thumb-size);
+    text-align: center;
+    position: absolute;
+    top: 0;
+    left: calc(50% - var(--slider-thumb-size)/2);
+    cursor: ew-resize;
+    z-index: 2;
+}
+
+div.ui_slider_thumb:hover {
+    color: var(--input-active-color);
+}
+
+div.ui_slider_num {
+    display: inline-block;
+    color: var(--field-value-color);
+    background: var(--data-background);
+    font: var(--mono-font);
+    position: absolute;
+    top: 4px;
+    z-index: 2;
+}
+
+div.ui_slider_limit {
+    display: inline-block;
+    color: var(--slider-range-color);
+    font: var(--mono-font);
+    /*font-size: small;*/
+    position: absolute;
+}
+
+
+/* choice fields */
+
+div.ui_choice:focus {
+    outline: var(--focus-outline);
+}
+
+div.ui_choice {}
+
+div.ui_choice_value {
+    display: inline-block;
+    box-sizing: content-box;
+    border: var(--choice-field-border);
+    color: var(--field-value-color);
+    background: var(--data-background);
+    width: var(--choice-value-width);
+    height: var(--field-height);
+}
+
+div.ui_choice_value::before {
+    display: inline-block;
+    color: var(--field-value-color);
+    background: transparent;
+    width: 1rem;
+    height: 1rem;
+    content: "≣";
+    font-size: larger;
+    /* "∇⋁⩔≣≡" */
+}
+
+div.ui_choice_value.num {
+    font: var(--mono-font);
+    text-align: right;
+}
+
+div.ui_choice_value.text {
+    font: var(--font);
+    text-align: right;
+}
+
+div.ui_choice_value:hover {
+    background: var(--button-hover-background);
+}
+
+
+/* checkboxes */
+
+div.ui_checkbox {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    background: transparent;
+    padding: 3px;
+}
+
+div.ui_checkbox:focus {
+    outline: none;
+}
+
+div.ui_checkbox_button:focus {
+    outline: var(--focus-outline);
+}
+
+div.ui_checkbox:active {
+    color: var(--button-color-pressed);
+}
+
+div.ui_checkbox_button {
+    display: inline-block;
+    /* box-sizing: border-box; */
+    width: var(--checkbox-button-size);
+    height: var(--checkbox-button-size);
+    border: var(--checkbox-button-border);
+    color: var(--data-color);
+    background: var(--data-background);
+    font-size: smaller;
+    font-weight: bold;
+    text-align: center;
+}
+
+div.ui_checkbox:hover div {
+    background: var(--button-hover-background);
+}
+
+div.ui_checkbox.checked div.ui_checkbox_button::before {
+    content: "✓";
+}
+
+div.ui_checkbox_label {
+    display: inline-block;
+    text-align: left;
+    vertical-align: middle;
+    padding-left: 3px;
+}
+
+/* radio buttons */
+
+div.ui_radio {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    background: transparent;
+    padding: 3px;
+}
+
+div.ui_radio:focus {
+    outline: var(--focus-outline);
+}
+
+div.ui_radio:active {
+    color: var(--button-color-pressed);
+}
+
+div.ui_radio:hover div {
+    background: var(--button-hover-background);
+}
+
+div.ui_radio_button {
+    display: flex;
+    box-sizing: border-box;
+    width: var(--radio-button-size);
+    height: var(--radio-button-size);
+    border: var(--radio-button-border);
+    border-radius: 50%;
+    color: var(--data-color);
+    background: var(--data-background);
+    line-height: var(--radio-button-size);
+    align-items: center;
+    justify-content: center;
+}
+
+div.ui_radio.selected div.ui_radio_button::before {
+    content: "◉";
+}
+
+div.ui_radio_label {
+    display: inline-block;
+    text-align: left;
+    vertical-align: middle;
+    padding-left: 3px;
+}
+
+
+/* buttons */
+
+.ui_button {
+    display: inline-block;
+    height: var(--button-height);
+    color: var(--button-color);
+    font: var(--font);
+    background: var(--button-background);
+    border: var(--button-border);
+    border-radius: var(--button-border-radius);
+    margin: var(--margin);
+    padding: 3px 5px 3x 5px;
+}
+
+.ui_button:focus {
+    outline: var(--focus-outline);
+}
+
+.ui_button:hover {
+    border: var(--button-hover-border);
+    color: var(--button-hover-color);
+    background: var(--button-hover-background);
+}
+
+.ui_button:disabled {
+    color: var(--disabled-color);
+    background: var(--button-background);
+}
+
+.ui_button:active {
+    border: var(--button-border-pressed);
+    color: var(--button-color-pressed);
+}
+
+
+/* list boxes */
+
+div.ui_list_wrapper {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    background: transparent;
+}
+
+div.ui_list_header {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-end;
+    flex-grow: 0;
+    background: transparent;
+    font: var(--list-header-font);
+    margin: var(--list-item-padding);
+    margin-right: calc( var(--scrollbar-track-width) + var(--border-width) + var(--list-item-padding));
+}
+
+div.ui_list_subitem.header {
+    flex-grow: 0;
+    min-height: 3px;
+}
+
+div.ui_list {
+    color: var(--list-color);
+    background: var(--data-background);
+    border: var(--list-border);
+    /*
+    border-style: solid;
+    border-width: var(--border-width);
+    border-top-color: var(--border-dark-color);
+    border-left-color: var(--border-dark-color);
+    border-right-color: var(--border-bright-color);
+    border-bottom-color: var(--border-bright-color);
+    */
+    padding: var(--list-item-padding);
+    /*max-height: calc( attr(data-rows) * var(--list-item-height) + 2px);  attr() does not work */
+    min-width: var(--list-width);
+    min-height: calc( 2 * var(--list-item-height));
+    box-sizing: border-box;
+    overflow-y: scroll;
+    overflow-x: auto;
+}
+
+div.ui_list:focus {
+    outline: var(--focus-outline);
+}
+
+div.ui_list_item {
+    display: flex;
+    flex-direction: row;
+    align-content: center;
+    align-items: center;
+    height: var(--list-item-height);
+    color: var(--field-value-color);
+    padding: var(--list-item-padding);
+}
+
+div.ui_list_item:hover {
+    background: var(--list-hover-background);
+}
+
+div.ui_list_item.selected {
+    color: var(--selected-data-color);
+    background: var(--list-selection-background);
+}
+
+div.ui_list_item.prototype {
+    display: none;
+}
+
+div.ui_list_subitem {
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: clip;
+    background: transparent;
+    text-align: left;
+    white-space: pre;
+
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+}
+
+div.ui_list_subitem.align_left {
+    text-align: left;
+}
+
+div.ui_list_subitem.align_right {
+    text-align: right;
+}
+
+/* trees */
+
+div.ui_node {
+    display: flex;
+    background: transparent;
+    justify-content: space-between;
+}
+
+div.ui_node:hover {
+    background: var(--list-hover-background);
+}
+
+div.ui_node.selected {
+    color: var(--selected-data-color);
+    background: var(--list-selection-background);
+}
+
+div.ui_node_prefix {
+    display: inline-block;
+    white-space: pre;
+    background: var(--data-background); /* override hover/selected */
+    font: var(--mono-font);
+    color: var(--dim-color);
+    height: 100%;
+}
+
+div.ui_node_name {
+    display: inline-block;
+    background: transparent;
+    padding-left: var(--list-item-padding);
+    color: var(--data-color);
+}
+
+div.ui_node_name.no_data {
+    color: var(--color);
+}
+
+/* kv - tables */
+
+table.ui_kvtable {
+    display: block;
+    color: var(--list-color);
+    background: var(--data-background);
+    border: var(--list-border);
+    border-collapse: collapse;
+
+    padding: var(--list-item-padding);
+    /*max-height: calc( attr(data-rows) * var(--list-item-height) + 2px);  attr() does not work */
+    min-width: var(--list-width);
+    min-height: calc( 2 * var(--list-item-height));
+    box-sizing: border-box;
+    overflow-y: scroll;
+    overflow-x: auto;
+}
+
+table.ui_kvtable tr td {
+    border: var(--table-border);
+    border-top: 0;
+    border-left: 0;
+}
+
+table.ui_kvtable tr:last-child td {
+    border-bottom: 0;
+}
+
+table.ui_kvtable tr td:last-child {
+    border-right: 0;
+}
+
+/* list controls */
+
+div.ui_listcontrols {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    /* padding: var(--container-padding); */
+    margin: var(--container-margin);
+    gap: var(--container-gap);
+    background: transparent;
+}
+
+/* popup menus */
+
+div.ui_popup_menu {
+    /*display: none;*/
+    position: fixed;
+    visibility: hidden;
+    border: var(--popup-menu-border);
+    border-radius: 5px;
+    background: var(--menuitem-background);
+    box-shadow: var(--box-shadow);
+    z-index: 5;
+}
+
+div.ui_popup_menu hr {
+    border: 1px inset var(--border-color);
+}
+
+div.ui_menuitem {
+    padding: 2px 1rem 2px 1rem;
+    font: var(--menuitem-font);
+    height: var(--menuitem-height);
+    color: var(--menuitem-color);
+    background: var(--menuitem-background);
+}
+
+div.ui_menuitem.disabled {
+    color: var(--disabled-color);
+}
+
+div.ui_menuitem.checked::before {
+    content: "✓ ";
+}
+
+div.ui_menuitem:not([class*="disabled"]):hover {
+    color: var(--menuitem-selection-color);
+    background: var(--menuitem-selection-background);
+}
+
+/* leveled progress bar */
+
+div.ui_progress_bar {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    background: transparent;
+    border: var(--progress-border);
+    padding: var(--progress-padding);
+}
+
+div.ui_progress_0 {
+    display: inline-block;
+    background: var(--progress-0-background);
+    border: var(--progress-0-border);
+    padding: var(--progress-0-padding);
+}
+
+div.ui_progress_1 {
+    display: inline-block;
+    background: var(--progress-1-background);
+    border: var(--progress-1-border);
+    padding: var(--progress-1-padding);
+}
+
+/* layout container */
+
+div.ui_container {
+    display: flex;
+    flex-wrap: nowrap;
+    /* padding: var(--container-padding); */
+    margin: var(--container-margin);
+    gap: var(--container-gap);
+    background: transparent;
+}
+
+div.ui_container.bordered {
+    display: inline-flex;
+    border: var(--border);
+    background: var(--data-background);
+    margin: var(--margin);
+    gap: 0;
+}
+
+div.ui_container.row {
+    flex-direction: row;
+    align-items: center;
+}
+
+div.ui_container.column {
+    flex-direction: column;
+}
+
+div.spacer {
+    flex-grow: 10;
+}
+
+div.ui_container.column.align_left {
+    align-items: flex-start;
+}
+
+div.ui_container.column.align_center {
+    align-items: center;
+}
+
+div.ui_container.column.align_right {
+    align-items: flex-end;
+}
+
+div.ui_container.row.align_top {
+    align-items: flex-start;
+}
+
+div.ui_container.row.align_center {
+    align-items: center;
+}
+
+div.ui_container.row.align_bottom {
+    align-items: flex-end;
+}
+
+div.ui_container_wrapper {
+    display: block;
+    background: transparent;
+}
+
+div.ui_container_title {
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
+    font: var(--container-title-font);
+    color: var(--container-title-color);
+    border-bottom: var(--container-title-border);
+}
+
+div.icon_box {
+    position: absolute;
+    margin: var(--icon-box-margin);
+    gap: var(--icon-box-gap);
+    background: var(--icon-box-background);
+}
+
+/* tooltip support (element agnostic) - note that _ui_tooltip are top level to avoid overflow clipping */
+
+.tooltipped {
+    text-decoration: underline dotted;
+}
+
+div.ui_tooltip {
+    display: block;
+    visibility: hidden;
+    position: absolute;
+    left: -1000px;
+    background: var(--tooltip-background);
+    color: var(--tooltip-color);
+    font: var(--font);
+    text-align: center;
+    padding: 5px;
+    border: var(--tooltip-border);
+    border-radius: 6px;
+    box-shadow: var(--tooltip-shadow);
+    z-index: 100;
+}
+
+
+div.ui_tooltip::after {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    bottom: calc(-5px - var(--tooltip-border-width));
+    left: calc(50% - 5px);
+    box-shadow: var(--tooltip-shadow);
+    transform: rotate(45deg);
+    background: var(--tooltip-background);
+    border: var(--tooltip-border);
+    border-left: 0;
+    border-top: 0;
+}

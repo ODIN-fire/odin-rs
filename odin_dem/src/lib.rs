@@ -149,15 +149,21 @@ async fn create_response (file: File, img_type: DemImgType) -> impl IntoResponse
     (headers,body)
 }
 
+pub fn dem_cache_dir()->PathBuf {
+    let path = odin_build::cache_dir().join("odin_dem");
+    fs::ensure_dir(&path).expect( &format!("unable to create DEM cache dir at {:?}", path));
+    path
+}
+
 //--- main lib entry
 
 /// for a given bounding box 'bbox' look for a matching file in 'cache_dir'.
 /// If none found yet create a file with the given 'img_type' from the virtual GDAL tileset specified by 'vrt_file'
-pub fn get_dem (bbox: &BoundingBox<f64>, srs: DemSRS, img_type: DemImgType, cache_dir: &str, vrt_file: &str) -> Result<(String,File)> {
-    fs::ensure_dir(cache_dir)?;
+pub fn get_dem (bbox: &BoundingBox<f64>, srs: DemSRS, img_type: DemImgType, vrt_file: &str) -> Result<(String,File)> {
+    let cache_dir = dem_cache_dir();
 
     let fname = get_filename(bbox, srs.bbox_precision(), img_type.file_extension());
-    let file_path: PathBuf = [cache_dir, fname.as_str()].iter().collect();
+    let file_path: PathBuf = cache_dir.join( fname.as_str());
 
     let vrt_path = Path::new(vrt_file);
     vrt_path.try_exists()?;

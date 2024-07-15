@@ -5,7 +5,6 @@ resolver = "2"
 members = [
   "odin_build",
   "odin_common",  
-  "odin_config",  
   "odin_job",
   "odin_action",
   "odin_actor",
@@ -30,7 +29,6 @@ members = [
 
 odin_build  = { version = "*", path = "odin_build" }
 odin_common = { version = "*", path = "odin_common" }
-odin_config = { version = "*", path = "odin_config" }
 odin_macro  = { version = "*", path = "odin_macro" }
 odin_gdal   = { version = "*", path = "odin_gdal" }
 odin_action = { version = "*", path = "odin_action" }

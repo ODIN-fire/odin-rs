@@ -23,10 +23,8 @@ use tokio;
 use anyhow::Result;
 use odin_actor::prelude::*;
 use odin_goesr::actor::GoesRHotspotImportActor;
-use odin_goesr::{live_importer::LiveGoesRHotspotImporter, GoesRHotSpots};
-use odin_config::prelude::*;
-
-use_config!();
+use odin_goesr::{live_importer::LiveGoesRHotspotImporter, GoesRHotSpots, load_config};
+use odin_build;
 
 #[derive(Debug)] pub struct Update(String);
 
@@ -43,13 +41,15 @@ impl_actor! { match msg for Actor<GoesRMonitor,GoesRMonitorMsg> as
 
 #[tokio::main]
 async fn main() -> Result<()>{
+    odin_build::set_bin_context!();
+
     let mut actor_system = ActorSystem::with_env_tracing("main");
 
     let hmonitor = spawn_actor!( actor_system, "monitor", GoesRMonitor{})?;
 
     let _actor_handle = spawn_actor!( actor_system, "goesr",  GoesRHotspotImportActor::new(
-        config_for!( "goesr")?, 
-        LiveGoesRHotspotImporter::new( config_for!( "goes_18_aws")?),
+        load_config( "goesr")?, 
+        LiveGoesRHotspotImporter::new( load_config( "goes_18_aws.ron")?),
         data_action!( hmonitor.clone(): ActorHandle<GoesRMonitorMsg> => |data:Vec<GoesRHotSpots>| {
             for hs in data.into_iter(){
                 let msg = Update(hs.to_json_pretty().unwrap());

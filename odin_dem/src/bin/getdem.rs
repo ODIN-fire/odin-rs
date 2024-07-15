@@ -46,10 +46,6 @@ struct CliOpts {
     #[structopt(short,long,default_value="tif")]
     img_type: String,
 
-    /// where to store created dem files
-    #[structopt(short,long,default_value="cache")]
-    cache_dir: String,
-
     /// the GDAL *.vrt file to create the DEM from
     vrt_file: String
 }
@@ -59,18 +55,17 @@ lazy_static! {
 }
 
 fn main() {
+    odin_build::set_bin_context!();
+
     let bbox = BoundingBox::from_wsen::<f64>(&[ARGS.west, ARGS.south, ARGS.east, ARGS.north]);
     if let Some(img_type) = DemImgType::for_ext(ARGS.img_type.as_str()) {
         if fs::existing_non_empty_file_from_path(&ARGS.vrt_file).is_ok() {
-            if fs::ensure_writable_dir(&ARGS.cache_dir).is_ok() {
-                let srs = DemSRS::UTM { epsg: 32610 };
+            let srs = DemSRS::UTM { epsg: 32610 };
 
-                match get_dem(&bbox,srs,img_type, ARGS.cache_dir.as_str(),ARGS.vrt_file.as_str()) {
-                    Ok((file_path, file)) => println!("DEM file at {}", file_path),
-                    Err(e) => eprintln!("failed to create DEM file, error: {}", e)
-                }
-
-            } else { eprintln!("invalid cache dir {}", ARGS.cache_dir) }
+            match get_dem(&bbox,srs,img_type,ARGS.vrt_file.as_str()) {
+                Ok((file_path, file)) => println!("DEM file at {}", file_path),
+                Err(e) => eprintln!("failed to create DEM file, error: {}", e)
+            }
         } else { eprintln!("VRT file not found {}", ARGS.vrt_file) }
     } else { eprintln!("unknown target image type {}", ARGS.img_type) }
 
