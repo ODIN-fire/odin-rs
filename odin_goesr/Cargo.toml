@@ -2,6 +2,7 @@
 name = "odin_goesr"
 version = "0.1.0"
 edition = "2021"
+build = "../build_resources.rs"
 
 [[bin]]
 name = "read_goesr_hotspots"
@@ -13,12 +14,12 @@ path = "src/bin/download_goesr_data.rs"
 
 [dependencies]
 # our ODIN crates
+odin_build = { workspace = true }
 odin_actor = { workspace = true }
 odin_common = { workspace = true, features = ["s3"] }
-odin_config = { workspace = true }
 odin_macro = { workspace = true }
 odin_gdal = { workspace = true }
-odin_server = { workspace = true }
+#odin_server = { workspace = true }
 
 serde_json = "*"
 ron = "*"
@@ -40,5 +41,9 @@ regex = "*"
 [build-dependencies]
 odin_build = { workspace = true }
 
+[package.metadata.odin_configs]
+sentinel = { file="sentinel.ron" }
+sentinel_alarm = { file="sentinel_alarm.ron", bin=["sentinel_alarm"] }
+
 [features]
-assets_embedded = []
+embedded_resources = []

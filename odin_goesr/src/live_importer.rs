@@ -1,18 +1,15 @@
 /*
- * Copyright (c) 2024, United States Government, as represented by the
- * Administrator of the National Aeronautics and Space Administration.
- * All rights reserved.
+ * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The ODIN - Open Data Integration Framework is licensed under the
- * Apache License, Version 2.0 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of the
- * License at http://www.apache.org/licenses/LICENSE-2.0.
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
+ * you may not use this file except in compliance with the License. You may obtain a copy 
+ * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
 
 use crate::*;
@@ -51,8 +48,8 @@ pub struct LiveGoesRHotspotImporter {
 
 impl LiveGoesRHotspotImporter {
     pub fn new (config: LiveGoesRHotspotImporterConfig) -> Self {
-        let cache_dir = Arc::new( odin_config::app_metadata().cache_dir.join("goesr"));
-        ensure_writable_dir(&cache_dir).unwrap(); // Ok to panic - this is a toplevel application object
+        let cache_dir = Arc::new( odin_build::cache_dir().join("goesr"));
+        ensure_writable_dir(cache_dir.as_ref()).unwrap(); // Ok to panic - this is a toplevel application object
 
         LiveGoesRHotspotImporter{ config, cache_dir, import_task:None, file_cleanup_task:None }
     }

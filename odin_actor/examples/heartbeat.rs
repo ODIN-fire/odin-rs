@@ -1,18 +1,15 @@
 /*
- * Copyright (c) 2024, United States Government, as represented by the
- * Administrator of the National Aeronautics and Space Administration.
- * All rights reserved.
+ * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The ODIN - Open Data Integration Framework is licensed under the
- * Apache License, Version 2.0 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of the
- * License at http://www.apache.org/licenses/LICENSE-2.0.
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
+ * you may not use this file except in compliance with the License. You may obtain a copy 
+ * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
 #![allow(unused)]
 
@@ -21,6 +18,9 @@ use odin_actor::{console_ui::ConsoleUI, prelude::*};
 use odin_macro::fn_mut;
 use tokio::task::JoinHandle;
 use anyhow::{anyhow,Result};
+
+#[cfg(feature="tui")]
+use odin_actor::tui;
 
 //--- Actor1
 
@@ -80,7 +80,7 @@ impl_actor! { match msg for Actor<Actor3State,Actor3Msg> as
                     a2.try_send_msg(MsgC(n));
                     n += 1;
                     if n % 100 == 0 { 
-                        println!("{n}");
+                        // println!("{n}");
                         //print!("\r\x1b[32;1m  \x1b[37m {}\x1b[0m", n) 
                     }
                 }  
@@ -102,7 +102,15 @@ async fn main() ->Result<()> {
     // for some reason the tokio main task can be very slow so we run the whole app in a spawned one
     let jh: JoinHandle<Result<()>> = tokio::spawn( async {
         let mut actor_system = ActorSystem::new("main");
+
+        // use the ratatui UI if example was built with the 'tui' feature
+        #[cfg(feature="tui")]
+        actor_system.set_ui(tui::create_tui(actor_system.clone_handle()).await?);
+
+        //... use plain console output otherwise
+        #[cfg(not(feature="tui"))]
         actor_system.set_ui( ConsoleUI::new_boxed( actor_system.clone_handle()));
+
 
         let a1 = spawn_actor!( actor_system, "actor1", Actor1State{n_a: 0, n_b: 0})?;
         let a2 = spawn_actor!( actor_system, "actor2", Actor2State{n: 0, a1: a1.clone()})?;

@@ -8,7 +8,7 @@ This is the readme for the odin-rs repository, which is the Rust version of the 
 
 The goal of the ODIN framework is to efficiently create servers for static and dynamic data that support disaster management in order to improve situational awareness of responders. You can get an idea about ODIN applications by watching our [TFRSAC](https://fsapps.nwcg.gov/nirops/pages/tfrsac) presentations:
 
-  * [sring 2023](https://www.youtube.com/watch?v=b9DfMBYCe-s&t=4950s)
+  * [spring 2023](https://www.youtube.com/watch?v=b9DfMBYCe-s&t=4950s)
   * [fall 2022](https://www.youtube.com/watch?v=gCBXOaybDLA)
 
 ODIN-RS is a Rust based successor of the [race-odin](https://nasarace.github.io/race-odin/) system that was implemented in Scala/Java (see [RACE](https://nasarace.github.io/race/)). It is our intention to open source ODIN-RS under Apache v2 license.

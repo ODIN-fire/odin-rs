@@ -14,6 +14,9 @@ tokio = { version = "*", features = ["full", "tracing"], optional = true }
 kanal = { version = "0.1.0-pre8", features = ["async"], optional = true }
 flume = { version = "*", features = ["default", "spin"], optional = true }
 
+ratatui = { version = "*", features = ["all-widgets"], optional = true }
+crossterm = { version = "*", features = ["event-stream"], optional = true }
+
 futures = "*"
 thiserror = "*"
 anyhow = "*"
@@ -24,13 +27,14 @@ colored = "*"
 #quanta = "*"
 paste = "*"
 async-trait = "*"
+lazy_static = "*"
 
 tracing = "*"
 tracing-subscriber = "*"
 console-subscriber = "*"
 
+odin_build = { workspace = true }
 odin_macro = { workspace = true }
-odin_config = { workspace = true }
 odin_job = { workspace = true }
 odin_action = { workspace = true }
 
@@ -39,5 +43,6 @@ default = ["tokio_kanal"]
 #default = ["tokio_flume"]
 tokio_kanal = ["dep:tokio", "dep:kanal"]
 tokio_flume = ["dep:tokio", "dep:flume"]
+tui = ["dep:ratatui", "dep:crossterm"]
 
 

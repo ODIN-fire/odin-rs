@@ -16,6 +16,7 @@ path = "src/bin/getdem.rs"
 [dependencies]
 
 # our ODIN crates
+odin_build = { workspace = true }
 odin_common = { workspace = true }
 odin_gdal = { workspace = true }
 

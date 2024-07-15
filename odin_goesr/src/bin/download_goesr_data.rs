@@ -1,18 +1,15 @@
 /*
- * Copyright (c) 2024, United States Government, as represented by the
- * Administrator of the National Aeronautics and Space Administration.
- * All rights reserved.
+ * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The ODIN - Open Data Integration Framework is licensed under the
- * Apache License, Version 2.0 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of the
- * License at http://www.apache.org/licenses/LICENSE-2.0.
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
+ * you may not use this file except in compliance with the License. You may obtain a copy 
+ * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
 #![allow(unused)]
 #![feature(duration_constructors)]
@@ -27,13 +24,11 @@ use std::{time::{Duration,Instant},sync::Arc};
 use tokio::{self,time::sleep};
 use chrono::{DateTime,Utc};
 
-use odin_config::prelude::*;
+use odin_build;
 use odin_common::{define_cli,fs::ensure_writable_dir};
 use odin_common::s3::{S3Object,create_s3_client, get_s3_objects, get_last_s3_object};
 use odin_common::schedule::{get_hourly_schedule,Compaction,get_next_hourly_event_dtg};
-use odin_goesr::{get_goesr_data, get_most_recent_objects, get_objects_since, no_object_error, OdinGoesRError, Result, LiveGoesRHotspotImporterConfig};
-
-use_config!();
+use odin_goesr::{load_config,get_goesr_data, get_most_recent_objects, get_objects_since, no_object_error, OdinGoesRError, Result, LiveGoesRHotspotImporterConfig};
 
 define_cli! { ARGS [about="GOES-R file download tool"] =
     config: String [help="pathname to LiveGoesRDataImporterConfig config"]
@@ -41,8 +36,9 @@ define_cli! { ARGS [about="GOES-R file download tool"] =
 
 #[tokio::main]
 async fn main()->Result<()> {
-    let config: LiveGoesRHotspotImporterConfig = config_for!( &ARGS.config)?;
-    let cache_dir = odin_config::app_metadata().cache_dir.join("goesr");
+    odin_build::set_bin_context!();
+    let config: LiveGoesRHotspotImporterConfig = load_config( &ARGS.config)?;
+    let cache_dir = odin_build::cache_dir().join("goesr");
     ensure_writable_dir(&cache_dir)?;
 
     let client = create_s3_client( config.s3_region.clone()).await?;

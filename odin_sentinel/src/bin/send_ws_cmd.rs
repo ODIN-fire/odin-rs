@@ -1,23 +1,25 @@
 /*
- * Copyright (c) 2024, United States Government, as represented by the
- * Administrator of the National Aeronautics and Space Administration.
- * All rights reserved.
+ * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The ODIN - Open Data Integration Framework is licensed under the
- * Apache License, Version 2.0 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of the
- * License at http://www.apache.org/licenses/LICENSE-2.0.
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
+ * you may not use this file except in compliance with the License. You may obtain a copy 
+ * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
 #![allow(unused)]
 
 /// test utility to send WsCmd messages to the Delphire server, supporting command line message arg or interactive modes.
 /// This uses the same sentinel.ron config as the other crate executables
+/// 
+/// example: 
+/// ```
+/// {"event": "trigger-alert", "data":{ "deviceIds": ["roo7gd1dldn3"]}}
+/// ```
 
 use odin_actor::errors::op_failed;
 use tokio::{io,time::timeout};
@@ -27,15 +29,14 @@ use futures::{SinkExt,StreamExt};
 use std::{io::{stdin,stdout,Write},time::Duration,fmt::Debug};
 use strum::EnumString;
 
-use odin_config::prelude::*;
+use odin_build;
 use odin_common::{if_let,define_cli,check_cli};
 use odin_sentinel::{
     get_device_list_from_config,
     OdinSentinelError, SentinelConfig, Result,
-    ws::{connect, expect_connected_response, WsCmd, WsMsg, WsStream}
+    ws::{connect, expect_connected_response, WsCmd, WsMsg, WsStream},
+    load_config,
 };
-
-use_config!();
 
 #[derive(Debug,EnumString)]
 #[strum(serialize_all="snake_case")]
@@ -49,9 +50,10 @@ define_cli! { ARGS [about="Delphire Sentinel websocket command tool"] =
 
 #[tokio::main]
 async fn main()->anyhow::Result<()> {
+    odin_build::set_bin_context!();
     check_cli!(ARGS);
 
-    let config: SentinelConfig = config_for!( "sentinel")?;
+    let config: SentinelConfig = load_config( "sentinel.ron")?;
     if ARGS.execute.is_empty() {
         print_prolog(&config).await?;
     }
