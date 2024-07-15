@@ -42,8 +42,9 @@ regex = "*"
 odin_build = { workspace = true }
 
 [package.metadata.odin_configs]
-sentinel = { file="sentinel.ron" }
-sentinel_alarm = { file="sentinel_alarm.ron", bin=["sentinel_alarm"] }
+goesr = { file="goesr.ron" }
+goes_16_fdcc = { file="goes_16_fdcc.ron" }
+goes_18_fdcc = { file="goes_18_fdcc.ron" }
 
 [features]
 embedded_resources = []
