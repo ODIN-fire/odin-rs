@@ -44,6 +44,9 @@ pub use tokio_rt::{
 
 pub mod console_ui;
 
+#[cfg(feature="tui")]
+pub mod tui;
+
 pub mod errors;
 pub use errors::{OdinActorError,Result};
 

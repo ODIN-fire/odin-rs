@@ -22,6 +22,9 @@ use odin_macro::fn_mut;
 use tokio::task::JoinHandle;
 use anyhow::{anyhow,Result};
 
+#[cfg(feature="tui")]
+use odin_actor::tui;
+
 //--- Actor1
 
 #[derive(Debug)] struct MsgA(usize);
@@ -80,7 +83,7 @@ impl_actor! { match msg for Actor<Actor3State,Actor3Msg> as
                     a2.try_send_msg(MsgC(n));
                     n += 1;
                     if n % 100 == 0 { 
-                        println!("{n}");
+                        // println!("{n}");
                         //print!("\r\x1b[32;1m  \x1b[37m {}\x1b[0m", n) 
                     }
                 }  
@@ -102,7 +105,15 @@ async fn main() ->Result<()> {
     // for some reason the tokio main task can be very slow so we run the whole app in a spawned one
     let jh: JoinHandle<Result<()>> = tokio::spawn( async {
         let mut actor_system = ActorSystem::new("main");
+
+        // use the ratatui UI if example was built with the 'tui' feature
+        #[cfg(feature="tui")]
+        actor_system.set_ui(tui::create_tui(actor_system.clone_handle()).await?);
+
+        //... use plain console output otherwise
+        #[cfg(not(feature="tui"))]
         actor_system.set_ui( ConsoleUI::new_boxed( actor_system.clone_handle()));
+
 
         let a1 = spawn_actor!( actor_system, "actor1", Actor1State{n_a: 0, n_b: 0})?;
         let a2 = spawn_actor!( actor_system, "actor2", Actor2State{n: 0, a1: a1.clone()})?;
