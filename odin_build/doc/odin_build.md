@@ -1,7 +1,29 @@
 # odin_build
 
 `odin_build` is a library crate that is used in a dual role both for utility functions called by ODIN crate specific 
-`build.rs` scripts and at application runtime to locate resources and global dirs.
+[build scripts](https://doc.rust-lang.org/cargo/reference/build-scripts.html) and at application runtime to locate resources and global directories.
+
+## Background
+The primary use of ODIN is to create servers - either interactive web-servers or edge-servers used by other applications. To that end ODIN servers support four general categories of data: 
+
+1. configs - essential runtime invariant configuration data (e.g. URIs and user credentials for external servers)
+2. assets - essential runtime invariant data that is served/used by ODIN (e.g. CSS and Javascript modules for web servers) 
+3. data - global persistent data for ODIN applications that can change independently of the ODIN application using them
+4. cache - global transient data for ODIN applications (e.g. cached responses from proxied servers)
+
+Configs and assets are essential **resources**, i.e. applications can rely on their existence (but not their values). For `data` and `cache` we only guarantee that respective directories exist at runtime - the use of those directories is up to individual applications.
+
+Common to all categories is that such data can change independently of the ODIN Rust sources using them and hence do need a consistent, well defined lookup mechanism used throughout all ODIN applications. That mechanism is implemented in `odin_build`, mostly through four functions:
+
+- `❬crate❭::load_config<C> (file_name: &str)->Result<C>` (`C` being the type of the requested, deserializable config struct)
+- `❬crate❭::load_asset (file_name: &str)->Result<Bytes>`
+- `odin_build::data_dir()->&'static PathBuf`
+- `odin_build::cache_dir()->&'static PathBuf`
+
+The reason why the first two functions reside in the crates defining respective resources is that we also support stand-alone ODIN applications that can be distributed as single executable files, without the need to install (potentially sensitive) resource files (e.g. containing user authentication for 3rd party servers). This seems to be incompatible with that resource values can be changed independently of ODIN Rust sources. 
+
+To reconcile the two requirements we support a general build mode for ODIN applications that takes (at build-time) resource files and generates statically linked Rust sources from them. Generating source fragments for such **embedded resources** is done by build scripts utilizing functions provided by `odin_build`. The data flow is as follows:
+
 
 ```
       ┌────────────────┐                                                            
@@ -9,7 +31,7 @@
       └──────┬─────────┘                                                            
              │          ┌─────────────────────┐                                     
              │          │ crate my_crate      │        [cargo]                            
-             │          │                     │       $OUT_DIR (../target/❬mode❭/build/A-.../out/)                                  
+             │          │                     │      $OUT_DIR (../target/❬mode❭/build/A-../out/)                                  
              │          │   Cargo.toml (0)    │    ┌─────────────┐                  
              ╰──────────┼─► build.rs  ───(1)──┼───►│ config_data │                  
                         │   src/              │    └┬───▲──▲─────┘                  
@@ -18,14 +40,17 @@
                         │ (3) bin/            │         ╎  ╎
                         │  ╰─►  my_app.rs     │         ╎  ╎          [user]
                         │     ...             │         ╎  ╎        $ODIN_ROOT/         
-                        │   config/ ╶╶╶╶╶╶╶╶╶╶┼╶╶╶╶╶╶╶╶╶╯  ╰╶╶╶╶╶╶     config/          
+                        │   configs/ ╶╶╶╶╶╶╶╶╶┼╶╶╶╶╶╶╶╶╶╯  ╰╶╶╶╶╶╶     configs/          
                         │     my_config.ron   │   internal or external    my_crate/             
                         └─────────────────────┘         resource             my_config.ron
 
 ```
 
+This involves several steps:
 
-### (0) declaration of embeddable resources in Cargo.toml
+### (0) declaration of embeddable resources in Cargo.toml manifest of owning crates
+The first step is to specify package meta data for embeddable resource files in the crates owning them (henceforth called **resource crate**):
+
 ```toml
 [[bin]]
 name = "my_app"
@@ -35,9 +60,17 @@ my_config = { file="my_config.ron" }
 ...
 [package.metadata.odin_assets]
 my_asset = { file="my_asset.js", bins=["my_app"] }
+
+[features]
+embedded_resources = []
+...
 ```
 
+The `embedded_resource` feature should be transitive - if the resource crate in turn depends on other ODIN resource crates we have to pass-down the feature as in `embedded_resources = ["❬other-odin-crate❭/embedded_resources" ...]
+
 ### (1) creation of embedded resource data
+This step uses a build script of the resource crate to generate embedded resource code by calling functions from `odin_built`, showing its role as a build-time library crate:
+
 ```rs
  use odin_build;
 
@@ -48,7 +81,13 @@ my_asset = { file="my_asset.js", bins=["my_app"] }
  }
 ```
 
-### (2) declaration of resource accessor
+Note that using embedded resources requires the `embedded_resources` [feature](https://doc.rust-lang.org/cargo/reference/features.html) when building resource crates since it involves conditional compilation (more specifically feature-gated `import!(❬embedded-resource-fragment❭)` calls).
+
+ODIN stores all embedded resource data in compressed format. Depending on resource file type data might be minified before compression.
+
+### (2) declaration of resource accessor functions in resource crates
+At application runtime we use two macros from `odin_build` that expand into crate-specific public `load_config(…)` and `load_asset(…)` functions mentioned above.
+
 ```rs
 use odin_build::{define_load_config,define_load_asset};
 
@@ -57,9 +96,12 @@ define_load_asset!{}
 ...
 ```
 
+If the application was built with the `embedded_resources` feature the expanded `load_config(…)` and `load_asset(…)` functions conditionally import the resource code fragments. 
+
 ### (3) use of resources
+Using resource values at runtime is done through calling the expanded `load_config(…)` and `load_asset(…)` functions, which only require abstract resource filenames (not their location). The application source code is fully independent of the build mode:
+
 ```rs
-...
 fn main() {
     odin_build::set_bin_context();
     ...
@@ -69,35 +111,26 @@ fn main() {
 }
 ```
 
+## Resource Lookup
+We use the same algorithm for resource file lookup during build-time and application run-time. This algorithm is implemented in `odin_build::find_resource_file(…)` and is based on two main directory types of ODIN:
 
-## Background
+- **root directories**
+- **workspace directories**
 
-At build-time it is mostly used to generate source fragments for inlined resources. At runtime its main function
-is the lookup/instantiation of resources. The algorithm for resource lookup is shared by both phases.
+### ODIN Root Dir
+A **root-dir** is a directory that contains resource data that is kept outside of the source repository. ODIN applications are not supposed to rely on anything outside its root-dir but the user can control which root-dir to use (there can be several of them, e.g. for development and production)
 
-The `odin_build` crate is based on the four global types of data of an ODIN application:
+We detect the root-dir to use in the following order:
 
-1. configs - runtime invariant config data which can be spread over a number of locations, including in-memory
-2. assets - runtime invariant data that is served/used by ODIN. Same locations as configs
-3. data - global persistent data for ODIN applications. Requires a single runtime-invariant ODIN root-dir
-4. cache - global transient data for ODIN applications. Also requires a single runtime-invariant ODIN root dir
-
-`odin_build` uses two main directory types:
-
-## ODIN Root Dir
-An **root-dir** is a directory that contains runtime data kept outside of the source repository
-This is a directory that potentially contains all of the aforementioned data types. Both `data/` and `cache/`
-can only reside under a ODIN root-dir.
-`odin_build` detects the root-dir to use in the following order:
-
-1. whatever the environment variable ODIN_ROOT is set to
-2. if `$ODIN_ROOT` is not set the source repository parent - if it contains any of `cache/`, `data/`, `configs/` 
+1. whatever the optional environment variable `ODIN_ROOT` is set to
+2. if `$ODIN_ROOT` is not set the parent of the current directory **iff** it contains any of `cache/`, `data/`, `configs/` 
    or `assets/` sub-dirs
 3. a global `$HOME/.odin/` otherwise
 
-An ODIN *root-dir* can optionally contain other sub-directories such as an ODIN *workspace-dir*.
-This is to allow a self-contained directory structure during development (workspace root) and a global, configurable
+The 2nd rule is to allow a self-contained directory structure during development (workspace root) and a global, configurable
 directory structure in production (ODIN_ROOT or ~/.odin).
+
+An ODIN **root-dir** can optionally contain other sub-directories such as the ODIN **workspace-dir** mentioned below.
 
 ```
 .
@@ -123,11 +156,13 @@ directory structure in production (ODIN_ROOT or ~/.odin).
     └── ...                             optional dirs (e.g. ODIN workspace-dir)
 ```
 
-## ODIN Workspace Dir
-The **workspace-dir** is the top directory of the ODIN source repository, i.e. the directory into
-which the Github repository was cloned.
-While the primary contents of a *workspace-dir* are the ODIN crate sources, such crates can contain
-configs and - more typically - assets in case those should be kept within the source repository.
+### ODIN Workspace Dir
+The **workspace-dir** is the top directory of an ODIN source repository, i.e. the directory into which the `odin-rs` Github repository was cloned. While the primary content of a **workspace-dir** are the ODIN crate sources, such crates *can* contain
+configs and assets in case those should be kept within the source repository. This is typically the case for crates that serve/communicate with Javascript module assets - here we want to make sure asset and related ODIN Rust code are kept together.
+
+The **workspace-dir** is the topmost dir that holds a Cargo.toml, starting from the current dir.
+
+A **workspace-dir** follows the normal cargo convention but adds optional `configs/` and `assets/` sub-directories to respective workspace crates:
 
 ```
 .
@@ -149,62 +184,58 @@ configs and - more typically - assets in case those should be kept within the so
 ```
 
 
-## Data and Cache Directories
+With those directory types we can now define the resource file lookup algorithm:
 
-ODIN applications can write to both data/ and cache/ dirs (in whatever sub-dirs they choose). Applications have
-full control over respective directory contents.
+### File Lookup Algorithm
+For given 
 
-## Config and Asset Resources
+ - root-dir (ODIN_HOME | workspace-parent | ~/.odin)
+ - (optional) workspace-dir 
+ - resource type ("configs" or "assets"), 
+ - resource filename, 
+ - resource crate and 
+ - (optional) bin name + crate
+ 
+ check in the following order:
 
-Configs and assets are read-only *resources* and supposed to exist before starting an ODIN application.
-They are looked up in the following order 
+1. root-dir / resource-type / bin-crate / bin-name / resource-crate / filename
+2. root-dir / resource-type / resource-crate / filename
+3. workspace-dir / resource-type / bin-crate / bin-name / resource-crate / filename
+4. workspace-dir / resource-type / resource-crate / filename
 
-1. the ODIN root-dir, 
-2. respective `configs/` or `assets/` subdirs of their crate (either resource-crate or bin-crate)
-3. memory (compiled into bin)
+If no corresponding file is found in any of these locations an error is returned.
 
-Resources are identified by their defining crates and their filenames, to abstract their physical location.
+### Runtime Resource Lookup Algorithm
 
-In-memory (compiled in) resources are used to build stand-alone binaries that do not require any additional
-files to start up. To enable in-memory resources for a crate its `Cargo.toml` manifest has to include 
-metadata of the form
+At application runtime we optionally extend the above file system lookup mechanism by checking for an embedded resource within the resource-crate if no file was found.
 
-```toml
-...
-[package.metadata.odin_configs]
-my_app = { file="my_app.ron" }
-...
-[package.metadata.odin_assets]
-my_es_module = { file="my_es_module.js" }
-...
+By setting a runtime environment variable `ODIN_EMBEDDED_ONLY=true` we can force the lookup to only consider embedded resources.
+
+## ODIN Environment Variables
+
+At runtime, ODIN applications use the following optional environment variables:
+
+- `ODIN_HOME`
+- `ODIN_EMBEDDED_ONLY`
+
+At build-time, ODIN uses the following environment variables to provide build script input
+
+- `ODIN_BIN_CRATE` - set manually or by ODIN build tool
+- `ODIN_BIN_NAME` - set manually or by ODIN build tool
+- `ODIN_EMBED_RESOURCES` - set manually or by ODIN build tool
+- `OUT_DIR` - automatically set by cargo
+- `CARGO_PKG_NAME` - automatically set by cargo
+- `CARGO_BIN_NAME` - automatically set by cargo for bin target
+
+
+## ODIN build tools
+
+To further simplify building applications with embedded resources `odin_build` includes a tool that automates setting required environment variables, calling cargo and reporting embedded files:
+
+```
+bob [--embed] [--root ❬dir❭] [❬cargo-opts❭...] ❬bin-name❭
+  --embed      : build binary with embedded resources
+  --root ❬dir❭ : set ODIN root dir to embed resources from
 ```
 
-Config resources are  different from assets in that they normally reside outside the source repository as they
-are supposed to be modified without the need to rebuild applications and might contain information that should 
-not be distributed with sources (e.g. user credentials).
-
-The typical use of config data is to deserialize it into dedicated config structs at runtime. The crate that 
-defines the struct is called the *config-crate*. Config data is stored in files and uses the
-[Rust Object Notation](https://docs.rs/ron/latest/ron/).
-
-The primary key for a config file is its filename. There are several alternative locations for each
-config file which are checked in a priority order (specific overrides general).
-
-Config files can be shared or bin specific. In the first case they are associated with the crate of the
-called `load_config(..)`, i.e. `❬config-crate❭/❬filename❭`. If they are bin specific they are primarily associated 
-with the crate of the bin, i.e. lookup uses `❬bin-crate❭/❬bin-name❭/❬config-crate❭/❬filename❭` for lookup. 
-Bin specific configs override shared ones.
-
-There are three root locations for external config lookup. Each location is first searched for 
-a bin specific config and then for a shared config
-
-1.  $ODIN_HOME/configs/ ( ❬bin-crate❭/❬bin-name❭/ )? ❬config-crate❭/❬filename❭
-2.  ❬workspace-parent❭/configs/ ( ❬bin-crate❭/❬bin-name❭/ )? ❬config-crate❭/❬filename❭
-3.  $HOME/.odin/configs/ ( ❬bin-crate❭/❬bin-name❭/ )? ❬config-crate❭/❬filename❭
-
-Internal (in-repo) config files are located in `.../configs/` directories of their respective crates: 
-
-1.  `❬workspace-dir❭/❬bin-crate❭/configs/❬bin-name❭/❬config-crate❭/❬filename❭` for bin specific configs
-2.  `❬workspace-dir❭/❬confg-crate❭/configs/❬filename❭` for shared configs
-
-External configs have preference over internal ones.
+Using this tool is optional. ODIN applications can be built/run through normal cargo invocation but in this case resources are not embedded without manually setting the above `ODIN_..` build-time environment variables and the `embedded_resources` feature.

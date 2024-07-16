@@ -45,8 +45,8 @@ async fn main() -> Result<()>{
     let hmonitor = spawn_actor!( actor_system, "monitor", GoesRMonitor{})?;
 
     let _actor_handle = spawn_actor!( actor_system, "goesr",  GoesRHotspotImportActor::new(
-        load_config( "goesr")?, 
-        LiveGoesRHotspotImporter::new( load_config( "goes_18_aws.ron")?),
+        load_config( "goesr.ron")?, 
+        LiveGoesRHotspotImporter::new( load_config( "goes_18_fdcc.ron")?),
         data_action!( hmonitor.clone(): ActorHandle<GoesRMonitorMsg> => |data:Vec<GoesRHotSpots>| {
             for hs in data.into_iter(){
                 let msg = Update(hs.to_json_pretty().unwrap());

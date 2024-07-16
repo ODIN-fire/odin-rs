@@ -103,11 +103,11 @@ async fn main() ->Result<()> {
     let jh: JoinHandle<Result<()>> = tokio::spawn( async {
         let mut actor_system = ActorSystem::new("main");
 
-        // use the ratatui UI if example was built with the 'tui' feature
+        // use the ratatui UI if example was built with the 'tui' feature ...
         #[cfg(feature="tui")]
         actor_system.set_ui(tui::create_tui(actor_system.clone_handle()).await?);
 
-        //... use plain console output otherwise
+        //... otherwise use plain console output
         #[cfg(not(feature="tui"))]
         actor_system.set_ui( ConsoleUI::new_boxed( actor_system.clone_handle()));
 
