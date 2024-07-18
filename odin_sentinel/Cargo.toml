@@ -70,11 +70,6 @@ paste = "*"
 which = "*"
 async-trait = "*"
 
-pgp = { version = "*", optional = true }
-miniz_oxide = { version = "*", optional = true }
-magic-crypt = { version = "*", optional = true }
-
-# TODO put behind features
 jsonrpsee =  { version = "*",  features = ["macros","async-client","http-client"], optional = true }
 lettre = { version = "*", features = ["tokio1", "tokio1-native-tls"], optional = true }
 
@@ -82,9 +77,11 @@ lettre = { version = "*", features = ["tokio1", "tokio1-native-tls"], optional =
 odin_build = { workspace = true }
 
 [features]
-default = ["smtp", "signal_rpc"]
+default = ["smtp", "slack"]
 smtp = ["dep:lettre"]
 signal_rpc = ["dep:jsonrpsee"]
+slack = []
+
 embedded_resources = []
 
 [package.metadata.odin_configs]
@@ -92,3 +89,4 @@ sentinel = { file="sentinel.ron" }
 sentinel_alarm = { file="sentinel_alarm.ron", bins=["sentinel_alarm"] }
 smtp = { file="smtp.ron", bins=["sentinel_alarm"] }
 signal_cmd = { file="signal_cmd.ron", bins=["sentinel_alarm"] }
+slack = {file="slack_alarm.ron", bins=["sentinel_alarm"] }

@@ -25,7 +25,7 @@ use odin_common::if_let;
 use crate::{op_failed, Alarm, AlarmMessenger, EvidenceInfo, OdinSentinelError};
 use crate::errors::Result;
 
- #[derive(Deserialize,Serialize,Debug)]
+#[derive(Deserialize,Serialize,Debug)]
 pub struct SmtpConfig {
     pub smtp_uri: String,
     pub username: String,

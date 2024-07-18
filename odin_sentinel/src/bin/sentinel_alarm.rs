@@ -20,13 +20,14 @@ use odin_actor::prelude::*;
 use odin_common::{define_cli,check_cli};
 use odin_sentinel::{
     AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, 
-    SentinelUpdate, SmtpAlarmMessenger, SignalCmdAlarmMessenger,
+    SentinelUpdate, SlackAlarmMessenger, SmtpAlarmMessenger, SignalCmdAlarmMessenger,
     load_config,
 };
 
 // use odin_sentinel::SignalRpcAlarmMessenger; // don't use for now since it does not support notify-self
  
 define_cli! { ARGS [about="Delphire Sentinel Alarm Server"] = 
+    slack: bool       [help="enable slack messenger", long],
     smtp: bool        [help="enable smtp messenger", long],
     signal_cli: bool  [help="enable signal-cli messenger (requires signal-cli installation)", long]
 }
@@ -61,6 +62,10 @@ fn create_messengers()->Result<Vec<Box<dyn AlarmMessenger>>> {
     let mut messengers: Vec<Box<dyn AlarmMessenger>> = Vec::new();
 
     messengers.push( Box::new(ConsoleAlarmMessenger{})); // always enabled
+
+    if ARGS.slack {
+        messengers.push( Box::new( SlackAlarmMessenger::new( load_config("slack_alarm.ron")?)))
+    }
     if ARGS.smtp { 
         messengers.push( Box::new( SmtpAlarmMessenger::new( load_config("smtp")?))) 
     }

@@ -66,7 +66,7 @@ embedded_resources = []
 ...
 ```
 
-The `embedded_resource` feature should be transitive - if the resource crate in turn depends on other ODIN resource crates we have to pass-down the feature as in `embedded_resources = ["❬other-odin-crate❭/embedded_resources" ...]
+The `embedded_resource` feature should be transitive - if the resource crate in turn depends on other ODIN resource crates we have to pass-down the feature like so: `embedded_resources = ["❬other-odin-crate❭/embedded_resources" …]`
 
 ### (1) creation of embedded resource data
 This step uses a build script of the resource crate to generate embedded resource code by calling functions from `odin_built`, showing its role as a build-time library crate:
@@ -112,22 +112,24 @@ fn main() {
 ```
 
 ## Resource Lookup
-We use the same algorithm for resource file lookup during build-time and application run-time. This algorithm is implemented in `odin_build::find_resource_file(…)` and is based on two main directory types of ODIN:
+We use the same algorithm for each individual resource file lookup during build-time and application run-time. This algorithm is implemented in `odin_build::find_resource_file(…)` and based on two main directory types of ODIN:
 
 - **root directories**
 - **workspace directories**
 
 ### ODIN Root Dir
-A **root-dir** is a directory that contains resource data that is kept outside of the source repository. ODIN applications are not supposed to rely on anything outside its root-dir but the user can control which root-dir to use (there can be several of them, e.g. for development and production)
+A **root-dir** is a directory that contains resource data that is kept outside of the source repository. ODIN applications are not supposed to rely on anything outside their root-dir but the user can control which root-dir to use (there can be several of them, e.g. for development and production)
 
 We detect the root-dir to use in the following order:
 
 1. whatever the optional environment variable `ODIN_ROOT` is set to
-2. if `$ODIN_ROOT` is not set the parent of the current directory **iff** it contains any of `cache/`, `data/`, `configs/` 
+2. the parent of a workspace dir if the current dir is (within) an ODIN workspace
+
+the parent of the current directory **iff** it contains any of `cache/`, `data/`, `configs/` 
    or `assets/` sub-dirs
 3. a global `$HOME/.odin/` otherwise
 
-The 2nd rule is to allow a self-contained directory structure during development (workspace root) and a global, configurable
+The 2nd rule is to allow a self-contained directory structure during development (workspace parent) and a global, configurable
 directory structure in production (ODIN_ROOT or ~/.odin).
 
 An ODIN **root-dir** can optionally contain other sub-directories such as the ODIN **workspace-dir** mentioned below.
@@ -187,7 +189,7 @@ A **workspace-dir** follows the normal cargo convention but adds optional `confi
 With those directory types we can now define the resource file lookup algorithm:
 
 ### File Lookup Algorithm
-For given 
+For each given 
 
  - root-dir (ODIN_HOME | workspace-parent | ~/.odin)
  - (optional) workspace-dir 
@@ -196,7 +198,7 @@ For given
  - resource crate and 
  - (optional) bin name + crate
  
- check in the following order:
+ tuple check in the following order:
 
 1. root-dir / resource-type / bin-crate / bin-name / resource-crate / filename
 2. root-dir / resource-type / resource-crate / filename
@@ -210,6 +212,8 @@ If no corresponding file is found in any of these locations an error is returned
 At application runtime we optionally extend the above file system lookup mechanism by checking for an embedded resource within the resource-crate if no file was found.
 
 By setting a runtime environment variable `ODIN_EMBEDDED_ONLY=true` we can force the lookup to only consider embedded resources.
+
+This lookup is performed for each resource separately, i.e. it is not just possible but even usual to have heterogenous locations. Typically only configs with user settings or credentials reside outside the repository whereas assets are kept within. The main exception would be development/test environments.
 
 ## ODIN Environment Variables
 

@@ -64,6 +64,8 @@ pub use signal_cmd::*;
 #[cfg(feature="smtp")] mod smtp;
 #[cfg(feature="smtp")] pub use smtp::*;
 
+#[cfg(feature="slack")] mod slack_messenger;
+#[cfg(feature="slack")] pub use slack_messenger::*;
 
 lazy_static! {
     static ref MSG_COUNTER: AtomicU64 = AtomicU64::new(42);

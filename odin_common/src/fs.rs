@@ -19,10 +19,20 @@ use std::time::{SystemTime,Duration};
 use io::ErrorKind::*;
 use std::fs::File;
 use std::path::{Path,PathBuf};
+use std::io::{Error as IOError,ErrorKind};
 
 use crate::macros::io_error;
 
 type Result<T> = std::result::Result<T,std::io::Error>;
+
+pub fn filename_of_path (path: impl AsRef<Path>)->Result<String> {
+    let path = path.as_ref();
+
+    Ok( path.file_name()
+        .ok_or(IOError::new(ErrorKind::InvalidFilename, format!(" not a valid filename {path:?}")) )?
+        .to_str().ok_or(IOError::new(ErrorKind::InvalidFilename, format!("invalid char in filename {path:?}")) )?
+        .to_string())
+}
 
 pub fn ensure_dir (path: impl AsRef<Path>)->io::Result<()> {
     let path = path.as_ref();

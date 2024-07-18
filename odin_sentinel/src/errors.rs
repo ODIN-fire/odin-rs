@@ -100,7 +100,11 @@ map_to_opaque_error!{ odin_job::OdinJobError => OdinSentinelError::JobError }
 map_to_opaque_error!{ ron::error::Error => OdinSentinelError::ConfigError }
 map_to_opaque_error!{ tokio::time::error::Elapsed => OdinSentinelError::TimeoutError }
 map_to_opaque_error!{ std::process::ExitStatusError => OdinSentinelError::CommandError }
+
+#[cfg(feature="smtp")]
 map_to_opaque_error!{ lettre::transport::smtp::Error => OdinSentinelError::SmtpError }
+
+#[cfg(feature="signal_rpc")]
 map_to_opaque_error!{ jsonrpsee::core::client::Error => OdinSentinelError::RpcError }
 
 

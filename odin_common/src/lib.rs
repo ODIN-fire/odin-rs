@@ -13,6 +13,7 @@
  */
 #![allow(unused,uncommon_codepoints)]
 #![feature(trait_alias)]
+#![feature(io_error_more)]
 
 pub mod strings;
 pub mod macros;
@@ -26,6 +27,8 @@ pub mod schedule;
 
 #[cfg(feature="s3")]
 pub mod s3;
+
+pub mod slack; // only requires reqwest so no feature gate (yet)
 
 // syntactic sugar - this is just more readable
 #[inline] pub fn sin(x:f64) -> f64 { x.sin() }
