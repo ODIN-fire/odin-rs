@@ -7,12 +7,21 @@ This Rust repository contains a [Cargo workspace](https://doc.rust-lang.org/carg
   1. [Git](https://git-scm.com/) - the version control system that is by now ubiqitous 
 
   2. [Rust toolchain](https://www.rust-lang.org/tools/install) - we recommend to manage the toolchain via `rustup`
-     At this point ODIN-RS uses the nightly toolchain, which can be enabled via `rustup default nightly`
+     At this point ODIN-RS uses the nightly toolchain. To get, (locally) install `rustup` and switch to the nightly toolchain execute:
+
+     ```shell
+     $> curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+     ...
+     $> rustup default nightly
+     ``` 
+
+     Periodic updates of the toolchain can be done by executing `rustup update`
 
      To install the [`mdbook`](https://rust-lang.github.io/mdBook/) tool to compile and serve online documentation
      please run `cargo install mdbook`
 
-  3. [GDAL](https://gdal.org/) - this platform specific native library for handling geospatial data is required by the `odin_gdal` crate and should be installed through respective package managers for your operating system
+  3. [GDAL](https://gdal.org/) - this platform specific native library for handling geospatial data is required by the
+     `odin_gdal` crate and should be installed through respective package managers for your operating system
 
      * Linux: gdal packages are available for all major Linux distributions through their native package managers
      * macOS: [homebrew](https://brew.sh/): `brew install gdal`
