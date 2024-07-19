@@ -80,9 +80,7 @@ variant.
 
 <a id="message-size"></a>
 Since this message set enum is the type of the actor mailbox (channel) this size matters - a Rust `enum` is sized according to
-its largest variant. If the ratio of max to min size of variants is too large then the channel can waste a lot of memory. If this is
-a problem we can always wrap (part of) large messages within heap-allocated containers (`Box`, `Arc`, `Vec` etc.) which collapses
-the size of the wrapped data to a pointer.
+its largest variant. If the ratio of max to min size of variants is too large then the channel can waste a lot of memory. If this is a problem we can always wrap (part of) large messages within heap-allocated containers (`Box`, `Arc`, `Vec` etc.) which collapses the size of the wrapped data to a pointer.
 
 ## How to Send Messages
 
@@ -105,8 +103,7 @@ All send operations return `Result<(),OdinActorError>` values. Senders should ha
 Send methods are defined in `ActorHandle`, `MsgReceiver` and `Actor` (the latter one used to send messages to itself).
 
 Normal message send operations are unidirectional - should the sender expect a response that needs to retain request
-information it has to do this association explicitly (e.g. by copying relevant request info into the response message, or
-by keeping a list of pending requests in the sender). 
+information the responder has to do this association explicitly (e.g. by copying relevant request info into the response message, or by keeping a list of pending requests in the sender). 
 
 
 ## Waiting for a Response - `Query<Q,A>`

@@ -21,23 +21,25 @@ use odin_sentinel::{load_config, Alarm, AlarmMessenger, EvidenceInfo,
 use anyhow::Result;
  
 define_cli! { ARGS [about="Delphire Sentinel Slack alarm test"] = 
-    slack: bool       [help="enable slack messenger", long],
-    smtp: bool        [help="enable smtp messenger", long],
-    signal_cli: bool  [help="enable signal-cli messenger (requires signal-cli installation)", long],
+    slack: bool            [help="enable slack messenger", long],
+    smtp: bool             [help="enable smtp messenger", long],
+    signal_cli: bool       [help="enable signal-cli messenger (requires signal-cli installation)", long],
 
-    img: Option<String>    [help="optional pathname of image to attach", short, long]
+    img: Option<String>    [help="optional pathname of image to attach", short, long],
+    text: Option<String>    [help="optional alarm notification text", short, long]
 }
 
 /// test application for alarm messengers - this sends artificial alarms to the messenger types
 /// specified as command line arguments (console is always enabled)
 /// Note this uses the same config files from the ODIN installation as the sentinel_alarm server
 #[tokio::main]
-async fn main()->Result<()> {    
+async fn main()->Result<()> {
+    let description = if let Some(descr) = &ARGS.text { descr.clone() } else { "test alarm".into() };
     let alarm = if let Some(img) = &ARGS.img {
         let pathname = Path::new(&img).to_path_buf();
         if !pathname.is_file() { panic!("image file does not exist: {img}") }
         Alarm { 
-            description: "test alarm".to_string(), 
+            description, 
             evidence_info: vec!( 
                 EvidenceInfo { 
                     description: "visual".to_string(), 
@@ -47,7 +49,7 @@ async fn main()->Result<()> {
         }
     } else {
         Alarm { 
-            description: "test alarm".to_string(), 
+            description, 
             evidence_info: Vec::new() 
         }
     };

@@ -1,15 +1,28 @@
 # odin_actor
 
 The `odin_actor` crate provides an implementation for a typed [actor model](https://en.wikipedia.org/wiki/Actor_model)
-that serves as the basis for ODIN applications.
+that serves as the common basis for ODIN applications.
+
+*Actors* are objects that execute concurrently and only communicate through asynchronous *Messages*. Actors do not share their internal *State* and are only represented to the outside by *ActorHandles*. The only operation supported by ActorHandles is to send messages to the actor, which are then queued in an (actor internal) *Mailbox* and processed by the actor in the order in which they were received. In reaction to received messages actors can send messages or mutate their internal state:
+
+```
+         ╭──────╮
+   ─────▶︎│Handle│─────x:X──╮ Message
+       ┌─┴──────┴──────────│───┐
+       │ Actor   State   ┌─▼─┐ │
+       │          ▲      ├─:─┤ MailBox
+       │          │      └───┘ │
+       │          ▼        │   │
+       │   receive(m) ◀︎────╯   │
+       │     match m           │
+       │       X => process_x  │
+       │    ...          ───────────▶︎ send messages to other actors
+       └───────────────────────┘ 
+```
 
 From a Rust perspective this is a library that implements actors as async tasks that process input received through 
 actor-owned channels and encapsulate actor specific state that is not visible to the outside. It is an architectural
 abstraction layer on top of async runtimes (such as [tokio](https://tokio.rs/)).
-
-From a more theoretical perspective actors are concurrently executing objects that only communicate through messages.
-An actor is a 3-tuple consisting of message interface, state and behavior (reacting to messages by mutating state,
-sending messages to other actors or creating new ones).
 
 In `odin_actor` we map the message interface of an actor to an `enum` containing variants for all message types 
 understood by this actor (variants can be anything that satisfies Rust's `Send` trait). The actor state is a user

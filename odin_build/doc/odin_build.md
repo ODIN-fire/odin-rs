@@ -123,14 +123,10 @@ A **root-dir** is a directory that contains resource data that is kept outside o
 We detect the root-dir to use in the following order:
 
 1. whatever the optional environment variable `ODIN_ROOT` is set to
-2. the parent of a workspace dir if the current dir is (within) an ODIN workspace
-
-the parent of the current directory **iff** it contains any of `cache/`, `data/`, `configs/` 
-   or `assets/` sub-dirs
-3. a global `$HOME/.odin/` otherwise
-
-The 2nd rule is to allow a self-contained directory structure during development (workspace parent) and a global, configurable
-directory structure in production (ODIN_ROOT or ~/.odin).
+2. the parent of a workspace dir **iff** the current dir is (within) an ODIN workspace and this parent contains any of `cache/`,
+   `data/`, `configs/` or `assets/` sub-dirs. This is to support a self-contained directory structure during development, not
+   requiring any environment variables
+3. a `$HOME/.odin/` otherwise - this is the normal production mode
 
 An ODIN **root-dir** can optionally contain other sub-directories such as the ODIN **workspace-dir** mentioned below.
 
@@ -155,7 +151,7 @@ An ODIN **root-dir** can optionally contain other sub-directories such as the OD
     ├── cache/                          transient runtime data for ODIN apps
     │   └── ...
     │
-    └── ...                             optional dirs (e.g. ODIN workspace-dir)
+    └── ... (e.g. odin-rs/)             optional dirs (ODIN workspace-dir etc.)
 ```
 
 ### ODIN Workspace Dir
@@ -189,7 +185,7 @@ A **workspace-dir** follows the normal cargo convention but adds optional `confi
 With those directory types we can now define the resource file lookup algorithm:
 
 ### File Lookup Algorithm
-For each given 
+For each given tuple
 
  - root-dir (ODIN_HOME | workspace-parent | ~/.odin)
  - (optional) workspace-dir 
@@ -198,22 +194,22 @@ For each given
  - resource crate and 
  - (optional) bin name + crate
  
- tuple check in the following order:
+ check in the following order:
 
 1. root-dir / resource-type / bin-crate / bin-name / resource-crate / filename
 2. root-dir / resource-type / resource-crate / filename
 3. workspace-dir / resource-type / bin-crate / bin-name / resource-crate / filename
 4. workspace-dir / resource-type / resource-crate / filename
 
-If no corresponding file is found in any of these locations an error is returned.
+This is implemented in the `odin_build::find_resource_file(…)` function which returns an `Option<PathBuf>`.
 
 ### Runtime Resource Lookup Algorithm
 
-At application runtime we optionally extend the above file system lookup mechanism by checking for an embedded resource within the resource-crate if no file was found.
+At application runtime we optionally extend the above file system lookup mechanism by checking for an embedded resource within the resource-crate **iff** no file was found with the above algorithm.
 
-By setting a runtime environment variable `ODIN_EMBEDDED_ONLY=true` we can force the lookup to only consider embedded resources.
+By setting a runtime environment variable `ODIN_EMBEDDED_ONLY=true` we can force the lookup to only consider embedded resources (i.e. to ignore resource files in the file system).
 
-This lookup is performed for each resource separately, i.e. it is not just possible but even usual to have heterogenous locations. Typically only configs with user settings or credentials reside outside the repository whereas assets are kept within. The main exception would be development/test environments.
+This lookup is performed for each resource separately, i.e. it is not just possible but even usual to have resources to reside in different locations (root dir and workspace dir). Typically only configs with user settings or credentials are kept outside the repository whereas assets are kept within. The main exception would be development/test environments.
 
 ## ODIN Environment Variables
 
