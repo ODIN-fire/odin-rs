@@ -88,7 +88,7 @@ impl<C,InitAction,UpdateAction> SentinelActor <C,InitAction,UpdateAction>
         let res = match self.sentinels.get_update( &record_query.question.record_id) {
             Some(upd) => Ok(upd.clone()),
             None => Err( OdinSentinelError::NoSuchRecordError(record_query.question.record_id.clone()))
-        };        
+        };
         record_query.respond( res).await.map_err(|_| op_failed("receiver closed"))
     }
 
@@ -105,7 +105,7 @@ impl_actor! { match msg for Actor< SentinelActor<C,InitAction,UpdateAction>, Sen
         msg.0.execute( &self.sentinels).await;
     }
     Query<GetSentinelUpdate,Result<SentinelUpdate>> => cont! { 
-        let fut = self.handle_record_query(msg);
+        self.handle_record_query(msg).await;
     }
     Query<GetSentinelFile,Result<SentinelFile>> => cont! { 
         // it might be in-flight so forward to connector

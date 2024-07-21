@@ -19,7 +19,7 @@ use tokio_tungstenite::{tungstenite::protocol::Message, MaybeTlsStream};
 use reqwest::{Client};
 
 use odin_actor::prelude::*;
-use odin_common::{if_let,fs::{remove_old_files, ensure_dir}};
+use odin_common::{if_let,fs::{remove_old_files, ensure_writable_dir}};
 
 use crate::*;
 use crate::actor::*;
@@ -147,7 +147,7 @@ impl LiveConnection {
         let mut sentinel_store = SentinelStore::new();
         sentinel_store.fetch_from_config( &http_client, &config).await?; // retrieve all records we need - this can take some time
 
-        //--- now open a websocket and register for the devies we got
+        //--- now open a websocket and register for the devices we've got (note that config might have a device_filter set)
         let device_ids = sentinel_store.get_device_ids();
         debug!("monitored Sentinel devices: {:?}", device_ids);
         if !device_ids.is_empty() {
@@ -201,7 +201,10 @@ impl LiveConnection {
     }
 
     pub fn sentinel_cache_dir()->PathBuf {
-        odin_build::cache_dir().join("sentinel")
+        let path = odin_build::cache_dir().join("sentinel");
+        // Ok to panic - this is called during sys init
+        ensure_writable_dir(&path).expect( &format!("invalid sentinel cache dir: {path:?}"));
+        path
     }
 
     /// the websocket receiver loop

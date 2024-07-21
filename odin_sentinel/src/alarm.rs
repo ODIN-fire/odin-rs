@@ -63,6 +63,7 @@ macro_rules! create_messengers {
 pub struct SentinelAlarmMonitorConfig {
     new_alarm_duration: Duration,
     attach_image: bool,
+    image_timeout: Duration,
     fire_prob: f64,
     smoke_prob: f64,
 }
@@ -72,6 +73,7 @@ impl Default for SentinelAlarmMonitorConfig {
         SentinelAlarmMonitorConfig {
             new_alarm_duration: minutes(10),
             attach_image: true,
+            image_timeout: Duration::from_secs(20),
             fire_prob: 0.5,
             smoke_prob: 0.5,
         }
@@ -118,7 +120,7 @@ impl SentinelAlarmMonitor {
                             let record_id = upd.id.clone();
                             let filename = upd.data.filename.clone();
 
-                            img = match timeout_query_ref( hupdater, GetSentinelFile{record_id,filename}, secs(5)).await {
+                            img = match timeout_query_ref( hupdater, GetSentinelFile{record_id,filename}, secs(20)).await {
                                 Ok(Ok(sentinel_file)) => Some(sentinel_file),
                                 _ => { error!("failed to retrieve evidence image {}", upd.data.filename); None }
                             }

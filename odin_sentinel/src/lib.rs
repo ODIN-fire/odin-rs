@@ -155,7 +155,8 @@ pub struct RecordRef {
     pub id: RecordId,
 }
 
-/// enum to give us a single non-generic type we can use to wrap any record so that we can publish it through a single msg/callback slot
+/// enum to give us a single non-generic type we can use to wrap any record so that we can publish it through a single msg/callback slot.
+/// since the variants are just Arcs a SentinelUpdate is cheap to clone
 /// note this also defines respective From<SensorRecord<..>> impls
 define_algebraic_type!{ 
     pub SentinelUpdate: Clone =
@@ -398,31 +399,34 @@ impl SentinelStore {
     pub fn new ()->Self {
         SentinelStore { sentinels: HashMap::new(), updates: HashMap::new() }
     }
-
-    pub async fn fetch (&mut self, client: &Client, base_uri: &str, access_token: &str, n_last: usize, max_len: usize)->Result<()> {
-        let n_rec = min( n_last, max_len); // no point retrieving more than we want to store
+    
+    pub async fn fetch_from_config (&mut self, client: &Client, config: &SentinelConfig)->Result<()> {
+        let base_uri = config.base_uri.as_str();
+        let access_token = config.access_token.as_str();
+        let n_last = config.max_history_len;  // number of initial records to retrieve
+        let max_len = config.max_history_len; // max number of records to keep
+        let device_filter = &config.device_filter;
     
         let device_list = get_device_list( client, base_uri, access_token).await?;
+
         for device in &device_list.data {
-            let device_name = if let Some(info) = &device.info { info.clone() } else { "?".to_string() };
-            let mut sentinel = Sentinel::new( device.id.clone(), device_name, max_len);
-    
-            let sensor_list = get_sensor_list( client, base_uri, access_token, device.id.as_str()).await?;
-            for sensor_data in &sensor_list.data {
-                for capability in &sensor_data.capabilities {
-                    let updates = sentinel.init_records(client, base_uri, access_token, sensor_data.no, *capability, n_rec, max_len).await?;
-                    for u in updates { self.updates.insert( u.record_id().clone(), u); }
+            if device_filter.is_empty() || device_filter.contains( &device.id) {
+                let device_name = if let Some(info) = &device.info { info.clone() } else { "?".to_string() };
+                let mut sentinel = Sentinel::new( device.id.clone(), device_name, max_len);
+        
+                let sensor_list = get_sensor_list( client, base_uri, access_token, device.id.as_str()).await?;
+                for sensor_data in &sensor_list.data {
+                    for capability in &sensor_data.capabilities {
+                        let updates = sentinel.init_records(client, base_uri, access_token, sensor_data.no, *capability, n_last, max_len).await?;
+                        for u in updates { self.updates.insert( u.record_id().clone(), u); }
+                    }
                 }
+        
+                self.insert( sentinel.device_id.clone(), sentinel);
             }
-    
-            self.insert( sentinel.device_id.clone(), sentinel);
         }
     
         Ok(())
-    }
-    
-    pub async fn fetch_from_config (&mut self, client: &Client, config: &SentinelConfig)->Result<()> {
-        self.fetch( client, config.base_uri.as_str(), config.access_token.as_str(), config.max_history_len, config.max_history_len).await
     }
 
     pub fn is_empty(&self)->bool {
@@ -486,19 +490,34 @@ impl SentinelStore {
 
     // here our responsibility is to keep sentinels and updates in sync and report back what changed
     pub fn update_with (&mut self, sentinel_update: SentinelUpdate, max_len: usize)->SentinelChange {
-        let upd = sentinel_update.clone(); // we have to do this prior to loosing ownership
+        let update = sentinel_update.clone(); // we have to do this prior to loosing ownership
 
         if let Some(ref mut sentinel) = self.sentinels.get_mut( sentinel_update.device_id()) {
             let (added_rec_id, removed_rec_id) = sentinel.update_with( sentinel_update);
-            let added = if let Some(added_rec_id) = added_rec_id { Some(upd) } else { None };
-            let removed = if let Some(removed_rec_id) = removed_rec_id { self.updates.remove(&removed_rec_id) } else { None };
+
+            let added = if let Some(added_rec_id) = added_rec_id { 
+                self.updates.insert(added_rec_id.clone(), update.clone());
+                Some(update) 
+            } else { 
+                None  // nothing added
+            };
+
+            let removed = if let Some(removed_rec_id) = removed_rec_id { 
+                self.updates.remove(&removed_rec_id) // only report as removed if it was stored
+            } else { 
+                None  // nothing removed
+            };
+
             SentinelChange{ added, removed }
 
-        } else { // add it (we could also reject here)
+        } else { // add it as a new Sentinel (we could also reject here)
             let mut new_sentinel = Sentinel::new( sentinel_update.device_id().clone(), "?".to_string(), max_len);
+            self.updates.insert( sentinel_update.record_id().clone(), sentinel_update.clone());
+
             new_sentinel.update_with( sentinel_update);
             self.sentinels.insert( new_sentinel.device_id.clone(), new_sentinel);
-            SentinelChange{ added: Some(upd), removed: None } // unknown device, nothing to do
+
+            SentinelChange{ added: Some(update), removed: None } // unknown device, nothing to do
         }
     }
 }
@@ -660,6 +679,7 @@ pub struct SentinelConfig {
     pub max_history_len: usize, // maximum number of records to store per device/sensor capability
     pub max_age: Duration, // maximum age after which additional data (images etc.) are deleted
     pub ping_interval: Option<Duration>, // interval duration for sending Ping messages on the websocket 
+    pub device_filter: Vec<String>  // optional list of device_ids to filter for
 }
 
 impl Default for SentinelConfig {
@@ -674,6 +694,7 @@ impl Default for SentinelConfig {
             max_history_len: 10,
             max_age: Duration::from_secs( 60*60*24),
             ping_interval: None, // Some(Duration::from_secs(20)),
+            device_filter: Vec::new() // default is no filter
         }
     }
 }
