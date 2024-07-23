@@ -8,7 +8,7 @@ More specifically it is a framework to build servers that import and process an 
 
 We want to mitigate the **information fragmentation- and compartmentalization problem**. No more hopping between dozens of browser tabs. No more manual refreshes to stay up-to-date. No more printouts to communicate. No more take-it-or-leave-it systems that can't be extended.
 
-ODINs goal is *not* to create yet another website that is supposed to replace all the ones that already exist. We want to enable stakeholder organizations to assemble *their* server applictions showing the information *they* need, with the capability to run those servers/applications on *their* machines (even out in the field if need be). We also want to do this in a way that makes it easy to integrate new data sources and functions as they become available from government, research organizations and commercial vendors. We want ODIN ro be extensible, scalable, portable - and last not least - accessible.
+ODINs goal is *not* to create yet another website that is supposed to replace all the ones that already exist. We want to enable stakeholder organizations to assemble *their* server applictions showing the information *they* need, with the capability to run those servers/applications on *their* machines (even out in the field if need be). We also want to do this in a way that makes it easy to integrate new data sources and functions as they become available from government, research organizations and commercial vendors. We want ODIN to be extensible, scalable, portable - and last not least - accessible.
 
 To that end ODIN is open sourced under [Apache v2 license](http://www.apache.org/licenses/LICENSE-2.0). It is a library you can use and extend in your projects. 
 
@@ -18,37 +18,77 @@ To that end ODIN is open sourced under [Apache v2 license](http://www.apache.org
 
 Our vision for ODIN goes beyond a single stakeholder. We want it to be an open (freely available) platform for both users and developers. The ODIN maintainers are just one part of the puzzle, developing and maintaining the core framework other developers can build on. We only see our role in creating generic components that implement a consistent, extensible and scalable architecture. 
 
-User stakeholders are more than just responder organizations (of which there are many). We also envision local communities who want to improve their level of preparedness / disaster planning. Another example would be utility providers monitoring critical infrastructure. The common theme for such user stakeholders is to enhance their situational awareness but what information that entails depends on the specific stakeholder and location. 
+User stakeholders are more than just responder organizations (of which there are many). We also envision local communities who want to improve their level of preparedness / disaster planning. Another example would be utility providers monitoring critical infrastructure. The common theme for such user stakeholders is to enhance their situational awareness but what information that entails depends on the specific incident type, stakeholder and location. 
 
 What holds for most user stakeholder organizations is that they lack the resources to develop respective systems from scratch. The stakeholders who do have development capacity often find themselves reinventing the wheel. The stakeholders who subscribe to commercial services have no way to tailor or extend such services.
 
-There is no single organization that could develop all service components on its own. Commercial vendors come up with new sensors. Research organizations develop new forecast models and simulators. The common theme for all such provider stakeholders is that they want to focus on their specific expertise. They don't want to duplicate existing functions just to make their products available. Moreover, if they do it just increases the information fragmentation problem we started with.
+There is no single organization that could develop all service components on its own. Commercial vendors come up with new sensors. Research organizations develop new forecast models and simulators. The common theme for all such provider stakeholders is that they want to focus on their specific expertise. They don't want to duplicate existing functions just to make their products available. If they do so it just increases the information fragmentation problem we started with.
+
+ODIN aims to be the common ground on which stakeholders can meet - free, open and extensible for all. 
+
+
+## Underlying SW Architecture/Design
+
+<img class="mono right" src="../img/actors-mono.svg" width="30%"/>
+
+To be that common basis ODIN needs a strong architectural foundation. Since ODINs main task is to collect and then process data from various independent external sources we need good support for concurrent computation - one of the most challenging topics for software development. ODIN meets this challenge by using the [Actor Programming Model](https://en.wikipedia.org/wiki/Actor_model): asynchronously executing objects which only communicate through messages and don't share internal state (see [odin_actor](odin_actor/odin_actor.md) and [The Actor Programming Model](odin_actor/actor_basics.md) for details). 
+
+ODIN also has to work with existing software. There is a large collection of existing work we want to build on, such as fire-behavior and micro grid wind simulators (e.g. [WindNinja](https://weather.firelab.org/windninja/)) and general geospatial data processing libraries (e.g. [GDAL](https://gdal.org/)). Given the binary nature of many of the underlying data formats, the need to efficiently use 3rd-party native libraries, the challenges of concurrent programming and the portability we strive for we chose [Rust](https://www.rust-lang.org/) as the implementation platform as it gives us
+
+- language intrinsic memory- and thread- safety
+- a well defined [Application Binary Interface](https://en.wikipedia.org/wiki/Application_binary_interface)
+- a comprehensive cross-platform standard library
+- a huge external [eco-system](https://crates.io/)
+- good asynchronous programming support, both in the language and its libraries
+- powerful abstraction features for large scale program design
+- a mature, consistent tool chain (especially including dependency management)
+- high efficiency / low system overhead (one of Rusts design goals is "zero cost abstraction")
+
+What do we want to build on that basis? 
 
 
 ## ODIN Application Types
 
-In general there are two main types of ODIN applications:
+While ODIN contains all sort of command line tools, the primary targets are two types of servers:
 
-- user servers
-- edge servers
+- user servers - providing data visualization for end users
+- edge servers - factoring out network-, compute- and data volume-intense tasks to dedicated machinery 
 
-Both are built from the same ODIN components and follow the same architectural design.
+Both are built from the same ODIN components and follow the same architectural design outlined above.
+
 
 ### User Servers
-support a limited number (<1000) of stakeholder users with the need for collaboration (synchronized views)
-and low data latency (tracking, realtime intel). The main application model for user servers is a [Single Page Application](https://en.wikipedia.org/wiki/Single-page_application), the main user interface is a web browser
 
-```
-   <SPA diagram>
-```
+ODIN user servers are not supposed to handle millions of requests from large numbers of simultaneous but isolated users. The servers we mainly target support medium size workgroups of stakeholder users (<1000) with the need for:
+
+- automatic data update (also for low latency tracking data)
+- collaboration (synchronized views)
+ 
+The main application model for user servers is a [Single Page Application](https://en.wikipedia.org/wiki/Single-page_application). The main user interface is a web browser - ODIN does not require end user installation and can be used on existing machinery.
+
+<img class="mono left" src="../img/odin-spa-mono.svg" width="45%"/>
+
+A Single Page Application (SPA) mainly uses two types of actors: importers and a SPAServer. An Importer is a dedicated component to handle a single external data source, including data retrieval schedule and translation into ODIN internal format (if required). Importers are completely independent of each other which makes it simple to add new ones. Their results are sent via messages to a SPA-Server actor that distributes the information to connected users. 
+
+The SPA-Server actor utilizes MicroService objects that are managing static and dynamic content which is shown as separate layers on the served web page. Static content mostly consists of HTML and associated Javascript modules. It can be initialized from files or compiled into stand-alone executables and is served via http(s) protocol. 
+
+Stand alone ODIN SPA servers do not require any additional files/installation other than the executable itself. They can be thought of as traditional desktop applications that just use a browser as the user interface.
+
+To ensure realtime update (down to 1Hz) of low latency data such as tracked objects ODIN utilizes [WebSockets](https://en.wikipedia.org/wiki/WebSocket) that are managed by the MicroService objects, and processed in the browser by ODINs Javascript modules (assets).
+
+For geospatial display in the browser ODIN uses the open source [CesiumJS](https://cesium.com/platform/cesiumjs/) library, which is built on top of [WebGL](https://en.wikipedia.org/wiki/WebGL) and hence supports hardware accelerated 3D graphics to display a virtual globe.
+
+ODINs user interface components such as (movable) windows, lists and buttons are implemented with ODINs own Javascript library that resembles a traditional desktop and is highly (user-) configurable.
+
 
 ### Edge Servers
-provide data for other servers. They are not just brokers/proxies for external resources but can be used to add complex functions and reduce downstream data volume. Assume for instance micro-grid (location/terrain- aware) wind forecast for a given incident area, such as provided by [WindNinja](https://weather.firelab.org/windninja/). This not only requires to run a high computational load (the WindNinja executable itself) but also needs a lot of bandwidth/connectivity to obtain the WindNinja input data (weather forecasts and station reports, high resolution digital elevation models etc.). The user-facing results are relatively small and simple data files containing a wind vector grid in the area of interest. This functionality should run in the cloud on high performance machinery with reliable high speed internet connection. It should not be crammed into a field deployed user server.
-Edge servers are the means to make ODIN applications scalable.
 
-```
-   <data consolidation diagram>
-```
+ODIN edge servers are the means to make ODIN applications scalable - they provide condensed/consolidated input data for user servers by factoring out high computational workloads and/or large input data volumes into dedicated machines with high speed network access. Edge servers are primarily used to reduce downstream processing and data volume.
+
+<img class="mono right" src="../img/odin-edge-mono.svg" width="40%"/>
+
+Assume for instance micro-grid (location/terrain- aware) wind forecast for a given incident area, such as provided by [WindNinja](https://weather.firelab.org/windninja/). This not only requires high speed machinery to execute the simulation but also needs significant bandwidth/connectivity to obtain the required input data such as weather forecasts and station reports, high resolution digital elevation models, vegetation/fuel models and more. The user-facing results of the simulation can be compiled into relatively small and simple text (CSV) files containing a wind vector grid in the area of interest. 
+
 
 ## Examples
 
