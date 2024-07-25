@@ -72,7 +72,7 @@ A Single Page Application (SPA) mainly uses two types of actors: importers and a
 
 The SPA-Server actor utilizes MicroService objects that are managing static and dynamic content which is shown as separate layers on the served web page. Static content mostly consists of HTML and associated Javascript modules. It can be initialized from files or compiled into stand-alone executables and is served via http(s) protocol. 
 
-Stand alone ODIN SPA servers do not require any additional files/installation other than the executable itself. They can be thought of as traditional desktop applications that just use a browser as the user interface.
+Stand alone ODIN SPA servers do not require any additional files/installation other than the executable itself (see [odin_build](odin_build/odin_build.md) for details). They can be thought of as traditional desktop applications that just use a browser as the user interface.
 
 To ensure realtime update (down to 1Hz) of low latency data such as tracked objects ODIN utilizes [WebSockets](https://en.wikipedia.org/wiki/WebSocket) that are managed by the MicroService objects, and processed in the browser by ODINs Javascript modules (assets).
 
@@ -87,7 +87,10 @@ ODIN edge servers are the means to make ODIN applications scalable - they provid
 
 <img class="mono right" src="../img/odin-edge-mono.svg" width="40%"/>
 
-Assume for instance micro-grid (location/terrain- aware) wind forecast for a given incident area, such as provided by [WindNinja](https://weather.firelab.org/windninja/). This not only requires high speed machinery to execute the simulation but also needs significant bandwidth/connectivity to obtain the required input data such as weather forecasts and station reports, high resolution digital elevation models, vegetation/fuel models and more. The user-facing results of the simulation can be compiled into relatively small and simple text (CSV) files containing a wind vector grid in the area of interest. 
+Assume for instance micro-grid (location/terrain- aware) wind forecast for a given incident area, such as provided by [WindNinja](https://weather.firelab.org/windninja/). This not only requires high speed machinery to execute the simulation but also needs significant bandwidth/connectivity to periodically obtain the required input data such as weather forecasts and station reports, high resolution digital elevation models, vegetation/fuel models and more. The user-facing results of the simulation can be compiled into relatively simple text (CSV) files containing a wind vector grid in the area of interest. 
+
+
+As a general rule we want to be able to run functions where the data is most easily accessible. For information that is obtained from sensors in the field (such as local tracking data) that can be a local incident command server. For functions that use large amounts of input such as NOAA weather forecasts this can be a high speed data center. For functions that are computationally expensive this should be a super computer.
 
 
 ## Examples

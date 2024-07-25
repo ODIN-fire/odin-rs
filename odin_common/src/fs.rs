@@ -17,7 +17,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::time::{SystemTime,Duration};
 use io::ErrorKind::*;
-use std::fs::File;
+use std::fs::{File,OpenOptions};
 use std::path::{Path,PathBuf};
 use std::io::{Error as IOError,ErrorKind};
 
@@ -160,6 +160,23 @@ pub fn set_file_contents(file: &mut File, new_contents: &[u8]) -> Result<()> {
 pub fn set_filepath_contents_with_backup (dir: &str, filename: &str, backup_ext: &str, new_contents: &[u8]) -> Result<()> {
     let mut file = create_file_with_backup(dir,filename,backup_ext)?;
     set_file_contents(&mut file, new_contents)
+}
+
+fn append_open (path: impl AsRef<Path>)->Result<File> {
+    OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(path.as_ref())
+}
+
+pub fn append_to_file (path: impl AsRef<Path>, s: &str) -> Result<()> {
+    let mut file = append_open( path.as_ref())?;
+    write!( file, "{s}")
+}
+
+pub fn append_line_to_file (path: impl AsRef<Path>, s: &str) -> Result<()> {
+    let mut file = append_open( path.as_ref())?;
+    writeln!( file, "{s}")
 }
 
 pub fn get_filename_extension<'a> (path: &'a str) -> Option<&'a str> {

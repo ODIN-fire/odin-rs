@@ -69,6 +69,9 @@ pub enum OdinSentinelError {
     #[error("error retrieving file {0}")]
     FileRequestError(String),
 
+    #[error("error retrieving record {0}")]
+    RecordRequestError(String),
+
     #[error("command error {0}")]
     CommandError(String),
 

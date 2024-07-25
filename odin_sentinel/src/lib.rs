@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 #![allow(unused)]
-#![feature(trait_alias,exit_status_error)]
+#![feature(trait_alias,exit_status_error,duration_constructors)]
 
 #[doc = include_str!("../doc/odin_sentinel.md")]
 
@@ -34,7 +34,7 @@ use paste::paste;
 use lazy_static::lazy_static;
 
 use odin_build::define_load_config;
-use odin_common::{angle::{LatAngle, LonAngle, Angle},datetime::deserialize_duration};
+use odin_common::{angle::{LatAngle, LonAngle, Angle},datetime::{Dated,deserialize_duration},fs::ensure_writable_dir};
 use odin_actor::{MsgReceiver, Query, ActorHandle};
 use odin_macro::{define_algebraic_type, match_algebraic_type, define_struct};
 
@@ -113,6 +113,12 @@ impl<T> SensorRecord<T> where T: RecordDataBounds {
 
     fn description(&self)->String {
         format!("{}/{} at {:?} : {:?}", self.device_id, self.sensor_no, self.time_recorded.naive_local(), self.data)
+    }
+}
+
+impl<T> Dated for SensorRecord<T> where T: RecordDataBounds {
+    fn date (&self)->DateTime<Utc> {
+        self.time_recorded
     }
 }
 
@@ -697,6 +703,13 @@ impl Default for SentinelConfig {
             device_filter: Vec::new() // default is no filter
         }
     }
+}
+
+pub fn sentinel_cache_dir()->PathBuf {
+    let path = odin_build::cache_dir().join("sentinel");
+    // Ok to panic - this is called during sys init
+    ensure_writable_dir(&path).expect( &format!("invalid sentinel cache dir: {path:?}"));
+    path
 }
 
 /* #endregion config */

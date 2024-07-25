@@ -60,7 +60,7 @@ impl LiveSentinelConnector {
 
     fn sentinel_file_for_query (&self, query: &Query<GetSentinelFile,Result<SentinelFile>>)->SentinelFile {
         let record_id = query.question.record_id.clone();
-        let pathname = odin_build::cache_dir().join(&query.question.filename);
+        let pathname = sentinel_cache_dir().join(&query.question.filename);
         SentinelFile { record_id, pathname }   
     }
 }
@@ -140,7 +140,7 @@ struct LiveConnection {
 
 impl LiveConnection {
     async fn new (config: Arc<SentinelConfig>, hself: ActorHandle<SentinelActorMsg>)->Result<Self> {
-        let cache_dir = Arc::new(Self::sentinel_cache_dir());
+        let cache_dir = Arc::new(sentinel_cache_dir());
 
         //--- get current sentinel data according to config (there is no point spawning tasks if we don't have a list of devices to watch)
         let http_client = Client::new();
@@ -198,13 +198,6 @@ impl LiveConnection {
         } else {
             Err( OdinSentinelError::NoDevicesError)
         }
-    }
-
-    pub fn sentinel_cache_dir()->PathBuf {
-        let path = odin_build::cache_dir().join("sentinel");
-        // Ok to panic - this is called during sys init
-        ensure_writable_dir(&path).expect( &format!("invalid sentinel cache dir: {path:?}"));
-        path
     }
 
     /// the websocket receiver loop
@@ -303,7 +296,7 @@ impl LiveConnection {
     }
 
     async fn request_all_files (&self, config: &SentinelConfig, sentinels: &SentinelStore) -> Result<()> {
-        let sentinel_cache_dir = Self::sentinel_cache_dir();
+        let sentinel_cache_dir = sentinel_cache_dir();
         for sentinel in sentinels.values_iter() {
             for rec in &sentinel.image {
                 Self::request_image_file( config, &sentinel_cache_dir, &self.file_request_tx, rec).await?;
