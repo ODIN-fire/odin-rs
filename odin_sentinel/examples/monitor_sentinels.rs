@@ -56,7 +56,8 @@ async fn main ()->Result<()> {
             hmonitor.try_send_msg( msg)
         }),
         data_action!( hmonitor: ActorHandle<SentinelMonitorMsg> => |data:SentinelUpdate| {
-            let msg = Update(data.to_json_pretty().unwrap());
+            //let msg = Update(data.to_json_pretty().unwrap());
+            let msg = Update(data.description());
             hmonitor.try_send_msg( msg)
         }),
     ))?;

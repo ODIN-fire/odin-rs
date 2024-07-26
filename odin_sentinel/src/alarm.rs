@@ -13,13 +13,13 @@
  */
 
 use std::collections::VecDeque;
-use std::{time::Duration,sync::Arc,future::Future, path::PathBuf};
+use std::{time::Duration,sync::Arc,future::Future, path::PathBuf, io::Write};
 use futures::SinkExt;
 use odin_common::sim_clock;
-use odin_common::{datetime::Dated,sim_clock::now,fs::append_line_to_file};
+use odin_common::{datetime::Dated,sim_clock::now,fs::{append_open,append_to_file,append_line_to_file}};
 use serde::{Deserialize,Serialize,Serializer};
 use serde_json;
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Local, TimeDelta, Utc};
 use async_trait::async_trait;
 use odin_actor::prelude::*;
 use odin_macro::{match_algebraic_type, define_struct};
@@ -114,13 +114,15 @@ impl SentinelAlarmMonitor {
         while let Some(back) = reported_alarms.back() {
             if now - back.date() > max_age {
                 reported_alarms.pop_back();
+            } else {
+                break
             }
         }
 
         //--- add it if new
         if !Self::is_reported_alarm(rec, reported_alarms, config.new_alarm_duration) {
             reported_alarms.push_front( rec.clone());
-            Some(format!("{}-alarm-{}", rec.capability().property_name(), rec.time_recorded.format("%Y-%m-%dT%H:%M:%S%Z")))
+            Some(format!("{}({},{})", rec.capability().property_name(), rec.device_id, rec.time_recorded.format("%Y-%m-%dT%H:%M:%S%Z")))
         } else {
             None
         }
@@ -214,12 +216,12 @@ impl SentinelAlarmMonitor {
         }
     }
 
-    fn log_alarm (&self, alarm_id: &str, description: &str, evidences: &Vec<RecordRef>) {
+    fn log_alarm (&self, alarm_descr: &str, description: &str, evidences: &Vec<RecordRef>) {
         let path = sentinel_cache_dir().join("alarm.log");
-        if append_line_to_file( &path, alarm_id).is_err() {
-            error!("failed to log alarm {}", alarm_id);
-        }
-
+        match append_open(path) {
+            Ok(mut file) => { writeln!(file, "{}: {}", Local::now(), alarm_descr); }
+            Err(e) => { error!("failed to append to alarm.log: {:?}", e) }
+        };
     }
 }
 
@@ -251,7 +253,8 @@ pub struct ConsoleAlarmMessenger {}
 #[async_trait]
 impl AlarmMessenger for ConsoleAlarmMessenger {
     async fn send_alarm (&self, alarm: &Alarm)->Result<()> {
-        println!("ALARM: {alarm:?}");
+        //println!("ALARM: {alarm:?}");
+        println!("{} {}", Local::now(), alarm.description);
         Ok(())
     }
 }

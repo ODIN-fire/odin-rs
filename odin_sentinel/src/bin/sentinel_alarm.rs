@@ -29,7 +29,8 @@ use odin_sentinel::{
 define_cli! { ARGS [about="Delphire Sentinel Alarm Server"] = 
     slack: bool       [help="enable slack messenger", long],
     smtp: bool        [help="enable smtp messenger", long],
-    signal_cli: bool  [help="enable signal-cli messenger (requires signal-cli installation)", long]
+    signal_cli: bool  [help="enable signal-cli messenger (requires signal-cli installation)", long],
+    console: bool     [help="enable console messenger",long]
 }
 
 #[tokio::main]
@@ -61,7 +62,9 @@ async fn main ()->Result<()> {
 fn create_messengers()->Result<Vec<Box<dyn AlarmMessenger>>> {
     let mut messengers: Vec<Box<dyn AlarmMessenger>> = Vec::new();
 
-    messengers.push( Box::new(ConsoleAlarmMessenger{})); // always enabled
+    if ARGS.console {
+        messengers.push( Box::new(ConsoleAlarmMessenger{}));
+    }
 
     if ARGS.slack {
         messengers.push( Box::new( SlackAlarmMessenger::new( load_config("slack_alarm.ron")?)))

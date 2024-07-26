@@ -111,8 +111,16 @@ impl<T> SensorRecord<T> where T: RecordDataBounds {
         T::capability()
     }
 
+    fn generic_description(&self)->String {
+        format!("(id:\"{}\",device_id:\"{}\",sensor_no:{},time_recorded:{},{})", 
+            self.id, self.device_id, self.sensor_no, self.time_recorded, self.capability().property_name())
+    }
+
     fn description(&self)->String {
-        format!("{}/{} at {:?} : {:?}", self.device_id, self.sensor_no, self.time_recorded.naive_local(), self.data)
+        match ron::to_string(self) {
+            Ok(s) => s,
+            Err(e) => self.generic_description()
+        }
     }
 }
 
