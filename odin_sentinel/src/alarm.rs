@@ -107,7 +107,7 @@ impl SentinelAlarmMonitor {
         where T: RecordDataBounds 
     {
         // Ok to panic if there is no sim_clock or the config is inconsistent (but should happen sooner?)
-        let now = sim_clock::now().unwrap(); 
+        let now = Utc::now(); //sim_clock::now().unwrap(); 
 
         //--- clean up first
         let max_age = TimeDelta::from_std(config.old_alarm_duration).unwrap();
