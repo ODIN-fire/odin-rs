@@ -165,6 +165,7 @@ pub fn set_filepath_contents_with_backup (dir: &str, filename: &str, backup_ext:
 fn append_open (path: impl AsRef<Path>)->Result<File> {
     OpenOptions::new()
         .write(true)
+        .create(true)
         .append(true)
         .open(path.as_ref())
 }
