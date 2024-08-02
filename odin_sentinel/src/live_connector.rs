@@ -14,12 +14,13 @@
 #![allow(unused)]
 
 use std::{future,collections::{VecDeque,HashMap},sync::{Arc,atomic::AtomicU64,Mutex}};
-use futures::{TryFutureExt, stream::{StreamExt,SplitStream,SplitSink}};
+use futures::{TryFutureExt, stream::{StreamExt,SplitStream,SplitSink}, SinkExt};
 use tokio_tungstenite::{tungstenite::protocol::Message, MaybeTlsStream};
+use tokio::{select,time::{sleep,Sleep}};
 use reqwest::{Client};
 
 use odin_actor::prelude::*;
-use odin_common::{if_let,fs::{remove_old_files, ensure_writable_dir}};
+use odin_common::{fs::{ensure_writable_dir, remove_old_files}, if_let, strings::str_from_last, collections::Snapshot};
 
 use crate::*;
 use crate::actor::*;
@@ -126,11 +127,8 @@ struct LiveConnection {
     hself: ActorHandle<SentinelActorMsg>, // the SentinelActor that uses this connection
     last_recv_epoch: Arc<AtomicU64>,
 
-    ws_rx_task: AbortHandle, // async task for websocket input
-    ws_tx_task: AbortHandle, // async task for websocket output
-    ws_cmd_tx: MpscSender<String>, // channel to send websocket commands
-
-    ping_task: Option<AbortHandle>, // optional periodic keepalive ping 
+    ws_task: AbortHandle, // async task for websocket input
+    ws_cmd_tx: MpscSender<String>,
 
     file_request_task: AbortHandle, // async task for file requests
     file_request_tx: MpscSender<FileRequest>, // channel to send file requests to the task
@@ -147,6 +145,9 @@ impl LiveConnection {
         let mut sentinel_store = SentinelStore::new();
         sentinel_store.fetch_from_config( &http_client, &config).await?; // retrieve all records we need - this can take some time
 
+        let mut latest_recs = sentinel_store.latest_records();
+        println!("@@ latest_recs: {latest_recs:#?}");
+
         //--- now open a websocket and register for the devices we've got (note that config might have a device_filter set)
         let device_ids = sentinel_store.get_device_ids();
         debug!("monitored Sentinel devices: {:?}", device_ids);
@@ -161,32 +162,21 @@ impl LiveConnection {
 
             let (file_request_task,file_request_tx) = file_fetcher.spawn( "sentinel-file_request", 64)?;
 
-            let ws_stream = init_websocket( &config, device_ids).await?;
-            let (ws_write, ws_read) = ws_stream.split();
-            let ws_rx_task = spawn( "ws-sentinel-rx", 
-                Self::ws_rx_loop( hself.clone(), config.clone(), cache_dir.clone(), file_request_tx.clone(), ws_read)
-            )?.abort_handle();
-
             let (ws_cmd_tx, ws_cmd_rx) = create_mpsc_sender_receiver::<String>(16);
-            let ws_tx_task = spawn( "ws-sentinel-tx", Self::ws_tx_loop(  ws_cmd_rx, ws_write))?.abort_handle();
+
+            let ws_task = spawn( "ws-sentinel", 
+                Self::ws_loop( hself.clone(), config.clone(), cache_dir.clone(),
+                               device_ids, latest_recs, 
+                               file_request_tx.clone(), ws_cmd_rx)
+            )?.abort_handle();
 
             let file_cleanup_task = spawn( "sentinel-file-purge", 
                                            Self::file_cleanup_loop( config.clone(), cache_dir.clone()))?.abort_handle();
 
-            let ping_task = match config.ping_interval {
-                Some(interval) => {
-                    let ws_cmd_tx = ws_cmd_tx.clone();
-                    let ah = spawn( "ws-ping", Self::ws_ping_loop(interval, ws_cmd_tx))?.abort_handle();
-                    Some(ah)
-                }
-                None => None
-            };
-
             let live_conn = LiveConnection { 
                 hself: hself.clone(), 
                 last_recv_epoch, 
-                ws_rx_task, ws_tx_task, ws_cmd_tx, 
-                ping_task, 
+                ws_task, ws_cmd_tx,
                 file_request_task, file_request_tx,
                 file_cleanup_task,
             };
@@ -200,98 +190,226 @@ impl LiveConnection {
         }
     }
 
-    /// the websocket receiver loop
-    async fn ws_rx_loop (hself: ActorHandle<SentinelActorMsg>, config: Arc<SentinelConfig>, 
-                           cache_dir: Arc<PathBuf>, file_request_tx: MpscSender<FileRequest>,
-                           mut ws_read: SplitStream<WsStream>) -> Result<()> 
-    {
+    async fn ws_loop (hself: ActorHandle<SentinelActorMsg>, config: Arc<SentinelConfig>, cache_dir: Arc<PathBuf>, 
+                      device_ids: Vec<String>, mut latest_recs: HashMap<String,String>,
+                      file_request_tx: MpscSender<FileRequest>, ws_cmd_rx: MpscReceiver<String>) {
+        let mut cycle = 0;
         let client = reqwest::Client::new();
-        loop {
-            let res: Result<()> = if_let! {
-                Some(m) = { ws_read.next().await } else { Err(OdinSentinelError::WsClosedError{}) }, // no use going on, terminate task
-                Ok(Message::Text(json)) = { m } else { Ok(()) }, // ignore binary messages
-                Ok(msg) = { serde_json::from_str::<WsMsg>(&json) } else { warn!("malformed websocket message {json}"); Ok(()) },
-                WsMsg::Record { device_id, sensor_no, rec_type } = { msg } else { Ok(()) } => { // ignore other WsMsg variants
-                    use SensorCapability::*;
-                    match rec_type {
-                        Accelerometer => Self::get_and_send_update::<AccelerometerData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Anemometer    => Self::get_and_send_update::<AnemometerData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Cloudcover    => Self::get_and_send_update::<CloudcoverData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Event         => Self::get_and_send_update::<EventData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Fire          => Self::get_and_send_update::<FireData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Gas           => Self::get_and_send_update::<GasData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Gps           => Self::get_and_send_update::<GpsData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Gyroscope     => Self::get_and_send_update::<GyroscopeData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Magnetometer  => Self::get_and_send_update::<MagnetometerData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Orientation   => Self::get_and_send_update::<OrientationData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Person        => Self::get_and_send_update::<PersonData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Power         => Self::get_and_send_update::<PowerData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Smoke         => Self::get_and_send_update::<SmokeData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Thermometer   => Self::get_and_send_update::<ThermometerData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Valve         => Self::get_and_send_update::<ValveData>( &hself, &client, &config, &device_id, sensor_no).await,
-                        Voc           => Self::get_and_send_update::<VocData>( &hself, &client, &config, &device_id, sensor_no).await,
+        let ping_interval = if let Some(dur) = config.ping_interval { dur } else { Duration::MAX };
 
-                        Image         => Self::get_and_send_image_update( &hself, &client, &config, &cache_dir, &file_request_tx,
-                                                                            &device_id, sensor_no).await,
-                    };
-                    Ok(())
+        loop {
+            cycle += 1;
+            if cycle > 1 {
+                Self::get_and_send_missing_updates( &hself, &client, &config, &mut latest_recs, &cache_dir, &file_request_tx).await;
+            }
+
+            println!("@@ init websocket..");
+            if let Ok(mut ws_stream) =  init_websocket( &config, &device_ids).await {
+                println!("@@ websocket initialized.");
+
+                loop {
+                    println!("@@ next loop cycle");
+                    select! { // NOTE - this requires all awaited futures to be cancellation safe !
+                        //--- ws read (record availability notifications)
+                        maybe_msg = ws_stream.next() => {
+                            match maybe_msg {
+                                Some(msg) => match msg {
+                                    Ok(msg) => {
+                                        println!("@@ got msg {}", msg);
+
+                                        if let Err(e) = Self::process_incoming_msg( &hself, &client, &config, msg, &mut latest_recs, &cache_dir, &file_request_tx).await {
+                                            warn!("ignoring incoming websocket msg: {}", e)
+                                        };
+                                    }
+                                    Err(e) => {
+                                        warn!("reading websocket failed: {}", e);
+                                        break; // do we have to check the tungstenite::error::Error variant? I seems they all warrant restart
+                                    }
+                                }
+                                None => {
+                                    warn!("websocket closed");
+                                    break; // try to re-connect
+                                }
+                            }
+                        }
+    
+                        //--- ws write (commands) 
+                        maybe_cmd = recv(&ws_cmd_rx) => {
+                            match maybe_cmd {
+                                Ok(cmd) => {
+                                    println!("@@ send cmd {}", cmd);
+
+                                    if let Err(e) = ws_stream.send( Message::Text(cmd)).await {
+                                        warn!("writing websocket failed: {}", e);
+                                        break; // try to re-connect
+                                    }
+                                }
+                                Err(e) => {
+                                    // cmd queue closed - terminate (this is nominal termination, no error)
+                                    return
+                                }
+                            }
+                        }
+
+                        //--- ping_interval timeout
+                        // unfortunately a guard does not shortcut evaluating the async expression, it just enables/disables polling the future
+                        _ = sleep( ping_interval), if config.ping_interval.is_some() => { 
+                            println!("@@ send ping");
+                            let msg = WsCmd::new_ping("ping");
+                            if let Ok(msg) = serde_json::to_string( &msg) {
+                                if let Err(e) = ws_stream.send(Message::Text(msg)).await {
+                                    warn!("writing websocket failed: {}", e);
+                                    break; // try to re-connect    
+                                }
+                            }
+                        }
+                    }
                 }
-            };
-            if res.is_err() { return res }
+            } else { // init_websocket failed
+                if let Some(reconnect_delay) = config.reconnect_delay {
+                    warn!("failed to initialize websocket, retry in {} sec", reconnect_delay.as_secs());
+                    sleep(reconnect_delay).await;
+                } else {
+                    break;
+                }
+            }
         }
-        Ok(())
+        error!("websocket processing terminated.")
+    }
+
+    async fn process_incoming_msg (hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig,
+                                   msg: Message,
+                                   latest_recs: &mut HashMap<String,String>, 
+                                   cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest>)->Result<()> {
+        if_let! {
+            Message::Text(json) = { msg } else { Err(ws_protocol_error("ignored binary message")) }, // ignore binary messages
+            Ok(msg) = { serde_json::from_str::<WsMsg>(&json) } else { warn!("malformed websocket message {json}"); Err(ws_protocol_error("malformed message")) },
+            WsMsg::Record { device_id, sensor_no, rec_type } = { msg } else { Err(ws_protocol_error("unknown record type")) } => { // ignore other WsMsg variants
+                use SensorCapability::*;
+                match rec_type {
+                    Accelerometer => Self::get_and_send_update::<AccelerometerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Anemometer    => Self::get_and_send_update::<AnemometerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Cloudcover    => Self::get_and_send_update::<CloudcoverData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Event         => Self::get_and_send_update::<EventData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Fire          => Self::get_and_send_update::<FireData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Gas           => Self::get_and_send_update::<GasData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Gps           => Self::get_and_send_update::<GpsData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Gyroscope     => Self::get_and_send_update::<GyroscopeData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Magnetometer  => Self::get_and_send_update::<MagnetometerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Orientation   => Self::get_and_send_update::<OrientationData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Person        => Self::get_and_send_update::<PersonData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Power         => Self::get_and_send_update::<PowerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Smoke         => Self::get_and_send_update::<SmokeData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Thermometer   => Self::get_and_send_update::<ThermometerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Valve         => Self::get_and_send_update::<ValveData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                    Voc           => Self::get_and_send_update::<VocData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+
+                    Image         => Self::get_and_send_image_update( hself, client, config, &device_id, sensor_no, latest_recs, cache_dir, file_request_tx).await,
+                }
+            }
+        }
     }
 
     async fn get_and_send_update<T>(hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig, 
-                                    device_id: &str, sensor_no: u32) -> Result<()> 
+                                    device_id: &str, sensor_no: u32, latest_recs: &mut HashMap<String,String>) -> Result<()> 
         where T: RecordDataBounds, SentinelUpdate: From<Arc<SensorRecord<T>>>
     {
-        let update = Self::get_update::<T>( client, config, device_id, sensor_no).await?;
-        Ok(hself.send_msg( UpdateStore( update)).await?)
-    }
+        let rec = get_latest_record::<T>(client, &config.base_uri, &config.access_token, device_id, sensor_no).await?;
+        let update = SentinelUpdate::from(Arc::new(rec));
+        Self::update_latest_recs( latest_recs, &update);
+        hself.send_msg( UpdateStore( update)).await?;
 
-    async fn get_and_send_image_update (hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig, 
-                                        cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest>,
-                                        device_id: &str, sensor_no: u32) -> Result<()>  
-    {
-        let update = Self::get_update::<ImageData>( client, config, device_id, sensor_no).await?;
-        match_algebraic_type! { update: SentinelUpdate as
-            ref Arc<SensorRecord<ImageData>> => { Self::request_image_file( config, cache_dir, file_request_tx, update).await? }
-            _ => {}
-        }
-        Ok(hself.send_msg( UpdateStore( update)).await?)
-    }
-
-    async fn get_update<T> (client: &Client, config: &SentinelConfig, device_id: &str, sensor_no: u32) -> Result<SentinelUpdate> 
-        where T: RecordDataBounds, SentinelUpdate: From<Arc<SensorRecord<T>>>
-    {
-        let base_uri = config.base_uri.as_str();
-        let access_token = config.access_token.as_str();
-        get_latest_update::<T>( client, base_uri, access_token, device_id, sensor_no).await
-    }
-
-    async fn ws_tx_loop (ws_cmd_rx: MpscReceiver<String>, mut ws_write: SplitSink<WsStream,Message>) -> Result<()> {
-        loop {
-            match recv(&ws_cmd_rx).await {
-                Ok(msg) => {
-                    if let Err(e) = send_ws_text_msg( &mut ws_write, msg).await {
-                        error!("failed to send websocket message: {e:?}")
-                    }
-                }
-                Err(e) => return Err(connector_error("command queue closed"))
-            }
-        }
         Ok(())
     }
 
-    async fn ws_ping_loop (interval: Duration, ws_cmd_tx: MpscSender<String>) -> Result<()> {
-        loop {
-            sleep(interval).await;
-            let ping = WsCmd::new_ping("ping");
-            if let Ok(json) = serde_json::to_string( &ping) {
-                ws_cmd_tx.send(json).await;
+    fn update_latest_recs (latest_recs: &mut HashMap<String,String>, update: &SentinelUpdate) {
+        let rec_key = rec_key( update.device_id(), update.sensor_no(), update.capability());
+        latest_recs.insert(rec_key, update.record_id().clone());
+    }
+
+    async fn get_and_send_image_update (hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig, 
+                                        device_id: &str, sensor_no: u32, latest_recs: &mut HashMap<String,String>,
+                                        cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest> ) -> Result<()>  
+    {
+        let rec = get_latest_record::<ImageData>(client, &config.base_uri, &config.access_token, device_id, sensor_no).await?;
+        Self::request_image_file( config, cache_dir, file_request_tx, &rec).await?;
+        let update = SentinelUpdate::from(Arc::new(rec));
+        Self::update_latest_recs( latest_recs, &update);
+        hself.send_msg( UpdateStore( update)).await?;
+
+        Ok(())
+    }
+
+    async fn get_and_send_missing_updates (hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig, 
+                                           latest_recs: &mut HashMap<String,String>,
+                                           cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest> )->Result<()> {
+        println!("@@ getting missing updates..");
+        let base_uri = config.base_uri.as_str();
+        let access_token = config.access_token.as_str();
+
+        for (uri_path, rec_id) in latest_recs.snapshot() {
+            if let Some(rec_type) = str_from_last( &uri_path, '/') {
+                use SensorCapability::*;
+
+                let res = match SensorCapability::capability_of(rec_type) {
+                    Some(Accelerometer)  => Self::get_and_send_missing::<AccelerometerData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Anemometer)     => Self::get_and_send_missing::<AnemometerData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Cloudcover)     => Self::get_and_send_missing::<CloudcoverData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Event)          => Self::get_and_send_missing::<EventData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Fire)           => Self::get_and_send_missing::<FireData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Gas)            => Self::get_and_send_missing::<GasData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Gps)            => Self::get_and_send_missing::<GpsData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Gyroscope)      => Self::get_and_send_missing::<GyroscopeData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Magnetometer)   => Self::get_and_send_missing::<MagnetometerData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Orientation)    => Self::get_and_send_missing::<OrientationData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Person)         => Self::get_and_send_missing::<PersonData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Power)          => Self::get_and_send_missing::<PowerData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Smoke)          => Self::get_and_send_missing::<SmokeData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Thermometer)    => Self::get_and_send_missing::<ThermometerData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Valve)          => Self::get_and_send_missing::<ValveData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+                    Some(Voc)            => Self::get_and_send_missing::<VocData>( hself, client, config, &uri_path, &rec_id, latest_recs).await,
+
+                    Some(Image)          => Self::get_and_send_missing_images( hself, client, config, &uri_path, &rec_id, latest_recs, cache_dir, file_request_tx).await,
+
+                    None => Err( op_failed("unknown capability")) 
+                };
+                if let Err(e) = res { warn!("failed to get missing updates for {uri_path}: {e}") }
             }
         }
+
+        Ok(())
+    }
+
+    async fn get_and_send_missing<T> (hself: &ActorHandle<SentinelActorMsg>, 
+                                      client: &Client, config: &SentinelConfig, uri_path: &str, last: &str, 
+                                      latest_recs: &mut HashMap<String,String>) -> Result<()> 
+        where T: RecordDataBounds, SentinelUpdate: From<Arc<SensorRecord<T>>>
+    {
+        let recs = get_records_since::<T>(client, &config.base_uri, &config.access_token, uri_path, last).await?;
+        for rec in recs.into_iter() {
+            println!("@@ send missing update: {rec:?}");
+            let update = SentinelUpdate::from(Arc::new(rec));
+            Self::update_latest_recs( latest_recs, &update);
+            hself.send_msg( UpdateStore(update)).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn get_and_send_missing_images (hself: &ActorHandle<SentinelActorMsg>, 
+                                      client: &Client, config: &SentinelConfig, uri_path: &str, last: &str, 
+                                      latest_recs: &mut HashMap<String,String>,
+                                      cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest> ) -> Result<()> 
+    {
+        let recs = get_records_since::<ImageData>(client, &config.base_uri, &config.access_token, uri_path, last).await?;
+        for rec in recs.into_iter() {
+            println!("@@ send missing image update: {rec:?}");
+            Self::request_image_file( config, cache_dir, file_request_tx, &rec).await?;
+            let update = SentinelUpdate::from(Arc::new(rec));
+            Self::update_latest_recs( latest_recs, &update);
+            hself.send_msg( UpdateStore(update)).await?;
+        }
+
         Ok(())
     }
 
@@ -343,15 +461,9 @@ impl LiveConnection {
     }
 
     fn terminate(&mut self)->Result<()> {
-        if let Some(ping_task) = &self.ping_task {
-            ping_task.abort();
-            self.ping_task = None;
-        }
+        self.ws_task.abort();
         self.file_request_task.abort();
         self.file_cleanup_task.abort();
-
-        self.ws_tx_task.abort();
-        self.ws_rx_task.abort();
 
         Ok(())
     }

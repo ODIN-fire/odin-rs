@@ -109,6 +109,14 @@ pub fn parse_array<T: FromStr, const N: usize> (s: &str, delim: char) -> Result<
         })
 }
 
+pub fn str_from_last<'a> (s: &'a str, c: char) -> Option<&'a str> {
+    if let Some(idx) = s.rfind(c) {
+        Some( &s[idx+1..])
+    } else {
+        None
+    }
+}
+
 //--- utilize above parsers for serde deserialization (to be used in #[serde(deserialize_with=".."] field macros
 
 pub fn deserialize_vec <'a,T,D>(deserializer: D) -> Result<Vec<T>,D::Error>

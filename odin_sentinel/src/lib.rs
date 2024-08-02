@@ -195,6 +195,7 @@ define_algebraic_type!{
     pub fn record_id (&self)->&RecordId { &__.id }
     pub fn device_id (&self)->&DeviceId { &__.device_id }
     pub fn sensor_no (&self)->u32 { __.sensor_no }
+    pub fn time_recorded (&self)->DateTime<Utc> { __.time_recorded }
     pub fn capability (&self)->SensorCapability { __.capability() }
     pub fn description (&self)->String { __.description() }
 
@@ -348,8 +349,32 @@ pub enum SensorCapability {
     Valve,
     Voc
 }
+
 impl SensorCapability {
     fn property_name (&self)->&'static str { self.into() }
+
+    fn capability_of (rec_type: &str)->Option<SensorCapability> {
+        match rec_type {
+            "accelerometer" => Some( Self::Accelerometer ),
+            "anemometer"    => Some( Self::Anemometer ),
+            "cloudcover"    => Some( Self::Cloudcover ),
+            "event"         => Some( Self::Event ),
+            "fire"          => Some( Self::Fire ),
+            "gas"           => Some( Self::Gas ),
+            "gps"           => Some( Self::Gps ),
+            "gyroscope"     => Some( Self::Gyroscope ),
+            "image"         => Some( Self::Image ),
+            "magnetometer"  => Some( Self::Magnetometer ),
+            "orientation"   => Some( Self::Orientation ),
+            "person"        => Some( Self::Person ),
+            "power"         => Some( Self::Power ),
+            "smoke"         => Some( Self::Smoke ),
+            "thermometer"   => Some( Self::Thermometer ),
+            "valve"         => Some( Self::Valve ),
+            "voc"           => Some( Self::Voc ),
+            _               => None
+        }
+    }
 }
 
 /* #endregion record payload data */
@@ -534,6 +559,14 @@ impl SentinelStore {
             SentinelChange{ added: Some(update), removed: None } // unknown device, nothing to do
         }
     }
+
+    pub fn latest_records (&self)->HashMap<String,String> {
+        let mut latest_recs: HashMap<String,String> = HashMap::new();
+        for (_,sentinel) in &self.sentinels {
+            sentinel.add_latest_records(&mut latest_recs);
+        }
+        latest_recs
+    }
 }
 
 pub struct SentinelChange { added: Option<SentinelUpdate>, removed: Option<SentinelUpdate> }
@@ -588,23 +621,23 @@ impl Sentinel {
         let device_id = &self.device_id.as_str();
         use SensorCapability::*;
         let updates = match capability {
-            Accelerometer => init_recs( &mut self.accel,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Anemometer    => init_recs( &mut self.anemo,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Cloudcover    => init_recs( &mut self.cloudcover,  get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Event         => init_recs( &mut self.event,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Fire          => init_recs( &mut self.fire,        get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Gas           => init_recs( &mut self.gas,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Gps           => init_recs( &mut self.gps,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Gyroscope     => init_recs( &mut self.gyro,        get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Image         => init_recs( &mut self.image,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Magnetometer  => init_recs( &mut self.mag,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Orientation   => init_recs( &mut self.orientation, get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Person        => init_recs( &mut self.person,      get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Power         => init_recs( &mut self.power,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Smoke         => init_recs( &mut self.smoke,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Thermometer   => init_recs( &mut self.thermo,      get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Valve         => init_recs( &mut self.valve,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
-            Voc           => init_recs( &mut self.voc,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?),
+            Accelerometer => init_recs( &mut self.accel,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Anemometer    => init_recs( &mut self.anemo,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Cloudcover    => init_recs( &mut self.cloudcover,  get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Event         => init_recs( &mut self.event,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Fire          => init_recs( &mut self.fire,        get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Gas           => init_recs( &mut self.gas,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Gps           => init_recs( &mut self.gps,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Gyroscope     => init_recs( &mut self.gyro,        get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Image         => init_recs( &mut self.image,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Magnetometer  => init_recs( &mut self.mag,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Orientation   => init_recs( &mut self.orientation, get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Person        => init_recs( &mut self.person,      get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Power         => init_recs( &mut self.power,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Smoke         => init_recs( &mut self.smoke,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Thermometer   => init_recs( &mut self.thermo,      get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Valve         => init_recs( &mut self.valve,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Voc           => init_recs( &mut self.voc,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
         };
         Ok(updates)
     }
@@ -630,22 +663,71 @@ impl Sentinel {
             Arc<SensorRecord<VocData>>           => sort_in_record( &mut self.voc,         sentinel_update, self.max_len)
         }
     }
+
+    pub fn add_latest_records (&self, latest_recs: &mut HashMap<String,String>) {
+        add_latest_recs( &self.accel, latest_recs);
+        add_latest_recs( &self.anemo, latest_recs);
+        add_latest_recs( &self.cloudcover, latest_recs);
+        add_latest_recs( &self.event, latest_recs);
+        add_latest_recs( &self.fire, latest_recs);
+        add_latest_recs( &self.gas, latest_recs);
+        add_latest_recs( &self.gps, latest_recs);
+        add_latest_recs( &self.gyro, latest_recs);
+        add_latest_recs( &self.image, latest_recs);
+        add_latest_recs( &self.mag, latest_recs);
+        add_latest_recs( &self.orientation, latest_recs);
+        add_latest_recs( &self.person, latest_recs);
+        add_latest_recs( &self.power, latest_recs);
+        add_latest_recs( &self.smoke, latest_recs);
+        add_latest_recs( &self.thermo, latest_recs);
+        add_latest_recs( &self.valve, latest_recs);
+        add_latest_recs( &self.voc, latest_recs);
+    }
+ 
 }
 
-fn init_recs<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, recs: Vec<SensorRecord<T>>)->Vec<SentinelUpdate> 
+pub fn rec_key (device_id: &str, sensor_no: u32, capa: SensorCapability)->String {
+    format!("/devices/{}/sensors/{}/{}", device_id, sensor_no, capa.property_name())
+}
+
+fn add_latest_recs<T> (list: &VecDeque<Arc<SensorRecord<T>>>, latest_recs: &mut HashMap<String,String>)     
+    where T: RecordDataBounds
+{
+    let mut sensors: Vec<u32> = Vec::with_capacity(2);
+    for rec in list {
+        let sensor_no = rec.sensor_no;
+        if !sensors.contains( &sensor_no) {
+            let key = rec_key( &rec.device_id, sensor_no, rec.capability());
+            latest_recs.insert( key, rec.id.clone());
+            sensors.push( sensor_no);
+        }
+    }
+}
+
+// note that most record lists only have a single sensor, but some (images) have several. The max_len is per
+// sensor so we have to sort in recs after the first sensor batch
+fn init_recs<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, recs: Vec<SensorRecord<T>>, max_len: usize)->Vec<SentinelUpdate> 
     where T: RecordDataBounds, SentinelUpdate: From<Arc<SensorRecord<T>>>
 {
     let mut updates = Vec::<SentinelUpdate>::with_capacity(recs.len());
 
-    list.clear();
-    for rec in recs.into_iter() {
-        let rec = Arc::new(rec);
-        updates.push( rec.clone().into()); 
-        list.push_back( rec);
+    if list.is_empty() { // first sensor, recs is already time sorted
+        for rec in recs.into_iter() {
+            let rec = Arc::new(rec);
+            updates.push( rec.clone().into()); 
+            list.push_back( rec);
+        }
+    } else { // different sensor, we have to sort in
+        for rec in recs.into_iter() {
+            let rec = Arc::new(rec);
+            updates.push( rec.clone().into()); 
+            sort_in_record( list, rec, max_len);
+        }
     }
 
     updates
 }
+
 
 
 /// sort in record according to timestamp (newer records first). Note this transfers ownership of 'rec'.
@@ -653,30 +735,52 @@ fn init_recs<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, recs: Vec<SensorReco
 pub fn sort_in_record<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, rec: Arc<SensorRecord<T>>, max_len: usize)->(Option<RecordId>,Option<RecordId>)
     where T: RecordDataBounds, SentinelUpdate: From<Arc<SensorRecord<T>>>
 {
-    let mut i=0;
+    let mut n_sensor_recs = 0;
     let mut added: Option<RecordId> = None;
     let mut removed: Option<RecordId> = None;
+    let sensor_no = rec.sensor_no;
 
-    for r in list.iter() {
-        if (rec.time_recorded > r.time_recorded) {
+    for (i,r) in list.iter().enumerate() {
+        if rec.time_recorded > r.time_recorded { // insert record
             added = Some(rec.id.clone());
             list.insert( i, rec);
+            removed = remove_excess_sensor_rec( list, sensor_no, i+1, n_sensor_recs, max_len);
 
-            if list.len() > max_len { 
-                if let Some(dropped) = list.pop_back() { 
-                    removed = Some(dropped.id.clone());
-                }
-            }
             return (added,removed)
+
+        } else if rec.time_recorded == r.time_recorded {
+            if rec.id == r.id && sensor_no == r.sensor_no { // replace record, no need to add or remove
+                list[i] = rec;
+                return (None,None)
+            }
         }
-        i += 1;
+        if sensor_no == r.sensor_no { n_sensor_recs += 1; } 
     }
 
-    if i < max_len {
+    // if we get here it's the oldest record so check if it would exceed max_len before adding
+    if n_sensor_recs < max_len {
         added = Some(rec.id.clone());
         list.push_back( rec);
     }
+
     (added,removed)
+}
+
+// find the first sensor rec from start_idx that exceeds max_len
+fn remove_excess_sensor_rec<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, sensor_no: u32, 
+                                start_idx: usize, n_sensor_recs: usize, max_len: usize)->Option<RecordId> 
+    where T: RecordDataBounds
+{
+    let mut n = n_sensor_recs;
+
+    for i in start_idx..list.len() {
+        if list[i].sensor_no == sensor_no { n += 1 }
+        if n > max_len { 
+            return list.remove(i).map( |r| r.id.clone() );
+        }
+    }
+
+    None
 }
 
 /* #endregion internal data store */
@@ -693,6 +797,7 @@ pub struct SentinelConfig {
     pub max_history_len: usize, // maximum number of records to store per device/sensor capability
     pub max_age: Duration, // maximum age after which additional data (images etc.) are deleted
     pub ping_interval: Option<Duration>, // interval duration for sending Ping messages on the websocket 
+    pub reconnect_delay: Option<Duration>, // sleep duration after which we try to re-initializa a broken websocket 
     pub device_filter: Vec<String>  // optional list of device_ids to filter for
 }
 
@@ -707,7 +812,8 @@ impl Default for SentinelConfig {
             //--- the fields for which we have defaults
             max_history_len: 10,
             max_age: Duration::from_secs( 60*60*24),
-            ping_interval: None, // Some(Duration::from_secs(20)),
+            ping_interval: Some(Duration::from_secs(25)),
+            reconnect_delay: None,
             device_filter: Vec::new() // default is no filter
         }
     }
@@ -787,22 +893,21 @@ pub async fn get_time_sorted_records <T> (client: &Client, base_uri: &str, acces
     Ok(record_list.data)
 } 
 
+pub async fn get_records_since <T> (client: &Client, base_uri: &str, access_token: &str, uri_path: &str, last: &str) -> Result<Vec<SensorRecord<T>>> 
+    where T: RecordDataBounds
+{
+    let uri = format!("{base_uri}/{uri_path}?sort=timeRecorded,DESC&last={last}");
+    let response = client.get(uri).bearer_auth(access_token).send().await?;
+    let record_list: RecordList<T> = from_json(response).await?; 
+    Ok(record_list.data)
+}
+
 pub async fn get_latest_record <T> (client: &Client, base_uri: &str, access_token: &str, 
                                     device_id: &str, sensor_no:u32) -> Result<SensorRecord<T>> 
     where T: RecordDataBounds, SentinelUpdate: From<Arc<SensorRecord<T>>>
 {
     let mut recs = get_time_sorted_records::<T>( client, base_uri, access_token, device_id, sensor_no, 1).await?;
     recs.pop().ok_or( no_data(format!("for device: {}, sensor: {}, capability: {:?}", device_id, sensor_no, T::capability())))
-}
-
-pub async fn get_latest_update <T> (client: &Client, base_uri: &str, access_token: &str, 
-                                    device_id: &str, sensor_no:u32) -> Result<SentinelUpdate> 
-    where T: RecordDataBounds, SentinelUpdate: From<Arc<SensorRecord<T>>>
-{
-    let mut recs = get_time_sorted_records::<T>( client, base_uri, access_token, device_id, sensor_no, 1).await?;
-    recs.pop()
-        .ok_or( no_data(format!("for device: {}, sensor: {}, capability: {:?}", device_id, sensor_no, T::capability())))
-        .map( |r| SentinelUpdate::from(Arc::new(r)))
 }
 
 async fn get_file_request (client: &Client, access_token: &str, uri: &str, pathname: &PathBuf)->Result<()> {

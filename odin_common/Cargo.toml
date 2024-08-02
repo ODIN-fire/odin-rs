@@ -9,10 +9,12 @@ edition = "2021"
 chrono = "*"
 serde = { version="*", features = ["derive"] }
 serde_json = "*"
+ron = "*"
 num = "*"
 thiserror = "*"
 parse_duration = "*"
-reqwest = "*"
+reqwest = { version = "*", features = ["blocking"] }
+lazy_static = "*"
 
 aws-config = { version = "*", features = ["behavior-version-latest"], optional = true }
 aws-sdk-s3 = { version = "*", features = ["rt-tokio"], optional = true }
@@ -25,6 +27,14 @@ aws-smithy-runtime-api = { version = "*", optional = true }
 # as rust-analyzer) for it too.
 crc32c = { version = "0.6.7", optional = true }
 
+odin_build = { workspace = true }
+
+[build-dependencies]
+odin_build = { workspace = true }
 
 [features]
 s3 = ["dep:aws-sdk-s3", "dep:aws-config", "dep:aws-smithy-types-convert", "dep:aws-smithy-runtime-api", "dep:aws-smithy-types", "dep:crc32c"]
+slack_admin = []
+
+[package.metadata.odin_configs]
+slack_admin = { file = "slack_admin.ron" }

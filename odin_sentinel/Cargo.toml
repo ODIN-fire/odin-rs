@@ -23,18 +23,9 @@ name = "sentinel_alarm"
 path = "src/bin/sentinel_alarm.rs"
 
 [[bin]]
-name = "test_smtp_alarm"
-path = "src/bin/test_smtp_alarm.rs"
-required-features = ["smtp"]
-
-[[bin]]
 name = "test_signal_rpc_alarm"
 path = "src/bin/test_signal_rpc_alarm.rs"
 required-features = ["signal_rpc"]
-
-[[bin]]
-name = "test_signal_cmd_alarm"
-path = "src/bin/test_signal_cmd_alarm.rs"
 
 
 [dependencies]

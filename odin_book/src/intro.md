@@ -2,7 +2,7 @@
 
 ODIN is a software framework to efficiently create servers that support disaster management. 
 
-<img class="mono right" src="../img/info-fragmentation.svg" width="35%"/>
+<img class="mono right" src="../img/info-fragmentation.svg" width="40%"/>
 
 More specifically it is a framework to build servers that import and process an open number of external data sources for information such as weather, ground-/aerial- and space-based sensors, threat assessment, simulation, vehicle/crew tracking and many more. The over-arching goal is to improve situational awareness of stakeholders by making more - and more timely - information available in stakeholder-specific applications. The main challenge for this is not the availability of data, it is how this data can be integrated in extensible and customizable applications. 
 
@@ -14,22 +14,22 @@ To that end ODIN is open sourced under [Apache v2 license](http://www.apache.org
 
 ## Stakeholders
 
-<img class="mono left" src="../img/stakeholders.svg" width="50%"/>
+<img class="mono left" src="../img/stakeholders.svg" width="55%"/>
 
 Our vision for ODIN goes beyond a single stakeholder. We want it to be an open (freely available) platform for both users and developers. The ODIN maintainers are just one part of the puzzle, developing and maintaining the core framework other developers can build on. We only see our role in creating generic components that implement a consistent, extensible and scalable architecture. 
 
-User stakeholders are more than just responder organizations (of which there are many). We also envision local communities who want to improve their level of preparedness / disaster planning. Another example would be utility providers monitoring critical infrastructure. The common theme for such user stakeholders is to enhance their situational awareness but what information that entails depends on the specific incident type, stakeholder and location. 
+User stakeholders are more than just responder organizations (of which there are many). We also envision local communities who want to improve their level of preparedness / disaster planning. Another example would be utility providers monitoring critical infrastructure. The common goal for such user stakeholders is to enhance their situational awareness but what information that entails depends on the specific incident type, stakeholder and location. 
 
 What holds for most user stakeholder organizations is that they lack the resources to develop respective systems from scratch. The stakeholders who do have development capacity often find themselves reinventing the wheel. The stakeholders who subscribe to commercial services have no way to tailor or extend such services.
 
-There is no single organization that could develop all service components on its own. Commercial vendors come up with new sensors. Research organizations develop new forecast models and simulators. The common theme for all such provider stakeholders is that they want to focus on their specific expertise. They don't want to duplicate existing functions just to make their products available. If they do so it just increases the information fragmentation problem we started with.
+There is no single organization that could develop all service components on its own. Commercial vendors come up with new sensors. Research organizations develop new forecast models and simulators. What holds for all such provider stakeholders is that they want to focus on their specific expertise. They don't want to duplicate existing functions just to make their products available. If they do so it just increases the information fragmentation problem we started with.
 
-ODIN aims to be the common ground on which stakeholders can meet - free, open and extensible for all. 
+ODIN aspires to become the common ground on which stakeholders can meet - free, open and extensible for all. 
 
 
 ## Underlying SW Architecture/Design
 
-<img class="mono right" src="../img/actors-mono.svg" width="30%"/>
+<img class="mono right" src="../img/actors-mono.svg" width="35%"/>
 
 To be that common basis ODIN needs a strong architectural foundation. Since ODINs main task is to collect and then process data from various independent external sources we need good support for concurrent computation - one of the most challenging topics for software development. ODIN meets this challenge by using the [Actor Programming Model](https://en.wikipedia.org/wiki/Actor_model): asynchronously executing objects which only communicate through messages and don't share internal state (see [odin_actor](odin_actor/odin_actor.md) and [The Actor Programming Model](odin_actor/actor_basics.md) for details). 
 
@@ -85,7 +85,7 @@ ODINs user interface components such as (movable) windows, lists and buttons are
 
 ODIN edge servers are the means to make ODIN applications scalable - they provide condensed/consolidated input data for user servers by factoring out high computational workloads and/or large input data volumes into dedicated machines with high speed network access. Edge servers are primarily used to reduce downstream processing and data volume.
 
-<img class="mono right" src="../img/odin-edge-mono.svg" width="40%"/>
+<img class="mono right" src="../img/odin-edge-mono.svg" width="45%"/>
 
 Assume for instance micro-grid (location/terrain- aware) wind forecast for a given incident area, such as provided by [WindNinja](https://weather.firelab.org/windninja/). This not only requires high speed machinery to execute the simulation but also needs significant bandwidth/connectivity to periodically obtain the required input data such as weather forecasts and station reports, high resolution digital elevation models, vegetation/fuel models and more. The user-facing results of the simulation can be compiled into relatively simple text (CSV) files containing a wind vector grid in the area of interest. 
 

@@ -123,6 +123,10 @@ pub fn connector_error (msg: impl ToString)->OdinSentinelError {
     OdinSentinelError::ConnectorError(msg.to_string())
 }
 
+pub fn ws_protocol_error (msg: impl ToString)->OdinSentinelError {
+    OdinSentinelError::WsProtocolError(msg.to_string())
+}
+
 pub fn send_error (msg: impl ToString)->OdinSentinelError {
     OdinSentinelError::ConnectorError(msg.to_string())
 }

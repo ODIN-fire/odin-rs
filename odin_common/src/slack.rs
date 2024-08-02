@@ -15,7 +15,7 @@
  //! slack web api abstraction
 
 use std::{fs,path::{Path,PathBuf},result::Result,error::Error,io::{Error as IOError,ErrorKind}};
-use reqwest::Client;
+use reqwest::{Client,blocking};
 use serde::{Serialize,Deserialize};
 use serde_json;
 use crate::fs::filename_of_path;
@@ -25,17 +25,23 @@ type SlackResult<T> = Result<T,SlackError>;
 
 pub async fn send_msg (token: &str, channel_id: &str, msg: &str) -> SlackResult<()> {
     let client = Client::new();
-
     let resp = client.post("https://slack.com/api/chat.postMessage")
         .bearer_auth( token)
-        .query( &[
-            ("channel", channel_id),
-            ("text", msg)
-        ])
+        .query( &[ ("channel", channel_id), ("text", msg) ])
         .send()
         .await?;
 
     Ok(())
+}
+
+pub fn blocking_send_msg (token: &str, channel_id: &str, msg: &str) -> SlackResult<()> {
+    let client = blocking::Client::new();
+    let resp = client.post("https://slack.com/api/chat.postMessage")
+        .bearer_auth( token)
+        .query( &[ ("channel", channel_id), ("text", msg) ])
+        .send()?;
+
+    Ok(())   
 }
 
 pub struct FileAttachment {

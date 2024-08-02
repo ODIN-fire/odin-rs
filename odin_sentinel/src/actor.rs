@@ -31,8 +31,8 @@ use crate::ws::WsCmd;
 #[derive(Debug)] pub struct SendSentinelCmd { sentinel_cmd: WsCmd }
 
 //-- internal messages. Note these are not public since we should only get them from our connector
-#[derive(Debug)] pub(crate) struct InitializeStore (pub(crate) SentinelStore);
-#[derive(Debug)] pub(crate) struct UpdateStore (pub(crate) SentinelUpdate);
+#[derive(Debug)] pub(crate) struct InitializeStore (pub(crate) SentinelStore);  // set initial store contents
+#[derive(Debug)] pub(crate) struct UpdateStore (pub(crate) SentinelUpdate); // single record update (triggered by websocket notification)
 #[derive(Debug)] pub(crate) struct ConnectorError (pub(crate) OdinSentinelError);
 
 define_actor_msg_set! { pub SentinelActorMsg = 
