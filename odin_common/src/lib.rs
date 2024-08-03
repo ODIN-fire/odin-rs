@@ -26,6 +26,7 @@ pub mod sim_clock;
 pub mod ranges;
 pub mod schedule;
 pub mod admin;
+pub mod process;
 
 #[cfg(feature="s3")]
 pub mod s3;

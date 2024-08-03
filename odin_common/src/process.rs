@@ -12,32 +12,16 @@
  * and limitations under the License.
  */
 
-use std::{thread::sleep,time::Duration};
-use odin_common::{admin,process};
 
-
-fn main() {
-    admin::monitor_executable!();
-    process::set_ctrlc_handler(|| {
-        admin::notify_info("terminated by signal");
-        process::exit(0);
+/// execute the provided `exit_func` upon receiving a ctrl-c signal. 
+/// Note this does *not* automatically exit the process if not done so from `exit_func`.
+pub fn set_ctrlc_handler<F> (mut exit_func: F) 
+    where F: FnMut()->() + Send + 'static
+{
+    ctrlc::set_handler( move || {  
+        exit_func();
     });
-    delay_secs( 1); // make sure we don't exceed Slack chat message rate-limits (there is also built-in delay in admin::notify)
-
-    admin::notify_info("this is harmless");
-    delay_secs( 1);
-
-    admin::notify_severe("this isn't harmless");
-    delay_secs( 1);
-
-    admin::notify_critical("the sky is about to fall!");
-    delay_secs( 1);
-
-    //panic!("something went awfully wrong");
-
-    delay_secs( 10); // try Ctrl-C
 }
 
-fn delay_secs (secs: u64) {
-    sleep(Duration::from_secs( secs));
-}
+/// just an alias for std::process::exit() 
+#[inline] pub fn exit(exit_code: i32)-> ! { std::process::exit(exit_code) }

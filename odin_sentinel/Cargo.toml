@@ -72,6 +72,7 @@ default = ["smtp", "slack"]
 smtp = ["dep:lettre"]
 signal_rpc = ["dep:jsonrpsee"]
 slack = []
+slack_admin = ["odin_common/slack_admin"]
 
 embedded_resources = []
 

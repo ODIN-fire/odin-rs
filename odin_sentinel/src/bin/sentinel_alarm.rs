@@ -17,7 +17,7 @@
 use anyhow::Result;
 use odin_build::define_load_config;
 use odin_actor::prelude::*;
-use odin_common::{define_cli,check_cli};
+use odin_common::{define_cli,check_cli, admin};
 use odin_sentinel::{
     AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, 
     SentinelUpdate, SlackAlarmMessenger, SmtpAlarmMessenger, SignalCmdAlarmMessenger,
@@ -36,8 +36,11 @@ define_cli! { ARGS [about="Delphire Sentinel Alarm Server"] =
 #[tokio::main]
 async fn main ()->Result<()> {
     odin_build::set_bin_context!();
+    admin::monitor_executable!();
+
     check_cli!(ARGS);
     let mut actor_system = ActorSystem::with_env_tracing("main");
+    actor_system.request_termination_on_ctrlc(); // don't just exit without notification
 
     let hsentinel = PreActorHandle::new( &actor_system, "sentinel", 8); 
 

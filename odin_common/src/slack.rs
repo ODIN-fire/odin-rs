@@ -23,22 +23,38 @@ use crate::fs::filename_of_path;
 type SlackError = Box<dyn Error>;
 type SlackResult<T> = Result<T,SlackError>;
 
-pub async fn send_msg (token: &str, channel_id: &str, msg: &str) -> SlackResult<()> {
+/// send chat text message as async
+/// note - icon replaces avatar, but ony in the first of a sequence of messages from the same sender
+pub async fn send_msg (token: &str, channel_id: &str, msg: &str, icon: Option<&str>) -> SlackResult<()> {
     let client = Client::new();
+
+    let mut params: Vec<(&str,&str)> = Vec::new();
+    params.push( ("channel", channel_id) );
+    params.push( ("text", msg) );
+    if let Some(icon_name) = icon { params.push( ("icon_emoji", icon_name) ); }
+
     let resp = client.post("https://slack.com/api/chat.postMessage")
         .bearer_auth( token)
-        .query( &[ ("channel", channel_id), ("text", msg) ])
+        .query( &params)
         .send()
         .await?;
 
     Ok(())
 }
 
-pub fn blocking_send_msg (token: &str, channel_id: &str, msg: &str) -> SlackResult<()> {
+/// send chat text message as blocking operation (can be called from sync and async, but blocks current thread)
+/// note - icon replaces avatar, but ony in the first of a sequence of messages from the same sender
+pub fn blocking_send_msg (token: &str, channel_id: &str, msg: &str, icon: Option<&str>) -> SlackResult<()> {
     let client = blocking::Client::new();
+
+    let mut params: Vec<(&str,&str)> = Vec::new();
+    params.push( ("channel", channel_id) );
+    params.push( ("text", msg) );
+    if let Some(icon_name) = icon { params.push( ("icon_emoji", icon_name) ); }
+
     let resp = client.post("https://slack.com/api/chat.postMessage")
         .bearer_auth( token)
-        .query( &[ ("channel", channel_id), ("text", msg) ])
+        .query( &params)
         .send()?;
 
     Ok(())   
@@ -65,10 +81,11 @@ struct UploadFile {
 
 /// send a message with attached files to Slack channel
 /// note that channel_id is not a channel name!
+/// unfortunately this does not support icons - they would have to be uploaded as images
 pub async fn send_msg_with_files (token: &str, channel_id: &str, msg: &str, files: &Vec<FileAttachment>) -> SlackResult<()> {
     let client = Client::new();
     let uploads = upload_files( &client, token, files).await?;
-
+    
     let resp = client.get("https://slack.com/api/files.completeUploadExternal")
         .bearer_auth( token)
         .query( &[

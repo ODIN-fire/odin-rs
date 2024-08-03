@@ -44,7 +44,7 @@ impl AlarmMessenger for SlackAlarmMessenger {
 
         let files = get_file_attachments(alarm);
         if files.is_empty() {
-            slack::send_msg( &config.token, &config.channel_id, &alarm.description).await
+            slack::send_msg( &config.token, &config.channel_id, &alarm.description, None).await
         } else {
             slack::send_msg_with_files( &config.token, &config.channel_id, &alarm.description, &files).await
         }.map_err(|e| {

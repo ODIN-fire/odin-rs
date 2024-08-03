@@ -37,6 +37,7 @@ use crate::{
     create_sfc, debug, error, errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, info, micros, millis, nanos, secs, trace, unpack_ping_response, warn, ActorReceiver, ActorSystemRequest, DefaultReceiveAction, DynMsgReceiver, DynMsgReceiverTrait, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints, MsgSendFuture, MsgTypeConstraints, ObjSafeFuture, ReceiveAction, SendableFutureCreator, SysMsgReceiver, TryMsgReceiver, _Exec_, _Pause_, _Ping_, _Resume_, _Start_, _Terminate_, _Timer_
 };
 use odin_macro::fn_mut;
+use odin_common::process;
 
 /* #region channel abstractions ********************************************************************************/
 /*
@@ -887,6 +888,14 @@ impl ActorSystem {
         self.process_requests().await
     }
 
+    /// set a ctrlc signal handler that sends a RequestTermination instead of just bluntly exiting
+    /// the process. To be used if we have actors that need to shut down gracefully (e.g. store state)
+    pub fn request_termination_on_ctrlc (&self) {
+        let hsys = self.clone_handle();
+        odin_common::process::set_ctrlc_handler( move || {
+            hsys.try_send_msg( ActorSystemRequest::RequestTermination);
+        })
+    }
 }
 
 type ActorTuple<S,M> = (Actor<S,M>, ActorHandle<M>, MpscReceiver<M>);

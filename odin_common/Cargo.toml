@@ -15,6 +15,8 @@ thiserror = "*"
 parse_duration = "*"
 reqwest = { version = "*", features = ["blocking"] }
 lazy_static = "*"
+ctrlc = { version = "*", features = ["termination"] }
+tokio = { version = "*", features = ["full", "tracing"] }
 
 aws-config = { version = "*", features = ["behavior-version-latest"], optional = true }
 aws-sdk-s3 = { version = "*", features = ["rt-tokio"], optional = true }

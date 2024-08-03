@@ -146,7 +146,7 @@ impl SentinelAlarmMonitor {
             let record_id = r.id.clone();
             match timeout_query_ref( hupdater, GetSentinelUpdate {record_id}, secs(2)).await { // if we don't already have the record something is wrong
                 Ok(Ok(upd)) => {  // the successful query response itself is a Result since the updater might not have the record 
-                    let description = upd.description();
+                    let description = format!("sensor: {}", upd.sensor_no()); //upd.description();
                     let mut img: Option<SentinelFile> = None;
 
                     match_algebraic_type! { upd: SentinelUpdate as
@@ -181,7 +181,8 @@ impl SentinelAlarmMonitor {
         if rec.data.fire_prob >= self.config.fire_prob {
             let reported_alarms = &mut self.reported_fire_alarms;
             if let Some(alarm_id) = Self::check_new_alarm( &rec, reported_alarms, &self.config) {
-                self.process_alarm( hself, &alarm_id, rec.description(), &rec.evidences).await;
+                let descr = format!("🔥 {} for {}\nfire probability: {}", rec.time_recorded.format("%d/%m/%Y %H:%M:%S"), rec.device_id, rec.data.fire_prob);
+                self.process_alarm( hself, &alarm_id, descr, &rec.evidences).await;
             }
         }
     }
@@ -189,8 +190,9 @@ impl SentinelAlarmMonitor {
     async fn process_smoke_alarm (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, rec: Arc<SensorRecord<SmokeData>>) {
         if rec.data.smoke_prob >= self.config.smoke_prob {
             let reported_alarms = &mut self.reported_smoke_alarms;
-            if let Some(alarm_id) = Self::check_new_alarm( &rec, reported_alarms, &self.config) {
-                self.process_alarm( hself, &alarm_id, rec.description(), &rec.evidences).await;
+            if let Some(alarm_id) = Self::check_new_alarm( &rec, reported_alarms, &self.config) { // could use 💨 here but most fires cause smoke alarms
+                let descr = format!("🔥 {} for {}\nsmoke probability: {}", rec.time_recorded.format("%d/%m/%Y %H:%M:%S"), rec.device_id, rec.data.smoke_prob);
+                self.process_alarm( hself, &alarm_id, descr, &rec.evidences).await;
             }
         }   
     }
