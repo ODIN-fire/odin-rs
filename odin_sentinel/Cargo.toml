@@ -63,6 +63,8 @@ async-trait = "*"
 
 jsonrpsee =  { version = "*",  features = ["macros","async-client","http-client"], optional = true }
 lettre = { version = "*", features = ["tokio1", "tokio1-native-tls"], optional = true }
+dhat = { version = "*", optional = true }
+
 
 [build-dependencies]
 odin_build = { workspace = true }
@@ -74,6 +76,9 @@ signal_rpc = ["dep:jsonrpsee"]
 slack = []
 slack_admin = ["odin_common/slack_admin"]
 
+# dev/debug
+dhat = ["dep:dhat", "odin_common/dhat"] # heap profiling
+
 embedded_resources = []
 
 [package.metadata.odin_configs]
@@ -82,3 +87,6 @@ sentinel_alarm = { file="sentinel_alarm.ron", bins=["sentinel_alarm"] }
 smtp = { file="smtp.ron", bins=["sentinel_alarm"] }
 signal_cmd = { file="signal_cmd.ron", bins=["sentinel_alarm"] }
 slack = {file="slack_alarm.ron", bins=["sentinel_alarm"] }
+
+# [profile.release]
+# debug = 1  # better build with RUSTFLAGS=-g

@@ -17,12 +17,14 @@
 use anyhow::Result;
 use odin_build::define_load_config;
 use odin_actor::prelude::*;
-use odin_common::{define_cli,check_cli, admin};
+use odin_common::{define_cli,check_cli, admin, heap};
 use odin_sentinel::{
     AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, 
     SentinelUpdate, SlackAlarmMessenger, SmtpAlarmMessenger, SignalCmdAlarmMessenger,
     load_config,
 };
+
+//heap::use_dhat!{} // for debugging - only has an effect if we build with `--features dhat` 
 
 // use odin_sentinel::SignalRpcAlarmMessenger; // don't use for now since it does not support notify-self
  
@@ -37,6 +39,8 @@ define_cli! { ARGS [about="Delphire Sentinel Alarm Server"] =
 async fn main ()->Result<()> {
     odin_build::set_bin_context!();
     admin::monitor_executable!();
+
+    //heap::init_dhat!(); // for debugging - only has an effect if we build with `--features dhat`
 
     check_cli!(ARGS);
     let mut actor_system = ActorSystem::with_env_tracing("main");

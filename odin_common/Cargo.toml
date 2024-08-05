@@ -24,6 +24,8 @@ aws-smithy-types = { version = "*", features = ["serde-serialize"], optional = t
 aws-smithy-types-convert = { version = "*", features = ["convert-chrono"], optional = true }
 aws-smithy-runtime-api = { version = "*", optional = true }
 
+dhat = { version = "*", optional = true }
+
 # used by aws-smithy in version 0.6.5, which runs into a "unknown feature stdarch_arm_crc32" error with newer nightly toolchains
 # the alternative is to revert to an older toolchain with a rust-toolchain.toml but then we need to install all tools (such
 # as rust-analyzer) for it too.
@@ -37,6 +39,7 @@ odin_build = { workspace = true }
 [features]
 s3 = ["dep:aws-sdk-s3", "dep:aws-config", "dep:aws-smithy-types-convert", "dep:aws-smithy-runtime-api", "dep:aws-smithy-types", "dep:crc32c"]
 slack_admin = []
+dhat = ["dep:dhat"]
 
 [package.metadata.odin_configs]
 slack_admin = { file = "slack_admin.ron" }

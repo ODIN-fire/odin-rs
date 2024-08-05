@@ -31,6 +31,8 @@ pub mod process;
 #[cfg(feature="s3")]
 pub mod s3;
 
+pub mod heap;
+
 pub mod slack; // only requires reqwest so no feature gate (yet)
 
 #[cfg(feature="slack_admin")]
