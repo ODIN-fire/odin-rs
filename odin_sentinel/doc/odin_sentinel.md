@@ -27,7 +27,7 @@ informs client actors about the update.
                                                  - sensors     │                │      │  │Alarm      ├─┐│ │                  
                             ┌─────────────────┐  - sensor-     │ ┌──────────────┴──┐   │  │ Messenger │ │────────▶︎ phone      
 ┌────────┐                  │ Delphire Server │     records    │ │ SentinelActor   │   │  └┬──────────┘ ││ │                
-|        │-┐                │                 │                │ │ ┌─────────────┐ │   │   └────────────┘│ │                  
+|        ├─┐                │                 │                │ │ ┌─────────────┐ │   │   └────────────┘│ │                  
 │Sentinel│ │─ satellite ───▶︎│  ┌───────────┐  ├───── http ────────▶︎│             │ │   └─────────────────┘ │                  
 │        │ │      or        │  │  record   │  │                │ │ │LiveConnector│ │                       │                  
 └┬───────┘ │── cellular ───▶︎│  │ database  │  ├─── websocket ─────▶︎│             │ │   ┌─────────────────┐ │                  

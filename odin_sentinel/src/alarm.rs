@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 
-use std::collections::VecDeque;
+use std::collections::{VecDeque,HashMap};
 use std::{time::Duration,sync::Arc,future::Future, path::PathBuf, io::Write};
 use futures::SinkExt;
 use odin_common::sim_clock;
@@ -32,7 +32,9 @@ use crate::errors::{OdinSentinelError, Result};
 /// abstract alarm data
 #[derive(Debug)]
 pub struct Alarm {
+    pub device_id: String,
     pub description: String,
+    pub time_recorded: DateTime<Utc>,
     pub evidence_info: Vec<EvidenceInfo>,
 }
 
@@ -72,6 +74,7 @@ pub struct SentinelAlarmMonitorConfig {
     fire_prob: f64,
     smoke_prob: f64,
     old_alarm_duration: Duration, // after which we purge a stored alarm, needs to be > new_alarm_duration
+    device_infos: HashMap<String,String>
 }
 
 impl Default for SentinelAlarmMonitorConfig {
@@ -83,6 +86,7 @@ impl Default for SentinelAlarmMonitorConfig {
             fire_prob: 0.7,
             smoke_prob: 0.7,
             old_alarm_duration: Duration::from_mins(60),
+            device_infos: HashMap::new()
         }
     }
 }
@@ -181,8 +185,10 @@ impl SentinelAlarmMonitor {
         if rec.data.fire_prob >= self.config.fire_prob {
             let reported_alarms = &mut self.reported_fire_alarms;
             if let Some(alarm_id) = Self::check_new_alarm( &rec, reported_alarms, &self.config) {
-                let descr = format!("🔥 {} for {}\nfire probability: {}", rec.time_recorded.format("%d/%m/%Y %H:%M:%S"), rec.device_id, rec.data.fire_prob);
-                self.process_alarm( hself, &alarm_id, descr, &rec.evidences).await;
+                let info: &str = self.device_info(&rec.device_id).map(|s|s.as_str()).unwrap_or("");
+                let descr = format!("🔥 {}\ndevice: {} {}\nfire probability: {}", 
+                    rec.time_recorded.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %Z"), rec.device_id, info, rec.data.fire_prob);
+                self.process_alarm( hself, &alarm_id, rec.device_id.clone(), descr, rec.time_recorded, &rec.evidences).await;
             }
         }
     }
@@ -191,28 +197,34 @@ impl SentinelAlarmMonitor {
         if rec.data.smoke_prob >= self.config.smoke_prob {
             let reported_alarms = &mut self.reported_smoke_alarms;
             if let Some(alarm_id) = Self::check_new_alarm( &rec, reported_alarms, &self.config) { // could use 💨 here but most fires cause smoke alarms
-                let descr = format!("🔥 {} for {}\nsmoke probability: {}", rec.time_recorded.format("%d/%m/%Y %H:%M:%S"), rec.device_id, rec.data.smoke_prob);
-                self.process_alarm( hself, &alarm_id, descr, &rec.evidences).await;
+                let info: &str = self.device_info(&rec.device_id).map(|s|s.as_str()).unwrap_or("");
+                let descr = format!("🔥 {}\ndevice: {} {}\nsmoke probability: {}", 
+                    rec.time_recorded.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %Z"), rec.device_id, info, rec.data.smoke_prob);
+                self.process_alarm( hself, &alarm_id, rec.device_id.clone(), descr, rec.time_recorded, &rec.evidences).await;
             }
         }   
     }
 
-    async fn process_alarm (&self, hself: ActorHandle<SentinelAlarmMonitorMsg>, alarm_id: &str, description: String, evidences: &Vec<RecordRef>) {
+    fn device_info(&self, device_id: &str)->Option<&String> {
+        self.config.device_infos.get(device_id)
+    }
+
+    async fn process_alarm (&self, hself: ActorHandle<SentinelAlarmMonitorMsg>, alarm_id: &str, device_id: String, description: String, time_recorded: DateTime<Utc>, evidences: &Vec<RecordRef>) {
         self.log_alarm( alarm_id, &description, evidences);
 
         if !self.config.attach_image || evidences.is_empty() {  // send right away
-            hself.send_msg( Alarm { description, evidence_info: Vec::with_capacity(0) }).await;
+            hself.send_msg( Alarm { device_id, description, time_recorded, evidence_info: Vec::with_capacity(0) }).await;
 
         } else { // we have to dig up the evidence image
             let hupdater = self.hupdater.clone();
 
             match Self::collect_evidence_info( &hupdater, evidences, self.config.image_timeout).await {
                 Ok(evidence_info) => {
-                    hself.send_msg( Alarm { description, evidence_info }).await;
+                    hself.send_msg( Alarm { device_id, description, time_recorded, evidence_info }).await;
                 }
                 Err(e) => {
                     warn!("failed to retrieve evidence for alarm {}", alarm_id);
-                    hself.send_msg( Alarm { description, evidence_info: Vec::with_capacity(0) }).await;
+                    hself.send_msg( Alarm { device_id, description, time_recorded, evidence_info: Vec::with_capacity(0) }).await;
                 }
             };
         }

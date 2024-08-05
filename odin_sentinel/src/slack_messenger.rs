@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 
-use std::{fs,path::{Path,PathBuf}};
+use std::{fs,path::{Path,PathBuf},collections::HashMap};
 use reqwest;
 use serde::{Serialize,Deserialize};
 use async_trait::async_trait;
@@ -24,7 +24,14 @@ use crate::errors::Result;
 #[derive(Deserialize,Serialize,Debug)]
 pub struct SlackAlarmConfig {
     token: String,
-    channel_id: String
+    device_channel_ids: HashMap<String,Vec<String>>,
+    default_channel_ids: Vec<String>
+}
+
+impl SlackAlarmConfig {
+    fn get_channel_ids (&self, device_id: &str)->&Vec<String> {
+        self.device_channel_ids.get(device_id).unwrap_or( &self.default_channel_ids)
+    }
 }
 
 /// Slack API based messenger for Sentinel Alarm notifications
@@ -44,12 +51,18 @@ impl AlarmMessenger for SlackAlarmMessenger {
 
         let files = get_file_attachments(alarm);
         if files.is_empty() {
-            slack::send_msg( &config.token, &config.channel_id, &alarm.description, None).await
+            for channel_id in config.get_channel_ids( &alarm.device_id) {
+                slack::send_msg( &config.token, channel_id, &alarm.description, None).await.map_err(|e| 
+                    op_failed(e.to_string())
+                )?;
+            }
         } else {
-            slack::send_msg_with_files( &config.token, &config.channel_id, &alarm.description, &files).await
-        }.map_err(|e| {
-            op_failed("sending alarm message to slack channel failed")
-        })?;
+            for channel_id in config.get_channel_ids( &alarm.device_id) {
+                slack::send_msg_with_files( &config.token, channel_id, &alarm.description, &files).await.map_err(|e| 
+                    op_failed(e.to_string())
+                )?;
+            }
+        }
 
         Ok(())
     }

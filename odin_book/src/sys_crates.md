@@ -14,12 +14,15 @@ ODIN system crates can be divided into 3 categories:
 ## cross-cutting functions
 
 - [odin_common](odin_common/odin_common.md) - this is primarily a collection of cross-cutting functions that extend 
-  the Rust standard libraries  
-- [odin_gdal](odin_gdal/odin_gdal.md)
+  the Rust standard libraries and provide some basic capabilities such as admin notification
+- [odin_gdal](odin_gdal/odin_gdal.md) - a crate that wraps and extends the [GDAL](https://gdal.org) library for geo-spatial
+  data sets and images
 
 ## architectural crates
 
-- [odin_actor](odin_actor/odin_actor.md)
-- [odin_action](odin_action/odin_action.md)
-- [odin_job](odin_job/odin_job.md)
-- [odin_server](odin_server/odin_server.md)
+- [odin_actor](odin_actor/odin_actor.md) - this crate implements a full actor system and is the architectural
+  basis for most ODIN app crates
+- [odin_action](odin_action/odin_action.md) - a crate that provides generic callbacks (used primarily to make
+  actors inter-operable)
+- [odin_job](odin_job/odin_job.md) - general system-global scheduling
+- [odin_server](odin_server/odin_server.md) - this crate provides the building blocks to construct web server actors
