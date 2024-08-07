@@ -108,8 +108,7 @@ impl_actor! { match msg for Actor< SentinelActor<C,InitAction,UpdateAction>, Sen
         self.handle_record_query(msg).await;
     }
     Query<GetSentinelFile,Result<SentinelFile>> => cont! { 
-        // it might be in-flight so forward to connector
-        self.connector.handle_file_query(msg).await; 
+        self.connector.handle_sentinel_file_query(msg).await; // might be in-flight, hand over to connector
     }
 
     //--- connector messages
@@ -134,17 +133,3 @@ impl_actor! { match msg for Actor< SentinelActor<C,InitAction,UpdateAction>, Sen
     }
 }
 
-/// this is the abstraction over the actual source of external information, which can be either a live connection to a Delphire server
-/// or a replayer for archived data
-pub trait SentinelConnector {
-
-   fn start (&mut self, hself: ActorHandle<SentinelActorMsg>) -> impl Future<Output=Result<()>> + Send;
-
-   // note that these future do not wait until the request was resolved - only until the request has been queued (if it needs to)
-   fn send_cmd (&mut self, cmd: WsCmd) -> impl Future<Output=Result<()>> + Send;
-   fn handle_file_query (&self, file_query: Query<GetSentinelFile,Result<SentinelFile>>) -> impl Future<Output=Result<()>> + Send;
-
-   fn terminate (&mut self);
-
-   fn max_history(&self)->usize;
-}

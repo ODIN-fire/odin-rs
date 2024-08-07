@@ -17,6 +17,7 @@ reqwest = { version = "*", features = ["blocking"] }
 lazy_static = "*"
 ctrlc = { version = "*", features = ["termination"] }
 tokio = { version = "*", features = ["full", "tracing"] }
+gethostname = "*"
 
 aws-config = { version = "*", features = ["behavior-version-latest"], optional = true }
 aws-sdk-s3 = { version = "*", features = ["rt-tokio"], optional = true }

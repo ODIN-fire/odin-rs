@@ -17,6 +17,7 @@ use chrono;
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use ctrlc;
+use gethostname::gethostname;
 
 use odin_build::get_bin_context;
 use crate::fs::filename_of_path;
@@ -113,7 +114,8 @@ fn notify_console (severity: Severity, msg: &str) {
 fn notify_slack (severity: Severity, msg: &str) {
     std::thread::sleep( Duration::from_secs(1)); // make sure we don't run into Slack chat msg rate limits
 
-    let txt = format!("{}[{}]: {} {}\n>{}", severity.icon(), severity.name(), chrono::Local::now().format("%d/%m/%Y %H:%M:%S"), bin_name(), msg);
+    let txt = format!("{}[{}]: {} {} @ {}\n>{}", severity.icon(), severity.name(), chrono::Local::now().format("%d/%m/%Y %H:%M:%S"), 
+                         bin_name(), gethostname().to_str().unwrap_or("?"), msg);
     blocking_send_msg( &SLACK_CONFIG.token, &SLACK_CONFIG.channel_id, &txt, None);
 }
 

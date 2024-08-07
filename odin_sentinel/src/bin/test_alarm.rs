@@ -14,6 +14,7 @@
 
 use std::path::Path;
 use tokio;
+use chrono::Utc;
 use odin_common::define_cli;
 use odin_sentinel::{load_config, Alarm, AlarmMessenger, EvidenceInfo, 
     ConsoleAlarmMessenger, SmtpAlarmMessenger, SignalCmdAlarmMessenger, SlackAlarmMessenger, SentinelFile
@@ -39,9 +40,12 @@ async fn main()->Result<()> {
         let pathname = Path::new(&img).to_path_buf();
         if !pathname.is_file() { panic!("image file does not exist: {img}") }
         Alarm { 
+            device_id: "test-device".to_string(),
             description, 
+            time_recorded: Utc::now(),
             evidence_info: vec!( 
                 EvidenceInfo { 
+                    sensor_no: 0,
                     description: "visual".to_string(), 
                     img: Some(SentinelFile { record_id: "image".to_string(), pathname })
                 }
@@ -49,7 +53,9 @@ async fn main()->Result<()> {
         }
     } else {
         Alarm { 
+            device_id: "test-device".to_string(),
             description, 
+            time_recorded: Utc::now(),
             evidence_info: Vec::new() 
         }
     };

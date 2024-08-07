@@ -30,6 +30,7 @@ use strum::IntoStaticStr;
 use tokio_util::bytes::Buf;
 use uom::si::f64::{Velocity,ThermodynamicTemperature,ElectricCurrent,ElectricPotential};
 use reqwest::{Client,Response};
+use async_trait::async_trait;
 use paste::paste;
 use lazy_static::lazy_static;
 
@@ -826,6 +827,54 @@ pub fn sentinel_cache_dir()->PathBuf {
     path
 }
 
+
+/// device information that is not obtained through Delphire server APIs 
+#[derive(Deserialize,Debug)]
+pub struct SentinelDeviceInfo {
+    pub name: String,
+    pub smoke_prob: Vec<SensorProbability>, // overrides general probabilities per image sensor 
+    pub fire_prob: Vec<SensorProbability>,
+    pub external_images: Vec<ExternalImage>,
+}
+
+/// the type we use to configure additional SentinelDeviceInfos
+pub type SentinelDeviceInfos = HashMap<String,SentinelDeviceInfo>;
+
+#[derive(Deserialize,Debug)]
+pub struct SensorProbability {
+    pub sensor_no: u32,
+    pub prob: f32
+}
+
+define_algebraic_type! { pub ExternalImage: Deserialize = 
+    DirectUriImage
+
+    pub fn name (&self)->&str { __.name.as_str() }
+
+    pub fn uri (&self)->&str { match self {
+        Self::DirectUriImage(o) => o.uri.as_str()
+    }}
+
+    pub fn filename (&self)->&str { match self {
+        Self::DirectUriImage(o) => o.filename.as_str()
+    }}
+
+    pub fn supports_sensor (&self, img_sensor_no: u32)->bool {
+        __.sensors.is_empty() || __.sensors.contains(&img_sensor_no)
+    }
+}
+
+
+/// something we can retrieve from a fixed URI with a simple GET
+#[derive(Deserialize,Debug)]
+pub struct DirectUriImage {
+    pub name: String,
+    pub sensors: Vec<u32>, // Sentinel image sensor_no for which this external image can be used (empty means any one)
+    pub filename: String, // this is the filename stem 
+    pub uri: String,
+    //... and probably more to follow (e.g. location, fov, optional classifier, ...)
+}
+
 /* #endregion config */
 
 
@@ -843,12 +892,52 @@ pub struct SentinelFile {
 pub struct GetSentinelFile {
     pub record_id: String,
     pub filename: String, // on the Delphire server. This is only used to construct the uri and not neccessarily how we store it locally
+    pub uri: Option<String>, // in case this is an external file request
+}
+impl GetSentinelFile {
+    pub fn internal(record_id: String, filename: String)->Self { GetSentinelFile {record_id, filename, uri: None } }
+    pub fn external(record_id: String, filename: String, uri: String)->Self { GetSentinelFile {record_id, filename, uri: Some(uri) } }
 }
 
 pub type SentinelFileResult = Result<SentinelFile>;
 pub type SentinelFileQuery = Query<GetSentinelFile,SentinelFileResult>;
 
+
+/// this is a request for related imagery from external sources
+/// note that record_id is NOT referring to an image record but to the event that caused this request
+#[derive(Debug)]
+pub struct GetExternalFile {
+    pub record_id: String, // the record we associate this file with
+    pub url: String,
+    pub filename: String,
+}
+
+pub type ExternalFileQuery = Query<GetExternalFile,SentinelFileResult>;
+
+
 /* #endregion file requests */
+
+/* #region connectors  ********************************************************************************************************/
+
+/// this is the abstraction over the actual source of external information, which can be either a live connection to a Delphire server
+/// or a replayer for archived data
+#[async_trait]
+pub trait SentinelConnector {
+
+    async fn start (&mut self, hself: ActorHandle<SentinelActorMsg>) -> Result<()>;
+ 
+    // note that these future do not wait until the request was resolved - only until the request has been queued (if it needs to)
+
+    async fn send_cmd (&mut self, cmd: ws::WsCmd) -> Result<()>;
+
+    async fn handle_sentinel_file_query (&self, file_query: Query<GetSentinelFile,Result<SentinelFile>>) -> Result<()>;
+ 
+    fn terminate (&mut self);
+ 
+    fn max_history(&self)->usize;
+ }
+
+/* #endregion connectors */
 
 /* #region basic http getters *************************************************************************************************/
 

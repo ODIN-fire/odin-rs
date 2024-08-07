@@ -24,9 +24,7 @@ use odin_sentinel::{
     load_config,
 };
 
-//heap::use_dhat!{} // for debugging - only has an effect if we build with `--features dhat` 
-
-// use odin_sentinel::SignalRpcAlarmMessenger; // don't use for now since it does not support notify-self
+#[cfg(feature="dhat")] heap::use_dhat!{} 
  
 define_cli! { ARGS [about="Delphire Sentinel Alarm Server"] = 
     slack: bool       [help="enable slack messenger", long],
@@ -40,7 +38,7 @@ async fn main ()->Result<()> {
     odin_build::set_bin_context!();
     admin::monitor_executable!();
 
-    //heap::init_dhat!(); // for debugging - only has an effect if we build with `--features dhat`
+    #[cfg(feature="dhat")] heap::init_dhat!();
 
     check_cli!(ARGS);
     let mut actor_system = ActorSystem::with_env_tracing("main");
@@ -50,6 +48,7 @@ async fn main ()->Result<()> {
 
     let hmonitor = spawn_actor!( actor_system, "monitor", SentinelAlarmMonitor::new(
         load_config("sentinel_alarm.ron")?,
+        load_config("sentinel_info.ron")?,
         hsentinel.as_actor_handle(),
         create_messengers()?
     ))?;

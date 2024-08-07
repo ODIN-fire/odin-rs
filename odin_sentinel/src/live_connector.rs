@@ -18,6 +18,7 @@ use futures::{TryFutureExt, stream::{StreamExt,SplitStream,SplitSink}, SinkExt};
 use tokio_tungstenite::{tungstenite::protocol::Message, MaybeTlsStream};
 use tokio::{select,time::{sleep,Sleep}};
 use reqwest::{Client};
+use async_trait::async_trait;
 
 use odin_actor::prelude::*;
 use odin_common::{fs::{ensure_writable_dir, remove_old_files}, if_let, strings::str_from_last, collections::Snapshot, admin};
@@ -67,6 +68,7 @@ impl LiveSentinelConnector {
 }
 
 /// this is the interface used by the [`SentinelActor`] 
+#[async_trait]
 impl SentinelConnector for LiveSentinelConnector {
     async fn start (&mut self, hself: ActorHandle<SentinelActorMsg>)->Result<()> {
         self.initialize(hself).await
@@ -81,13 +83,13 @@ impl SentinelConnector for LiveSentinelConnector {
         }
     }
 
-    async fn handle_file_query (&self, file_query: Query<GetSentinelFile,Result<SentinelFile>>)->Result<()> {
-        let file = self.sentinel_file_for_query( &file_query);
+    async fn handle_sentinel_file_query (&self, query: Query<GetSentinelFile,Result<SentinelFile>>)->Result<()> {
+        let file = self.sentinel_file_for_query( &query);
         if file.pathname.is_file() { // already downloaded, respond right away
-            file_query.respond( Ok(file) ).await.map_err(|e| e.into())
+            query.respond( Ok(file) ).await.map_err(|e| e.into())
         } else { // in flight. respond once we get notified (means the query client should be prepared to wait)
             if let Some(connection) = &self.connection {
-                connection.handle_file_query( &self.config, file_query, file).await
+                connection.handle_file_query( &self.config, query, file).await
             } else {
                 Err( op_failed("connection not initialized"))
             }
@@ -436,7 +438,8 @@ impl LiveConnection {
         // currently filenames are globally unique, but that could change (in which case we have to lookup the record_id of the query)
         let record_id = &query.question.record_id;
         let filename = &query.question.filename;
-        let uri = self.get_file_uri( config, &record_id, &filename)?;
+
+        let uri = if let Some(uri) = &query.question.uri { uri.clone() } else { self.get_file_uri( config, &record_id, &filename)? };
         let request = FileRequest { uri, sentinel_file , query: Some(query)};
 
         self.file_request_tx.send(request).await.map_err(|e| OdinSentinelError::FileRequestError(e.to_string()))

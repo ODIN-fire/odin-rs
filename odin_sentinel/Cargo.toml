@@ -19,6 +19,10 @@ name = "send_ws_cmd"
 path = "src/bin/send_ws_cmd.rs"
 
 [[bin]]
+name = "test_infos"
+path = "src/bin/test_infos.rs"
+
+[[bin]]
 name = "sentinel_alarm"
 path = "src/bin/sentinel_alarm.rs"
 
@@ -84,9 +88,11 @@ embedded_resources = []
 [package.metadata.odin_configs]
 sentinel = { file="sentinel.ron" }
 sentinel_alarm = { file="sentinel_alarm.ron", bins=["sentinel_alarm"] }
+sentinel_info = { file="sentinel_info.ron", bins=["sentinel_alarm"] }
+slack = {file="slack_alarm.ron", bins=["sentinel_alarm"] }
+
 smtp = { file="smtp.ron", bins=["sentinel_alarm"] }
 signal_cmd = { file="signal_cmd.ron", bins=["sentinel_alarm"] }
-slack = {file="slack_alarm.ron", bins=["sentinel_alarm"] }
 
 # [profile.release]
 # debug = 1  # better build with RUSTFLAGS=-g

@@ -15,6 +15,7 @@
 use std::collections::{VecDeque,HashMap};
 use std::{time::Duration,sync::Arc,future::Future, path::PathBuf, io::Write};
 use futures::SinkExt;
+use odin_common::fs::get_filename_extension;
 use odin_common::sim_clock;
 use odin_common::{datetime::Dated,sim_clock::now,fs::{append_open,append_to_file,append_line_to_file}};
 use serde::{Deserialize,Serialize,Serializer};
@@ -25,7 +26,10 @@ use odin_actor::prelude::*;
 use odin_macro::{match_algebraic_type, define_struct};
 use uom::si::f32::Time;
 
-use crate::{op_failed, sentinel_cache_dir, FireData, GetSentinelFile, RecordDataBounds, RecordRef, SensorRecord, SentinelFile, SentinelStore, SentinelUpdate, SmokeData};
+use crate::{op_failed, sentinel_cache_dir, 
+    ExternalImage, FireData, GetSentinelFile, RecordDataBounds, RecordRef, SensorRecord, 
+    SentinelDeviceInfo, SentinelDeviceInfos, SentinelFile, SentinelStore, SentinelUpdate, SmokeData
+};
 use crate::actor::{SentinelActorMsg,GetSentinelUpdate};
 use crate::errors::{OdinSentinelError, Result};
 
@@ -41,6 +45,7 @@ pub struct Alarm {
 /// abstract data to describe an evidence record
 #[derive(Debug)]
 pub struct EvidenceInfo {
+    pub sensor_no: u32, // sensor this evidence was associated with
     pub description: String,
     pub img: Option<SentinelFile>,
 }
@@ -98,6 +103,7 @@ define_actor_msg_set! { pub SentinelAlarmMonitorMsg = SentinelUpdate | Alarm }
 /// the Sentinel Alarm Actor state
 define_struct! { pub SentinelAlarmMonitor =
     config: SentinelAlarmMonitorConfig,
+    device_infos: SentinelDeviceInfos,
     hupdater: ActorHandle<SentinelActorMsg>,
     messengers: Vec<Box<dyn AlarmMessenger>>,
 
@@ -143,52 +149,14 @@ impl SentinelAlarmMonitor {
         false
     }
 
-    async fn collect_evidence_info (hupdater: &ActorHandle<SentinelActorMsg>, evidences: &Vec<RecordRef>, img_timeout: Duration) -> Result<Vec<EvidenceInfo>> {
-        let mut evidence_info: Vec<EvidenceInfo> = Vec::new();
-
-        for r in evidences {
-            let record_id = r.id.clone();
-            match timeout_query_ref( hupdater, GetSentinelUpdate {record_id}, secs(2)).await { // if we don't already have the record something is wrong
-                Ok(Ok(upd)) => {  // the successful query response itself is a Result since the updater might not have the record 
-                    let description = format!("sensor: {}", upd.sensor_no()); //upd.description();
-                    let mut img: Option<SentinelFile> = None;
-
-                    match_algebraic_type! { upd: SentinelUpdate as
-                        Arc<SensorRecord<ImageData>> => {
-                            let record_id = upd.id.clone();
-                            let filename = upd.data.filename.clone();
-
-                            img = match timeout_query_ref( hupdater, GetSentinelFile{record_id,filename}, img_timeout).await {
-                                Ok(Ok(sentinel_file)) => Some(sentinel_file),
-                                _ => { return Err( OdinSentinelError::FileRequestError(upd.data.filename.clone())) }
-                            }
-                        }
-                        _ => {
-                            // TODO - not interested in other evidence records?
-                            warn!("ignoring non-image evidence record: {:?}", r.id);
-                        } 
-                    }
-
-                    evidence_info.push( EvidenceInfo{description,img})
-                }
-                _ => {
-                    return Err( OdinSentinelError::RecordRequestError( format!("failed to retrieve evidence record: {}", r.id)) )
-                }
-                
-            }
-        }
-
-        Ok(evidence_info)
-    }
-
     async fn process_fire_alarm (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, rec: Arc<SensorRecord<FireData>>) {
         if rec.data.fire_prob >= self.config.fire_prob {
             let reported_alarms = &mut self.reported_fire_alarms;
             if let Some(alarm_id) = Self::check_new_alarm( &rec, reported_alarms, &self.config) {
-                let info: &str = self.device_info(&rec.device_id).map(|s|s.as_str()).unwrap_or("");
+                let info: &str = self.device_infos.get(&rec.device_id).map(|s|s.name.as_str()).unwrap_or("");
                 let descr = format!("🔥 {}\ndevice: {} {}\nfire probability: {}", 
                     rec.time_recorded.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %Z"), rec.device_id, info, rec.data.fire_prob);
-                self.process_alarm( hself, &alarm_id, rec.device_id.clone(), descr, rec.time_recorded, &rec.evidences).await;
+                self.process_alarm( hself, &alarm_id, &rec.id, rec.device_id.clone(), descr, rec.time_recorded, &rec.evidences).await;
             }
         }
     }
@@ -197,36 +165,91 @@ impl SentinelAlarmMonitor {
         if rec.data.smoke_prob >= self.config.smoke_prob {
             let reported_alarms = &mut self.reported_smoke_alarms;
             if let Some(alarm_id) = Self::check_new_alarm( &rec, reported_alarms, &self.config) { // could use 💨 here but most fires cause smoke alarms
-                let info: &str = self.device_info(&rec.device_id).map(|s|s.as_str()).unwrap_or("");
+                let info: &str = self.device_infos.get(&rec.device_id).map(|s|s.name.as_str()).unwrap_or("");
                 let descr = format!("🔥 {}\ndevice: {} {}\nsmoke probability: {}", 
                     rec.time_recorded.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %Z"), rec.device_id, info, rec.data.smoke_prob);
-                self.process_alarm( hself, &alarm_id, rec.device_id.clone(), descr, rec.time_recorded, &rec.evidences).await;
+                self.process_alarm( hself, &alarm_id, &rec.id, rec.device_id.clone(), descr, rec.time_recorded, &rec.evidences).await;
             }
         }   
     }
 
-    fn device_info(&self, device_id: &str)->Option<&String> {
-        self.config.device_infos.get(device_id)
-    }
+    async fn process_alarm (&self, hself: ActorHandle<SentinelAlarmMonitorMsg>, alarm_id: &str, record_id: &str, device_id: String, description: String, 
+                            time_recorded: DateTime<Utc>, evidence_recs: &Vec<RecordRef>) {
+        self.log_alarm( alarm_id, &description, evidence_recs);
 
-    async fn process_alarm (&self, hself: ActorHandle<SentinelAlarmMonitorMsg>, alarm_id: &str, device_id: String, description: String, time_recorded: DateTime<Utc>, evidences: &Vec<RecordRef>) {
-        self.log_alarm( alarm_id, &description, evidences);
-
-        if !self.config.attach_image || evidences.is_empty() {  // send right away
+        if !self.config.attach_image {  // send right away
             hself.send_msg( Alarm { device_id, description, time_recorded, evidence_info: Vec::with_capacity(0) }).await;
 
-        } else { // we have to dig up the evidence image
-            let hupdater = self.hupdater.clone();
+        } else { // we have to dig up the evidence image(s)
+            let hupdater = &self.hupdater;
+            let timeout = self.config.image_timeout;
 
-            match Self::collect_evidence_info( &hupdater, evidences, self.config.image_timeout).await {
-                Ok(evidence_info) => {
-                    hself.send_msg( Alarm { device_id, description, time_recorded, evidence_info }).await;
+            let mut evidence_info: Vec<EvidenceInfo> = self.retrieve_evidence( hupdater, evidence_recs, timeout).await;
+
+            if let Some(device_info) = self.device_infos.get(&device_id) {
+                self.add_external_evidence( &mut evidence_info, device_info, hupdater, record_id, time_recorded, timeout).await;
+            }
+
+            hself.send_msg( Alarm { device_id, description, time_recorded, evidence_info }).await;
+        }
+    }
+
+    async fn retrieve_evidence (&self, hupdater: &ActorHandle<SentinelActorMsg>, evidences: &Vec<RecordRef>, img_timeout: Duration) -> Vec<EvidenceInfo> {
+        let mut evidence_info: Vec<EvidenceInfo> = Vec::with_capacity(2); // usually just one or two images
+
+        // our own evidence - we have to get the filename from the respective evidence image record 
+        for r in evidences {
+            let record_id = r.id.clone();
+            match timeout_query_ref( hupdater, GetSentinelUpdate {record_id}, secs(2)).await { // if we don't already have the record something is wrong
+                Ok(Ok(upd)) => {  // the successful query response itself is a Result since the updater might not have the record 
+                    let sensor_no = upd.sensor_no();
+                    let description = format!("sensor: {sensor_no}"); //upd.description();
+
+                    match_algebraic_type! { upd: SentinelUpdate as
+                        Arc<SensorRecord<ImageData>> => {
+                            let record_id = upd.id.clone();
+                            let filename = upd.data.filename.clone();
+
+                            match timeout_query_ref( hupdater, GetSentinelFile::internal(record_id, filename), img_timeout).await {
+                                Ok(Ok(sentinel_file)) => {
+                                    let img = Some(sentinel_file);
+                                    evidence_info.push( EvidenceInfo{sensor_no, description, img})
+                                }
+                                _ => warn!("failed to retrieve evidence file {}", upd.data.filename)
+                            }
+                        }
+                        _ => warn!("ignoring non-image evidence record: {:?}", r.id)
+                    }
                 }
-                Err(e) => {
-                    warn!("failed to retrieve evidence for alarm {}", alarm_id);
-                    hself.send_msg( Alarm { device_id, description, time_recorded, evidence_info: Vec::with_capacity(0) }).await;
+                _ => warn!("failed to retrieve evidence record: {}", r.id)                
+            }
+        }
+
+        evidence_info
+    }
+
+    async fn add_external_evidence (&self, evidence_info: &mut Vec<EvidenceInfo>, device_info: &SentinelDeviceInfo,
+                                    hupdater: &ActorHandle<SentinelActorMsg>, record_id: &str, time_recorded: DateTime<Utc>, timeout: Duration) {
+        let sensors: Vec<u32> = evidence_info.iter().map( |ei| ei.sensor_no).collect();
+
+        for ext_img in &device_info.external_images {
+            if let Some(sensor_no) = sensors.iter().find( |s| ext_img.supports_sensor(**s)).map(|s| *s) {
+                let uri = ext_img.uri().to_string();
+                let description = uri.clone();
+                let ext = get_filename_extension(&uri).unwrap_or("");
+                let filename = format!("{}-{}.{}", ext_img.filename(), time_recorded.format("%Y%m%d-%H%M%S"), ext);
+
+                match timeout_query_ref( hupdater, GetSentinelFile::external(record_id.to_string(), filename, uri), timeout).await {
+                    Ok(Ok(sentinel_file)) => {
+                        let img = Some(sentinel_file);
+                        evidence_info.push( EvidenceInfo{sensor_no, description, img});
+                    }
+                    _ => {
+                        // external imagery is supposed to be supplemental - don't bail if we can't get it in time
+                        // TODO - should we at least add the URI here ?
+                    } 
                 }
-            };
+            }
         }
     }
 
