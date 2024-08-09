@@ -13,7 +13,7 @@
  */
 #![allow(unused)]
 
-use std::{boxed, collections::HashMap, sync::Arc, net::SocketAddr, future::{Future,ready}, path::{PathBuf}, any::type_name};
+use std::{boxed, collections::HashMap, sync::Arc, net::SocketAddr, future::{Future,ready}, path::{PathBuf}, any::type_name, fmt::Write};
 use axum::{
     http::{Uri,StatusCode},
     body::Body,
@@ -35,17 +35,20 @@ use http_cache_reqwest::{Cache, CacheMode, CACacheManager, HttpCache, HttpCacheO
 use serde::{Deserialize,Serialize};
 use async_trait::async_trait;
 
+use odin_common::fs::get_file_basename;
 use odin_macro::define_struct;
 use odin_actor::prelude::*;
 
 use crate::get_asset_response;
 use crate::errors::{Result,op_failed};
 
-
-/// trait that defines the interface for a single page app service. Note that this trait is not object safe since it uses RPITIT. 
-/// Use the [`define_spa`]` macro to define a type that preserves the concrete SpaService types
+/// the trait that abstracts a single page application service, which normally represents a visualization
+/// layer with its own data (either dynamic or static) and document assets (such as Javascript modules
+/// and images) or fragments (HTML elements)
 #[async_trait]
 pub trait SpaService: Send + Sync + 'static {
+    /// override this if the service depends on other services. Default is it doesn't
+    fn add_dependencies (&self, sb: SpaServiceListBuilder)->SpaServiceListBuilder {sb} // defaut is no dependencies
     
     /// this adds document fragments and route data for this micro service
     /// Called during server construction to accumulate components of all included SpaServices
@@ -63,6 +66,33 @@ pub trait SpaService: Send + Sync + 'static {
     }
 }
 
+/// an object to build SpaService lists from services that can recursively depend on other services.
+/// Each service type is included just once, in the order of first occurrence
+pub struct SpaServiceListBuilder {
+    seen: Vec<&'static str>,
+    services: Vec<Box<dyn SpaService>>
+}
+
+impl SpaServiceListBuilder {
+    pub fn new ()->Self { SpaServiceListBuilder{seen: Vec::new(), services: Vec::new()} }
+
+    pub fn add<F,T> (self, svc_ctor: F)->Self where F: FnOnce()->T, T: SpaService + 'static {
+        let name = type_name::<T>();
+        if !self.seen.contains(&name) {
+            let svc = svc_ctor();
+            let mut sb = svc.add_dependencies( self);
+            sb.seen.push(name);
+            sb.services.push( Box::new(svc));
+            sb
+        } else {
+            self
+        }
+    }
+
+    pub fn build (self)->Vec<Box<dyn SpaService>> { 
+        self.services
+    }
+}
 
 /// struct to keep track of active SinglePageApp connections
 struct SpaConnection {
@@ -128,6 +158,7 @@ impl SpaServer {
             }))
 
             //--- the proxy route
+            // 'key' is the symbolic server name
             .route( &format!("{}/proxied/:key/*unmatched", self.name), get({
                 let mode = CacheMode::Default;
                 let manager = CACacheManager { path: odin_build::cache_dir().join("proxies") };
@@ -139,6 +170,7 @@ impl SpaServer {
             }))
 
             //--- the assets route
+            // 'key' is the owning crate
             .route( &format!("{}/assets/:key/*unmatched", self.name), get({
                 move |uri_elems: Path<(String,String)>, req: Request| { Self::asset_handler(uri_elems, req, assets)}
             }));
@@ -292,7 +324,8 @@ impl_actor! { match msg for Actor<SpaServer,SpaServerMsg> as
 /* #region single page app components ************************************************************************/
 
 /// accumulator for components of a single page application, including the parts that make up the document and the routes
-/// to serve it (including referenced assets and proxied urls)
+/// to serve it (including referenced assets and proxied urls). This data structure is our internal model of
+/// the SPA data
 define_struct! { pub SpaComponents = 
     service_types: Vec<&'static str> = Vec::new(), // the micro-services that contributed components
 
@@ -309,11 +342,13 @@ define_struct! { pub SpaComponents =
     body_frags:     Vec<String>  = Vec::new(),  // HTML elements to add to the body
 
     //--- components that are used to create the Router
-    // the URIs we proxy
+    // the URIs we proxy. The key is the symbolic name for the proxied server, the value is the remote URI prefix to use
     proxies: HashMap<String,String> = HashMap::new(), 
 
     // asset data to serve - the key is the crate name and the value is a crate-specific function to
-    // get the asset data for a given filename. Both crate and filename are extracted from the request URI
+    // get the asset data for a filename. Both crate and filename are extracted from the request URI.
+    // Note the filename is symbolic - it is what the respective `load_asset(..)` function of the crate
+    // uses for lookup
     assets: HashMap<&'static str, fn(&str)->Result<Bytes>> = HashMap::new()
 }
 
@@ -328,25 +363,7 @@ impl SpaComponents {
         Ok(comps)
     }
 
-    /// this can be used by services as a guard to make sure they are only added once, even if they just have
-    /// non-unique components.
-    /// We need this to handle recursive service dependencies
-    pub fn register<T>(&mut self)->bool {
-        let svc_type = type_name::<T>();
-        for st in &self.service_types {
-            if *st == svc_type { 
-                return false // already registered, don't add twice
-            }
-        }
-        self.service_types.push(svc_type);
-        true
-    }
-
-    //--- the functions used to add SpaService components
-
-    pub fn add_proxy (&mut self, key: impl ToString, url_prefix: impl ToString) {
-        self.proxies.insert( key.to_string(), url_prefix.to_string());
-    }
+    //--- the functions used to add SpaService components (normally by the `SpaService::add_components()` impl)
 
     pub fn add_css (&mut self, css: impl ToString) {
         add_unique( &mut self.css, css.to_string());
@@ -368,46 +385,77 @@ impl SpaComponents {
         self.body_frags.push( html.to_string())
     }
 
+    pub fn add_proxy (&mut self, key: impl ToString, url_prefix: impl ToString) {
+        self.proxies.insert( key.to_string(), url_prefix.to_string());
+    }
+
     /// render HTML document. We could use a lib such as build_html but our documents are rather simple so there is no
     /// need for another intermediate doc model
+    /// TODO - remove newlines in production
     pub fn to_html(&self, name: &str)->String {
         let mut buf = String::with_capacity(4096);
-        buf.push_str("<!DOCTYPE html>");
-        buf.push_str("<html>");
+        
+        write!( buf, "<!DOCTYPE html>\n");
+        write!( buf, "<html>\n");
+        write!( buf, "<head>\n");
 
-        buf.push_str("<head>");
-        buf.push_str("<title>"); buf.push_str(name); buf.push_str("</title>");
+        write!( buf, "<title>{name}</title>\n");
 
         for css in &self.ext_css {
-            buf.push_str(r#"<link rel="stylesheet" type="text/css" href=""#);
-            buf.push_str(css);
-            buf.push_str(r#""/>"#);
+            write!( buf, r#"<link rel="stylesheet" type="text/css" href="{css}"/>\n"#);
         }
         for s in &self.ext_scripts {
-            buf.push_str(r#"<script src=""#);
-            buf.push_str(s);
-            buf.push_str(r#""></script>"#);
+            write!( buf, r#"<script src="{s}"></script>\n"#);
         }
 
         for s in &self.js_modules {
-            buf.push_str(r#"<script type="module" src=""#);
-            buf.push_str(s);
-            buf.push_str(r#""></script>"#);
+            write!( buf, r#"<script type="module" src="{s}"></script>\n"#);
         }
-        buf.push_str("</head>");
 
-        buf.push_str("<body>");
+        write!( buf, "</head>\n");
+        write!( buf, "<body>\n");
 
-        for frag in &self.body_frags { buf.push_str(frag); } // copied verbatim
+        for frag in &self.body_frags { 
+            write!( buf, "{frag}\n");
+        }
 
-        // TODO post-init of async js modules goes here
+        self.post_init_js_modules(&mut buf);
 
-        buf.push_str("</body>");
-        buf.push_str("</html>");
+        write!( buf, "</body>\n");
+        write!( buf, "</html>\n");
 
         buf
     }
+
+    /// add async module post-init code as a generated script in the form
+    /// 
+    /// ```
+    /// import * as mod_name from mod_name.js;
+    /// ...
+    /// if (mod_name.postExec) mod_name.postExec();
+    /// ...
+    /// console.log("js modules initialized");
+    /// ```
+    /// 
+    /// note that imports have to occur first so that all modules have been initialized when
+    /// we call postExec() for any of them
+    fn post_init_js_modules (&self, buf: &mut String) {
+        let mod_names: Vec<&str> = self.js_modules.iter().map( |p| get_file_basename(p).unwrap()).collect();
+
+        write!( buf, r#"\n<script type="module">\n"#);
+        for i in 0..mod_names.len() {
+            write!( buf, "import * as {} from ./{};\n", mod_names[i], self.js_modules[i]);
+        }
+
+        for mod_name in &mod_names {
+            write!( buf, "if ({mod_name}.postExec) {mod_name}.postExec();\n");
+        }
+
+        write!( buf, "console.log('js modules initialized');\n");
+        write!( buf, "</script>\n");
+    }
 }
+
 
 fn add_unique ( v: &mut Vec<String>, s: String) {
     if !v.contains(&s) { v. push(s) }

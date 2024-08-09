@@ -36,6 +36,7 @@ mime_guess = "*"
 odin_build = { workspace = true }
 odin_macro = { workspace = true }
 odin_actor = { workspace = true }
+odin_common = { workspace = true }
 
 [build-dependencies]
 odin_build = { workspace = true }

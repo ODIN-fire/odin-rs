@@ -192,6 +192,26 @@ pub fn get_filename_extension<'a> (path: &'a str) -> Option<&'a str> {
     //path.extension().and_then( |ostr| ostr.to_str())
 }
 
+/// this is the non-extension part of a filename. Input can be a path - everything up to the last
+/// path separator is discarded (on Windows we accept both '\\' and '/' as separator)
+pub fn get_file_basename<'a> (path: &'a str) -> Option<&'a str> {
+    let i0 = if let Some(idx) = path.rfind( std::path::MAIN_SEPARATOR) { 
+        idx + 1 
+    } else {
+        if std::path::MAIN_SEPARATOR != '/' {
+            if let Some(idx) = path.rfind('/') { idx + 1 } else { 0 }
+        } else { 0 }
+    };
+
+    let i1 = if let Some(idx) = path.rfind('.') { idx } else { path.len() };
+
+    if i1 > i0 {
+        Some( path[i0..i1].as_ref() )
+    } else {
+        None
+    }
+}
+
 
 pub fn remove_old_files<T> (dir: &T, max_age: Duration)->Result<usize> where T: AsRef<Path> {
     let dir: &Path = dir.as_ref();
