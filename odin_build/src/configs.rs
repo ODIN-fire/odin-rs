@@ -94,6 +94,11 @@ fn process_config_resource (r: &Resource, v: Vec<u8>)->Result<Vec<u8>> {
     utils::compress_vec( v.as_slice()) 
 }
 
+// those are used by the define_load_config macro but we don't want to expose them to callers
+pub extern crate lazy_static;
+pub extern crate serde;
+pub extern crate ron;
+
 /// runtime (crate) part of config management
 /// this is the main macro that needs to be expanded at the top of crates (lib.rs) that define configs.
 /// Config users call the defined `load_config(..)` function to instantiate config structs
@@ -103,10 +108,10 @@ macro_rules! define_load_config {
 
     () => {
         mod configs {
-            use lazy_static::lazy_static;
             use std::{collections::HashMap,path::Path};
-            use serde::Deserialize;
-            use ron;
+            use $crate::lazy_static::lazy_static;
+            use $crate::serde::Deserialize;
+            use $crate::ron;
 
             lazy_static! { // this is module-private
                 static ref EMBEDDED_CONFIGS: HashMap<&'static str, odin_build::EmbeddedConfigEntry> = {
@@ -120,7 +125,7 @@ macro_rules! define_load_config {
             }
 
             /// load config using odin_build - based lookup mechanism
-            pub fn load_config<C> (filename: &str) -> odin_build::Result<C> where C: for <'a> serde::Deserialize<'a> {
+            pub fn load_config<C> (filename: &str) -> odin_build::Result<C> where C: for <'a> Deserialize<'a> {
                 let bin_ctx = odin_build::BIN_CONTEXT.get();
                 let resource_crate = env!("CARGO_PKG_NAME");
 

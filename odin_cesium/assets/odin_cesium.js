@@ -1,23 +1,23 @@
 /*
- * Copyright (c) 2023, United States Government, as represented by the
- * Administrator of the National Aeronautics and Space Administration.
- * All rights reserved.
+ * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The RACE - Runtime for Airspace Concept Evaluation platform is licensed
- * under the Apache License, Version 2.0 (the "License"); you may not use
- * this file except in compliance with the License. You may obtain a copy
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
+ * you may not use this file except in compliance with the License. You may obtain a copy 
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
-import * as config from "./config.js";
-import * as ui from "./ui.js";
-import * as ws from "./ws.js";
-import * as util from "./ui_util.js";
+import { config } from "./odin_cesium_config.js";
+import * as util from "../odin_server/ui_util.js";
+import * as ui from "../odin_server/ui.js";
+
+//import * as ws from "./ws.js";  // TODO
+
+if (window.postExec) window.postExec.push( postExec);
 
 const UI_POSITIONS = "race-ui-positions";
 const LOCAL = "local-";  // prefix for local position set names
@@ -32,7 +32,7 @@ class LayerEntry {
 
         this.config = layerConfig;     // at minimum {name,description,show}
         this.show = layerConfig.show;  // the configured initial state
-        this.showAction = showAction   // module provided function to toggle visibility of assets
+        this.showAction = showAction;   // module provided function to toggle visibility of assets
 
         this.modulePanelCb = undefined;
         this.layerOrderCb = undefined;
@@ -71,7 +71,7 @@ class Position {
 var cameraSpec = undefined;
 var lastCamera = undefined; // saved last position & orientation
 
-var requestRenderMode = config.cesium.requestRenderMode;
+var requestRenderMode = config.requestRenderMode;
 var pendingRenderRequest = false;
 var targetFrameRate = -1;
 
@@ -94,9 +94,9 @@ const centerOrientation = {
     heading: Cesium.Math.toRadians(0.0),
     pitch: Cesium.Math.toRadians(-90.0),
     roll: Cesium.Math.toRadians(0.0)
-}
+};
 
-if (config.cesium.accessToken) Cesium.Ion.defaultAccessToken = config.cesium.accessToken;
+if (config.accessToken) Cesium.Ion.defaultAccessToken = config.accessToken;
 
 export const ellipsoidTerrainProvider = new Cesium.EllipsoidTerrainProvider();
 var terrainProvider = ellipsoidTerrainProvider; // switched on demand
@@ -123,7 +123,7 @@ let dataSource = new Cesium.CustomDataSource("positions");
 addDataSource(dataSource);
 
 initTimeWindow();
-initCameraWindow();
+initViewWindow();
 initLayerWindow();
 
 // position fields
@@ -137,7 +137,7 @@ let pointerUtmN = ui.getField("view.pointer.utmN");
 let pointerUtmE = ui.getField("view.pointer.utmE");
 let pointerUtmZ = ui.getField("view.pointer.utmZ");
 
-setTargetFrameRate(config.cesium.targetFrameRate);
+setTargetFrameRate(config.targetFrameRate);
 initFrameRateSlider();
 
 if (requestRenderMode) ui.setCheckBox("view.rm", true);
@@ -149,7 +149,7 @@ viewer.resolutionScale = window.devicePixelRatio; // 2.0
 viewer.scene.fxaa = true;
 //viewer.scene.globe.depthTestAgainstTerrain=true;
 
-showContext();
+//showContext(); // for debugging purposes
 
 Cesium.GeoJsonDataSource.clampToGround = true; // should this be configured?
 
@@ -161,7 +161,7 @@ viewer.scene.canvas.addEventListener('mousemove', handleMouseMove);
 viewer.scene.canvas.addEventListener('click', handleMouseClick);
 viewer.scene.canvas.addEventListener('dblclick', handleMouseDblClick);
 
-ws.addWsHandler(handleWsViewMessages);
+// ws.addWsHandler(handleWsViewMessages); // TODO
 
 // FIXME - this seems to be broken as of Cesium 105.1
 viewer.scene.postRender.addEventListener(function() {
@@ -177,6 +177,7 @@ console.log("ui_cesium initialized");
 
 //--- end initialization
 
+// executed after all modules have been loaded and initialized
 export function postExec() {
     initModuleLayerViewData();
 
@@ -186,6 +187,7 @@ export function postExec() {
         topoTerrainProvider = tp;
         console.log("topographic terrain loaded");
     });
+    console.log("odin_cesium.postExec complete.");
 }
 
 function showContext() {
@@ -200,8 +202,8 @@ function showContext() {
 //--- terrain handling
 
 function getTerrainProviderPromise() {
-    if (config.cesium.terrainProvider) {
-        return config.cesium.terrainProvider;
+    if (config.terrainProvider) {
+        return config.terrainProvider;
     } else {
         return Cesium.createWorldTerrainAsync();
     } 
@@ -279,22 +281,24 @@ function handleTerrainChange() {
 //--- imagery
 
 function checkImagery() {
-    if (!config.imglayer) {
+    // TODO - check if this works since it is recursive
+    import("./imglayer.js").catch((err) => {
+        console.log("no imglayer configured, using default imagery");
         const imageryProvider = Cesium.ImageryLayer.fromWorldImagery({
             style: Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS
         });
         viewer.imageryLayers.add(imageryProvider);
-    }
+    });
 }
 
-function initCameraWindow() {
-    createCameraIcon();
-    createCameraWindow();
+function initViewWindow() {
+    createViewIcon();
+    createViewWindow();
     positionsView = initPositionsView();
 }
 
-function createCameraWindow() {
-    return ui.Window("View", "view", "camera-icon.svg")(
+function createViewWindow() {
+    return ui.Window("View", "view", "./asset/odin_cesium/view.svg")(
         ui.RowContainer()(
             ui.CheckBox("fullscreen", toggleFullScreen),
             ui.HorizontalSpacer(1),
@@ -359,8 +363,8 @@ function initPositionsView() {
     return view;
 }
 
-function createCameraIcon() {
-    return ui.Icon("camera-icon.svg", (e)=> ui.toggleWindow(e,'view'));
+function createViewIcon() {
+    return ui.Icon("./asset/odin_cesium/view.svg", (e)=> ui.toggleWindow(e,'view'));
 }
 
 //--- time window
@@ -371,15 +375,15 @@ function initTimeWindow() {
 }
 
 function createTimeWindow() {
-    return ui.Window("clock", "time", "time-icon.svg")(
+    return ui.Window("clock", "time", "./asset/odin_cesium/time.svg")(
         ui.Clock("time UTC", "time.utc", "UTC"),
-        ui.Clock("time loc", "time.loc",  config.cesium.localTimeZone),
+        ui.Clock("time loc", "time.loc",  config.localTimeZone),
         ui.Timer("elapsed", "time.elapsed")
     );
 }
 
 function createTimeIcon() {
-    return ui.Icon("time-icon.svg", (e)=> ui.toggleWindow(e,'time'));
+    return ui.Icon("./asset/odin_cesium/time.svg", (e)=> ui.toggleWindow(e,'time'));
 }
 
 //--- layer window
@@ -392,7 +396,7 @@ function initLayerWindow() {
 }
 
 function createLayerWindow() {
-    return ui.Window("module layers", "layer", "layer-icon.svg")(
+    return ui.Window("module layers", "layer", "./asset/odin_cesium/layers.svg")(
         ui.Panel("module Z-order", true)(
             ui.List("layer.order", 10),
             ui.RowContainer()(
@@ -407,7 +411,7 @@ function createLayerWindow() {
 }
 
 function createLayerIcon() {
-    return ui.Icon("layer-icon.svg", (e)=> ui.toggleWindow(e,'layer'));
+    return ui.Icon("./asset/odin_cesium/layers.svg", (e)=> ui.toggleWindow(e,'layer'));
 }
 
 function initLayerOrderView() {
@@ -520,7 +524,7 @@ function getPositionSets() {
 
 // TODO - we should support multiple gobal position sets
 function getGlobalPositionSet() { // from config
-    let positions = config.cesium.cameraPositions.map( p=> new Position(p.name, p.lat, p.lon, p.alt));
+    let positions = config.cameraPositions.map( p=> new Position(p.name, p.lat, p.lon, p.alt));
     let pset = new PositionSet("default", positions);
 
     homePosition = positions.find( p=> p.name === "home");
@@ -600,7 +604,7 @@ function removePositionSet() {
 }
 
 function setPositionAsset(pos) {
-    let cfg = config.cesium;
+    let cfg = config;
 
     let e = new Cesium.Entity({
         id: pos.name,
@@ -908,7 +912,7 @@ var deferredMouseUpdate = undefined;
 function updateMouseLocation(e) {
     if (deferredMouseUpdate) clearTimeout(deferredMouseUpdate);
     deferredMouseUpdate = setTimeout( () => {
-        let pos = getCartographicMousePosition(e)
+        let pos = getCartographicMousePosition(e);
         if (pos) {
             let latDeg = Cesium.Math.toDegrees(pos.latitude);
             let lonDeg = Cesium.Math.toDegrees(pos.longitude);
@@ -962,7 +966,7 @@ function setViewFromFields() {
 
 export function saveCamera() {
     let camera = viewer.camera;
-    let pos = camera.positionCartographic
+    let pos = camera.positionCartographic;
 
     lastCamera = {
         lat: util.toDegrees(pos.latitude),
@@ -980,7 +984,7 @@ export function saveCamera() {
 }
 
 export function zoomTo(cameraPos) {
-    saveCamera()
+    saveCamera();
 
     viewer.camera.flyTo({
         destination: cameraPos,
@@ -1086,7 +1090,7 @@ function initModuleLayerViewData() {
 // called by layer modules during their init - the panel is in the respective module window
 export function initLayerPanel(wid, conf, showAction) {
     if (conf && conf.layer) {
-        let phe = document.getElementById(wid + ".layer-header")
+        let phe = document.getElementById(wid + ".layer-header");
         if (phe) {
             let le = new LayerEntry(wid,conf.layer,showAction);
 
@@ -1107,7 +1111,7 @@ export function initLayerPanel(wid, conf, showAction) {
 }
 
 export function isLayerShowing(layerPath) {
-    let le = layerOrder.find( le=> le.id == layerPath)
+    let le = layerOrder.find( le=> le.id == layerPath);
     return (le && le.show);
 }
 

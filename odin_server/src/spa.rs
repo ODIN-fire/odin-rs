@@ -18,7 +18,7 @@ use axum::{
     http::{Uri,StatusCode},
     body::Body,
     routing::get, Router,
-    extract::{Path, Query, Request, State, connect_info::ConnectInfo},
+    extract::{Path, Query, RawQuery, Request, State, connect_info::ConnectInfo},
     middleware::map_request,
     response::{Response,IntoResponse,Html},
     extract::{ws::{Message, WebSocket, WebSocketUpgrade},FromRef, Path as AxumPath}
@@ -27,20 +27,23 @@ use bytes::Bytes;
 use futures_util::{sink::SinkExt, stream::{StreamExt, SplitSink, SplitStream}};
 use http_body::Body as _;
 use http_body_util::{Full, BodyExt, combinators::UnsyncBoxBody};
+use odin_build::OdinBuildError;
 use tower::{ServiceExt,BoxError};
-use tower_http::services::ServeDir;
+use tower_http::{services::ServeDir,trace::TraceLayer};
+use tracing_subscriber::EnvFilter;
 use reqwest::{header, Client};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use http_cache_reqwest::{Cache, CacheMode, CACacheManager, HttpCache, HttpCacheOptions};
 use serde::{Deserialize,Serialize};
 use async_trait::async_trait;
 
+use odin_build::LoadAssetFn;
 use odin_common::fs::get_file_basename;
 use odin_macro::define_struct;
 use odin_actor::prelude::*;
 
 use crate::get_asset_response;
-use crate::errors::{Result,op_failed};
+use crate::errors::{OdinServerResult,op_failed};
 
 /// the trait that abstracts a single page application service, which normally represents a visualization
 /// layer with its own data (either dynamic or static) and document assets (such as Javascript modules
@@ -52,16 +55,16 @@ pub trait SpaService: Send + Sync + 'static {
     
     /// this adds document fragments and route data for this micro service
     /// Called during server construction to accumulate components of all included SpaServices
-    fn add_components (&self, spa: &mut SpaComponents)->Result<()>;
+    fn add_components (&self, spa: &mut SpaComponents)->OdinServerResult<()>;
 
     /// called from server actor after receiving an AddConnection message from the ws route handler  
     /// If data is not owned by service this triggers a data action
-    async fn init_connection (&self, hself: &ActorHandle<SpaServerMsg>, remote_addr: SocketAddr) -> Result<()> {
+    async fn init_connection (&self, hself: &ActorHandle<SpaServerMsg>, remote_addr: SocketAddr) -> OdinServerResult<()> {
         Ok(())
     }
 
     /// called from ws input task of respective connection
-    async fn handle_incoming_ws_msg (&mut self, msg: Arc<String>) -> Result<()> {
+    async fn handle_incoming_ws_msg (&mut self, msg: Arc<String>) -> OdinServerResult<()> {
         Ok(())
     }
 }
@@ -119,7 +122,7 @@ pub struct SpaServerConfig {
 
 impl SpaServer {
 
-    fn new (config: SpaServerConfig, name: impl ToString, services: Vec<Box<dyn SpaService>>)->Self {
+    pub fn new (config: SpaServerConfig, name: impl ToString, services: Vec<Box<dyn SpaService>>)->Self {
         SpaServer { 
             config, 
             name: name.to_string(), 
@@ -130,8 +133,17 @@ impl SpaServer {
     }
 
     /// called when receiving _Start_ message
-    async fn start_server (&mut self, hself: ActorHandle<SpaServerMsg>)->Result<()> {
+    async fn start_server (&mut self, hself: ActorHandle<SpaServerMsg>)->OdinServerResult<()> {
         if self.server_task.is_none() {
+            
+            if cfg!(feature="trace_server") {
+                // note this only succeeds if there is no global subscriber set yet
+                tracing_subscriber::fmt()
+                    .with_env_filter(EnvFilter::from_default_env())  // use RUST_LOG to set max level
+                    //.with_max_level(tracing::Level::DEBUG)
+                    .try_init();
+            }
+
             let sock_addr = self.config.sock_addr.clone();
             let router = self.build_router( &hself)?.into_make_service_with_connect_info::<SocketAddr>();
 
@@ -139,41 +151,50 @@ impl SpaServer {
                 let listener = tokio::net::TcpListener::bind(sock_addr).await.unwrap();
                 axum::serve( listener, router).await.unwrap();    
             }));
+            println!("serving {}/{}", self.config.sock_addr, self.name);
             Ok(())
+
         } else {
             Err(op_failed("server task already running"))
         }
     }
 
-    fn build_router (&self, hself: &ActorHandle<SpaServerMsg>)->Result<Router> {
+    fn build_router (&self, hself: &ActorHandle<SpaServerMsg>)->OdinServerResult<Router> {
         let comps = SpaComponents::from( &self.services)?;
         let document = comps.to_html( self.name.as_str());
         let proxies = comps.proxies;
         let assets = comps.assets;
         
-        let router = Router::new()
+        let mut router = Router::new()
             //--- the document route
-            .route( self.name.as_str(), get({
+            .route( &format!("/{}", self.name), get({
                 move |req: Request| { Self::doc_handler(req,document) }
             }))
 
             //--- the proxy route
             // 'key' is the symbolic server name
-            .route( &format!("{}/proxied/:key/*unmatched", self.name), get({
+            //.route( &format!("/{}/proxy/:key/*unmatched", self.name), get({
+            .route( &format!("/{}/proxy/*unmatched", self.name), get({
                 let mode = CacheMode::Default;
                 let manager = CACacheManager { path: odin_build::cache_dir().join("proxies") };
                 let options = HttpCacheOptions::default();    
                 let http_client = ClientBuilder::new(Client::new())
                     .with( Cache( HttpCache {mode, manager, options}))
                     .build();
-                move |uri_elems: Path<(String,String)>, req: Request| { Self::proxy_handler(uri_elems, req, http_client, proxies) }
+                //move |uri_elems: Path<(String,String)>, req: Request| { Self::proxy_handler(uri_elems, req, http_client, proxies) }
+                move |path: Path<String>, query: RawQuery, req: Request| { Self::proxy_handler(path, query, req, http_client, proxies) }
             }))
 
             //--- the assets route
             // 'key' is the owning crate
-            .route( &format!("{}/assets/:key/*unmatched", self.name), get({
+            .route( &format!("/{}/asset/:key/*unmatched", self.name), get({
                 move |uri_elems: Path<(String,String)>, req: Request| { Self::asset_handler(uri_elems, req, assets)}
             }));
+
+        // note this won't do anything unless there also is a tracing subscriber set somewhere
+        if cfg!(feature="trace_server") {
+            router = router.layer(TraceLayer::new_for_http());
+        }
 
         Ok(router)
     }
@@ -183,54 +204,92 @@ impl SpaServer {
         Html(doc)
     }
 
-    async fn proxy_handler (uri_elems: Path<(String,String)>, req: Request, 
+    async fn proxy_handler (path: Path<String>, query: RawQuery, req: Request, 
                             http_client: ClientWithMiddleware, proxies: HashMap<String,String>) -> Response {
-        let AxumPath((key,path)) = uri_elems;
-        println!("serving proxy for host-name {key}: {path}");
-        if let Some(uri) = proxies.get(&key) {
-            let uri = format!("{uri}/{path}");
-            println!("  - forwarding to proxy {uri}");
-    
-            let reqwest_response = match http_client.get( uri).send().await {
-                Ok(res) => res,
-                Err(err) => {
-                    println!("request failed");
-                    return (StatusCode::BAD_REQUEST, Body::empty()).into_response();
-                }
-            };
-    
-            let response_builder = Response::builder().status(reqwest_response.status().as_u16());
-            response_builder
-                .body(Body::from_stream(reqwest_response.bytes_stream()))
-                .unwrap()
-    
+        //println!("@@ proxy request: {path:?}");
+        if let Some(idx) = path.find('/') {
+            let key = &path[0..idx];
+            //println!("@@ looking up proxy name {key}...");
+            //println!("@@@@ request-uri: {}", req.uri());
+            //println!("@@@@ query: {:?}", query);
+
+            if let Some(base_uri) = proxies.get(key) {
+                let rel_path = &path[idx+1..];
+                let uri = Self::get_proxy_uri( base_uri, rel_path, query);
+                //println!("@@  - forwarding to proxy {uri}");
+        
+                let reqwest_response = match http_client.get( uri).send().await {
+                    Ok(res) => res,
+                    Err(err) => {
+                        //println!("request failed");
+                        return (StatusCode::BAD_REQUEST, Body::empty()).into_response();
+                    }
+                };
+        
+                //println!("@@ proxy response: {:?}", reqwest_response);
+                Response::builder()
+                    .status(reqwest_response.status().as_u16())
+                    .body(Body::from_stream(reqwest_response.bytes_stream()))
+                    .unwrap()
+        
+            } else {
+                //println!("@@ no such proxy name {key}");
+                (StatusCode::BAD_REQUEST, "not proxied").into_response()
+            }
         } else {
+            //println!("@@@@@@@  invalid proxy url");
             (StatusCode::BAD_REQUEST, "not proxied").into_response()
         }
     }
 
+    fn get_proxy_uri (base_uri: &str, path: &str, query: RawQuery)->String {
+        let qs = if let Some(qs) = &query.0 { qs.as_str() } else { "" };
+
+        let len = base_uri.len() + path.len() + 1 + qs.len() + 1;
+        let mut uri = String::with_capacity(len);
+        uri.push_str( base_uri);
+
+        if path.len() > 0 {
+            if !(path.starts_with('?') || path.starts_with('/')) { 
+                uri.push('/'); 
+            }
+            uri.push_str( path);
+        }
+
+        if qs.len() > 0 {
+            uri.push('?');
+            uri.push_str(qs)
+        }
+
+        uri
+    }
+
     async fn asset_handler (uri_elems: Path<(String,String)>, req: Request,
-                            assets: HashMap<&'static str, fn(&str)->Result<Bytes>>) -> Response {
+                            assets: HashMap<&'static str,LoadAssetFn>) -> Response {
         let AxumPath((key,path)) = uri_elems;
+        //println!("@@ asset request {key} / {path}");
 
         if let Some(lookup_fn) = assets.get( key.as_str()) {
             let filename = path.as_str();
+            //println!("@@ looking up {filename}");
             match lookup_fn( filename) {
                 Ok(bytes) => {
                     get_asset_response( filename, bytes)
                 }
                 Err(e) => {
+                    //println!("@@ asset lookup failed: {e}");
                     // TODO - this has to discriminate between not found and extraction error
                     (StatusCode::NOT_FOUND, filename.to_string()).into_response()
                 }
             }
         } else { // unknown asset crate
+            //println!("@@ no asset lookup fn for {key}");
             (StatusCode::NOT_FOUND, "unknown asset category").into_response()
         }
     }
 
     /// called when receiving AddConnection message
-    async fn add_connection(&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr, ws: WebSocket)->Result<()> {
+    async fn add_connection(&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr, ws: WebSocket)->OdinServerResult<()> {
         let raddr = remote_addr.clone();
         let name = raddr.to_string();
         let (mut ws_sender, mut ws_receiver) = ws.split();
@@ -270,7 +329,7 @@ impl SpaServer {
     }
 
     /// called when receiving _Terminate_ message
-    fn stop_server (&mut self)->Result<()> {
+    fn stop_server (&mut self)->OdinServerResult<()> {
         if let Some(jh) = &self.server_task {
             jh.abort();
             self.server_task = None;
@@ -323,23 +382,31 @@ impl_actor! { match msg for Actor<SpaServer,SpaServerMsg> as
 
 /* #region single page app components ************************************************************************/
 
+#[derive(Debug,PartialEq,Eq)]
+pub enum HeaderItem {
+    Css(String),
+    Script(String),
+    Module(String)
+}
+
+impl HeaderItem {
+    fn append_html (&self, buf: &mut String) {
+        match self {
+            Self::Css(uri) => write!( buf, "<link rel=\"stylesheet\" type=\"text/css\" href=\"{uri}\"/>\n"),
+            Self::Script(uri) => write!( buf, "<script src=\"{uri}\"></script>\n"),
+            Self::Module(uri) => write!( buf, "<script type=\"module\" src=\"{uri}\"></script>\n")
+        };
+    }
+}
+
 /// accumulator for components of a single page application, including the parts that make up the document and the routes
 /// to serve it (including referenced assets and proxied urls). This data structure is our internal model of
 /// the SPA data
 define_struct! { pub SpaComponents = 
-    service_types: Vec<&'static str> = Vec::new(), // the micro-services that contributed components
 
-    //--- components that are used to create the document
-    // external resources (URLs)
-    ext_css:        Vec<String>  = Vec::new(),
-    ext_scripts:    Vec<String>  = Vec::new(),
-
-    // own resources (names only - unique-ified upon entry)
-    css:            Vec<String>  = Vec::new(),  // own css
-    js_modules:     Vec<String>  = Vec::new(),  // own js modules (including config modules)
-
-    // fragments that are taken verbatim (allowing mutliple entries). Note each frag has to be valid HTML
-    body_frags:     Vec<String>  = Vec::new(),  // HTML elements to add to the body
+    //--- static document components
+    header_items: Vec<HeaderItem> = Vec::new(), 
+    body_frags: Vec<String>  = Vec::new(),  // HTML elements to add to the body
 
     //--- components that are used to create the Router
     // the URIs we proxy. The key is the symbolic name for the proxied server, the value is the remote URI prefix to use
@@ -349,13 +416,13 @@ define_struct! { pub SpaComponents =
     // get the asset data for a filename. Both crate and filename are extracted from the request URI.
     // Note the filename is symbolic - it is what the respective `load_asset(..)` function of the crate
     // uses for lookup
-    assets: HashMap<&'static str, fn(&str)->Result<Bytes>> = HashMap::new()
+    assets: HashMap<&'static str, fn(&str)->std::result::Result<Bytes,OdinBuildError>> = HashMap::new()
 }
 
 
 impl SpaComponents {
 
-    fn from (services: &Vec<Box<dyn SpaService>>)->Result<SpaComponents> {
+    pub fn from (services: &Vec<Box<dyn SpaService>>)->OdinServerResult<SpaComponents> {
         let mut comps = SpaComponents::new();
         for svc in services {
             svc.add_components( &mut comps)?;
@@ -365,28 +432,30 @@ impl SpaComponents {
 
     //--- the functions used to add SpaService components (normally by the `SpaService::add_components()` impl)
 
-    pub fn add_css (&mut self, css: impl ToString) {
-        add_unique( &mut self.css, css.to_string());
+    pub fn add_header_item (&mut self, hitem: HeaderItem) {
+        if !self.header_items.contains(&hitem) {
+            self.header_items.push( hitem);
+        }
     }
-
-    pub fn add_js_module (&mut self, module_name: impl ToString) {
-        add_unique( &mut self.js_modules, module_name.to_string());
-    }
-
-    pub fn add_ext_css (&mut self, css: impl ToString) {
-        add_unique( &mut self.ext_css, css.to_string());
-    }
-
-    pub fn add_ext_script (&mut self, script: impl ToString) {  // should this be proxied?
-        add_unique( &mut self.ext_scripts, script.to_string());
-    }
+    pub fn add_css(&mut self, uri: impl ToString) { self.add_header_item( HeaderItem::Css(uri.to_string())) }
+    pub fn add_script(&mut self, uri: impl ToString) { self.add_header_item( HeaderItem::Script(uri.to_string())) }
+    pub fn add_module(&mut self, uri: impl ToString) { self.add_header_item( HeaderItem::Module(uri.to_string())) }
 
     pub fn add_body_fragment (&mut self, html: impl ToString) {
         self.body_frags.push( html.to_string())
     }
 
-    pub fn add_proxy (&mut self, key: impl ToString, url_prefix: impl ToString) {
-        self.proxies.insert( key.to_string(), url_prefix.to_string());
+    pub fn add_assets (&mut self, key: &'static str, load_asset_fn: LoadAssetFn) {
+        self.assets.insert( key, load_asset_fn);
+    }
+
+    pub fn add_proxy (&mut self, key: impl ToString, uri_base: impl ToString) {
+        let mut uri = uri_base.to_string();
+        if uri.ends_with('/') { // canonicalize so that we don't have to check on every use
+            uri.pop();
+        }
+
+        self.proxies.insert( key.to_string(), uri);
     }
 
     /// render HTML document. We could use a lib such as build_html but our documents are rather simple so there is no
@@ -400,16 +469,11 @@ impl SpaComponents {
         write!( buf, "<head>\n");
 
         write!( buf, "<title>{name}</title>\n");
+        write!( buf, "<base href=\"{}/\">\n", name);
+        write!( buf, "<script>window.postExec = [];</script>\n");
 
-        for css in &self.ext_css {
-            write!( buf, r#"<link rel="stylesheet" type="text/css" href="{css}"/>\n"#);
-        }
-        for s in &self.ext_scripts {
-            write!( buf, r#"<script src="{s}"></script>\n"#);
-        }
-
-        for s in &self.js_modules {
-            write!( buf, r#"<script type="module" src="{s}"></script>\n"#);
+        for item in &self.header_items {
+            item.append_html(&mut buf);
         }
 
         write!( buf, "</head>\n");
@@ -419,7 +483,8 @@ impl SpaComponents {
             write!( buf, "{frag}\n");
         }
 
-        self.post_init_js_modules(&mut buf);
+        write!(buf, "<script type=\"module\">window.postExec.forEach( (f) => f() );</script>\n");
+        //self.post_init_js_modules(&mut buf);
 
         write!( buf, "</body>\n");
         write!( buf, "</html>\n");
@@ -440,25 +505,27 @@ impl SpaComponents {
     /// note that imports have to occur first so that all modules have been initialized when
     /// we call postExec() for any of them
     fn post_init_js_modules (&self, buf: &mut String) {
-        let mod_names: Vec<&str> = self.js_modules.iter().map( |p| get_file_basename(p).unwrap()).collect();
+        let module_uris: Vec<&str> = self.header_items.iter()
+            .filter_map( |e| if let HeaderItem::Module(uri) = e {Some(uri.as_str())} else {None})
+            .collect();
 
-        write!( buf, r#"\n<script type="module">\n"#);
-        for i in 0..mod_names.len() {
-            write!( buf, "import * as {} from ./{};\n", mod_names[i], self.js_modules[i]);
+        if !module_uris.is_empty() {
+            write!( buf, "<script type=\"module\">\n");
+
+            for uri in &module_uris { // 1st pass - import
+                let mod_name = get_file_basename(uri).unwrap();
+                write!( buf, "import * as {mod_name} from '{uri}';\n");
+            }
+
+            for uri in &module_uris { // 2nd pass - call postExec()
+                let mod_name = get_file_basename(uri).unwrap();
+                write!( buf, "if ({mod_name}.postExec) {mod_name}.postExec();\n");
+            }
+
+            write!( buf, "console.log('js modules initialized');\n");
+            write!( buf, "</script>\n");
         }
-
-        for mod_name in &mod_names {
-            write!( buf, "if ({mod_name}.postExec) {mod_name}.postExec();\n");
-        }
-
-        write!( buf, "console.log('js modules initialized');\n");
-        write!( buf, "</script>\n");
     }
-}
-
-
-fn add_unique ( v: &mut Vec<String>, s: String) {
-    if !v.contains(&s) { v. push(s) }
 }
 
 /* #endregion single page app components */

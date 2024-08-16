@@ -16,7 +16,6 @@
 
 #[doc = include_str!("../doc/odin_sentinel.md")]
 
-
 use std::{
     cmp::{min, Ordering}, collections::{HashMap, VecDeque}, fmt::{self,Debug}, 
     fs::File, future::Future, io::{Read, Write}, ops::RangeBounds, path::{Path,PathBuf}, 
@@ -35,7 +34,10 @@ use paste::paste;
 use lazy_static::lazy_static;
 
 use odin_build::define_load_config;
-use odin_common::{angle::{LatAngle, LonAngle, Angle},datetime::{Dated,deserialize_duration},fs::ensure_writable_dir};
+use odin_common::{angle::{LatAngle, LonAngle, Angle},
+    datetime::{Dated,deserialize_duration},
+    fs::{ensure_writable_dir, get_filename_extension}
+};
 use odin_actor::{MsgReceiver, Query, ActorHandle};
 use odin_macro::{define_algebraic_type, match_algebraic_type, define_struct};
 
@@ -122,6 +124,23 @@ impl<T> SensorRecord<T> where T: RecordDataBounds {
             Ok(s) => s,
             Err(e) => self.generic_description()
         }
+    }
+}
+
+// we would like a more expressive filename but the Delphire record database uses a random key
+// so we generate a filename from the record info using the scheme
+//    YYYYMMDD-HHmmSS_SSS-<device_id>-<sensor_no>-<image_record_id>.webp
+impl SensorRecord<ImageData> {
+    fn odin_filename (&self)->String {
+        let ext = get_filename_extension(&self.data.filename).unwrap_or("");
+
+        format!("{}-{}-{}-{}.{}",
+            self.time_recorded.format("%Y%m%d-%H%M%S_%3f"),
+            self.device_id,
+            self.sensor_no,
+            self.id,
+            ext
+        )
     }
 }
 

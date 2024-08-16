@@ -14,15 +14,17 @@
 #![allow(unused)]
 //#![feature(diagnostic_namespace)]
 
-use bytes::Bytes;
 use axum::{body::Body, response::Response};
-use odin_build::{define_load_config, define_load_asset};
+use odin_build::prelude::*;
 
+pub mod prelude;
 pub mod spa;
+pub mod ui_service;
 
 pub mod errors;
-use errors::{Result,op_failed};
+use errors::{OdinServerResult,op_failed};
 use reqwest::StatusCode;
+use bytes::Bytes;
 
 define_load_config!{}
 define_load_asset!{}
@@ -68,4 +70,35 @@ fn build_ok_response( content_type: &str, encoding: Option<&str>, bytes: Bytes)-
     }
 
     builder.body( Body::from(bytes)).unwrap()
+}
+
+//--- syntactic sugar macros
+
+#[macro_export]
+macro_rules! asset_uri {
+    ($fname:literal) => {
+        concat!("./asset/", env!("CARGO_PKG_NAME"), "/", $fname)
+    };
+    ($crate_name:ident, $fname:literal) => {
+        concat!("./asset/", stringify!($crate_name), "/", $fname)
+    }
+}
+
+#[macro_export]
+macro_rules! proxy_uri {
+    ($pname:literal, $rel_uri:literal) => {
+        concat!( "./proxy/", $pname, "/", $rel_uri);
+    }
+}
+
+#[macro_export]
+macro_rules! self_crate {
+    () => { env!("CARGO_PKG_NAME") }
+}
+
+#[macro_export]
+macro_rules! build_service {
+    ($e:expr) => {
+        move || { $e }
+    }
 }

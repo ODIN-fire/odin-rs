@@ -1,29 +1,26 @@
 /*
- * Copyright (c) 2023, United States Government, as represented by the
- * Administrator of the National Aeronautics and Space Administration.
- * All rights reserved.
+ * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The RACE - Runtime for Airspace Concept Evaluation platform is licensed
- * under the Apache License, Version 2.0 (the "License"); you may not use
- * this file except in compliance with the License. You may obtain a copy
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
+ * you may not use this file except in compliance with the License. You may obtain a copy 
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
-import * as config from "./config.js";
-import * as util from "./ui_util.js";
-import { ExpandableTreeNode } from "./ui_data.js";
-import * as ui from "./ui.js";
-import * as uiCesium from "./ui_cesium.js";
+import { config } from "./imglayer_config.js";
+import * as util from "../odin_server/ui_util.js";
+import { ExpandableTreeNode } from "../odin_server/ui_data.js";
+import * as ui from "../odin_server/ui.js";
+import * as odinCesium from "./odin_cesium.js";
 
 //--- module initialization
 
-var defaultRender = config.imglayer.render;
-var sources = config.imglayer.sources;
+var defaultRender = config.render;
+var sources = config.sources;
 var selectedSrc = undefined;
 
 createIcon();
@@ -40,18 +37,18 @@ ui.setTree( sourceView, srcTree);
 
 ui.registerThemeChangeHandler(themeChanged);
 
-uiCesium.registerMouseClickHandler(handleMouseClick);
-uiCesium.initLayerPanel("imglayer", config.imglayer, showImgLayer);
+odinCesium.registerMouseClickHandler(handleMouseClick);
+odinCesium.initLayerPanel("imglayer", config, showImgLayer);
 console.log("ui_cesium_imglayer initialized");
 
 //--- end init
 
 function createIcon() {
-    return ui.Icon("globe-icon.svg", (e)=> ui.toggleWindow(e,'imglayer'));
+    return ui.Icon("./asset/odin_cesium/imglayer.svg", (e)=> ui.toggleWindow(e,'imglayer'));
 }
 
 function createWindow() {
-    return ui.Window("Imagery Layers", "imglayer", "globe-icon.svg")(
+    return ui.Window("Imagery Layers", "imglayer", "./asset/odin_cesium/imglayer.svg")(
         ui.LayerPanel("imglayer", toggleShowImgLayer),
         ui.Panel("sources", true)(
           ui.TreeList("imglayer.source.list", 15, 25, selectImgLayerSrc),
@@ -102,7 +99,7 @@ function toggleShowSource(event) {
                 }
             }
 
-            uiCesium.requestRender();
+            odinCesium.requestRender();
         }
     }
 }
@@ -121,7 +118,7 @@ function initColorMapView() {
 }
 
 function initImgLayers() {
-    let viewerLayers = uiCesium.viewer.imageryLayers;
+    let viewerLayers = odinCesium.viewer.imageryLayers;
     viewerLayers.removeAll(false);
 
     for (var i=0; i<sources.length; i++) {
@@ -284,7 +281,7 @@ const probeColor = function(scene,time) {
     });
 
     scene.postRender.removeEventListener(probeColor);
-}
+};
 
 
 function handleMouseClick(event) {
@@ -292,8 +289,8 @@ function handleMouseClick(event) {
         mouseX = event.clientX;
         mouseY = event.clientY;
 
-        uiCesium.viewer.scene.postRender.addEventListener(probeColor);
-        uiCesium.requestRender();
+        odinCesium.viewer.scene.postRender.addEventListener(probeColor);
+        odinCesium.requestRender();
     }
 }
 
@@ -307,7 +304,7 @@ function setImgAlpha(event) {
     if (selectedSrc) {
         let v = ui.getSliderValue(event.target);
         selectedSrc.layer.alpha = v;
-        uiCesium.requestRender();
+        odinCesium.requestRender();
     }
 }
 
@@ -319,7 +316,7 @@ function setImgBrightness(event) {
 function setImgLayerBrightness(v) {
     if (selectedSrc) {
         selectedSrc.layer.brightness = v;
-        uiCesium.requestRender();
+        odinCesium.requestRender();
     }
 }
 
@@ -327,7 +324,7 @@ function setImgContrast(event) {
     if (selectedSrc) {
         let v = ui.getSliderValue(event.target);
         selectedSrc.layer.contrast = v;
-        uiCesium.requestRender();
+        odinCesium.requestRender();
     }
 }
 
@@ -339,7 +336,7 @@ function setImgHue(event) {
 function setImgLayerHue(v) {
     if (selectedSrc) {
         selectedSrc.layer.hue = (v * Math.PI) / 180; // needs radians
-        uiCesium.requestRender();
+        odinCesium.requestRender();
     }
 }
 
@@ -351,7 +348,7 @@ function setImgSaturation(event) {
 function setImgLayerSaturation(v) {
     if (selectedSrc) {
         selectedSrc.layer.saturation = v;
-        uiCesium.requestRender();
+        odinCesium.requestRender();
     }
 }
 
@@ -359,7 +356,7 @@ function setImgGamma(event) {
     if (selectedSrc) {
         let v = ui.getSliderValue(event.target);
         selectedSrc.layer.gamma = v;
-        uiCesium.requestRender();
+        odinCesium.requestRender();
     }
 }
 
@@ -399,7 +396,7 @@ function loadColorMap (src) {
                         }
                     }
                 }
-            }
+            };
             request.send();
         });
     }

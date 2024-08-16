@@ -18,6 +18,8 @@
 
 use std::{fs, path::{Path,PathBuf}, sync::{Arc,OnceLock}, env, collections::HashMap};
 
+pub mod prelude;
+
 mod assets;
 pub use assets::*;
 
@@ -35,6 +37,9 @@ pub use utils::*;
 
 mod errors;
 pub use errors::*;
+
+pub type OdinBuildResult<T> = errors::Result<T>;
+pub type LoadAssetFn = fn(&str)->OdinBuildResult<bytes::Bytes>;
 
 /// this has to be called from build.rs to make sure we re-run the build script if any of the env vars changes
 pub fn init_build() {

@@ -4,13 +4,14 @@ cargo-features = ["edition2024"]
 name = "odin_server"
 version = "0.1.0"
 edition = "2024"
+build = "../build_resources.rs"
 
 [dependencies]
 async-trait = "*"
 tokio = { version = "*", features = ["full", "tracing"] }
 tokio-tungstenite = { version = "*", features = ["native-tls"] }
-thiserror = "*"
 bytes = "*"
+thiserror = "*"
 anyhow = "*"
 axum = { version = "*", features = [ "ws" ] }
 axum-extra = { version = "*", features = ["typed-header"] }
@@ -24,11 +25,12 @@ http-body = "*"
 http-body-util = "*"
 tower = { version = "*", features = ["full"] }
 tower-http = { version = "*", features = ["full"] }
+tracing = "*"
+tracing-subscriber = "*"
 reqwest = { version = "*", features = ["stream"] }
 reqwest-middleware = { version = "*" }
 http-cache-reqwest = { version = "*" }
 paste = "*"
-lazy_static = "*"
 ron = "*"
 mime = "*"
 mime_guess = "*"
@@ -40,3 +42,24 @@ odin_common = { workspace = true }
 
 [build-dependencies]
 odin_build = { workspace = true }
+
+[package.metadata.odin_configs]
+spa_server = { file = "spa_server.ron"}
+
+[package.metadata.odin_assets]
+ws_js = { file = "ws.js" }
+ui = { file = "ui.js" }
+ui_data = { file = "ui_data.js" }
+ui_utils = { file = "ui_utils.js" }
+ui_settings_config = { file = "ui_settings_config.js"}
+ui_settings = { file = "ui_settings.js" }
+ui_css = { file = "ui.css" }
+ui_load_theme_js = { file = "ui_load_theme.js"}
+ui_theme_dark_css = { file = "ui_theme_dark.css"}
+ui_theme_light_css = { file = "ui_theme_light.css"}
+ui_theme_night_css = { file = "ui_theme_night.css"}
+settings_icon_svg = { file = "settings_icon.svg"}
+
+
+[features]
+trace_server = []

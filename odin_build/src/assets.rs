@@ -12,6 +12,10 @@
  * and limitations under the License.
  */
 
+// those are used by the define_load_asset macro but we don't want to expose that to clients
+pub extern crate bytes;
+pub extern crate lazy_static;
+
 use std::{io::Write,fs::{self,File},env,path::{Path,PathBuf},fmt::Write as FmtWrite, str, collections::HashMap, sync::Arc};
 use minifier::{js,css,json};  // js, json, css
 use minify_html_onepass::{Cfg, truncate};  // html, svg
@@ -90,11 +94,11 @@ pub fn create_asset_data ()->Result<()> {
 macro_rules! define_load_asset {
     () => {
         mod assets {
-            use lazy_static::lazy_static;
             use std::{collections::HashMap,sync::Mutex,path::Path};
-            use bytes::Bytes;
+            use $crate::lazy_static::lazy_static;
+            use $crate::bytes::Bytes;
 
-            lazy_static::lazy_static! {
+            lazy_static! {
                 // embedded assets are the ones we compiled into the (standalone) application
                 static ref EMBEDDED_ASSETS: HashMap<&'static str, odin_build::EmbeddedAssetEntry> = {
                     let mut map: HashMap<&'static str, odin_build::EmbeddedAssetEntry> = HashMap::new();
@@ -227,10 +231,12 @@ fn process_js (data: Vec<u8>)->Result<Vec<u8>> {
     let content = str::from_utf8(&data)?;
     let mini = js::minify(content).to_string();
     compress_vec( &mini.into_bytes())
+    //compress_vec( content.as_bytes())
 }
 
 fn process_svg (data: Vec<u8>)->Result<Vec<u8>> {
-    process_html( data)
+    //process_html( data)
+    compress_vec( &data)
 }
 
 fn process_json (data: Vec<u8>)->Result<Vec<u8>> {

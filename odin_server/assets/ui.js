@@ -1,18 +1,15 @@
 /*
- * Copyright (c) 2023, United States Government, as represented by the
- * Administrator of the National Aeronautics and Space Administration.
- * All rights reserved.
+ * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The RACE - Runtime for Airspace Concept Evaluation platform is licensed
- * under the Apache License, Version 2.0 (the "License"); you may not use
- * this file except in compliance with the License. You may obtain a copy
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
+ * you may not use this file except in compliance with the License. You may obtain a copy 
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
 import * as util from "./ui_util.js";
 import { ExpandableTreeNode } from "./ui_data.js";
@@ -179,7 +176,7 @@ function initializeRecursive (e) {
 export function createWindow(title, isPermanent, closeAction, icon) {
     let w = _createElement("DIV", "ui_window");
     createWindowComponents(w, title, isPermanent, icon);
-    setWindowEventHandlers(w)
+    setWindowEventHandlers(w);
 
     if (closeAction) w.closeAction = closeAction;
 
@@ -316,7 +313,7 @@ export function closeWindow(o) {
 export function removeWindow(o) {
     let e = getWindow(o);
     if (e) {
-        _removeClass(e, "show")
+        _removeClass(e, "show");
         removeWindowFromStack(e);
         e.parentElement.removeChild(e);
         if (e.closeAction) e.closeAction();
@@ -381,7 +378,7 @@ export function setWindowResizable(o, isResizable) {
 }
 
 export function addWindowContent(o, ce) {
-    let e = getWindow(o)
+    let e = getWindow(o);
     if (e) {
         let wc = _firstChildWithClass(e, "ui_window_content");
         if (wc) {
@@ -674,7 +671,7 @@ function getIconBox() {
 
 export function Button (text, action) {
     let e = _createElement("INPUT", "ui_button");
-    e.type = "button"
+    e.type = "button";
     e.value = text;
 
     if (action instanceof Function) {
@@ -1008,7 +1005,7 @@ function initializeTimer(e) {
 
         tc._uiT0 = 0; // elapsed
         tc._uiTimeScale = 1;
-        tc._uiUpdateTime = (t) => { _updateTimer(tc, t); }
+        tc._uiUpdateTime = (t) => { _updateTimer(tc, t); };
         _addTimerClient(tc);
     }
 }
@@ -1692,7 +1689,7 @@ export function Radio (label,action,eid=null, isSelected=false) {
 function initializeRadio (e) {
     let labelText = e.dataset.label;
     if (_hasNoChildElements(e)) {
-        _addRadioComponents(e, labelText)
+        _addRadioComponents(e, labelText);
         e.setAttribute("tabindex", "0");
     }
 }
@@ -2483,17 +2480,18 @@ function _setSelectedItemElement(listBox, itemElement) {
         } else {
             listBox._uiSelectedItemElement = null;
         }
+    }
 
-        if (listBox._uiSelectAction) {
-            let event = new CustomEvent("selectionChanged", {
-                bubbles: true,
-                detail: {
-                    curSelection: nextItem,
-                    prevSelection: prevItem,
-                }
-            });
-            listBox.dispatchEvent(event);
-        }
+    // always perform the select action since it might have side effects outside the UI view (e.g. panning camera)
+    if (listBox._uiSelectAction) {
+        let event = new CustomEvent("selectionChanged", {
+            bubbles: true,
+            detail: {
+                curSelection: nextItem,
+                prevSelection: prevItem,
+            }
+        });
+        listBox.dispatchEvent(event);
     }
 }
 
@@ -2585,7 +2583,7 @@ function createTooltip (e, text) {
             let cr = e.getBoundingClientRect();
             let tcr = ett.getBoundingClientRect();
 
-            let x = cr.x + cr.width/2 - tcr.width/2
+            let x = cr.x + cr.width/2 - tcr.width/2;
             ett.style.left = x + "px";
             ett.style.top = (cr.y - tcr.height - 8) + "px";
             ett.style.visibility = "visible";
@@ -3079,7 +3077,7 @@ function indexOfElement (e) {
 }
 
 function _removeLastNchildrenOf(element, n) {
-    let i = 0
+    let i = 0;
     while (i < n && element.firstChild) {
         let le = element.lastElementChild;
         element.removeChild(le);

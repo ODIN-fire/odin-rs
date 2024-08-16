@@ -14,7 +14,7 @@
 
 use thiserror::Error;
 
-pub type Result<T> = std::result::Result<T, OdinServerError>;
+pub type OdinServerResult<T> = std::result::Result<T, OdinServerError>;
  
 #[derive(Error,Debug)]
 pub enum OdinServerError {

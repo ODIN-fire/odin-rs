@@ -30,6 +30,7 @@
       - [`requests`](odin_actor/examples/requests.md)
       - [`actor_config`](odin_actor/examples/actor_config.md)
       - [`heartbeat`](odin_actor/examples/heartbeat.md)
+  - [odin_server](odin_server/odin_server.md)
 
 - [3. Application Domain Crates](app_crates.md)
 

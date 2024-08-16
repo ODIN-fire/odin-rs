@@ -141,7 +141,7 @@ export function toUtf8Array(str) {
             utf8.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
         } else {
             i++;
-            c = ((c & 0x3ff) << 10) | (str.charCodeAt(i) & 0x3ff)
+            c = ((c & 0x3ff) << 10) | (str.charCodeAt(i) & 0x3ff);
             utf8.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 0x3f), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
         }
     }
@@ -634,7 +634,7 @@ export const SRS = {
     _4978: EPSG_4978,
     ECEF:  EPSG_4978,
     //... more to follow
-}
+};
 
 // length of longitude degree at given latitude in meters
 export function lonDegMeters(lat) {
@@ -803,7 +803,7 @@ const csvRegEx = /(?:,|\n|^)("(?:(?:"")*[^"]*)*"|[^",\n]*|(?:\n|$))/g;
 
 export function parseCsvValues(line) {
     const regex = new RegExp(csvRegEx);
-    let values = []
+    let values = [];
     var matches = null;
     while (matches = regex.exec(line)) {
         if (matches.length > 1) {

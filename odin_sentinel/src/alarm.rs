@@ -208,14 +208,15 @@ impl SentinelAlarmMonitor {
                     match_algebraic_type! { upd: SentinelUpdate as
                         Arc<SensorRecord<ImageData>> => {
                             let record_id = upd.id.clone();
-                            let filename = upd.data.filename.clone();
+                            //let filename = upd.data.filename.clone(); // @@@ remove 
+                            let filename = upd.odin_filename();
 
                             match timeout_query_ref( hupdater, GetSentinelFile::internal(record_id, filename), img_timeout).await {
                                 Ok(Ok(sentinel_file)) => {
                                     let img = Some(sentinel_file);
                                     evidence_info.push( EvidenceInfo{sensor_no, description, img})
                                 }
-                                _ => warn!("failed to retrieve evidence file {}", upd.data.filename)
+                                _ => warn!("failed to retrieve evidence file {}", upd.odin_filename())
                             }
                         }
                         _ => warn!("ignoring non-image evidence record: {:?}", r.id)
@@ -237,7 +238,11 @@ impl SentinelAlarmMonitor {
                 let uri = ext_img.uri().to_string();
                 let description = uri.clone();
                 let ext = get_filename_extension(&uri).unwrap_or("");
-                let filename = format!("{}-{}.{}", ext_img.filename(), time_recorded.format("%Y%m%d-%H%M%S"), ext);
+                let filename = format!("{}-{}.{}", 
+                    time_recorded.format("%Y%m%d-%H%M%S_%3f"),
+                    ext_img.filename(), 
+                    ext
+                );
 
                 match timeout_query_ref( hupdater, GetSentinelFile::external(record_id.to_string(), filename, uri), timeout).await {
                     Ok(Ok(sentinel_file)) => {

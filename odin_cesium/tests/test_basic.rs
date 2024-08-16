@@ -12,12 +12,19 @@
  * and limitations under the License.
  */
 
-use odin_build;
+use odin_server::{build_service, errors::OdinServerResult, spa::{SpaComponents, SpaServiceListBuilder}};
+use odin_cesium::ImgLayerService;
 
-fn main () {
-    odin_build::init_build();
-    if let Err(e) = odin_build::create_config_data() { panic!("failed to create config_data: {e}") }
-    if let Err(e) = odin_build::create_asset_data() { panic!("failed to create asset_data: {e}") }
+#[test]
+fn test_doc_assembly()->OdinServerResult<()> {
+    let services = SpaServiceListBuilder::new()
+        .add( build_service!( ImgLayerService::new()))
+        .build();
+
+    let spa_comps = SpaComponents::from( &services)?;
+
+    let doc = spa_comps.to_html("basic_globe");
+    println!("{doc}");
+
+    Ok(())
 }
-
-

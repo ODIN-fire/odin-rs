@@ -427,7 +427,8 @@ impl LiveConnection {
     {
         let record_id = rec.id.clone();
         let uri = get_image_uri( &config.base_uri, &record_id);
-        let pathname = cache_dir.join( &rec.data.filename);
+        //let pathname = cache_dir.join( &rec.data.filename);  // @@@ remove
+        let pathname = cache_dir.join( &rec.odin_filename());
         let sentinel_file = SentinelFile { record_id, pathname };
         let req = FileRequest { uri, sentinel_file, query: None };
 
