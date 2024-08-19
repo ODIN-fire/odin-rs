@@ -31,6 +31,8 @@ impl SpaService for UiService {
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {
         spa.add_assets( self_crate!(), load_asset);
         
+        // TODO - add_route for themes (user-agent aware)
+
         //--- css
         // note that ui_load_theme.js needs to be included BEFORE ui.css (which uses theme vars) 
         // and it needs to be a plain javascript (not a module) so that it can document.currentScript

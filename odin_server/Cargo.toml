@@ -13,13 +13,13 @@ tokio-tungstenite = { version = "*", features = ["native-tls"] }
 bytes = "*"
 thiserror = "*"
 anyhow = "*"
-axum = { version = "*", features = [ "ws" ] }
-axum-extra = { version = "*", features = ["typed-header"] }
-axum-macros = "*"
+axum = { version = "*", features = [ "ws", "macros"] }
 headers = "*"
+futures = "*"
 futures-util = { version = "*", features = ["sink"] }
 xattr = "*"
 serde = { version = "*", features = ["derive"] }
+serde_json = "*"
 minify-html = "*"
 http-body = "*"
 http-body-util = "*"
@@ -34,6 +34,7 @@ paste = "*"
 ron = "*"
 mime = "*"
 mime_guess = "*"
+rand = "*"
 
 odin_build = { workspace = true }
 odin_macro = { workspace = true }

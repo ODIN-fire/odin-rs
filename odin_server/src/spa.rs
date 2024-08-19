@@ -13,7 +13,10 @@
  */
 #![allow(unused)]
 
-use std::{boxed, collections::HashMap, sync::Arc, net::SocketAddr, future::{Future,ready}, path::{PathBuf}, any::type_name, fmt::Write};
+use std::{boxed, collections::HashMap, sync::{Arc,Mutex}, 
+    net::SocketAddr, future::{Future,ready}, time::SystemTime, 
+    path::{PathBuf}, any::type_name, fmt::Write
+};
 use axum::{
     http::{Uri,StatusCode},
     body::Body,
@@ -31,13 +34,13 @@ use odin_build::OdinBuildError;
 use tower::{ServiceExt,BoxError};
 use tower_http::{services::ServeDir,trace::TraceLayer};
 use tracing_subscriber::EnvFilter;
-use reqwest::{header, Client};
+use reqwest::{header::{self, SET_COOKIE}, Client};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use http_cache_reqwest::{Cache, CacheMode, CACacheManager, HttpCache, HttpCacheOptions};
 use serde::{Deserialize,Serialize};
 use async_trait::async_trait;
 
-use odin_build::LoadAssetFn;
+use odin_build::LoadAssetFp;
 use odin_common::fs::get_file_basename;
 use odin_macro::define_struct;
 use odin_actor::prelude::*;
@@ -57,9 +60,17 @@ pub trait SpaService: Send + Sync + 'static {
     /// Called during server construction to accumulate components of all included SpaServices
     fn add_components (&self, spa: &mut SpaComponents)->OdinServerResult<()>;
 
+    /// is this a service that implements a websocket
+    fn is_websocket (&self)->bool { 
+        false
+    }
+
     /// called from server actor after receiving an AddConnection message from the ws route handler  
     /// If data is not owned by service this triggers a data action
-    async fn init_connection (&self, hself: &ActorHandle<SpaServerMsg>, remote_addr: SocketAddr) -> OdinServerResult<()> {
+    /// NOTE: this is called from within the actor loop of the server, i.e. we should NOT await message sends
+    /// to the server from within init_connection() implementations as this might deadlock if the server mailbox is full.
+    /// Directly send websocket messages through `conn.send(..)` in this case (which is also more efficient)
+    async fn init_connection (&self, hself: &ActorHandle<SpaServerMsg>, conn: &mut SpaConnection) -> OdinServerResult<()> {
         Ok(())
     }
 
@@ -98,11 +109,33 @@ impl SpaServiceListBuilder {
 }
 
 /// struct to keep track of active SinglePageApp connections
-struct SpaConnection {
-    remote_addr: SocketAddr,
-    ws_sender: SplitSink<WebSocket,Message>, // used to send through the websocket
-    ws_receiver_task: JoinHandle<()> // the task that (async) reads from the websocket
+pub struct SpaConnection {
+    pub remote_addr: SocketAddr,
+    pub ws_sender: SplitSink<WebSocket,Message>, // used to send through the websocket
+    pub ws_receiver_task: JoinHandle<()> // the task that (async) reads from the websocket
 }
+
+impl SpaConnection {
+    pub async fn send (&mut self, msg: String) {
+        self.ws_sender.send( Message::Text(msg)).await;
+    }
+}
+
+#[derive(Deserialize,Serialize,Debug)]
+pub struct SpaServerConfig {
+    pub sock_addr: SocketAddr,
+    // ..and more to follow
+}
+
+/// this is the state that can be passed into axum handlers
+/// note this has to clone efficiently
+#[derive(Clone)]
+pub struct SpaServerState {
+    pub name: Arc<String>,
+    pub hself: ActorHandle<SpaServerMsg>
+    // TODO - should we add Arc<Mutex<HashMap<SocketAddr,SpaConnection>>>> here so that handlers can directly add/send?
+}
+
 
 /// the actor state for a single page application server actor
 pub struct SpaServer {
@@ -112,12 +145,6 @@ pub struct SpaServer {
 
     connections: HashMap<SocketAddr,SpaConnection>, // updated when receiving an AddConnection actor message
     server_task: Option<JoinHandle<()>> // for the server task itself, initialized upon _Start_
-}
-
-#[derive(Deserialize,Serialize,Debug)]
-pub struct SpaServerConfig {
-    pub sock_addr: SocketAddr,
-    // ..and more to follow
 }
 
 impl SpaServer {
@@ -130,6 +157,10 @@ impl SpaServer {
             connections: HashMap::new(),
             server_task: None,
         }
+    }
+
+    fn requires_websocket (&self)->bool {
+        self.services.iter().find( |s| s.is_websocket()).is_some()
     }
 
     /// called when receiving _Start_ message
@@ -161,16 +192,30 @@ impl SpaServer {
 
     fn build_router (&self, hself: &ActorHandle<SpaServerMsg>)->OdinServerResult<Router> {
         let comps = SpaComponents::from( &self.services)?;
-        let document = comps.to_html( self.name.as_str());
+        let doc = Arc::new(comps.to_html( &self.name));
         let proxies = comps.proxies;
         let assets = comps.assets;
         
         let mut router = Router::new()
             //--- the document route
             .route( &format!("/{}", self.name), get({
-                move |req: Request| { Self::doc_handler(req,document) }
-            }))
+                let doc = doc.clone();
+                move |req: Request| { Self::doc_handler( req, doc) }
+            }));
 
+        // add service specific routes
+        if !comps.routes.is_empty() {
+            let spa_server_state = SpaServerState {
+                name: Arc::new( self.name.clone()),
+                hself: hself.clone(),
+            };
+            for rf in comps.routes {
+                router = rf(router, spa_server_state.clone());
+            }
+        }
+
+        // now add the generic routes for proxies and assets
+        router = router
             //--- the proxy route
             // 'key' is the symbolic server name
             //.route( &format!("/{}/proxy/:key/*unmatched", self.name), get({
@@ -199,45 +244,35 @@ impl SpaServer {
         Ok(router)
     }
 
-    async fn doc_handler (req: Request, doc: String)->Html<String> {
-        // TODO - this could discriminate between different user-agents
-        Html(doc)
+    async fn doc_handler (req: Request, doc: Arc<String>) -> Response {
+        (StatusCode::OK, Body::from(doc.to_string())).into_response()
     }
 
     async fn proxy_handler (path: Path<String>, query: RawQuery, req: Request, 
                             http_client: ClientWithMiddleware, proxies: HashMap<String,String>) -> Response {
-        //println!("@@ proxy request: {path:?}");
         if let Some(idx) = path.find('/') {
             let key = &path[0..idx];
-            //println!("@@ looking up proxy name {key}...");
-            //println!("@@@@ request-uri: {}", req.uri());
-            //println!("@@@@ query: {:?}", query);
 
             if let Some(base_uri) = proxies.get(key) {
                 let rel_path = &path[idx+1..];
                 let uri = Self::get_proxy_uri( base_uri, rel_path, query);
-                //println!("@@  - forwarding to proxy {uri}");
         
                 let reqwest_response = match http_client.get( uri).send().await {
                     Ok(res) => res,
                     Err(err) => {
-                        //println!("request failed");
                         return (StatusCode::BAD_REQUEST, Body::empty()).into_response();
                     }
                 };
         
-                //println!("@@ proxy response: {:?}", reqwest_response);
                 Response::builder()
                     .status(reqwest_response.status().as_u16())
                     .body(Body::from_stream(reqwest_response.bytes_stream()))
                     .unwrap()
         
             } else {
-                //println!("@@ no such proxy name {key}");
                 (StatusCode::BAD_REQUEST, "not proxied").into_response()
             }
         } else {
-            //println!("@@@@@@@  invalid proxy url");
             (StatusCode::BAD_REQUEST, "not proxied").into_response()
         }
     }
@@ -265,49 +300,57 @@ impl SpaServer {
     }
 
     async fn asset_handler (uri_elems: Path<(String,String)>, req: Request,
-                            assets: HashMap<&'static str,LoadAssetFn>) -> Response {
+                            assets: HashMap<&'static str,LoadAssetFp>) -> Response {
         let AxumPath((key,path)) = uri_elems;
-        //println!("@@ asset request {key} / {path}");
 
         if let Some(lookup_fn) = assets.get( key.as_str()) {
             let filename = path.as_str();
-            //println!("@@ looking up {filename}");
             match lookup_fn( filename) {
                 Ok(bytes) => {
                     get_asset_response( filename, bytes)
                 }
                 Err(e) => {
-                    //println!("@@ asset lookup failed: {e}");
                     // TODO - this has to discriminate between not found and extraction error
                     (StatusCode::NOT_FOUND, filename.to_string()).into_response()
                 }
             }
         } else { // unknown asset crate
-            //println!("@@ no asset lookup fn for {key}");
             (StatusCode::NOT_FOUND, "unknown asset category").into_response()
         }
     }
 
     /// called when receiving AddConnection message
+    /// note that we shouldn't block in an await for sending to ourselves
     async fn add_connection(&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr, ws: WebSocket)->OdinServerResult<()> {
         let raddr = remote_addr.clone();
         let name = raddr.to_string();
         let (mut ws_sender, mut ws_receiver) = ws.split();
 
-        let ws_receiver_task = spawn( &name, async move {
-            while let Some(Ok(msg)) = ws_receiver.next().await {
-                // TBD
-            }
-        })?;
+        let ws_receiver_task = {
+            let hself = hself.clone();
+            let remote_addr = remote_addr.clone();
+
+            spawn( &name, async move {
+                while let Some(Ok(msg)) = ws_receiver.next().await {
+                    // TBD
+                }
+                hself.send_msg( RemoveConnection{remote_addr}).await;
+            })?
+        };
 
         let conn = SpaConnection { remote_addr, ws_sender, ws_receiver_task };
         self.connections.insert( raddr, conn);
+        let conn_ref = self.connections.get_mut( &raddr).unwrap();
 
-        for svc in &self.services {
-            svc.init_connection( &hself, remote_addr).await?
+        for svc in &self.services { // tell services to send their initial data
+            svc.init_connection( &hself, conn_ref).await?
         }
 
         Ok(())
+    }
+
+    fn remove_connection (&mut self, remote_addr: SocketAddr) {
+        self.connections.remove(&remote_addr);
     }
 
     // TODO - these should use timeouts (we can't have a connection block the server)
@@ -324,7 +367,7 @@ impl SpaServer {
     /// called when receiving a SendWsMsg message
     async fn send_ws_msg (&mut self, remote_addr: SocketAddr, m: String) {
         if let Some(conn) = self.connections.get_mut( &remote_addr) {
-            conn.ws_sender.send(Message::Text(m)).await;
+            conn.send( m).await;
         }
     }
 
@@ -343,7 +386,15 @@ impl SpaServer {
 /* #region actor *********************************************************************************************/
 
 #[derive(Debug)]
-pub struct AddConnection { remote_addr: SocketAddr, ws: WebSocket }
+pub struct AddConnection { 
+    pub remote_addr: SocketAddr, 
+    pub ws: WebSocket 
+}
+
+#[derive(Debug)]
+pub struct RemoveConnection { 
+    pub remote_addr: SocketAddr,
+}
 
 #[derive(Debug)]
 pub struct BroadcastWsMsg { 
@@ -356,7 +407,7 @@ pub struct SendWsMsg {
     pub data: String 
 }
 
-define_actor_msg_set! { pub SpaServerMsg = AddConnection | BroadcastWsMsg | SendWsMsg }
+define_actor_msg_set! { pub SpaServerMsg = AddConnection | BroadcastWsMsg | SendWsMsg | RemoveConnection }
 
 impl_actor! { match msg for Actor<SpaServer,SpaServerMsg> as
     _Start_ => cont! { 
@@ -372,6 +423,9 @@ impl_actor! { match msg for Actor<SpaServer,SpaServerMsg> as
     }
     SendWsMsg => cont! {
         self.send_ws_msg( msg.remote_addr, msg.data).await;
+    }
+    RemoveConnection => cont! {
+        self.remove_connection( msg.remote_addr);
     }
     _Terminate_ => stop! {
         self.stop_server();
@@ -399,6 +453,7 @@ impl HeaderItem {
     }
 }
 
+
 /// accumulator for components of a single page application, including the parts that make up the document and the routes
 /// to serve it (including referenced assets and proxied urls). This data structure is our internal model of
 /// the SPA data
@@ -409,6 +464,10 @@ define_struct! { pub SpaComponents =
     body_frags: Vec<String>  = Vec::new(),  // HTML elements to add to the body
 
     //--- components that are used to create the Router
+
+    // service specific routes
+    routes: Vec<Box<dyn FnOnce(Router,SpaServerState)->Router + 'static>> = Vec::new(),
+
     // the URIs we proxy. The key is the symbolic name for the proxied server, the value is the remote URI prefix to use
     proxies: HashMap<String,String> = HashMap::new(), 
 
@@ -445,7 +504,11 @@ impl SpaComponents {
         self.body_frags.push( html.to_string())
     }
 
-    pub fn add_assets (&mut self, key: &'static str, load_asset_fn: LoadAssetFn) {
+    pub fn add_route (&mut self, rf: impl FnOnce(Router,SpaServerState)->Router + 'static) {
+        self.routes.push( Box::new(rf));
+    }
+
+    pub fn add_assets (&mut self, key: &'static str, load_asset_fn: LoadAssetFp) {
         self.assets.insert( key, load_asset_fn);
     }
 
@@ -470,7 +533,7 @@ impl SpaComponents {
 
         write!( buf, "<title>{name}</title>\n");
         write!( buf, "<base href=\"{}/\">\n", name);
-        write!( buf, "<script>window.postExec = [];</script>\n");
+        write!( buf, "<script>window.postExec = []; window.addPostExec = function (f){{window.postExec.push(f);}}</script>\n");
 
         for item in &self.header_items {
             item.append_html(&mut buf);

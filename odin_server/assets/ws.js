@@ -1,29 +1,31 @@
-/*
- * Copyright (c) 2023, United States Government, as represented by the
- * Administrator of the National Aeronautics and Space Administration.
- * All rights reserved.
+/**
+ * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The RACE - Runtime for Airspace Concept Evaluation platform is licensed
- * under the Apache License, Version 2.0 (the "License"); you may not use
- * this file except in compliance with the License. You may obtain a copy
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
+ * you may not use this file except in compliance with the License. You may obtain a copy 
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
-import * as config from "./config.js";
 
-// TODO - should we support multiple web sockets per document ? if so we have to keep a map url->handler
+// this module opens a websocket and listens for JSON messages of the form
+// { "mod": "<module-path>", "<msg>": <payload-object> }
 
 var ws = undefined;
-var wsUrl = config.ws.url;
+var wsUrl = "./ws";
 var isShutdown = false;
 
-// each handler is a function that takes two parameters: (msgType,msg) and returns true if message dispatch should be shortcut
-var wsHandlers = [];
+window.addPostExec( postExec); // this is what opens the websocket
+
+// wsHandlers is a map object from module-names to handler functions.
+// each handler function takes the msg name and the payload object as arguments:
+//      `function (msgName, msgObject) {...}`
+// handler functions have to be registered by JS modules during initialization with the `addWsHandler(k,v)` function
+var wsHandlers = new Map();
 
 window.addEventListener('unload', shutdown);
 
@@ -58,7 +60,7 @@ export function postExec() {
             };
 
             ws.onclose = function() {
-                console.log("connection is closed...");
+                console.log("connection is closed.");
             };
 
         } else {
@@ -69,19 +71,27 @@ export function postExec() {
     }
 }
 
-export function addWsHandler(newHandler, url = wsUrl) {
-    wsHandlers.push(newHandler);
+export function addWsHandler(modName,newHandler) {
+    wsHandlers.set( modName, newHandler);
 }
 
+// messages have the format { "mod": "<module-path>", "<MsgType>": <payload-object> }
+// note that MsgType is an uppercase typename as it is directly derived from the respective server type
 function handleServerMessage(msg) {
     //console.log(JSON.stringify(msg));
+    let modName = msg.mod;
+    if (modName) {
+        let handlerFunc = wsHandlers.get(modName);
+        if (handlerFunc) {
+            let msgName = Object.keys(msg)[1]; // 2nd property is the payload message
+            handlerFunc( msgName, Object.values(msg)[1]);
+        } else {
+            console.log("no module handler for message: ", msg);
+        }
 
-    var msgType = Object.keys(msg)[0]; // first member name
-
-    for (let i = 0; i < wsHandlers.length; i++) {
-        if (wsHandlers[i](msgType, msg)) return;
+    } else {
+        console.log("malformed websocket message: ", msg);
     }
-    // if we get here the message was ignored
 }
 
 export function sendWsMessage (data) {
@@ -89,6 +99,7 @@ export function sendWsMessage (data) {
 }
 
 export function shutdown() {
+    console.log("closing websocket...");
     isShutdown = true;
     ws.close();
 }

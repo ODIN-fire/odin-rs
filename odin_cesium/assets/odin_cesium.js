@@ -1,4 +1,4 @@
-/*
+/**
  * Copyright © 2024, United States Government, as represented by the Administrator of 
  * the National Aeronautics and Space Administration. All rights reserved.
  *
@@ -14,10 +14,10 @@
 import { config } from "./odin_cesium_config.js";
 import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
+import * as ws from "../odin_server/ws.js";
 
-//import * as ws from "./ws.js";  // TODO
-
-if (window.postExec) window.postExec.push( postExec);
+window.addPostExec( postExec);
+ws.addWsHandler("odin_cesium/odin_cesium.js", handleWsMessages);
 
 const UI_POSITIONS = "race-ui-positions";
 const LOCAL = "local-";  // prefix for local position set names
@@ -161,7 +161,6 @@ viewer.scene.canvas.addEventListener('mousemove', handleMouseMove);
 viewer.scene.canvas.addEventListener('click', handleMouseClick);
 viewer.scene.canvas.addEventListener('dblclick', handleMouseDblClick);
 
-// ws.addWsHandler(handleWsViewMessages); // TODO
 
 // FIXME - this seems to be broken as of Cesium 105.1
 viewer.scene.postRender.addEventListener(function() {
@@ -801,22 +800,17 @@ export function removeEntity(e) {
     viewer.entities.remove(e);
 }
 
-//--- generic 'view' window of the UI
 
-function handleWsViewMessages(msgType, msg) {
+//--- websock handler funcs
+
+function handleWsMessages(msgType, msg) {
     switch (msgType) {
         case "camera":
             handleCameraMessage(msg.camera);
-            return true;
-        case "setClock":
-            handleSetClock(msg.setClock);
-            return true;
-        default:
-            return false;
+        case "SetClock":
+            handleSetClock(msg);
     }
 }
-
-//--- websock handler funcs
 
 function handleCameraMessage(newCamera) {
     cameraSpec = newCamera;

@@ -39,7 +39,7 @@ mod errors;
 pub use errors::*;
 
 pub type OdinBuildResult<T> = errors::Result<T>;
-pub type LoadAssetFn = fn(&str)->OdinBuildResult<bytes::Bytes>;
+pub type LoadAssetFp = fn(&str)->OdinBuildResult<bytes::Bytes>;
 
 /// this has to be called from build.rs to make sure we re-run the build script if any of the env vars changes
 pub fn init_build() {

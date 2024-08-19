@@ -25,6 +25,9 @@ pub enum OdinServerError {
     #[error("build error: {0}")]
     OdinBuildError( #[from] odin_build::OdinBuildError),
 
+    #[error("JSON error: {0}")]
+    JsonError( #[from] serde_json::Error),
+
     #[error("unsupported resource: {0}")]
     UnsupportedResourceType(String),
 

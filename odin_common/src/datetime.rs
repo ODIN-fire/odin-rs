@@ -19,6 +19,11 @@ use std::ffi::OsStr;
 use parse_duration::parse;
 use crate::if_let;
 
+pub fn epoch_millis ()->i64 {
+    let now = Utc::now();
+    now.timestamp_millis()
+}
+
 /// return the full hour for given DateTime (minutes, seconds and nanos all zeroed)
 pub fn full_hour<Tz:TimeZone> ( dt: DateTime<Tz>)->DateTime<Tz> {
     dt.with_minute(0).unwrap().with_second(0).unwrap().with_nanosecond(0).unwrap()

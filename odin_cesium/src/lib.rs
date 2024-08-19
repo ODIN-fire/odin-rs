@@ -13,13 +13,27 @@
  */
 #![allow(unused)]
 
+use std::net::SocketAddr;
+use serde::Serialize;
+use odin_common::datetime::epoch_millis;
+use async_trait::async_trait;
+
 use odin_build::prelude::*;
+use odin_actor::prelude::*;
 use odin_server::prelude::*;
 
 define_load_config!{}
 define_load_asset!{}
 
 /* #region CesiumService *************************************************************************************/
+
+#[derive(Serialize)]
+#[serde(rename_all="camelCase")]
+struct SetClock {
+    time: i64,
+    time_scale: f32
+}
+
 
 /// this is a resource-only SpaService that provides basic Cesium plus our view UI
 pub struct CesiumService {
@@ -30,10 +44,13 @@ impl CesiumService {
     pub fn new()->Self { CesiumService{} }
 }
 
+#[async_trait]
 impl SpaService for CesiumService {
 
     fn add_dependencies (&self, spa_builder: SpaServiceListBuilder) -> SpaServiceListBuilder {
-        spa_builder.add( build_service!( UiService::new()))
+        spa_builder
+            .add( build_service!( UiService::new()))
+            .add( build_service!( WsService::new()))
     }
 
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {
@@ -53,6 +70,12 @@ impl SpaService for CesiumService {
         //--- add body fragments
         spa.add_body_fragment( r#"<div id="cesiumContainer" class="ui_full_window"></div>"#);
 
+        Ok(())
+    }
+
+    async fn init_connection (&self, hself: &ActorHandle<SpaServerMsg>, conn: &mut SpaConnection) -> OdinServerResult<()> {
+        let msg = to_json( "odin_cesium/odin_cesium.js", SetClock{time: epoch_millis(), time_scale: 1.0})?;
+        conn.send(msg).await;
         Ok(())
     }
 }

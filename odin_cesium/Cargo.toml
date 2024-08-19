@@ -18,6 +18,8 @@ odin_server = { workspace = true }
 
 anyhow = "*"
 tokio = { version = "*", features = ["full"] }
+serde = { version = "*", features = ["derive"] }
+async-trait = "*"
 
 [build-dependencies]
 odin_build = { workspace = true }

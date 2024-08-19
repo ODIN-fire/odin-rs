@@ -223,17 +223,20 @@ div.ui_panel_header:first-child {
 }
 
 div.ui_panel_header.expanded::before {
-    content: "▽ ";
+    /* content: "▽ "; */
+    content: "\25bd \2003";
     font-size: smaller;
 }
 
 div.ui_panel_header.collapsed::before {
-    content: "▷ ";
+    /* content: "▷ "; */
+    content: "\25b7 \2003";
     font-size: smaller;
 }
 
 div.ui_panel_header.collapsed::after {
-    content: " …";
+    /* content: " …"; */
+    content: " \2026";
 }
 
 div.ui_panel {
@@ -648,7 +651,8 @@ div.ui_checkbox:hover div {
 }
 
 div.ui_checkbox.checked div.ui_checkbox_button::before {
-    content: "✓";
+    /* content: "✓"; */
+    content: "\2713";
 }
 
 div.ui_checkbox_label {
