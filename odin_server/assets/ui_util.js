@@ -14,6 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/**
+ * return the relative asset path of the provided url.
+ * Can be used to register module specific actions (e.g. websocket handlers)
+ * Example: "http://localhost:9009/basic_globe/asset/odin_cesium/odin_cesium.js" -> "odin_cesium/odin_cesium.js"
+ */
+export function asset_path(url) {
+    let idx = url.indexOf("/asset/");
+    if (idx >= 0) {
+        return url.substring(idx+7);
+    } else {
+        return url;
+    }
+}
+
 /**
  * a simple (extended) glob pattern to RegExp translator
  * we handle the Java PathMatcher glob syntax

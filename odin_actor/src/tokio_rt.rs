@@ -20,6 +20,9 @@
 #![allow(unused)]
 #![feature(trait_alias)]
 
+// re-export for our macro impls
+pub extern crate tokio;
+
 use odin_job::{JobHandle, JobScheduler};
 use tokio::{
     time::{self,Interval,interval},
@@ -1175,3 +1178,13 @@ async fn process_requests<P,R,T> (proc: P, rx: AsyncReceiver<R>) -> Result<()>
 
 /* #endregion RequestResolver */
 
+#[macro_export]
+macro_rules! async_main {
+    ( $( $t:tt )* ) => {
+        #[tokio::main]
+        async fn main ()->anyhow::Result<()> {
+            $( $t )*
+            Ok(())
+        }
+    }
+}

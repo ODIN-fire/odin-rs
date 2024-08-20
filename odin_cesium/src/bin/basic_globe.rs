@@ -13,13 +13,11 @@
  */
 #![allow(unused)]
 
-use anyhow::Result;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_cesium::ImgLayerService;
 
-#[tokio::main]
-async fn main ()->Result<()> {
+async_main! {
     odin_build::set_bin_context!();
     
     let mut actor_system = ActorSystem::new("main");
@@ -35,6 +33,4 @@ async fn main ()->Result<()> {
 
     actor_system.timeout_start_all(secs(2)).await?;
     actor_system.process_requests().await?;
-
-    Ok(())
 }

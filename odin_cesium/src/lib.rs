@@ -14,7 +14,6 @@
 #![allow(unused)]
 
 use std::net::SocketAddr;
-use serde::Serialize;
 use odin_common::datetime::epoch_millis;
 use async_trait::async_trait;
 
@@ -27,13 +26,10 @@ define_load_asset!{}
 
 /* #region CesiumService *************************************************************************************/
 
-#[derive(Serialize)]
-#[serde(rename_all="camelCase")]
-struct SetClock {
+define_ws_struct!{ SetClock =
     time: i64,
     time_scale: f32
 }
-
 
 /// this is a resource-only SpaService that provides basic Cesium plus our view UI
 pub struct CesiumService {

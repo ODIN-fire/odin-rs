@@ -588,9 +588,10 @@ div.ui_choice_value::before {
     display: inline-block;
     color: var(--field-value-color);
     background: transparent;
-    width: 1rem;
+    width: 1.5rem;
     height: 1rem;
-    content: "≣";
+    /*content: "≣";*/
+    content: "\2630";
     font-size: larger;
     /* "∇⋁⩔≣≡" */
 }
@@ -700,7 +701,8 @@ div.ui_radio_button {
 }
 
 div.ui_radio.selected div.ui_radio_button::before {
-    content: "◉";
+    /*content: "◉";*/
+    content: "\2b24";
 }
 
 div.ui_radio_label {
@@ -951,7 +953,8 @@ div.ui_menuitem.disabled {
 }
 
 div.ui_menuitem.checked::before {
-    content: "✓ ";
+    /*content: "✓ "; */
+    content: "\2713 \2003"
 }
 
 div.ui_menuitem:not([class*="disabled"]):hover {

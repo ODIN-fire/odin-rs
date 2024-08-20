@@ -29,5 +29,5 @@ pub use crate::{
     no_data_action, no_dataref_action, no_bi_data_action, no_bi_dataref_action,
     data_action, dataref_action, bi_data_action, bi_dataref_action, dyn_data_action, dyn_dataref_action, 
     map_action_err, action_err, action_ok, OdinActionError,  
-    trace,debug,info,warn,error
+    trace,debug,info,warn,error,async_main
 };

@@ -33,7 +33,7 @@ use async_trait::async_trait;
 use paste::paste;
 use lazy_static::lazy_static;
 
-use odin_build::define_load_config;
+use odin_build::{define_load_asset, define_load_config};
 use odin_common::{angle::{LatAngle, LonAngle, Angle},
     datetime::{Dated,deserialize_duration},
     fs::{ensure_writable_dir, get_filename_extension}
@@ -55,7 +55,10 @@ pub use live_connector::*;
 mod errors;
 pub use errors::*;
 
+pub mod web;
+
 define_load_config!{}
+define_load_asset!{}
 
 //--- alarm messengers
 mod signal_cmd; // this is always included

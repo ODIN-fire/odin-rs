@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 
-// those are used by the define_load_asset macro but we don't want to expose that to clients
+// re-export these so that macro callers don't have import them explicitly (they don't see the macro implementation)
 pub extern crate bytes;
 pub extern crate lazy_static;
 

@@ -94,7 +94,7 @@ fn process_config_resource (r: &Resource, v: Vec<u8>)->Result<Vec<u8>> {
     utils::compress_vec( v.as_slice()) 
 }
 
-// those are used by the define_load_config macro but we don't want to expose them to callers
+// re-exports - those are used by the define_load_config macro but we don't want to expose them to callers
 pub extern crate lazy_static;
 pub extern crate serde;
 pub extern crate ron;

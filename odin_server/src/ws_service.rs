@@ -63,9 +63,13 @@ async fn handle_socket(mut ws: WebSocket, remote_addr: SocketAddr, sss: SpaServe
 
 /* #region WsMsg serialization  *******************************************************************************/
 
-use std::any::type_name;
+// re-export since it is used in the define_ws_struct implementation
+pub extern crate serde;
+
 use serde::{Serialize,ser::{Serializer,SerializeStruct}};
 use serde_json;
+use std::any::type_name;
+
 
 pub struct WsMsg<T> where T: Serialize {
     pub js_module: String,
@@ -102,5 +106,20 @@ pub fn to_json<T> (js_module: impl ToString, payload: T)->OdinServerResult<Strin
     let ws_msg = WsMsg::new( js_module, payload);
     Ok(serde_json::to_string(&ws_msg)?)
 }
+
+/// syntactic sugar for structs we want to send to web sockets
+/// this is not providing additional features like the general define_struct - it just adds the required serde macros
+/// and uses the serde re-export from odin_server so that callers don't have to take care of it
+#[macro_export]
+macro_rules! define_ws_struct {
+    ($svis:vis $sname:ident = $( $fvis:vis $fname:ident : $ftype:ty ),*) => {
+        #[derive(serde::Serialize)]
+        #[serde(rename_all="camelCase")]
+        $svis struct $sname {
+            $( $fvis $fname: $ftype,)*
+        }
+    }
+}
+pub use define_ws_struct;
 
 /* #endregion WsMsg serialization */

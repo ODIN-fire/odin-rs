@@ -41,8 +41,7 @@ impl_actor! { match msg for Actor<SentinelMonitor,SentinelMonitorMsg> as
 /* #endregion monitor actor */
 
 
-#[tokio::main]
-async fn main ()->Result<()> {
+async_main! {
     odin_build::set_bin_context!();
     
     let mut actor_system = ActorSystem::with_env_tracing("main");
@@ -64,6 +63,4 @@ async fn main ()->Result<()> {
 
     actor_system.timeout_start_all(secs(2)).await?;
     actor_system.process_requests().await?;
-
-    Ok(())
 }

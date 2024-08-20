@@ -216,9 +216,6 @@ impl SpaServer {
 
         // now add the generic routes for proxies and assets
         router = router
-            //--- the proxy route
-            // 'key' is the symbolic server name
-            //.route( &format!("/{}/proxy/:key/*unmatched", self.name), get({
             .route( &format!("/{}/proxy/*unmatched", self.name), get({
                 let mode = CacheMode::Default;
                 let manager = CACacheManager { path: odin_build::cache_dir().join("proxies") };
@@ -230,7 +227,6 @@ impl SpaServer {
                 move |path: Path<String>, query: RawQuery, req: Request| { Self::proxy_handler(path, query, req, http_client, proxies) }
             }))
 
-            //--- the assets route
             // 'key' is the owning crate
             .route( &format!("/{}/asset/:key/*unmatched", self.name), get({
                 move |uri_elems: Path<(String,String)>, req: Request| { Self::asset_handler(uri_elems, req, assets)}

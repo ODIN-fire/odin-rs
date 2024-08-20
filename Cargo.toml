@@ -36,6 +36,7 @@ odin_action = { version = "*", path = "odin_action" }
 odin_actor  = { version = "*", path = "odin_actor" }
 odin_job    = { version = "*", path = "odin_job" }
 odin_server = { version = "*", path = "odin_server" }
+odin_cesium = { version = "*", path = "odin_cesium" }
 
 [profile.release]
 

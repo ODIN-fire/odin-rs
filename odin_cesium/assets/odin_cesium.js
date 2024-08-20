@@ -16,8 +16,10 @@ import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 
+const MODULE_PATH = util.asset_path(import.meta.url);
+
 window.addPostExec( postExec);
-ws.addWsHandler("odin_cesium/odin_cesium.js", handleWsMessages);
+ws.addWsHandler( MODULE_PATH, handleWsMessages);
 
 const UI_POSITIONS = "race-ui-positions";
 const LOCAL = "local-";  // prefix for local position set names
