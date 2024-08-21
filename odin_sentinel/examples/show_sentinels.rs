@@ -12,15 +12,13 @@
  * and limitations under the License.
  */
 
- use std::os::unix::net::SocketAddr;
-
 use tokio;
  use anyhow::Result;
 
 use odin_build;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
-use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor,load_config, web::SentinelService};
+use odin_sentinel::{SentinelUpdate,LiveSentinelConnector,SentinelActor,load_config, web::SentinelService};
 
 
 #[tokio::main]
@@ -33,19 +31,16 @@ async fn main()->Result<()> {
         odin_server::load_config("spa_server.ron")?,
         "sentinels",
         SpaServiceListBuilder::new()
-            .add( build_service!( SentinelService{})) // this automatically includes Cesium and UI services
+            .add( build_service!( hsentinel.to_actor_handle() => SentinelService::new(hsentinel))) // this automatically includes Cesium and UI services
             .build()
     ))?;
 
     
-    let hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
+    let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
         LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
-        bi_dataref_action!( hserver.clone(): ActorHandle<SpaServerMsg> => |data:&SentinelStore, remote_addr:SocketAddr| {
-            let data = data.to_json(false)?;
-            hserver.try_send_msg( SendWsMsg{remote_addr,data})
-        }),
+        no_dataref_action(),
         data_action!( hserver: ActorHandle<SpaServerMsg> => |data:SentinelUpdate| {
-            let data = data.to_json()?;
+            let data = map_action_err( data.to_json())?;
             hserver.try_send_msg( BroadcastWsMsg{data})
         }),
     ))?;

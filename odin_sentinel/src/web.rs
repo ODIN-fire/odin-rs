@@ -13,6 +13,8 @@
  */
 #![allow(unused)]
 
+use std::net::SocketAddr;
+
 use async_trait::async_trait;
 
 use odin_build::prelude::*;
@@ -20,11 +22,18 @@ use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_cesium::CesiumService;
 
-use crate::load_asset;
+use crate::{load_asset, ExecSnapshotAction, SentinelActorMsg, SentinelStore};
 
 /// SpaService to show sentinel infos on a cesium display
 pub struct SentinelService {
-    // tbd
+    hsentinel: ActorHandle<SentinelActorMsg> // our data source
+    // ..possibly more to follow
+}
+
+impl SentinelService {
+    pub fn new (hsentinel: ActorHandle<SentinelActorMsg>)->Self { 
+        SentinelService{hsentinel}
+    }
 }
 
 #[async_trait]
@@ -42,7 +51,14 @@ impl SpaService for SentinelService {
         Ok(())
     }
 
+    // send an ExecSnapshotAction to the SentinelActor to send a JSON websocket message to the new connection
     async fn init_connection (&self, hself: &ActorHandle<SpaServerMsg>, conn: &mut SpaConnection) -> OdinServerResult<()> {
-        Ok(())
+        let remote_addr = conn.remote_addr;
+        let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg>, remote_addr: SocketAddr => |data: &SentinelStore| {
+            let data = map_action_err( data.to_json(false))?;
+            let remote_addr = remote_addr.clone();
+            hself.try_send_msg( SendWsMsg{remote_addr,data})
+        });
+        Ok( self.hsentinel.send_msg( ExecSnapshotAction(action)).await? )
     }
 }

@@ -15,7 +15,8 @@
 
 use std::{boxed, collections::HashMap, sync::{Arc,Mutex}, 
     net::SocketAddr, future::{Future,ready}, time::SystemTime, 
-    path::{PathBuf}, any::type_name, fmt::Write
+    path::{PathBuf}, any::type_name, fmt::Write,
+    result::Result, error::Error
 };
 use axum::{
     http::{Uri,StatusCode},
@@ -45,7 +46,7 @@ use odin_common::fs::get_file_basename;
 use odin_macro::define_struct;
 use odin_actor::prelude::*;
 
-use crate::get_asset_response;
+use crate::{errors::{connect_error, init_error, OdinServerError}, get_asset_response};
 use crate::errors::{OdinServerResult,op_failed};
 
 /// the trait that abstracts a single page application service, which normally represents a visualization
@@ -58,7 +59,7 @@ pub trait SpaService: Send + Sync + 'static {
     
     /// this adds document fragments and route data for this micro service
     /// Called during server construction to accumulate components of all included SpaServices
-    fn add_components (&self, spa: &mut SpaComponents)->OdinServerResult<()>;
+    fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>;
 
     /// is this a service that implements a websocket
     fn is_websocket (&self)->bool { 
@@ -339,7 +340,7 @@ impl SpaServer {
         let conn_ref = self.connections.get_mut( &raddr).unwrap();
 
         for svc in &self.services { // tell services to send their initial data
-            svc.init_connection( &hself, conn_ref).await?
+            svc.init_connection( &hself, conn_ref).await.map_err(|e| connect_error(e))?;
         }
 
         Ok(())
@@ -480,7 +481,7 @@ impl SpaComponents {
     pub fn from (services: &Vec<Box<dyn SpaService>>)->OdinServerResult<SpaComponents> {
         let mut comps = SpaComponents::new();
         for svc in services {
-            svc.add_components( &mut comps)?;
+            svc.add_components( &mut comps).map_err(|e| init_error(e))?;
         }
         Ok(comps)
     }

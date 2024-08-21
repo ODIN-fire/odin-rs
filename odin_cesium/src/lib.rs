@@ -94,7 +94,7 @@ impl SpaService for ImgLayerService {
         spa_builder.add( build_service!( CesiumService::new()))
     }
 
-    fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {
+    fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()> {
         spa.add_assets( self_crate!(), load_asset);
 
         spa.add_module( asset_uri!("imglayer_config.js"));

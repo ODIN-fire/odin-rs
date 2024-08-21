@@ -31,10 +31,24 @@ pub enum OdinServerError {
     #[error("unsupported resource: {0}")]
     UnsupportedResourceType(String),
 
+    #[error("service init error: {0}")]
+    ServiceInitError(String),
+
+    #[error("connect error: {0}")]
+    ConnectError(String),
+
     #[error("operation failed: {0}")]
     OpFailed( String ),
 }
 
 pub fn op_failed (msg: impl ToString)->OdinServerError {
     OdinServerError::OpFailed(msg.to_string())
+}
+
+pub fn init_error (msg: impl ToString)->OdinServerError {
+    OdinServerError::ServiceInitError(msg.to_string())
+}
+
+pub fn connect_error (msg: impl ToString)->OdinServerError {
+    OdinServerError::ConnectError(msg.to_string())
 }

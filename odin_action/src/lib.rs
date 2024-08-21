@@ -50,6 +50,8 @@ impl OdinActionError {
     }
 }
 
+// we can't impl From<E> here since OdinActionError has a Error impl itself (which also implies ToString)
+
 impl std::fmt::Debug for OdinActionError {
     fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "OdinActionError({}): {}", self.src, self.msg)
@@ -336,11 +338,12 @@ macro_rules! dyn_dataref_action {
     ( $( $v:ident $(. $op:ident ())? : $v_type:ty ),* => |$data:ident : & $data_type:ty| $e:expr ) => {
         {
             use async_trait::async_trait;
+            use odin_action::DynDataRefActionTrait;
 
             struct SomeDynDataRefAction { $( $v: $v_type ),* }
 
             #[async_trait]
-            impl odin_action::DynDataRefActionTrait<$data_type> for SomeDynDataRefAction {
+            impl DynDataRefActionTrait<$data_type> for SomeDynDataRefAction {
                 async fn execute (&self, $data : & $data_type) -> std::result::Result<(),OdinActionError> {
                     $( let $v = &self. $v;)*
                     map_action_err($e)

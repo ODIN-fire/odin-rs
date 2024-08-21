@@ -155,7 +155,7 @@ async fn main ()->Result<()> {
     //--- set up the client
     let client = spawn_actor!( actor_system, "client", 
         WsServer::new( 
-            data_action!( provider.as_actor_handle(): ActorHandle<ProviderMsg> => 
+            data_action!( provider.to_actor_handle(): ActorHandle<ProviderMsg> => 
                               |addr:TAddr| provider.try_send_msg( ExecSnapshotAction{request: addr}))
         )
     )?;

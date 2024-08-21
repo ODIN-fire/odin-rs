@@ -13,7 +13,7 @@
  */
 #![allow(unused)]
 
-use crate::{self_crate, asset_uri, errors::OdinServerResult, load_asset, spa::{SpaComponents, SpaService}};
+use crate::{asset_uri, errors::OdinServerResult, load_asset, self_crate, spa::{SpaComponents, SpaService}};
 
 /// this is a resource-only SpaService that provides ODINs UI framework including the
 /// window that is used to modify and store local themes. The initial theme can be

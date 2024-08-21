@@ -49,7 +49,7 @@ async fn main ()->Result<()> {
     let hmonitor = spawn_actor!( actor_system, "monitor", SentinelAlarmMonitor::new(
         load_config("sentinel_alarm.ron")?,
         load_config("sentinel_info.ron")?,
-        hsentinel.as_actor_handle(),
+        hsentinel.to_actor_handle(),
         create_messengers()?
     ))?;
 

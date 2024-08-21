@@ -35,6 +35,7 @@ required-features = ["signal_rpc"]
 [dependencies]
 # our ODIN crates
 odin_build = { workspace = true }
+odin_action = { workspace = true }
 odin_actor = { workspace = true }
 odin_server = { workspace = true }
 odin_cesium = { workspace = true }

@@ -99,7 +99,14 @@ macro_rules! self_crate {
 
 #[macro_export]
 macro_rules! build_service {
-    ($e:expr) => {
+    ( $($v:ident $(. $op:ident ())?),* => $e:expr) => {
+        {
+            $( let $v = $v $( .$op() )?; )*
+            move || { $e }
+        }
+    };
+
+    ( $e:expr) => {
         move || { $e }
     }
 }

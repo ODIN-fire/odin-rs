@@ -38,7 +38,7 @@ impl WsService {
 }
 
 impl SpaService for WsService {
-    fn add_components (&self,spa: &mut SpaComponents) -> OdinServerResult<()>  {
+    fn add_components (&self,spa: &mut SpaComponents) -> OdinServerResult<()> {
         spa.add_assets( self_crate!(), load_asset);
         spa.add_module( asset_uri!("ws.js"));
 

@@ -12,7 +12,6 @@
  * and limitations under the License.
  */
 
-use anyhow::Result;
 use odin_build;
 use odin_actor::prelude::*;
 use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor,load_config};

@@ -22,7 +22,7 @@ use crate::ws::WsCmd;
 
 //-- external messages (from other actors)
 
-#[derive(Debug)] pub struct ExecSnapshotAction(DynDataRefAction<SentinelStore>);
+#[derive(Debug)] pub struct ExecSnapshotAction( pub DynDataRefAction<SentinelStore> );
 
 /// request a specific update record
 #[derive(Debug)] pub struct GetSentinelUpdate {  pub record_id: String }

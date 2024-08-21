@@ -162,7 +162,7 @@ async fn main ()->Result<()> {
     //--- 1: set up the client (WsServer)
     let client = spawn_actor!( actor_system, "client", 
         WsServer::new( 
-            data_action!( provider.as_actor_handle(): ActorHandle<ProviderMsg> => 
+            data_action!( provider.to_actor_handle(): ActorHandle<ProviderMsg> => 
                               |addr:TAddr| provider.try_send_msg( ExecSnapshotAction{client_data: addr.clone()}))
         ),
         1 // give the actor a really small queue so that we can saturate it

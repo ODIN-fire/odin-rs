@@ -260,7 +260,7 @@ impl <M> PreActorHandle <M>  where M: MsgTypeConstraints {
         PreActorHandle { hsys, id, tx, rx }
     }
 
-    pub fn as_actor_handle (&self)->ActorHandle<M> {
+    pub fn to_actor_handle (&self)->ActorHandle<M> {
         ActorHandle{ id: self.id.clone(), hsys: self.hsys.clone(), tx: self.tx.clone() }
     }
 }
