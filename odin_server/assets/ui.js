@@ -52,13 +52,14 @@ export function registerPostLoadFunction(func) {
     postLoadFunctions.push(func);
 }
 
+// FIXME - we don't support server-side generated elements anymore
 // this has to be the first moduleInitializer so that all modules can rely on expanded elements
-registerLoadFunction(function initialize() {
-    initializeIcons();
-    initializeWindows();
+//registerLoadFunction(function initialize() {
+//    initializeIcons();
+//    initializeWindows();
  
-    _initializeMenus(); /* has to be last in case widgets add menus */
-});
+//    _initializeMenus(); /* has to be last in case widgets add menus */
+//});
 
 var themeChangeHandlers = [];
 

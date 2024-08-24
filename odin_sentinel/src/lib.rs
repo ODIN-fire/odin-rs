@@ -35,7 +35,7 @@ use lazy_static::lazy_static;
 
 use odin_build::{define_load_asset, define_load_config};
 use odin_common::{angle::{LatAngle, LonAngle, Angle},
-    datetime::{Dated,deserialize_duration},
+    datetime::{Dated,deserialize_duration,to_epoch_millis},
     fs::{ensure_writable_dir, get_filename_extension}
 };
 use odin_actor::{MsgReceiver, Query, ActorHandle};
@@ -134,7 +134,7 @@ impl<T> SensorRecord<T> where T: RecordDataBounds {
 // so we generate a filename from the record info using the scheme
 //    YYYYMMDD-HHmmSS_SSS-<device_id>-<sensor_no>-<image_record_id>.webp
 impl SensorRecord<ImageData> {
-    fn odin_filename (&self)->String {
+    pub fn odin_filename (&self)->String {
         let ext = get_filename_extension(&self.data.filename).unwrap_or("");
 
         format!("{}-{}-{}-{}.{}",
@@ -144,6 +144,10 @@ impl SensorRecord<ImageData> {
             self.id,
             ext
         )
+    }
+
+    pub fn set_local_filename (&mut self) {
+        self.data.local_filename = Some(self.odin_filename());
     }
 }
 
@@ -158,7 +162,7 @@ impl<T> Serialize for SensorRecord<T> where T: RecordDataBounds {
         use serde::ser::SerializeStruct;
         let mut state = serializer.serialize_struct("SensorRecord", 7)?;
         state.serialize_field("id", &self.id)?;
-        state.serialize_field("timeRecorded", &self.time_recorded)?;
+        state.serialize_field("timeRecorded", &to_epoch_millis(self.time_recorded))?; // our JS module expects epoch millis
         state.serialize_field("sensorNo", &self.sensor_no)?;
         state.serialize_field("deviceId", &self.device_id)?;
         state.serialize_field("evidences", &self.evidences)?;
@@ -196,7 +200,8 @@ pub struct RecordRef {
 /// since the variants are just Arcs a SentinelUpdate is cheap to clone
 /// note this also defines respective From<SensorRecord<..>> impls
 define_algebraic_type!{ 
-    pub SentinelUpdate: Clone =
+    #[serde(untagged)]
+    pub SentinelUpdate: Clone + Serialize =
         Arc<SensorRecord<AccelerometerData>> |
         Arc<SensorRecord<AnemometerData>> |
         Arc<SensorRecord<CloudcoverData>> |
@@ -270,9 +275,10 @@ define_sensor_data! { Fire =
 }
 
 define_sensor_data! { Image =
-    pub filename: String,
+    pub filename: String, // this is the remote filename from the Delphire server, which is just a random string
     pub is_infrared: bool,
     pub orientation_record: Option<RecordRef>, // nested orientation record?
+    #[serde(skip_deserializing)] pub local_filename: Option<String>, // this is our local filename that shows date, device and sensor
 }
 
 define_sensor_data! { Gas =
@@ -346,8 +352,8 @@ define_sensor_data! { Valve =
 }
 
 define_sensor_data! { Voc =
-   #[serde(alias = "TVOC")] pub tvoc: i32,
-   #[serde(alias = "eCO2")] pub e_co2: i32,
+   #[serde(rename = "TVOC")] pub tvoc: i32,
+   #[serde(rename = "eCO2")] pub e_co2: i32,
 }
 
 #[derive(Serialize,Deserialize,Debug,PartialEq,Copy,Clone,IntoStaticStr)] 
@@ -484,6 +490,7 @@ impl SentinelStore {
                     }
                 }
         
+                sentinel.set_time_recorded(); // from latest sensor record
                 self.insert( sentinel.device_id.clone(), sentinel);
             }
         }
@@ -607,11 +614,13 @@ define_struct! {
     pub Sentinel: Serialize + Deserialize + Debug =
         device_id: DeviceId,
         device_name: String,
-        date: Option<DateTime<Utc>> = None, 
+
+        #[serde(skip_serializing_if = "Option::is_none", serialize_with = "odin_common::datetime::ser_epoch_millis_option")]
+        time_recorded: Option<DateTime<Utc>> = None, // the latest record timestamp we have
 
         // the last N records for each capability/sensor
-        accel:         VecDeque< Arc<SensorRecord<AccelerometerData>> > = VecDeque::new(),
-        anemo:         VecDeque< Arc<SensorRecord<AnemometerData>> > = VecDeque::new(),
+        accelerometer: VecDeque< Arc<SensorRecord<AccelerometerData>> > = VecDeque::new(),
+        anemometer:    VecDeque< Arc<SensorRecord<AnemometerData>> > = VecDeque::new(),
         cloudcover:    VecDeque< Arc<SensorRecord<CloudcoverData>> > = VecDeque::new(),
         event:         VecDeque< Arc<SensorRecord<EventData>> > = VecDeque::new(),
         fire:          VecDeque< Arc<SensorRecord<FireData>> > = VecDeque::new(),
@@ -624,7 +633,7 @@ define_struct! {
         person:        VecDeque< Arc<SensorRecord<PersonData>> > = VecDeque::new(),
         power:         VecDeque< Arc<SensorRecord<PowerData>> > = VecDeque::new(),
         smoke:         VecDeque< Arc<SensorRecord<SmokeData>> > = VecDeque::new(),
-        thermo:        VecDeque< Arc<SensorRecord<ThermometerData>> > = VecDeque::new(),
+        thermometer:   VecDeque< Arc<SensorRecord<ThermometerData>> > = VecDeque::new(),
         valve:         VecDeque< Arc<SensorRecord<ValveData>> > = VecDeque::new(),
         voc:           VecDeque< Arc<SensorRecord<VocData>> > = VecDeque::new(),
 
@@ -644,52 +653,52 @@ impl Sentinel {
         let device_id = &self.device_id.as_str();
         use SensorCapability::*;
         let updates = match capability {
-            Accelerometer => init_recs( &mut self.accel,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Anemometer    => init_recs( &mut self.anemo,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Cloudcover    => init_recs( &mut self.cloudcover,  get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Event         => init_recs( &mut self.event,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Fire          => init_recs( &mut self.fire,        get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Gas           => init_recs( &mut self.gas,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Gps           => init_recs( &mut self.gps,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Gyroscope     => init_recs( &mut self.gyro,        get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Image         => init_recs( &mut self.image,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Magnetometer  => init_recs( &mut self.mag,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Orientation   => init_recs( &mut self.orientation, get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Person        => init_recs( &mut self.person,      get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Power         => init_recs( &mut self.power,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Smoke         => init_recs( &mut self.smoke,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Thermometer   => init_recs( &mut self.thermo,      get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Valve         => init_recs( &mut self.valve,       get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
-            Voc           => init_recs( &mut self.voc,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Accelerometer => init_recs( &mut self.accelerometer, get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Anemometer    => init_recs( &mut self.anemometer,    get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Cloudcover    => init_recs( &mut self.cloudcover,    get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Event         => init_recs( &mut self.event,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Fire          => init_recs( &mut self.fire,          get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Gas           => init_recs( &mut self.gas,           get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Gps           => init_recs( &mut self.gps,           get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Gyroscope     => init_recs( &mut self.gyro,          get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Image         => init_image_recs( &mut self.image,   get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Magnetometer  => init_recs( &mut self.mag,           get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Orientation   => init_recs( &mut self.orientation,   get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Person        => init_recs( &mut self.person,        get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Power         => init_recs( &mut self.power,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Smoke         => init_recs( &mut self.smoke,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Thermometer   => init_recs( &mut self.thermometer,   get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Valve         => init_recs( &mut self.valve,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Voc           => init_recs( &mut self.voc,           get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
         };
         Ok(updates)
     }
 
     pub fn update_with( &mut self, sentinel_update: SentinelUpdate)->(Option<RecordId>,Option<RecordId>) {
         match_algebraic_type! { sentinel_update: SentinelUpdate as
-            Arc<SensorRecord<AccelerometerData>> => sort_in_record( &mut self.accel,       sentinel_update, self.max_len),
-            Arc<SensorRecord<AnemometerData>>    => sort_in_record( &mut self.anemo,       sentinel_update, self.max_len),
-            Arc<SensorRecord<CloudcoverData>>    => sort_in_record( &mut self.cloudcover,  sentinel_update, self.max_len),
-            Arc<SensorRecord<EventData>>         => sort_in_record( &mut self.event,       sentinel_update, self.max_len),
-            Arc<SensorRecord<FireData>>          => sort_in_record( &mut self.fire,        sentinel_update, self.max_len),
-            Arc<SensorRecord<GasData>>           => sort_in_record( &mut self.gas,         sentinel_update, self.max_len),
-            Arc<SensorRecord<GpsData>>           => sort_in_record( &mut self.gps,         sentinel_update, self.max_len),
-            Arc<SensorRecord<GyroscopeData>>     => sort_in_record( &mut self.gyro,        sentinel_update, self.max_len),
-            Arc<SensorRecord<ImageData>>         => sort_in_record( &mut self.image,       sentinel_update, self.max_len),
-            Arc<SensorRecord<MagnetometerData>>  => sort_in_record( &mut self.mag,         sentinel_update, self.max_len),
-            Arc<SensorRecord<OrientationData>>   => sort_in_record( &mut self.orientation, sentinel_update, self.max_len),
-            Arc<SensorRecord<PersonData>>        => sort_in_record( &mut self.person,      sentinel_update, self.max_len),
-            Arc<SensorRecord<PowerData>>         => sort_in_record( &mut self.power,       sentinel_update, self.max_len),
-            Arc<SensorRecord<SmokeData>>         => sort_in_record( &mut self.smoke,       sentinel_update, self.max_len),
-            Arc<SensorRecord<ThermometerData>>   => sort_in_record( &mut self.thermo,      sentinel_update, self.max_len),
-            Arc<SensorRecord<ValveData>>         => sort_in_record( &mut self.valve,       sentinel_update, self.max_len),
-            Arc<SensorRecord<VocData>>           => sort_in_record( &mut self.voc,         sentinel_update, self.max_len)
+            Arc<SensorRecord<AccelerometerData>> => sort_in_record( &mut self.accelerometer, sentinel_update, self.max_len),
+            Arc<SensorRecord<AnemometerData>>    => sort_in_record( &mut self.anemometer,    sentinel_update, self.max_len),
+            Arc<SensorRecord<CloudcoverData>>    => sort_in_record( &mut self.cloudcover,    sentinel_update, self.max_len),
+            Arc<SensorRecord<EventData>>         => sort_in_record( &mut self.event,         sentinel_update, self.max_len),
+            Arc<SensorRecord<FireData>>          => sort_in_record( &mut self.fire,          sentinel_update, self.max_len),
+            Arc<SensorRecord<GasData>>           => sort_in_record( &mut self.gas,           sentinel_update, self.max_len),
+            Arc<SensorRecord<GpsData>>           => sort_in_record( &mut self.gps,           sentinel_update, self.max_len),
+            Arc<SensorRecord<GyroscopeData>>     => sort_in_record( &mut self.gyro,          sentinel_update, self.max_len),
+            Arc<SensorRecord<ImageData>>         => sort_in_record( &mut self.image,         sentinel_update, self.max_len),
+            Arc<SensorRecord<MagnetometerData>>  => sort_in_record( &mut self.mag,           sentinel_update, self.max_len),
+            Arc<SensorRecord<OrientationData>>   => sort_in_record( &mut self.orientation,   sentinel_update, self.max_len),
+            Arc<SensorRecord<PersonData>>        => sort_in_record( &mut self.person,        sentinel_update, self.max_len),
+            Arc<SensorRecord<PowerData>>         => sort_in_record( &mut self.power,         sentinel_update, self.max_len),
+            Arc<SensorRecord<SmokeData>>         => sort_in_record( &mut self.smoke,         sentinel_update, self.max_len),
+            Arc<SensorRecord<ThermometerData>>   => sort_in_record( &mut self.thermometer,   sentinel_update, self.max_len),
+            Arc<SensorRecord<ValveData>>         => sort_in_record( &mut self.valve,         sentinel_update, self.max_len),
+            Arc<SensorRecord<VocData>>           => sort_in_record( &mut self.voc,           sentinel_update, self.max_len)
         }
     }
 
     pub fn add_latest_records (&self, latest_recs: &mut HashMap<String,String>) {
-        add_latest_recs( &self.accel, latest_recs);
-        add_latest_recs( &self.anemo, latest_recs);
+        add_latest_recs( &self.accelerometer, latest_recs);
+        add_latest_recs( &self.anemometer, latest_recs);
         add_latest_recs( &self.cloudcover, latest_recs);
         add_latest_recs( &self.event, latest_recs);
         add_latest_recs( &self.fire, latest_recs);
@@ -702,11 +711,41 @@ impl Sentinel {
         add_latest_recs( &self.person, latest_recs);
         add_latest_recs( &self.power, latest_recs);
         add_latest_recs( &self.smoke, latest_recs);
-        add_latest_recs( &self.thermo, latest_recs);
+        add_latest_recs( &self.thermometer, latest_recs);
         add_latest_recs( &self.valve, latest_recs);
         add_latest_recs( &self.voc, latest_recs);
     }
  
+    pub fn set_time_recorded (&mut self) {
+        fn set_latest<T> (latest: &mut DateTime<Utc>, recs: &VecDeque<Arc<SensorRecord<T>>>) where T: RecordDataBounds {
+            if let Some(rec_date) = recs.front().map(|r| r.time_recorded) { 
+                if rec_date > *latest { *latest = rec_date }
+            } 
+        }
+
+        let mut latest = DateTime::from_timestamp_millis(0).unwrap();
+        set_latest(&mut latest, &self.accelerometer);
+        set_latest(&mut latest, &self.anemometer);
+        set_latest(&mut latest, &self.cloudcover);
+        set_latest(&mut latest, &self.event);
+        set_latest(&mut latest, &self.fire);
+        set_latest(&mut latest, &self.gas);
+        set_latest(&mut latest, &self.gps);
+        set_latest(&mut latest, &self.gyro);
+        set_latest(&mut latest, &self.image);
+        set_latest(&mut latest, &self.mag);
+        set_latest(&mut latest, &self.orientation);
+        set_latest(&mut latest, &self.person);
+        set_latest(&mut latest, &self.power);
+        set_latest(&mut latest, &self.smoke);
+        set_latest(&mut latest, &self.thermometer);
+        set_latest(&mut latest, &self.valve);
+        set_latest(&mut latest, &self.voc);
+
+        if latest.timestamp_millis() > 0 {
+            self.time_recorded = Some(latest)
+        }
+    }
 }
 
 pub fn rec_key (device_id: &str, sensor_no: u32, capa: SensorCapability)->String {
@@ -751,7 +790,13 @@ fn init_recs<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, recs: Vec<SensorReco
     updates
 }
 
-
+// this is a pain - we need to set the local filename explicitly
+fn init_image_recs (list: &mut VecDeque<Arc<SensorRecord<ImageData>>>, mut recs: Vec<SensorRecord<ImageData>>, max_len: usize)->Vec<SentinelUpdate> {
+    for rec in recs.iter_mut() {
+        rec.set_local_filename()
+    }
+    init_recs(list, recs, max_len)
+}
 
 /// sort in record according to timestamp (newer records first). Note this transfers ownership of 'rec'.
 /// owner-specific housekeeping can be performed through provided (optional) closures

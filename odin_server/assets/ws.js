@@ -19,8 +19,6 @@ var ws = undefined;
 var wsUrl = "./ws";
 var isShutdown = false;
 
-window.addPostExec( postExec); // this is what opens the websocket
-
 // wsHandlers is a map object from module-names to handler functions.
 // each handler function takes the msg name and the payload object as arguments:
 //      `function (msgName, msgObject) {...}`
@@ -28,48 +26,6 @@ window.addPostExec( postExec); // this is what opens the websocket
 var wsHandlers = new Map();
 
 window.addEventListener('unload', shutdown);
-
-// execute after all js modules have initialized to make sure handlers have been set
-// this is crucial for modules that get initialization data through the ws - as soon as we are connected this is sent by the server
-export function postExec() {
-    if (wsUrl) {
-        if ("WebSocket" in window) {
-            console.log("initializing websocket: " + wsUrl);            
-            ws = new WebSocket(wsUrl);
-
-            ws.onopen = function() {
-                // nothing yet
-            };
-
-            ws.onmessage = function(evt) {
-                try {
-                    let data = evt.data.toString();
-                    let msg = JSON.parse(data);
-                    handleServerMessage(msg);
-                } catch (error) {
-                    console.log(error);
-                    console.log(evt.data.toString());
-                }
-            };
-
-            ws.onerror = function(evt) {
-                if (!isShutdown) {
-                    console.log('websocket error: ', evt);
-                    // TODO - if we get a 'WebSocket is already in CLOSING or CLOSED state' outside of a shutdown we should try to reconnect
-                }
-            };
-
-            ws.onclose = function() {
-                console.log("connection is closed.");
-            };
-
-        } else {
-            console.log("WebSocket NOT supported by your Browser!");
-        }
-    } else {
-        console.log("no WebSocket url set");
-    }
-}
 
 export function addWsHandler(modName,newHandler) {
     wsHandlers.set( modName, newHandler);
@@ -94,12 +50,60 @@ function handleServerMessage(msg) {
     }
 }
 
-export function sendWsMessage (data) {
-    ws.send(data);
+export function sendWsMessage (modPath, msgType, msgData) {
+    let msg = {};
+    msg.mod = modPath;
+    msg[msgType] = msgData;
+
+    let json = JSON.stringify(msg);
+
+    ws.send(json);
 }
 
 export function shutdown() {
     console.log("closing websocket...");
     isShutdown = true;
     ws.close();
+}
+
+// execute after all js modules have initialized to make sure handlers have been set
+// this is crucial for modules that get initialization data through the ws - as soon as we are connected this is sent by the server
+export function postInitialize() {
+    if (wsUrl) {
+        if ("WebSocket" in window) {
+            console.log("initializing websocket: " + wsUrl);            
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                // nothing yet
+            };
+
+            ws.onmessage = function(evt) {
+                try {
+                    let data = evt.data.toString();
+                    let msg = JSON.parse(data);
+                    handleServerMessage(msg);
+                } catch (error) {
+                    console.log(error);
+                    console.log("msg-data: ", evt.data.toString());
+                }
+            };
+
+            ws.onerror = function(evt) {
+                if (!isShutdown) {
+                    console.log('websocket error: ', evt);
+                    // TODO - if we get a 'WebSocket is already in CLOSING or CLOSED state' outside of a shutdown we should try to reconnect
+                }
+            };
+
+            ws.onclose = function() {
+                console.log("connection is closed.");
+            };
+
+        } else {
+            console.log("WebSocket NOT supported by your Browser!");
+        }
+    } else {
+        console.log("no WebSocket url set");
+    }
 }

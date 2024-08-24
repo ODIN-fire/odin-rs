@@ -173,6 +173,17 @@ export function matchPath(path) {
 
 //--- number formatting
 
+export function degString (rad) {
+    return f_0.format( toDegrees(rad));
+}
+
+export function maxString (str, maxLen) {
+    if (str && str.length > maxLen) {
+        return str.substring(0, maxLen-1) + '…';
+    }
+    return str;
+}
+
 export const f_0 = new Intl.NumberFormat('en-US', { notation: 'standard', maximumFractionDigits: 0, minimumFractionDigits: 0 });
 export const f_1 = new Intl.NumberFormat('en-US', { notation: 'standard', maximumFractionDigits: 1, minimumFractionDigits: 1 });
 export const f_2 = new Intl.NumberFormat('en-US', { notation: 'standard', maximumFractionDigits: 2, minimumFractionDigits: 2 });

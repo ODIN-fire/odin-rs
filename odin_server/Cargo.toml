@@ -6,6 +6,9 @@ version = "0.1.0"
 edition = "2024"
 build = "../build_resources.rs"
 
+[lib]
+doctest = false
+
 [dependencies]
 async-trait = "*"
 tokio = { version = "*", features = ["full", "tracing"] }
@@ -13,7 +16,6 @@ tokio-tungstenite = { version = "*", features = ["native-tls"] }
 bytes = "*"
 thiserror = "*"
 anyhow = "*"
-axum = { version = "*", features = [ "ws", "macros"] }
 headers = "*"
 futures = "*"
 futures-util = { version = "*", features = ["sink"] }
@@ -35,6 +37,8 @@ ron = "*"
 mime = "*"
 mime_guess = "*"
 rand = "*"
+
+axum = { workspace = true, features = [ "ws", "macros"]}
 
 odin_build = { workspace = true }
 odin_macro = { workspace = true }

@@ -52,11 +52,11 @@ async fn main() -> Result<()>{
                 let msg = Update(hs.to_json_pretty().unwrap());
                 hmonitor.try_send_msg(msg);
             }
-            action_ok()
+            Ok(())
         }),
         data_action!( hmonitor: ActorHandle<GoesRMonitorMsg> => |data:GoesRHotSpots| {
             let msg = Update(data.to_json_pretty().unwrap());
-            hmonitor.try_send_msg( msg)
+            Ok( hmonitor.try_send_msg( msg)? )
         }),
     ))?;
 

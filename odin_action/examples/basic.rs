@@ -24,11 +24,11 @@ async fn main() {
 
     let action = data_action!( x: String => |data: String| { 
         println!("DataAction<String> execution started ...");
-        map_action_err( fumble())?;
+        fumble()?;
         //fumble().map_err(|e| OdinActionError::from(e))?;
         tokio::time::sleep( Duration::from_secs(2)).await;
         println!("action called with data={data} and x={x}");
-        action_ok()
+        Ok(())
     });
 
     //da.execute("DA".to_string()).await;

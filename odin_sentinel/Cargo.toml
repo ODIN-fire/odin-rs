@@ -7,6 +7,10 @@ build = "../build_resources.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
+name = "show_sentinels"
+path = "src/bin/show_sentinels.rs"
+
+[[bin]]
 name = "get_sentinels"
 path = "src/bin/get_sentinels.rs"
 
@@ -42,6 +46,8 @@ odin_cesium = { workspace = true }
 odin_job = { workspace = true }
 odin_common = { workspace = true }
 odin_macro = { workspace = true }
+
+axum = { workspace = true }
 
 tracing = "*"
 anyhow = "*"

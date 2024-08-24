@@ -24,6 +24,10 @@ pub fn epoch_millis ()->i64 {
     now.timestamp_millis()
 }
 
+pub fn to_epoch_millis<Tz> (date: DateTime<Tz>)->i64 where Tz: TimeZone {
+    date.timestamp_millis()
+}
+
 /// return the full hour for given DateTime (minutes, seconds and nanos all zeroed)
 pub fn full_hour<Tz:TimeZone> ( dt: DateTime<Tz>)->DateTime<Tz> {
     dt.with_minute(0).unwrap().with_second(0).unwrap().with_nanosecond(0).unwrap()
@@ -61,6 +65,19 @@ pub fn naive_local_date_to_utc_datetime (nd: NaiveDate) -> Option<DateTime<Utc>>
 pub fn ser_short_rfc3339<S: Serializer> (dt: &DateTime<Utc>, s: S) -> Result<S::Ok, S::Error>  {
     let dfm = format!("{}", dt.format("%Y-%m-%dT%H:%M:%S%Z"));
     s.serialize_str(&dfm)
+}
+
+pub fn ser_epoch_millis<S: Serializer> (dt: &DateTime<Utc>, s: S) -> Result<S::Ok, S::Error>  {
+    s.serialize_i64(dt.timestamp_millis())
+}
+
+/// NOTE if the option is None and this should not be serialized as 0 the field has to have a #[serde(skip_serializing_if="Options::is_none")] attribute
+pub fn ser_epoch_millis_option<S: Serializer> (opt: &Option<DateTime<Utc>>, s: S) -> Result<S::Ok, S::Error>  {
+    if let Some(dt) = opt {
+        s.serialize_i64(dt.timestamp_millis())
+    } else {
+        s.serialize_i64(0)
+    }
 }
 
 pub fn deserialize_duration <'a,D>(deserializer: D) -> Result<Duration,D::Error>

@@ -38,6 +38,9 @@ odin_job    = { version = "*", path = "odin_job" }
 odin_server = { version = "*", path = "odin_server" }
 odin_cesium = { version = "*", path = "odin_cesium" }
 
+# external crates for which we have to ensure the same version
+axum = "0.7.5"
+
 [profile.release]
 
 codegen-units = 1

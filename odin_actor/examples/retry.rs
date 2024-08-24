@@ -163,7 +163,7 @@ async fn main ()->Result<()> {
     let client = spawn_actor!( actor_system, "client", 
         WsServer::new( 
             data_action!( provider.to_actor_handle(): ActorHandle<ProviderMsg> => 
-                              |addr:TAddr| provider.try_send_msg( ExecSnapshotAction{client_data: addr.clone()}))
+                              |addr:TAddr| Ok( provider.try_send_msg( ExecSnapshotAction{client_data: addr.clone()})? ))
         ),
         1 // give the actor a really small queue so that we can saturate it
     )?;
@@ -173,7 +173,7 @@ async fn main ()->Result<()> {
         Provider::new(
             data_action!( client.clone(): ActorHandle<WsServerMsg> => |data: TProviderUpdate| {
                 let msg = PublishUpdate{ws_msg: format!("{{\"update\": \"{data}\"}}")}; // construct client message from provider data
-                client.try_send_msg( msg)
+                Ok( client.try_send_msg( msg)? )
             }),
             bi_dataref_action!( client.clone(): ActorHandle<WsServerMsg> => |data: &TProviderSnapshot, req:TRequest| {
                 let addr = req.clone();
@@ -186,9 +186,9 @@ async fn main ()->Result<()> {
                         // at the time this will succeed, which means all updates in-between original request and success
                         // would be lost. Just sending a control message to the client also means we don't have to clone
                         // a potentially huge message
-                        client.retry_send_msg( 5, millis(300), ExecNewRequest{addr})
+                        Ok( client.retry_send_msg( 5, millis(300), ExecNewRequest{addr})? )
                     }
-                    other => other
+                    other => Ok( other? )
                 }
             })     
         )

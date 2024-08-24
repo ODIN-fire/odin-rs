@@ -11,6 +11,9 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
+
+// the ecmascript module that is our CesiumJS interface. Not this is an async module
+
 import { config } from "./odin_cesium_config.js";
 import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
@@ -18,7 +21,6 @@ import * as ws from "../odin_server/ws.js";
 
 const MODULE_PATH = util.asset_path(import.meta.url);
 
-window.addPostExec( postExec);
 ws.addWsHandler( MODULE_PATH, handleWsMessages);
 
 const UI_POSITIONS = "race-ui-positions";
@@ -171,25 +173,12 @@ viewer.scene.postRender.addEventListener(function() {
 
 setHomeView();
 
-var terrainProviderPromise = undefined; // set in postExec
+var terrainProviderPromise = undefined; // set in postInitialize
 var topoTerrainProvider = undefined;
 
 console.log("ui_cesium initialized");
 
 //--- end initialization
-
-// executed after all modules have been loaded and initialized
-export function postExec() {
-    initModuleLayerViewData();
-
-    terrainProviderPromise = getTerrainProviderPromise();
-    terrainProviderPromise.then( (tp) => { 
-        console.log("topoTerrainProvider set: ", tp);
-        topoTerrainProvider = tp;
-        console.log("topographic terrain loaded");
-    });
-    console.log("odin_cesium.postExec complete.");
-}
 
 function showContext() {
     let canvas = viewer.canvas;
@@ -809,7 +798,7 @@ function handleWsMessages(msgType, msg) {
     switch (msgType) {
         case "camera":
             handleCameraMessage(msg.camera);
-        case "SetClock":
+        case "clock":
             handleSetClock(msg);
     }
 }
@@ -1309,4 +1298,28 @@ export function cartesian3ArrayFromDegreesRect (rect, arr=null) {
 
 export function withinRect(latDeg, lonDeg, degRect) {
     return (lonDeg >= degRect.west) && (lonDeg <= degRect.east) && (latDeg >= degRect.south) && (latDeg <= degRect.north);
+}
+
+export function getHprFromQuaternion (qx, qy, qz, w) {
+    let q = new Cesium.Quaternion( qx, qy, qz, w);
+    return Cesium.HeadingPitchRoll.fromQuaternion(q);
+}
+
+export function getEnuRotFromQuaternion (qx, qy, qz, w) {
+    let q = new Cesium.Quaternion( qx, qy, qz, w);
+    let qRot = Cesium.Quaternion.inverse(q, new Cesium.Quaternion());
+    return Cesium.Matrix3.fromQuaternion( qRot);
+}
+
+// executed after all modules have been loaded and initialized
+export function postInitialize() {
+    initModuleLayerViewData();
+
+    terrainProviderPromise = getTerrainProviderPromise();
+    terrainProviderPromise.then( (tp) => { 
+        console.log("topoTerrainProvider set: ", tp);
+        topoTerrainProvider = tp;
+        console.log("topographic terrain loaded");
+    });
+    console.log("odin_cesium.postInitialize complete.");
 }

@@ -51,12 +51,12 @@ async_main! {
         LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
         dataref_action!( hmonitor.clone(): ActorHandle<SentinelMonitorMsg> => |data:&SentinelStore| {
             let msg = Snapshot(data.to_json_pretty().unwrap());
-            hmonitor.try_send_msg( msg)
+            Ok( hmonitor.try_send_msg( msg)? )
         }),
-        data_action!( hmonitor: ActorHandle<SentinelMonitorMsg> => |data:SentinelUpdate| {
-            //let msg = Update(data.to_json_pretty().unwrap());
-            let msg = Update(data.description());
-            hmonitor.try_send_msg( msg)
+        data_action!( hmonitor: ActorHandle<SentinelMonitorMsg> => |update:SentinelUpdate| {
+            //let msg = Update( odin_server::ws_msg!( "odin_sentinel.js", update).to_json()? );
+            let msg = Update(update.description());
+            Ok( hmonitor.try_send_msg( msg)? )
         }),
     ))?;
 

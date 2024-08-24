@@ -17,8 +17,7 @@ use std::net::SocketAddr;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade, CloseFrame},
     response::{Response,IntoResponse},
-    routing::get,
-    Router,
+    routing::{Router,get},
     extract::connect_info::ConnectInfo
 };
 use futures::{sink::SinkExt, stream::StreamExt};
@@ -42,7 +41,7 @@ impl SpaService for WsService {
         spa.add_assets( self_crate!(), load_asset);
         spa.add_module( asset_uri!("ws.js"));
 
-        spa.add_route( |router: Router, spa_server_state: SpaServerState| {
+        spa.add_route( |router, spa_server_state| {
             router.route( &format!("/{}/ws", spa_server_state.name.as_str()), get( {
                 let state = spa_server_state.clone();
                 move |ws: WebSocketUpgrade, ci: ConnectInfo<SocketAddr>| { ws_handler(ws, ci, state) }
@@ -72,16 +71,19 @@ use std::any::type_name;
 
 
 pub struct WsMsg<T> where T: Serialize {
-    pub js_module: String,
+    pub crate_name: &'static str,
+    pub js_module: &'static str,
+    pub payload_name: &'static str,
     pub payload: T
 }
 
 impl <T>  WsMsg<T> where T: Serialize {
-    pub fn new (js_module: impl ToString, payload: T)->Self { 
-        WsMsg {
-            js_module: js_module.to_string(),
-            payload
-        }
+    pub fn new (crate_name: &'static str, js_module: &'static str, payload_name: &'static str, payload: T)->Self { 
+        WsMsg {crate_name, js_module, payload_name, payload}
+    }
+
+    pub fn to_json (&self)->OdinServerResult<String> {
+        Ok( serde_json::to_string( &self)? )
     }
 }
 
@@ -90,28 +92,31 @@ impl <T> Serialize for WsMsg<T> where T: Serialize {
     where
         S: Serializer,
     {
-        let mut ft = type_name::<T>();
-        if let Some(idx) = ft.rfind(':') {
-            ft = &ft[idx+1..];
-        }
+        let js_mod_path = format!("{}/{}", self.crate_name, self.js_module);
 
         let mut state = serializer.serialize_struct("WsMsg", 2)?;
-        state.serialize_field("mod", &self.js_module)?;
-        state.serialize_field(ft, &self.payload)?;
+        state.serialize_field("mod", &js_mod_path)?;
+        state.serialize_field( &self.payload_name, &self.payload)?;
         state.end()
     }
 }
 
-pub fn to_json<T> (js_module: impl ToString, payload: T)->OdinServerResult<String> where T: Serialize {
-    let ws_msg = WsMsg::new( js_module, payload);
-    Ok(serde_json::to_string(&ws_msg)?)
+#[macro_export]
+macro_rules! ws_msg {
+    ($js_module:literal, $p:ident) => {
+        odin_server::ws_service::WsMsg::new( env!("CARGO_PKG_NAME"), $js_module, stringify!($p), $p)
+    };
+
+    ($crate_name:literal, $js_module:literal, $p:ident) => {
+        odin_server::ws_service::WsMsg::new( $crate_name, $js_module, stringify($p), $p)
+    }
 }
 
-/// syntactic sugar for structs we want to send to web sockets
-/// this is not providing additional features like the general define_struct - it just adds the required serde macros
+/// syntactic sugar for payload structs we want to send over web sockets
+/// This does not provide additional features like the general `define_struct!{..}` macro - it just adds the required serde macros
 /// and uses the serde re-export from odin_server so that callers don't have to take care of it
 #[macro_export]
-macro_rules! define_ws_struct {
+macro_rules! define_ws_payload {
     ($svis:vis $sname:ident = $( $fvis:vis $fname:ident : $ftype:ty ),*) => {
         #[derive(serde::Serialize)]
         #[serde(rename_all="camelCase")]
@@ -120,6 +125,5 @@ macro_rules! define_ws_struct {
         }
     }
 }
-pub use define_ws_struct;
 
 /* #endregion WsMsg serialization */

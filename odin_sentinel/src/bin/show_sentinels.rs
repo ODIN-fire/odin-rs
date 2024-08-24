@@ -13,12 +13,13 @@
  */
 
 use tokio;
- use anyhow::Result;
+use anyhow::Result;
+use std::any::type_name;
 
 use odin_build;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
-use odin_sentinel::{SentinelUpdate,LiveSentinelConnector,SentinelActor,load_config, web::SentinelService};
+use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor,load_config, web::SentinelService};
 
 
 #[tokio::main]
@@ -35,13 +36,16 @@ async fn main()->Result<()> {
             .build()
     ))?;
 
-    
     let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
         LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
-        no_dataref_action(),
-        data_action!( hserver: ActorHandle<SpaServerMsg> => |data:SentinelUpdate| {
-            let data = map_action_err( data.to_json())?;
-            hserver.try_send_msg( BroadcastWsMsg{data})
+        dataref_action!( hserver.clone(): ActorHandle<SpaServerMsg> => |_store: &SentinelStore| {
+            // we could directly send a BroadcastWsMsg here but if there are no connections yet that would 
+            // create a potentially large WsMsg for naught
+            Ok( hserver.try_send_msg( DataAvailable{sender_id:"updater",data_type: type_name::<SentinelStore>()} )? )
+        }),
+        data_action!( hserver: ActorHandle<SpaServerMsg> => |update:SentinelUpdate| {
+            let data = ws_msg!("odin_sentinel.js",update).to_json()?;
+            Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
         }),
     ))?;
     

@@ -333,7 +333,9 @@ impl LiveConnection {
                                         device_id: &str, sensor_no: u32, latest_recs: &mut HashMap<String,String>,
                                         cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest> ) -> Result<()>  
     {
-        let rec = get_latest_record::<ImageData>(client, &config.base_uri, &config.access_token, device_id, sensor_no).await?;
+        let mut rec = get_latest_record::<ImageData>(client, &config.base_uri, &config.access_token, device_id, sensor_no).await?;
+        rec.set_local_filename();
+
         Self::request_image_file( config, cache_dir, file_request_tx, &rec).await?;
         let update = SentinelUpdate::from(Arc::new(rec));
         Self::update_latest_recs( latest_recs, &update);
@@ -402,7 +404,9 @@ impl LiveConnection {
                                       cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest> ) -> Result<()> 
     {
         let recs = get_records_since::<ImageData>(client, &config.base_uri, &config.access_token, uri_path, last).await?;
-        for rec in recs.into_iter() {
+        for mut rec in recs.into_iter() {
+            rec.set_local_filename();
+
             Self::request_image_file( config, cache_dir, file_request_tx, &rec).await?;
             let update = SentinelUpdate::from(Arc::new(rec));
             Self::update_latest_recs( latest_recs, &update);
@@ -427,8 +431,8 @@ impl LiveConnection {
     {
         let record_id = rec.id.clone();
         let uri = get_image_uri( &config.base_uri, &record_id);
-        //let pathname = cache_dir.join( &rec.data.filename);  // @@@ remove
-        let pathname = cache_dir.join( &rec.odin_filename());
+        // it would be easier if we would only have one meaningful filename
+        let pathname = if let Some(local_name) = &rec.data.local_filename { cache_dir.join( local_name) } else { cache_dir.join( &rec.odin_filename())};
         let sentinel_file = SentinelFile { record_id, pathname };
         let req = FileRequest { uri, sentinel_file, query: None };
 
@@ -455,8 +459,9 @@ impl LiveConnection {
         let interval = minutes(60); // should we configure this?
 
         loop {
-            sleep(interval).await;
+            // remove first so that frequent short runs that don't hit the interval do not accumulate
             remove_old_files( cache_dir.as_ref(), config.max_age);
+            sleep(interval).await;
         }
         Ok(())
     }

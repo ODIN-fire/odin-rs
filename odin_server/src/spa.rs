@@ -21,7 +21,7 @@ use std::{boxed, collections::HashMap, sync::{Arc,Mutex},
 use axum::{
     http::{Uri,StatusCode},
     body::Body,
-    routing::get, Router,
+    routing::{Router,get},
     extract::{Path, Query, RawQuery, Request, State, connect_info::ConnectInfo},
     middleware::map_request,
     response::{Response,IntoResponse,Html},
@@ -71,12 +71,18 @@ pub trait SpaService: Send + Sync + 'static {
     /// NOTE: this is called from within the actor loop of the server, i.e. we should NOT await message sends
     /// to the server from within init_connection() implementations as this might deadlock if the server mailbox is full.
     /// Directly send websocket messages through `conn.send(..)` in this case (which is also more efficient)
-    async fn init_connection (&self, hself: &ActorHandle<SpaServerMsg>, conn: &mut SpaConnection) -> OdinServerResult<()> {
+    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, conn: &mut SpaConnection) -> OdinServerResult<()> {
+        Ok(())
+    }
+
+    /// can be used to broadcast newly available data to all connections. This is useful if the ws messages to be sent
+    /// would be expensive to create and/or we want to store availability state (hence `&mut self`)
+    async fn data_available (&mut self, hself: &ActorHandle<SpaServerMsg>, sender_id: &'static str, data_type: &'static str)-> OdinServerResult<()> {
         Ok(())
     }
 
     /// called from ws input task of respective connection
-    async fn handle_incoming_ws_msg (&mut self, msg: Arc<String>) -> OdinServerResult<()> {
+    async fn handle_incoming_ws_msg (&mut self, msg: String) -> OdinServerResult<()> {
         Ok(())
     }
 }
@@ -329,7 +335,13 @@ impl SpaServer {
 
             spawn( &name, async move {
                 while let Some(Ok(msg)) = ws_receiver.next().await {
-                    // TBD
+                    match msg.into_text() {
+                        Ok(msg) => {
+                            println!("@@ received ws: {}", msg)
+                        }
+                        Err(e) => println!("ignoring binary message")
+                    }
+                    
                 }
                 hself.send_msg( RemoveConnection{remote_addr}).await;
             })?
@@ -339,7 +351,7 @@ impl SpaServer {
         self.connections.insert( raddr, conn);
         let conn_ref = self.connections.get_mut( &raddr).unwrap();
 
-        for svc in &self.services { // tell services to send their initial data
+        for svc in self.services.iter_mut() { // tell services to send their initial data
             svc.init_connection( &hself, conn_ref).await.map_err(|e| connect_error(e))?;
         }
 
@@ -351,6 +363,12 @@ impl SpaServer {
     }
 
     // TODO - these should use timeouts (we can't have a connection block the server)
+
+    async fn data_available (&mut self, hself: ActorHandle<SpaServerMsg>, sender_id: &'static str, data_type: &'static str) {
+        for svc in self.services.iter_mut() {
+            svc.data_available( &hself, sender_id, data_type).await;
+        }
+    }
 
     // called when receiving a BroadcastWsMsg message
     async fn broadcast_ws_msg (&mut self, m: String) {
@@ -394,6 +412,12 @@ pub struct RemoveConnection {
 }
 
 #[derive(Debug)]
+pub struct DataAvailable {
+    pub sender_id: &'static str,
+    pub data_type: &'static str,
+}
+
+#[derive(Debug)]
 pub struct BroadcastWsMsg { 
     pub data: String 
 }
@@ -404,7 +428,7 @@ pub struct SendWsMsg {
     pub data: String 
 }
 
-define_actor_msg_set! { pub SpaServerMsg = AddConnection | BroadcastWsMsg | SendWsMsg | RemoveConnection }
+define_actor_msg_set! { pub SpaServerMsg = AddConnection | DataAvailable | BroadcastWsMsg | SendWsMsg | RemoveConnection }
 
 impl_actor! { match msg for Actor<SpaServer,SpaServerMsg> as
     _Start_ => cont! { 
@@ -414,6 +438,10 @@ impl_actor! { match msg for Actor<SpaServer,SpaServerMsg> as
     AddConnection => cont! {
         let hself = self.hself.clone();
         self.add_connection( hself, msg.remote_addr, msg.ws).await;
+    }
+    DataAvailable => cont! {
+        let hself = self.hself.clone();
+        self.data_available( hself, msg.sender_id, msg.data_type).await;
     }
     BroadcastWsMsg => cont! {
         self.broadcast_ws_msg( msg.data).await;
@@ -475,7 +503,6 @@ define_struct! { pub SpaComponents =
     assets: HashMap<&'static str, fn(&str)->std::result::Result<Bytes,OdinBuildError>> = HashMap::new()
 }
 
-
 impl SpaComponents {
 
     pub fn from (services: &Vec<Box<dyn SpaService>>)->OdinServerResult<SpaComponents> {
@@ -530,7 +557,6 @@ impl SpaComponents {
 
         write!( buf, "<title>{name}</title>\n");
         write!( buf, "<base href=\"{}/\">\n", name);
-        write!( buf, "<script>window.postExec = []; window.addPostExec = function (f){{window.postExec.push(f);}}</script>\n");
 
         for item in &self.header_items {
             item.append_html(&mut buf);
@@ -543,8 +569,7 @@ impl SpaComponents {
             write!( buf, "{frag}\n");
         }
 
-        write!(buf, "<script type=\"module\">window.postExec.forEach( (f) => f() );</script>\n");
-        //self.post_init_js_modules(&mut buf);
+        self.post_init_js_modules(&mut buf);
 
         write!( buf, "</body>\n");
         write!( buf, "</html>\n");
@@ -552,18 +577,6 @@ impl SpaComponents {
         buf
     }
 
-    /// add async module post-init code as a generated script in the form
-    /// 
-    /// ```
-    /// import * as mod_name from mod_name.js;
-    /// ...
-    /// if (mod_name.postExec) mod_name.postExec();
-    /// ...
-    /// console.log("js modules initialized");
-    /// ```
-    /// 
-    /// note that imports have to occur first so that all modules have been initialized when
-    /// we call postExec() for any of them
     fn post_init_js_modules (&self, buf: &mut String) {
         let module_uris: Vec<&str> = self.header_items.iter()
             .filter_map( |e| if let HeaderItem::Module(uri) = e {Some(uri.as_str())} else {None})
@@ -572,17 +585,13 @@ impl SpaComponents {
         if !module_uris.is_empty() {
             write!( buf, "<script type=\"module\">\n");
 
-            for uri in &module_uris { // 1st pass - import
+            for uri in &module_uris { 
                 let mod_name = get_file_basename(uri).unwrap();
                 write!( buf, "import * as {mod_name} from '{uri}';\n");
+                write!( buf, "if ({mod_name}.postInitialize) {{ {mod_name}.postInitialize(); }}\n");
             }
 
-            for uri in &module_uris { // 2nd pass - call postExec()
-                let mod_name = get_file_basename(uri).unwrap();
-                write!( buf, "if ({mod_name}.postExec) {mod_name}.postExec();\n");
-            }
-
-            write!( buf, "console.log('js modules initialized');\n");
+            write!( buf, "console.log('all js modules initialized');\n");
             write!( buf, "</script>\n");
         }
     }

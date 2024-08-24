@@ -26,7 +26,7 @@ define_load_asset!{}
 
 /* #region CesiumService *************************************************************************************/
 
-define_ws_struct!{ SetClock =
+define_ws_payload!{ SetClock =
     time: i64,
     time_scale: f32
 }
@@ -69,8 +69,9 @@ impl SpaService for CesiumService {
         Ok(())
     }
 
-    async fn init_connection (&self, hself: &ActorHandle<SpaServerMsg>, conn: &mut SpaConnection) -> OdinServerResult<()> {
-        let msg = to_json( "odin_cesium/odin_cesium.js", SetClock{time: epoch_millis(), time_scale: 1.0})?;
+    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, conn: &mut SpaConnection) -> OdinServerResult<()> {
+        let clock = SetClock{time: epoch_millis(), time_scale: 1.0};
+        let msg = ws_msg!( "odin_cesium.js", clock).to_json()?;
         conn.send(msg).await;
         Ok(())
     }

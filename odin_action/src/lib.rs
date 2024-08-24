@@ -15,8 +15,8 @@
 
 #[doc = include_str!("../doc/odin_action.md")]
 
-use std::{fmt::Debug, marker::PhantomData, future::{Future,ready}, 
-    any::{type_name,type_name_of_val}, ops::{Deref,DerefMut},
+use std::{fmt::Debug, marker::PhantomData, future::{Future,ready}, result::Result,
+    any::type_name, ops::{Deref,DerefMut},
 };
 pub use async_trait::async_trait;
 
@@ -30,54 +30,41 @@ pub fn abbrev_type_name<T>()->String {
     }
 }
 
-/// wrapper error type for actions.
-/// We do need a dedicated error type for actions so that they can be easily mapped or coerced within
-/// client modules such as odin_actor.
-/// However, we also want to support arbitrary Results within the client-side defined action expression,
-/// which should allow the '?' operator. Hence we have to be able to generate OdinActionErrors from anything 
-/// that implements Error. 
-pub struct OdinActionError {
-    pub(crate) msg: String,
-    pub(crate) src: String
-}
+/// wrapper type for action `Result` errors.
+/// We do need a single `Result` error type for actions so that we can have homogenous collections of Action instances
+/// of the same argument type. 
+/// We also want to support the ? operator in execute() bodies without having to explicitly `map_err(..)` all error types 
+/// we can encounter. 
+/// 
+/// Enforcing the same generic error type for all actions in such a collection would be too restrictive unless we can have
+/// a blanket `impl From<T>` for our error type. Unfortunately we can't have `impl std::error::Error for OdinActionFailure`
+/// and a `impl<T:Error> From<T> for OdinActionFailure` at the same time so `OdinActionFailure` does **not** 
+/// impl `std::error::Error`
+pub struct OdinActionFailure(pub String);
 
-impl OdinActionError {
-    pub fn from<E> (e: E)->Self where E: ToString {
-        OdinActionError { 
-            msg: e.to_string(),
-            src: std::any::type_name_of_val(&e).to_string()
-        }
+impl<T> From<T> for OdinActionFailure where T: std::fmt::Display {
+    fn from (e:T)->Self {
+        OdinActionFailure(e.to_string())
     }
 }
 
-// we can't impl From<E> here since OdinActionError has a Error impl itself (which also implies ToString)
-
-impl std::fmt::Debug for OdinActionError {
+impl std::fmt::Debug for OdinActionFailure {
     fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "OdinActionError({}): {}", self.src, self.msg)
+        write!(f, "OdinActionError(\"{}\")", self.0)
     }
 }
 
-impl std::fmt::Display for OdinActionError {
+impl ToString for OdinActionFailure {
+    fn to_string(&self)->String { format!("{:?}", self) }
+}
+
+/*
+impl std::fmt::Display for OdinActionFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "action failed: {}", self.msg)
+        write!(f, "action failed: {}", self.0)
     }
 }
-
-impl std::error::Error for OdinActionError {
-}
-
-#[inline]
-pub fn map_action_err<T,E> (r: std::result::Result<T,E>)->std::result::Result<T,OdinActionError> where E: ToString {
-    r.map_err( |e| OdinActionError{ msg: e.to_string(), src: type_name_of_val(&e).to_string()})
-}
-
-pub fn action_err (msg: impl ToString)->std::result::Result<(),OdinActionError> {
-    Err(OdinActionError{ msg: msg.to_string(), src: "".to_string()})
-}
-
-#[inline]
-pub fn action_ok()->std::result::Result<(),OdinActionError> { Ok(()) }
+*/
 
 
 /* #region DataAction ************************************************************************/
@@ -86,7 +73,7 @@ pub fn action_ok()->std::result::Result<(),OdinActionError> { Ok(()) }
 /// This is used as a type constraint for types that represent parameterized async actions taking
 /// a single data argument.
 pub trait DataAction<T>: Debug + Send {
-    fn execute (&self, data: T) -> impl std::future::Future<Output = std::result::Result<(),OdinActionError>> + Send;
+    fn execute (&self, data: T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send;
 }
 
 /// macro to define and instantiate ad hoc action types that clone-capture local vars and take a single
@@ -94,13 +81,13 @@ pub trait DataAction<T>: Debug + Send {
 #[macro_export]
 macro_rules! data_action {
     ( $( $v:ident $(. $op:ident ())? : $v_type:ty ),* => |$data:ident : $data_type:ty| $e:expr ) => {
-        {
+        {            
             struct SomeDataAction { $( $v: $v_type ),* }
 
             impl DataAction<$data_type> for SomeDataAction {
-                async fn execute (&self, $data : $data_type) -> std::result::Result<(),OdinActionError> {
+                async fn execute (&self, $data : $data_type) -> std::result::Result<(),OdinActionFailure> {
                     $( let $v = &self. $v;)*
-                    map_action_err($e)
+                    $e
                 }
             }
             impl std::fmt::Debug for SomeDataAction {
@@ -118,7 +105,7 @@ macro_rules! data_action {
 pub struct NoDataAction<T> where T: Send { _phantom: PhantomData<T> }
 
 impl<T> DataAction<T> for NoDataAction<T> where T: Send {
-    fn execute (&self, _data: T) -> impl Future<Output = std::result::Result<(),OdinActionError>> + Send { ready(Ok(()) )}
+    fn execute (&self, _data: T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send { ready(Ok(()) )}
 }
 impl<T> Debug for NoDataAction<T> where T: Send {
     fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -135,7 +122,7 @@ pub fn no_data_action<T>()->NoDataAction<T> where T: Send { NoDataAction { _phan
 /// that captures the bidata. `BiDataAction` is a way to avoid the associated runtime cost of dyn actions
 /// if requester and actor both know the bidata type and the requester can pass it in through a message.
 pub trait BiDataAction<T,A>: Debug + Send {
-    fn execute (&self, data: T, bidata: A) -> impl std::future::Future<Output = std::result::Result<(),OdinActionError>> + Send;
+    fn execute (&self, data: T, bidata: A) -> impl Future<Output = Result<(),OdinActionFailure>> + Send;
 }
 
 /// macro to define and instantiate ad hoc actions taking two data arguments.
@@ -147,7 +134,7 @@ macro_rules! bi_data_action {
             struct SomeBiDataAction { $( $v: $v_type ),* }
 
             impl BiDataAction<$data_type,$bidata_type> for SomeBiDataAction {
-                async fn execute (&self, $data : $data_type, $bidata : $anned_type) -> std::result::Result<(),OdinActionError> {
+                async fn execute (&self, $data : $data_type, $bidata : $anned_type) -> std::result::Result<(),OdinActionFailure {
                     $( let $v = &self. $v;)*
                     map_action_err($e)
                 }
@@ -167,7 +154,7 @@ macro_rules! bi_data_action {
 pub struct NoBiDataAction<T,A> where T: Send, A: Send { _phantom1: PhantomData<T>, _phantom2: PhantomData<A> }
 
 impl<T,A> BiDataAction<T,A> for NoBiDataAction<T,A> where T: Send, A: Send {
-    fn execute (&self, _data: T, _bidata: A) -> impl std::future::Future<Output = std::result::Result<(),OdinActionError>> + Send { ready(Ok(()) )}
+    fn execute (&self, _data: T, _bidata: A) -> impl Future<Output = Result<(),OdinActionFailure>> + Send { ready(Ok(()) )}
 }
 impl<T,A> Debug for NoBiDataAction<T,A> where T: Send, A: Send {
     fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -183,7 +170,7 @@ pub fn no_bi_data_action<T,A>()->NoBiDataAction<T,A>  where T: Send, A: Send {
 /// Note: this has per-execution runtime cost as the returned future needs to be pinboxed
 #[async_trait]
 pub trait DynDataActionTrait<T>: Debug + Send + Sync {
-    async fn execute (&self, data: T) -> std::result::Result<(),OdinActionError>;
+    async fn execute (&self, data: T) -> Result<(),OdinActionFailure>;
 }
 
 /// a type alias for a boxed [`DynDataActionTrait<T>`] trait object, used to send and store respective actions. 
@@ -202,9 +189,9 @@ macro_rules! dyn_data_action {
 
             #[async_trait]
             impl odin_action::DynDataActionTrait<$data_type> for SomeDynDataAction {
-                async fn execute (&self, $data : $data_type) -> std::result::Result<(),OdinActionError> {
+                async fn execute (&self, $data : $data_type) -> std::result::Result<(),OdinActionFailure> {
                     $( let $v = &self. $v;)*
-                    map_action_err($e)
+                    $e
                 }
             }
             impl std::fmt::Debug for SomeDynDataAction {
@@ -225,7 +212,7 @@ macro_rules! dyn_data_action {
 
 /// analoguous to [`DataAction<T>`] trait but taking a reference argument 
 pub trait DataRefAction<T>: Debug + Send {
-    fn execute (&self, data: &T) -> impl std::future::Future<Output = std::result::Result<(),OdinActionError>> + Send;
+    fn execute (&self, data: &T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send;
 }
 
 /// macro to define and instantiate ad hoc actions taking a single reference argument. 
@@ -237,9 +224,9 @@ macro_rules! dataref_action {
             struct SomeDataRefAction { $( $v: $v_type ),* }
 
             impl DataRefAction<$data_type> for SomeDataRefAction {
-                async fn execute (&self, $data : & $data_type) -> std::result::Result<(),OdinActionError> {
+                async fn execute (&self, $data : & $data_type) -> std::result::Result<(),OdinActionFailure> {
                     $( let $v = &self. $v;)*
-                    map_action_err($e)
+                    $e
                 }
             }
             impl std::fmt::Debug for SomeDataRefAction {
@@ -258,7 +245,7 @@ macro_rules! dataref_action {
 pub struct NoDataRefAction<T> where T: Send { _phantom: PhantomData<T> }
 
 impl<T> DataRefAction<T> for NoDataRefAction<T> where T: Send {
-    fn execute (&self, _data: &T) -> impl std::future::Future<Output = std::result::Result<(),OdinActionError>> + Send { ready(Ok(()) )}
+    fn execute (&self, _data: &T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send { ready(Ok(()) )}
 }
 impl<T> Debug for NoDataRefAction<T> where T: Send {
     fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -273,7 +260,7 @@ pub fn no_dataref_action<T>()->NoDataRefAction<T> where T: Send { NoDataRefActio
 /// that captures the bidata value from its definition site. `BiDataRefAction` is a way to avoid the associated
 /// runtime cost if requester and owner both know the bidata type and the requester can pass it in through a message.
 pub trait BiDataRefAction<T,A>: Debug + Send {
-    fn execute (&self, data: &T, bidata: A) -> impl std::future::Future<Output = std::result::Result<(),OdinActionError>> + Send;
+    fn execute (&self, data: &T, bidata: A) -> impl Future<Output = Result<(),OdinActionFailure>> + Send;
 }
 
 /// macro to define and instantiate ad hoc actions taking two data arguments (of which the first is a reference).
@@ -285,9 +272,9 @@ macro_rules! bi_dataref_action {
             struct SomeBiDataRefAction { $( $v: $v_type ),* }
 
             impl BiDataRefAction<$data_type,$bidata_type> for SomeBiDataRefAction {
-                async fn execute (&self, $data : & $data_type, $bidata : $bidata_type) -> std::result::Result<(),OdinActionError> {
+                async fn execute (&self, $data : & $data_type, $bidata : $bidata_type) -> std::result::Result<(),OdinActionFailure> {
                     $( let $v = &self. $v;)*
-                    map_action_err($e)
+                    $e
                 }
             }
             impl std::fmt::Debug for SomeBiDataRefAction {
@@ -306,7 +293,7 @@ macro_rules! bi_dataref_action {
 pub struct NoBiDataRefAction<T,A>  where T: Send, A: Send { _phantom1: PhantomData<T>, _phantom2: PhantomData<A> }
 
 impl<T,A> BiDataRefAction<T,A> for NoBiDataRefAction<T,A>  where T: Send, A: Send {
-    fn execute (&self, _data: &T, _bidata: A) -> impl std::future::Future<Output = std::result::Result<(),OdinActionError>> + Send { ready(Ok(()) )}
+    fn execute (&self, _data: &T, _bidata: A) -> impl Future<Output = Result<(),OdinActionFailure>> + Send { ready(Ok(()) )}
 }
 impl<T,A> Debug for NoBiDataRefAction<T,A>  where T: Send, A: Send {
     fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -323,7 +310,7 @@ pub fn no_bi_dataref_action<T,A>()->NoBiDataRefAction<T,A>  where T: Send, A: Se
 /// [`DynDataRefAction<T>`] type
 #[async_trait]
 pub trait DynDataRefActionTrait<T>: Debug + Send + Sync {
-    async fn execute (&self, data: &T) -> std::result::Result<(),OdinActionError>;
+    async fn execute (&self, data: &T) -> Result<(),OdinActionFailure>;
 }
 
 /// analoguous to [`DynDataAction<T>`] type but executing with a `&T` data reference
@@ -344,9 +331,9 @@ macro_rules! dyn_dataref_action {
 
             #[async_trait]
             impl DynDataRefActionTrait<$data_type> for SomeDynDataRefAction {
-                async fn execute (&self, $data : & $data_type) -> std::result::Result<(),OdinActionError> {
+                async fn execute (&self, $data : & $data_type) -> std::result::Result<(),OdinActionFailure> {
                     $( let $v = &self. $v;)*
-                    map_action_err($e)
+                    $e
                 }
             }
             impl std::fmt::Debug for SomeDynDataRefAction {
@@ -375,7 +362,7 @@ impl <T> DynDataActionList<T> where T: Clone {
         DynDataActionList{ entries: Vec::new() } 
     }
     
-    pub async fn execute (&self, data: T, ignore_err: bool) -> std::result::Result<(),OdinActionError> {
+    pub async fn execute (&self, data: T, ignore_err: bool) -> Result<(),OdinActionFailure> {
         if !self.is_empty() {
             let n = self.entries.len()-1;
             if ignore_err {
@@ -414,7 +401,7 @@ impl <T> DynDataRefActionList<T> where T: Send + Sync {
         DynDataRefActionList{ entries: Vec::new() }
     }
 
-    pub async fn execute (&self, data: &T, ignore_err: bool) -> std::result::Result<(),OdinActionError> {
+    pub async fn execute (&self, data: &T, ignore_err: bool) -> Result<(),OdinActionFailure> {
         if ignore_err {
             for e in &self.entries {
                 let _ = e.execute(data).await;
