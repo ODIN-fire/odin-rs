@@ -33,32 +33,8 @@ define_load_asset!{}
 /// get `Response` for given asset
 /// NOTE - this has to be kept in sync with `odin_build` compression (which happens automatically)
 pub fn get_asset_response (pathname: &str, bytes: Bytes) -> Response<Body> {
-    match odin_build::extension(pathname) {
-        Some("js")    => build_ok_response( "text/javascript", Some("br"), bytes),
-        Some("css")   => build_ok_response( "text/css", Some("br"), bytes),
-        Some("html")  => build_ok_response( "text/html", Some("br"), bytes),
-        Some("json")  => build_ok_response( "application/json", Some("br"), bytes),
-        Some("svg")   => build_ok_response( "image/svg+xml", Some("br"), bytes),
-
-        Some("xml")   => build_ok_response( "application/xml", Some("br"), bytes),
-        Some("csv")   => build_ok_response( "text/csv", Some("br"), bytes),
-        Some("txt")   => build_ok_response( "text/plain", Some("br"), bytes),
-
-        Some("jpeg")  => build_ok_response( "image/jpeg", None, bytes),
-        Some("png")   => build_ok_response( "image/png", None, bytes),
-        Some("webp")  => build_ok_response( "image/webp", None, bytes),
-        Some("tif")   => build_ok_response( "image/tif", None, bytes),
-
-        Some("mp4")   => build_ok_response( "video/mp4", None, bytes),
-        Some("mpeg")  => build_ok_response( "video/mpeg", None, bytes),
-        Some("webm")  => build_ok_response( "video/webm", None, bytes),
-        Some("weba")  => build_ok_response( "audio/weba", None, bytes),
-
-        _ => Response::builder()
-            .status( StatusCode::BAD_REQUEST)
-            .body( Body::from(format!("unsupported asset type: {}", pathname)))
-            .unwrap()
-    }
+    let content_spec = odin_build::get_content_spec(pathname);
+    build_ok_response( &content_spec.mime_type, content_spec.encoding, bytes)
 }
 
 fn build_ok_response( content_type: &str, encoding: Option<&str>, bytes: Bytes)->Response<Body> {

@@ -202,14 +202,15 @@ pub fn process_asset (filename: &str, data: Vec<u8>) -> Result<Vec<u8>> {
     if let Some(ext) = extension(filename) {
         match ext {
             "html" => process_html(data),
-            "css" => process_css(data),
-            "svg" => process_svg(data),
-            "js" => process_js(data),
+            "css"  => process_css(data),
+            "svg"  => process_svg(data),
+            "js"   => process_js(data),
             "json" => process_json(data),
-            "xml" => process_xml(data),
-            "csv" => process_csv(data),
-            "txt" => process_txt(data),
-            "jpeg" | "png" | "tif" | "webp" => Ok( data ),  // already compressed
+            "xml"  => process_xml(data),
+            "csv"  => process_csv(data),
+            "txt"  => process_txt(data),
+
+            "jpeg" | "png" | "webp" | "tif" | "mp4" | "mpeg" | "webm" | "weba" => Ok(data),
             _ => Err( OdinBuildError::ResourceTypeError( filename.into() ) )
         }
     } else { Err( OdinBuildError::ResourceTypeError(filename.into()) ) }
@@ -218,42 +219,79 @@ pub fn process_asset (filename: &str, data: Vec<u8>) -> Result<Vec<u8>> {
 fn process_html (mut data: Vec<u8>)->Result<Vec<u8>> {
     let cfg = &Cfg { minify_js: true, minify_css: true };
     truncate( &mut data, cfg).map_err(|e| OdinBuildError::MinifyError(e.to_string()))?;
-    br_compress_vec( &data)
+    compress_vec( &data)
 }
 
 fn process_css (data: Vec<u8>)->Result<Vec<u8>> {
     let content = str::from_utf8(&data)?;
     let mini = css::minify(content).map_err(|e| OdinBuildError::MinifyError(e.to_string()))?.to_string();
-    br_compress_vec( &mini.into_bytes())
+    compress_vec( &mini.into_bytes())
 }
 
 fn process_js (data: Vec<u8>)->Result<Vec<u8>> {
     let content = str::from_utf8(&data)?;
     let mini = js::minify(content).to_string();
-    br_compress_vec( &mini.into_bytes())
-    //compress_vec( content.as_bytes())
+    compress_vec( &mini.into_bytes())
 }
 
 fn process_svg (data: Vec<u8>)->Result<Vec<u8>> {
-    //process_html( data)
-    br_compress_vec( &data)
+    //process_html( data) // gets broken by minifier
+    compress_vec( &data)
 }
 
 fn process_json (data: Vec<u8>)->Result<Vec<u8>> {
     let content = str::from_utf8(&data)?;
     let mini = json::minify(content).to_string();
-    br_compress_vec( &mini.into_bytes())
+    compress_vec( &mini.into_bytes())
 }
 
 fn process_xml (data: Vec<u8>) -> Result<Vec<u8>> {
     // TODO - find a minifier
-    br_compress_vec( &data)
+    compress_vec( &data)
 }
 
 fn process_csv (data: Vec<u8>) -> Result<Vec<u8>> {
-    br_compress_vec( &data)
+    compress_vec( &data)
 }
 
 fn process_txt (data: Vec<u8>) -> Result<Vec<u8>> {
-    br_compress_vec( &data)
+    compress_vec( &data)
+}
+
+pub struct ContentSpec {
+    pub mime_type: &'static str,
+    pub encoding: Option<&'static str>,
+}
+
+pub fn get_content_spec (pathname: &str)->ContentSpec {
+    let default_enc = default_encoding();
+
+    if let Some(ext) = extension(pathname) {
+        match ext {
+            // our compressed asset data types
+            "js"    => return ContentSpec { mime_type: "text/javascript",  encoding: default_enc },
+            "css"   => return ContentSpec { mime_type: "text/css",         encoding: default_enc },
+            "html"  => return ContentSpec { mime_type: "text/html",        encoding: default_enc },
+            "json"  => return ContentSpec { mime_type: "application/json", encoding: default_enc },
+            "svg"   => return ContentSpec { mime_type: "image/svg+xml",    encoding: default_enc },
+            "xml"   => return ContentSpec { mime_type: "application/xml",  encoding: default_enc },
+            "csv"   => return ContentSpec { mime_type: "text/csv",         encoding: default_enc },
+            "txt"   => return ContentSpec { mime_type: "text/plain",       encoding: default_enc },
+
+            // uncompressed asset data types (those have content specific compression)
+            "jpeg"  => return ContentSpec { mime_type: "image/jpeg",       encoding: None },
+            "png"   => return ContentSpec { mime_type: "image/png",        encoding: None },
+            "webp"  => return ContentSpec { mime_type: "image/webp",       encoding: None },
+            "tif"   => return ContentSpec { mime_type: "image/tif",        encoding: None },
+            "mp4"   => return ContentSpec { mime_type: "video/mp4",        encoding: None },
+            "mpeg"  => return ContentSpec { mime_type: "video/mpeg",       encoding: None },
+            "webm"  => return ContentSpec { mime_type: "video/webm",       encoding: None },
+            "weba"  => return ContentSpec { mime_type: "audio/weba",       encoding: None },
+
+            // ...and more to follow
+            &_      => {}
+        }
+    }
+
+    ContentSpec { mime_type: "application/octet-stream", encoding: None }
 }

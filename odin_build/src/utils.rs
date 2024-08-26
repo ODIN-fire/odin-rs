@@ -69,11 +69,13 @@ pub fn gz_decompress_vec (v_in: &[u8]) -> Result<Vec<u8>> {
     Ok( v_out )
 }
 
+#[inline]
+pub fn default_encoding()->Option<&'static str> { Some("gzip") }
 
-#[inline(always)]
+#[inline]
 pub fn compress_vec (v_in: &[u8]) -> Result<Vec<u8>> { gz_compress_vec(v_in) }
 
-#[inline(always)]
+#[inline]
 pub fn decompress_vec (v_in: &[u8]) -> Result<Vec<u8>> { gz_decompress_vec(v_in) }
 
 /*********** end feature *******************************************************************/
