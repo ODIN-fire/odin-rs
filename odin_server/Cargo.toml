@@ -11,8 +11,8 @@ doctest = false
 
 [dependencies]
 async-trait = "*"
-tokio = { version = "*", features = ["full", "tracing"] }
-tokio-tungstenite = { version = "*", features = ["native-tls"] }
+tokio-tungstenite = { version = "*", features = ["rustls"] }
+axum-server = { version = "*", features = ["tls-rustls"] }
 bytes = "*"
 thiserror = "*"
 anyhow = "*"
@@ -20,7 +20,6 @@ headers = "*"
 futures = "*"
 futures-util = { version = "*", features = ["sink"] }
 xattr = "*"
-serde = { version = "*", features = ["derive"] }
 serde_json = "*"
 minify-html = "*"
 http-body = "*"
@@ -29,7 +28,6 @@ tower = { version = "*", features = ["full"] }
 tower-http = { version = "*", features = ["full"] }
 tracing = "*"
 tracing-subscriber = "*"
-reqwest = { version = "*", features = ["stream"] }
 reqwest-middleware = { version = "*" }
 http-cache-reqwest = { version = "*" }
 paste = "*"
@@ -38,7 +36,11 @@ mime = "*"
 mime_guess = "*"
 rand = "*"
 
-axum = { workspace = true, features = [ "ws", "macros"]}
+axum = { workspace = true }
+reqwest = {workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+
 
 odin_build = { workspace = true }
 odin_macro = { workspace = true }

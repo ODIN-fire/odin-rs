@@ -13,11 +13,12 @@ ron = "*"
 num = "*"
 thiserror = "*"
 parse_duration = "*"
-reqwest = { version = "*", features = ["blocking"] }
+reqwest = { workspace = true, features = ["blocking"] }
 lazy_static = "*"
 ctrlc = { version = "*", features = ["termination"] }
-tokio = { version = "*", features = ["full", "tracing"] }
+tokio = { workspace = true }
 gethostname = "*"
+regex = "*"
 
 aws-config = { version = "*", features = ["behavior-version-latest"], optional = true }
 aws-sdk-s3 = { version = "*", features = ["rt-tokio"], optional = true }

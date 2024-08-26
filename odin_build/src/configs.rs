@@ -91,7 +91,7 @@ pub fn create_config_data ()->Result<()> {
 }
 
 fn process_config_resource (r: &Resource, v: Vec<u8>)->Result<Vec<u8>> { 
-    utils::compress_vec( v.as_slice()) 
+    utils::br_compress_vec( v.as_slice()) 
 }
 
 // re-exports - those are used by the define_load_config macro but we don't want to expose them to callers

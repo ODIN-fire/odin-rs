@@ -39,7 +39,10 @@ odin_server = { version = "*", path = "odin_server" }
 odin_cesium = { version = "*", path = "odin_cesium" }
 
 # external crates for which we have to ensure the same version
-axum = "0.7.5"
+axum = { version = "0.7.5", features = [ "http2", "ws", "macros"] }
+reqwest = { version = "0.12.7", features = ["stream"] }
+tokio = { version = "1.39.3", features = ["full", "tracing"] }
+serde = { version = "1.0.209", features = ["derive"] }
 
 [profile.release]
 

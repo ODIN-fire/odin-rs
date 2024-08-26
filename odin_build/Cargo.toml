@@ -15,6 +15,7 @@ toml = "*"
 cargo_toml = "*"
 serde = { version = "*", features = ["derive"] }
 bytes = "*"
+flate2 = "*"
 brotli = "*"
 minifier = "*"
 minify-html-onepass = "*"

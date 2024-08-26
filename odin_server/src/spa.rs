@@ -19,20 +19,23 @@ use std::{boxed, collections::HashMap, sync::{Arc,Mutex},
     result::Result, error::Error
 };
 use axum::{
-    http::{Uri,StatusCode},
-    body::Body,
-    routing::{Router,get},
-    extract::{Path, Query, RawQuery, Request, State, connect_info::ConnectInfo},
-    middleware::map_request,
-    response::{Response,IntoResponse,Html},
-    extract::{ws::{Message, WebSocket, WebSocketUpgrade},FromRef, Path as AxumPath}
+    body::Body, 
+    extract::{
+        connect_info::ConnectInfo, 
+        ws::{Message, WebSocket, WebSocketUpgrade}, 
+        FromRef, {Path as AxumPath}, Query, RawQuery, Request, State
+    }, 
+    http::{StatusCode, Uri}, 
+    middleware::map_request, response::{Html, IntoResponse, Response}, 
+    routing::get, 
+    Router,ServiceExt
 };
+use axum_server::{service::MakeService, tls_rustls::RustlsConfig};
 use bytes::Bytes;
 use futures_util::{sink::SinkExt, stream::{StreamExt, SplitSink, SplitStream}};
 use http_body::Body as _;
 use http_body_util::{Full, BodyExt, combinators::UnsyncBoxBody};
 use odin_build::OdinBuildError;
-use tower::{ServiceExt,BoxError};
 use tower_http::{services::ServeDir,trace::TraceLayer};
 use tracing_subscriber::EnvFilter;
 use reqwest::{header::{self, SET_COOKIE}, Client};
@@ -42,7 +45,7 @@ use serde::{Deserialize,Serialize};
 use async_trait::async_trait;
 
 use odin_build::LoadAssetFp;
-use odin_common::fs::get_file_basename;
+use odin_common::{fs::get_file_basename,strings};
 use odin_macro::define_struct;
 use odin_actor::prelude::*;
 
@@ -129,9 +132,15 @@ impl SpaConnection {
 }
 
 #[derive(Deserialize,Serialize,Debug)]
+pub struct TlsConfig {
+    pub cert_path: String, // path to PEM encoded certificate
+    pub key_path: String,  // path to PEM encoded key data
+}
+
+#[derive(Deserialize,Serialize,Debug)]
 pub struct SpaServerConfig {
     pub sock_addr: SocketAddr,
-    // ..and more to follow
+    pub tls: Option<TlsConfig>, // if set use TLS (https)
 }
 
 /// this is the state that can be passed into axum handlers
@@ -185,11 +194,22 @@ impl SpaServer {
             let sock_addr = self.config.sock_addr.clone();
             let router = self.build_router( &hself)?.into_make_service_with_connect_info::<SocketAddr>();
 
-            self.server_task = Some( tokio::spawn( async move {
-                let listener = tokio::net::TcpListener::bind(sock_addr).await.unwrap();
-                axum::serve( listener, router).await.unwrap();    
-            }));
-            println!("serving {}/{}", self.config.sock_addr, self.name);
+            self.server_task = if let Some(tls) = &self.config.tls {
+                println!("serving https://{}/{}", self.config.sock_addr, self.name);
+                let cert_path = strings::env_expand( &tls.cert_path);
+                let key_path = strings::env_expand( &tls.key_path);
+                Some( tokio::spawn( async move {
+                    let tls_config = RustlsConfig::from_pem_file(PathBuf::from(cert_path), PathBuf::from(key_path)).await.unwrap();
+                    axum_server::bind_rustls( sock_addr, tls_config).serve( router).await.unwrap();
+                }))
+
+            } else {
+                println!("serving http://{}/{}", sock_addr, self.name);
+                Some( tokio::spawn( async move {
+                    let listener = tokio::net::TcpListener::bind(sock_addr).await.unwrap();
+                    axum::serve( listener, router).await.unwrap();    
+                }))
+            };
             Ok(())
 
         } else {
@@ -231,12 +251,12 @@ impl SpaServer {
                     .with( Cache( HttpCache {mode, manager, options}))
                     .build();
                 //move |uri_elems: Path<(String,String)>, req: Request| { Self::proxy_handler(uri_elems, req, http_client, proxies) }
-                move |path: Path<String>, query: RawQuery, req: Request| { Self::proxy_handler(path, query, req, http_client, proxies) }
+                move |path: AxumPath<String>, query: RawQuery, req: Request| { Self::proxy_handler(path, query, req, http_client, proxies) }
             }))
 
             // 'key' is the owning crate
             .route( &format!("/{}/asset/:key/*unmatched", self.name), get({
-                move |uri_elems: Path<(String,String)>, req: Request| { Self::asset_handler(uri_elems, req, assets)}
+                move |uri_elems: AxumPath<(String,String)>, req: Request| { Self::asset_handler(uri_elems, req, assets)}
             }));
 
         // note this won't do anything unless there also is a tracing subscriber set somewhere
@@ -251,7 +271,7 @@ impl SpaServer {
         (StatusCode::OK, Body::from(doc.to_string())).into_response()
     }
 
-    async fn proxy_handler (path: Path<String>, query: RawQuery, req: Request, 
+    async fn proxy_handler (path: AxumPath<String>, query: RawQuery, req: Request, 
                             http_client: ClientWithMiddleware, proxies: HashMap<String,String>) -> Response {
         if let Some(idx) = path.find('/') {
             let key = &path[0..idx];
@@ -302,7 +322,7 @@ impl SpaServer {
         uri
     }
 
-    async fn asset_handler (uri_elems: Path<(String,String)>, req: Request,
+    async fn asset_handler (uri_elems: AxumPath<(String,String)>, req: Request,
                             assets: HashMap<&'static str,LoadAssetFp>) -> Response {
         let AxumPath((key,path)) = uri_elems;
 

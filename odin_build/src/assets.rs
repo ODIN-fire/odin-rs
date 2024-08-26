@@ -218,42 +218,42 @@ pub fn process_asset (filename: &str, data: Vec<u8>) -> Result<Vec<u8>> {
 fn process_html (mut data: Vec<u8>)->Result<Vec<u8>> {
     let cfg = &Cfg { minify_js: true, minify_css: true };
     truncate( &mut data, cfg).map_err(|e| OdinBuildError::MinifyError(e.to_string()))?;
-    compress_vec( &data)
+    br_compress_vec( &data)
 }
 
 fn process_css (data: Vec<u8>)->Result<Vec<u8>> {
     let content = str::from_utf8(&data)?;
     let mini = css::minify(content).map_err(|e| OdinBuildError::MinifyError(e.to_string()))?.to_string();
-    compress_vec( &mini.into_bytes())
+    br_compress_vec( &mini.into_bytes())
 }
 
 fn process_js (data: Vec<u8>)->Result<Vec<u8>> {
     let content = str::from_utf8(&data)?;
     let mini = js::minify(content).to_string();
-    compress_vec( &mini.into_bytes())
+    br_compress_vec( &mini.into_bytes())
     //compress_vec( content.as_bytes())
 }
 
 fn process_svg (data: Vec<u8>)->Result<Vec<u8>> {
     //process_html( data)
-    compress_vec( &data)
+    br_compress_vec( &data)
 }
 
 fn process_json (data: Vec<u8>)->Result<Vec<u8>> {
     let content = str::from_utf8(&data)?;
     let mini = json::minify(content).to_string();
-    compress_vec( &mini.into_bytes())
+    br_compress_vec( &mini.into_bytes())
 }
 
 fn process_xml (data: Vec<u8>) -> Result<Vec<u8>> {
     // TODO - find a minifier
-    compress_vec( &data)
+    br_compress_vec( &data)
 }
 
 fn process_csv (data: Vec<u8>) -> Result<Vec<u8>> {
-    compress_vec( &data)
+    br_compress_vec( &data)
 }
 
 fn process_txt (data: Vec<u8>) -> Result<Vec<u8>> {
-    compress_vec( &data)
+    br_compress_vec( &data)
 }

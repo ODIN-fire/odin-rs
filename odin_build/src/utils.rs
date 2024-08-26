@@ -16,6 +16,7 @@ use serde::{Deserialize,Deserializer};
 use std::{io::{Read,Write},path::{Path,PathBuf},fs::{self,File,DirEntry},env};
 use crate::errors::Result;
 use brotli::{CompressorWriter,BrotliDecompress};
+use flate2::{Compression,write::GzEncoder,read::GzDecoder};
 
 
 pub fn path_to_string (path: impl AsRef<Path>)->String {
@@ -35,8 +36,9 @@ pub fn write_file (path: impl AsRef<Path>, contents: &[u8]) -> Result<()> {
     Ok( file.write_all(contents)? )
 }
 
+/************* choose either br or gz based on feature  ***********************************/
 /// we use Brotli compression for all respective resources
-pub fn compress_vec (v_in: &[u8]) -> Result<Vec<u8>> {
+pub fn br_compress_vec (v_in: &[u8]) -> Result<Vec<u8>> {
     let v_out: Vec<u8> = Vec::with_capacity( v_in.len() / 4);
     let mut writer = CompressorWriter::new( v_out, v_in.len(), 11,22);
     writer.write_all(v_in)?;
@@ -45,12 +47,36 @@ pub fn compress_vec (v_in: &[u8]) -> Result<Vec<u8>> {
     Ok( v_out )
 }
 
-pub fn decompress_vec (v_in: &[u8]) -> Result<Vec<u8>> {
+pub fn br_decompress_vec (v_in: &[u8]) -> Result<Vec<u8>> {
     let mut v_out = Vec::with_capacity( v_in.len() * 5);
     let mut input = v_in;
     BrotliDecompress( &mut input, &mut v_out)?;
     Ok( v_out )
 }
+
+pub fn gz_compress_vec (v_in: &[u8]) -> Result<Vec<u8>> {
+    let v_out: Vec<u8> = Vec::with_capacity( v_in.len() / 4);
+    let mut encoder = GzEncoder::new(v_out, Compression::default());
+    encoder.write_all( &v_in)?;
+    Ok( encoder.finish()? )
+}
+
+pub fn gz_decompress_vec (v_in: &[u8]) -> Result<Vec<u8>> {
+    let mut v_out = Vec::with_capacity( v_in.len() * 5);
+    let mut decoder = GzDecoder::new(v_in);
+    decoder.read_to_end( &mut v_out)?;
+    // v_out.shrink_to_fit();
+    Ok( v_out )
+}
+
+
+#[inline(always)]
+pub fn compress_vec (v_in: &[u8]) -> Result<Vec<u8>> { gz_compress_vec(v_in) }
+
+#[inline(always)]
+pub fn decompress_vec (v_in: &[u8]) -> Result<Vec<u8>> { gz_decompress_vec(v_in) }
+
+/*********** end feature *******************************************************************/
 
 pub fn visit_dirs(dir: impl AsRef<Path>, f: &mut dyn FnMut(&DirEntry)) -> Result<()> {
     let dir = dir.as_ref();
@@ -161,8 +187,9 @@ pub fn default_odin_root()->PathBuf {
 pub fn get_or_create_root_dir()->Result<PathBuf> {
     let mut path = if let Some(path) = get_env_odin_root() {
         path
+
     } else {
-        if let Some(mut path) = get_workspace_parent() {
+        let computed_path = if let Some(mut path) = get_workspace_parent() {
             if has_any_path_cond!( is_dir, &mut path, "cache", "data", "configs", "assets") {
                 path
             } else {
@@ -170,7 +197,11 @@ pub fn get_or_create_root_dir()->Result<PathBuf> {
             }
         } else {
             default_odin_root()
-        }
+        };
+        // automatically set ODIN_ROOT to the computed path for the current process and its children
+        env::set_var("ODIN_ROOT", &computed_path);
+
+        computed_path
     };
 
     Ok( ensure_existing_path(path) )

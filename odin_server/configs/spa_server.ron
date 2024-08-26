@@ -1,3 +1,4 @@
 SpaServerConfig(
-    sock_addr: "127.0.0.1:9009"
+    sock_addr: "127.0.0.1:9009",
+    tls: None
 )

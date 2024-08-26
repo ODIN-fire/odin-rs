@@ -15,7 +15,9 @@
 use std::fmt;
 use std::fmt::{Display,Write};
 use std::str::FromStr;
-
+use std::sync::LazyLock;
+use std::env;
+use regex::Regex;
 use serde::{Deserialize,Deserializer};
 
 /// stringify iterator for Display elements with given delimiter without per-element allocation
@@ -115,6 +117,35 @@ pub fn str_from_last<'a> (s: &'a str, c: char) -> Option<&'a str> {
     } else {
         None
     }
+}
+
+/// expand "...{var}..." environment variables in the provided str, returning a new String
+pub fn env_expand (s: &str)->String {
+    // TODO - shall we add "./" and "../" expansion?
+    static RE: LazyLock<Regex> = LazyLock::new( || {
+        Regex::new(r"\{[^}]+\}").unwrap()
+    });
+    
+    let mut last_end = 0;
+    let mut expanded = String::new();
+    for m in RE.find_iter(s) {
+        let m_start = m.start();
+        let m_end = m.end() -1;
+        if m_start > last_end {
+            expanded.push_str( &s[last_end..m_start]);
+        }
+        let name = &s[m_start+1..m_end];
+        if let Ok(val) = env::var(name) {
+            expanded.push_str(val.as_str());
+        }
+        
+        last_end = m_end+1;
+    }
+    if last_end < s.len() {
+        expanded.push_str( &s[last_end..]);
+    }
+    
+    expanded
 }
 
 //--- utilize above parsers for serde deserialization (to be used in #[serde(deserialize_with=".."] field macros
