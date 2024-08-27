@@ -175,9 +175,10 @@ async fn run_overpass_acquisition (hself: ActorHandle<JpssImportActorMsg>, orbit
             let cache_dir_clone = cache_dir.clone();
             let config_clone = config.clone();
             let hself_clone = hself.clone();
-            spawn( &format!("jpss-{}-{}-data-acquisition", sat_id.clone(), overpass.t_end.clone()), async move {
-                run_data_acquisition( hself_clone, config_clone,  cache_dir_clone, overpass).await
-            })?;
+            run_data_acquisition( hself_clone, config_clone,  cache_dir_clone, overpass).await?;
+            // spawn( &format!("jpss-{}-{}-data-acquisition", sat_id.clone(), overpass.t_end.clone()), async move {
+            //     run_data_acquisition( hself_clone, config_clone,  cache_dir_clone, overpass).await
+            // })?;
         }
     }
     Ok(())

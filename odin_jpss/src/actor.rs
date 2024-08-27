@@ -15,6 +15,7 @@ use serde::{Serialize, Deserialize};
 use std::time::Duration;
 use odin_common::geo::LatLon;
 use odin_actor::prelude::*;
+use odin_actor::{error,debug,warn,info};
 use core::future::Future;
 use crate::orekit::{OrbitalTrajectory, OverpassList};
 use crate::{ViirsHotspots, RawHotspots};
@@ -127,7 +128,12 @@ impl_actor! { match msg for Actor< JpssImportActor<T, HotspotUpdateAction, Overp
 
     ExecSnapshotAction => cont! { msg.0.execute( &self.hotspots).await; }
 
-    UpdateRawHotspots => cont! { self.process_raw_hotspots(msg.0); }
+    UpdateRawHotspots => cont! { 
+        match self.process_raw_hotspots(msg.0) {
+            Ok(hs) => { self.hself.try_send_msg(UpdateHotspots(hs)); },
+            Err(e) => warn!("failed to process hotspots: {:?}", e)
+        };
+    }
 
     UpdateHotspots => cont! { self.update_hotspots(msg.0).await; }
 
