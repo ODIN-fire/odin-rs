@@ -12,18 +12,13 @@
  * and limitations under the License.
  */
 
-use tokio;
-use anyhow::Result;
-use std::any::type_name;
-
 use odin_build;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor,load_config, web::SentinelService};
 
 
-#[tokio::main]
-async fn main()->Result<()> {
+async_main! {
     odin_build::set_bin_context!();
     let mut actor_system = ActorSystem::new("main");
     let hsentinel = PreActorHandle::new( &actor_system, "updater", 8);
@@ -49,9 +44,6 @@ async fn main()->Result<()> {
         }),
     ))?;
     
-
     actor_system.timeout_start_all(secs(2)).await?;
     actor_system.process_requests().await?;
-
-    Ok(())
 }

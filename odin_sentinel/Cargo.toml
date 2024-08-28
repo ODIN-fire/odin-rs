@@ -47,22 +47,23 @@ odin_job = { workspace = true }
 odin_common = { workspace = true }
 odin_macro = { workspace = true }
 
+tokio = { workspace = true }
+reqwest = { workspace = true }
 axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uom = { workspace = true }
+async-trait = { workspace = true }
 
 tracing = "*"
 anyhow = "*"
 thiserror = "*"
-chrono = { version = "*", features = ["serde"] }
-serde_json = "*"
 ron = "*"
-serde = { version = "*", features = ["derive", "rc"] }
 serde_with = "*" 
-uom = { version = "*", features = ["serde", "i64"] }
-tokio = { version = "*", features = ["full"] }
 tokio-util = { version = "*", features = ["full"] }
 futures = "*"
 async-stream = "*"
-reqwest = { version = "*", features = ["json", "stream"] }
 http = "*"
 url = "*"
 tokio-tungstenite = { version = "*", features = ["native-tls"] }
@@ -72,7 +73,6 @@ displaydoc = "*"
 strum = { version = "*", features = ["derive"]}
 paste = "*"
 which = "*"
-async-trait = "*"
 
 jsonrpsee =  { version = "*",  features = ["macros","async-client","http-client"], optional = true }
 lettre = { version = "*", features = ["tokio1", "tokio1-native-tls"], optional = true }

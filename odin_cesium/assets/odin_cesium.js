@@ -22,6 +22,7 @@ import * as ws from "../odin_server/ws.js";
 const MODULE_PATH = util.asset_path(import.meta.url);
 
 ws.addWsHandler( MODULE_PATH, handleWsMessages);
+setCesiumContainerVisibility(false); // don't render before everybody is initialized
 
 const UI_POSITIONS = "race-ui-positions";
 const LOCAL = "local-";  // prefix for local position set names
@@ -90,6 +91,7 @@ var mouseDblClickHandlers = [];
 var terrainChangeHandlers = [];
 
 var homePosition = undefined;
+var initPosition = undefined;
 var selectedPositionSet = undefined;
 var positions = undefined;
 var positionsView = undefined;
@@ -171,7 +173,7 @@ viewer.scene.postRender.addEventListener(function() {
     pendingRenderRequest = false;
 });
 
-setHomeView();
+setInitialView();
 
 var terrainProviderPromise = undefined; // set in postInitialize
 var topoTerrainProvider = undefined;
@@ -517,10 +519,46 @@ function getGlobalPositionSet() { // from config
     let positions = config.cameraPositions.map( p=> new Position(p.name, p.lat, p.lon, p.alt));
     let pset = new PositionSet("default", positions);
 
+    let initPos = getInitialPosition();
+    if (initPos) {
+        initPosition = initPos;
+        pset.positions.unshift(initPos)
+    }
+
     homePosition = positions.find( p=> p.name === "home");
     if (!homePosition) homePosition = positions[0];
 
     return pset;
+}
+
+function getInitialPosition() {
+    let queryString = window.location.search;
+    if (queryString.length > 0) {
+        let params = new URLSearchParams(queryString);
+        let view = params.get("view");
+        if (view) {
+            let elems = view.split(',');
+            if (elems.length > 1) {
+                try {
+                    for (let i=0; i<elems.length; i++) {
+                        elems[i] = parseFloat( elems[i], 10);
+                    }
+                    if (elems.length == 2) { // no height given
+                        elems.push( 150000);
+                    } else {
+                        if (elems[2] < 10000) { // assume this is in km
+                            elems[2] = elems[2] * 1000;
+                        }
+                    }
+                    return new Position( "<initial>", elems[0], elems[1], elems[2]); // name,lat,lon,alt
+
+                } catch (e) {
+                    console.log("ignoring invalid initial position spec: ", view);
+                }
+            }
+        }
+    }
+    return null;
 }
 
 function getLocalPositionSets() { // from local storage
@@ -963,9 +1001,9 @@ export function saveCamera() {
     };
 
     // TODO - this should be triggered by a copy-to-clipboard button
-    let spec = `{ lat: ${util.fmax_4.format(lastCamera.lat)}, lon: ${util.fmax_4.format(lastCamera.lon)}, alt: ${Math.round(lastCamera.alt)} }`;
+    //let spec = `{ lat: ${util.fmax_4.format(lastCamera.lat)}, lon: ${util.fmax_4.format(lastCamera.lon)}, alt: ${Math.round(lastCamera.alt)} }`;
     //navigator.clipboard.writeText(spec);  // this is still experimental in browsers and needs to be enabled explicitly (for each doc?) for security reasons
-    console.log(spec);
+    //console.log(spec);
 }
 
 export function zoomTo(cameraPos) {
@@ -975,6 +1013,11 @@ export function zoomTo(cameraPos) {
         destination: cameraPos,
         orientation: centerOrientation
     });
+}
+
+function setInitialView () {
+    let initPos = initPosition ? initPosition : homePosition;
+    setCamera( initPos);
 }
 
 export function setHomeView() {
@@ -1311,6 +1354,10 @@ export function getEnuRotFromQuaternion (qx, qy, qz, w) {
     return Cesium.Matrix3.fromQuaternion( qRot);
 }
 
+function setCesiumContainerVisibility (isVisible) {
+    document.getElementById("cesiumContainer").style.visibility = isVisible;
+}
+
 // executed after all modules have been loaded and initialized
 export function postInitialize() {
     initModuleLayerViewData();
@@ -1321,5 +1368,8 @@ export function postInitialize() {
         topoTerrainProvider = tp;
         console.log("topographic terrain loaded");
     });
+
+    setCesiumContainerVisibility(true);
+
     console.log("odin_cesium.postInitialize complete.");
 }

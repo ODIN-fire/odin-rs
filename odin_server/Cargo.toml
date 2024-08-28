@@ -10,7 +10,6 @@ build = "../build_resources.rs"
 doctest = false
 
 [dependencies]
-async-trait = "*"
 tokio-tungstenite = { version = "*", features = ["rustls"] }
 axum-server = { version = "*", features = ["tls-rustls"] }
 bytes = "*"
@@ -20,7 +19,6 @@ headers = "*"
 futures = "*"
 futures-util = { version = "*", features = ["sink"] }
 xattr = "*"
-serde_json = "*"
 minify-html = "*"
 http-body = "*"
 http-body-util = "*"
@@ -31,7 +29,6 @@ tracing-subscriber = "*"
 reqwest-middleware = { version = "*" }
 http-cache-reqwest = { version = "*" }
 paste = "*"
-ron = "*"
 mime = "*"
 mime_guess = "*"
 rand = "*"
@@ -39,7 +36,10 @@ rand = "*"
 axum = { workspace = true }
 reqwest = {workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+ron = { workspace = true }
 tokio = { workspace = true }
+async-trait = { workspace = true }
 
 
 odin_build = { workspace = true }

@@ -357,7 +357,10 @@ impl SpaServer {
                 while let Some(Ok(msg)) = ws_receiver.next().await {
                     match msg.into_text() {
                         Ok(msg) => {
-                            println!("@@ received ws: {}", msg)
+                            if !msg.is_empty() {
+                                println!("@@ received ws: {}", msg)
+                                // dispatch to respective SpaService handler here
+                            }
                         }
                         Err(e) => println!("ignoring binary message")
                     }
@@ -603,11 +606,17 @@ impl SpaComponents {
             .collect();
 
         if !module_uris.is_empty() {
+            let mut mod_names: Vec<&str> = Vec::with_capacity(module_uris.len());
+
             write!( buf, "<script type=\"module\">\n");
 
-            for uri in &module_uris { 
+            for uri in module_uris.iter() {
                 let mod_name = get_file_basename(uri).unwrap();
+                mod_names.push(mod_name);
                 write!( buf, "import * as {mod_name} from '{uri}';\n");
+            }
+
+            for mod_name in mod_names.iter() {
                 write!( buf, "if ({mod_name}.postInitialize) {{ {mod_name}.postInitialize(); }}\n");
             }
 

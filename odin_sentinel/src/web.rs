@@ -59,8 +59,6 @@ impl SpaService for SentinelService {
     }
 
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {
-        use axum::Router;
-
         spa.add_assets( self_crate!(), load_asset);
         spa.add_module( asset_uri!("odin_sentinel_config.js"));
         spa.add_module( asset_uri!("odin_sentinel.js"));
