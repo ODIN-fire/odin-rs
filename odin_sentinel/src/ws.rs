@@ -35,11 +35,11 @@ use crate::*;
 
 pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-pub async fn init_websocket (config: &SentinelConfig, device_ids: Vec<String>)->Result<WsStream> {
+pub async fn init_websocket (config: &SentinelConfig, device_ids: &Vec<String>)->Result<WsStream> {
     let (mut ws_stream,_) = connect( config).await?;
     expect_connected_response(&mut ws_stream).await?;
 
-    request_join( &mut ws_stream, device_ids, get_next_msg_id()).await?;
+    request_join( &mut ws_stream, device_ids.clone(), get_next_msg_id()).await?;
     expect_join_response(&mut ws_stream).await?;
 
     Ok(ws_stream)

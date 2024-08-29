@@ -223,17 +223,20 @@ div.ui_panel_header:first-child {
 }
 
 div.ui_panel_header.expanded::before {
-    content: "▽ ";
+    /* content: "▽ "; */
+    content: "\25bd \2003";
     font-size: smaller;
 }
 
 div.ui_panel_header.collapsed::before {
-    content: "▷ ";
+    /* content: "▷ "; */
+    content: "\25b7 \2003";
     font-size: smaller;
 }
 
 div.ui_panel_header.collapsed::after {
-    content: " …";
+    /* content: " …"; */
+    content: " \2026";
 }
 
 div.ui_panel {
@@ -585,9 +588,10 @@ div.ui_choice_value::before {
     display: inline-block;
     color: var(--field-value-color);
     background: transparent;
-    width: 1rem;
+    width: 1.5rem;
     height: 1rem;
-    content: "≣";
+    /*content: "≣";*/
+    content: "\2630";
     font-size: larger;
     /* "∇⋁⩔≣≡" */
 }
@@ -648,7 +652,8 @@ div.ui_checkbox:hover div {
 }
 
 div.ui_checkbox.checked div.ui_checkbox_button::before {
-    content: "✓";
+    /* content: "✓"; */
+    content: "\2713";
 }
 
 div.ui_checkbox_label {
@@ -696,7 +701,8 @@ div.ui_radio_button {
 }
 
 div.ui_radio.selected div.ui_radio_button::before {
-    content: "◉";
+    /*content: "◉";*/
+    content: "\2b24";
 }
 
 div.ui_radio_label {
@@ -947,7 +953,8 @@ div.ui_menuitem.disabled {
 }
 
 div.ui_menuitem.checked::before {
-    content: "✓ ";
+    /*content: "✓ "; */
+    content: "\2713 \2003"
 }
 
 div.ui_menuitem:not([class*="disabled"]):hover {

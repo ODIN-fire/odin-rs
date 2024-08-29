@@ -23,7 +23,7 @@ async fn test_da() {
         println!("DataAction<String> execution started ...");
         tokio::time::sleep( Duration::from_secs(2)).await;
         println!("action called with data={data} and x={x}");
-        action_ok()
+        Ok(())
     });
     //da.execute("DA".to_string()).await;
     exec_da( da, "DA".to_string()).await;
@@ -42,7 +42,7 @@ async fn test_dda() {
         println!("DynDataAction<String> execution started ...");
         tokio::time::sleep( Duration::from_secs(2)).await;
         println!("action called with data={data} and x={x}");
-        action_ok()
+        Ok(())
     });
     //dda.execute("DDA".to_string()).await;
     exec_dda( dda, "DDA".to_string()).await;
@@ -61,7 +61,7 @@ async fn test_dra() {
         println!("DataRefAction<String> execution started ...");
         tokio::time::sleep( Duration::from_secs(2)).await;
         println!("action called with data={data} and x={x}");
-        action_ok()
+        Ok(())
     });
     let data = "DRA".to_string();
     //dra.execute(&data).await;
@@ -81,7 +81,7 @@ async fn test_bdra() {
         println!("BiDataRefAction<String,i64> execution started ...");
         tokio::time::sleep( Duration::from_secs(2)).await;
         println!("action called with data={data}, bidata={bidata} and x={x}");
-        action_ok()
+        Ok(())
     });
     let data = "BDRA".to_string();
     //bdra.execute(&data).await;
@@ -105,7 +105,7 @@ async fn test_ddra() {
         println!("DynDataRefAction<String> execution started ...");
         tokio::time::sleep( Duration::from_secs(2)).await;
         println!("action called with data={data} and x={x}");
-        action_ok()
+        Ok(())
     });
     let data = "DDRA".to_string();
     //ddra.execute(&data).await;

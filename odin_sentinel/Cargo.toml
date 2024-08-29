@@ -7,6 +7,10 @@ build = "../build_resources.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
+name = "show_sentinels"
+path = "src/bin/show_sentinels.rs"
+
+[[bin]]
 name = "get_sentinels"
 path = "src/bin/get_sentinels.rs"
 
@@ -19,46 +23,47 @@ name = "send_ws_cmd"
 path = "src/bin/send_ws_cmd.rs"
 
 [[bin]]
-name = "sentinel_alarm"
-path = "src/bin/sentinel_alarm.rs"
+name = "test_infos"
+path = "src/bin/test_infos.rs"
 
 [[bin]]
-name = "test_smtp_alarm"
-path = "src/bin/test_smtp_alarm.rs"
-required-features = ["smtp"]
+name = "sentinel_alarm"
+path = "src/bin/sentinel_alarm.rs"
 
 [[bin]]
 name = "test_signal_rpc_alarm"
 path = "src/bin/test_signal_rpc_alarm.rs"
 required-features = ["signal_rpc"]
 
-[[bin]]
-name = "test_signal_cmd_alarm"
-path = "src/bin/test_signal_cmd_alarm.rs"
-
 
 [dependencies]
 # our ODIN crates
 odin_build = { workspace = true }
+odin_action = { workspace = true }
 odin_actor = { workspace = true }
+odin_server = { workspace = true }
+odin_cesium = { workspace = true }
 odin_job = { workspace = true }
 odin_common = { workspace = true }
 odin_macro = { workspace = true }
 
+tokio = { workspace = true }
+reqwest = { workspace = true }
+axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uom = { workspace = true }
+async-trait = { workspace = true }
+
 tracing = "*"
 anyhow = "*"
 thiserror = "*"
-chrono = { version = "*", features = ["serde"] }
-serde_json = "*"
 ron = "*"
-serde = { version = "*", features = ["derive", "rc"] }
 serde_with = "*" 
-uom = { version = "*", features = ["serde", "i64"] }
-tokio = { version = "*", features = ["full"] }
 tokio-util = { version = "*", features = ["full"] }
 futures = "*"
 async-stream = "*"
-reqwest = { version = "*", features = ["json", "stream"] }
 http = "*"
 url = "*"
 tokio-tungstenite = { version = "*", features = ["native-tls"] }
@@ -68,27 +73,35 @@ displaydoc = "*"
 strum = { version = "*", features = ["derive"]}
 paste = "*"
 which = "*"
-async-trait = "*"
 
-pgp = { version = "*", optional = true }
-miniz_oxide = { version = "*", optional = true }
-magic-crypt = { version = "*", optional = true }
-
-# TODO put behind features
 jsonrpsee =  { version = "*",  features = ["macros","async-client","http-client"], optional = true }
 lettre = { version = "*", features = ["tokio1", "tokio1-native-tls"], optional = true }
+dhat = { version = "*", optional = true }
+
 
 [build-dependencies]
 odin_build = { workspace = true }
 
 [features]
-default = ["smtp", "signal_rpc"]
+default = ["smtp", "slack"]
 smtp = ["dep:lettre"]
 signal_rpc = ["dep:jsonrpsee"]
+slack = []
+slack_admin = ["odin_common/slack_admin"]
+
+# dev/debug
+dhat = ["dep:dhat", "odin_common/dhat"] # heap profiling
+
 embedded_resources = []
 
 [package.metadata.odin_configs]
 sentinel = { file="sentinel.ron" }
 sentinel_alarm = { file="sentinel_alarm.ron", bins=["sentinel_alarm"] }
+sentinel_info = { file="sentinel_info.ron", bins=["sentinel_alarm"] }
+slack = {file="slack_alarm.ron", bins=["sentinel_alarm"] }
+
 smtp = { file="smtp.ron", bins=["sentinel_alarm"] }
 signal_cmd = { file="signal_cmd.ron", bins=["sentinel_alarm"] }
+
+# [profile.release]
+# debug = 1  # better build with RUSTFLAGS=-g

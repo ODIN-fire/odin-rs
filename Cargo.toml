@@ -10,6 +10,7 @@ members = [
   "odin_actor",
   "odin_macro",
   "odin_server",
+  "odin_cesium",
   "odin_gdal",
   "odin_dem",
   "odin_hrrr",
@@ -37,6 +38,20 @@ odin_action = { version = "*", path = "odin_action" }
 odin_actor  = { version = "*", path = "odin_actor" }
 odin_job    = { version = "*", path = "odin_job" }
 odin_server = { version = "*", path = "odin_server" }
+odin_cesium = { version = "*", path = "odin_cesium" }
+
+# external crates for which we have to ensure the same version
+axum = { version = "0.7.5", features = [ "http2", "ws", "macros"] }
+reqwest = { version = "0.12.7", features = ["json", "stream"] }
+tokio = { version = "1.39.3", features = ["full", "tracing"] }
+serde = { version = "1.0.209", features = ["derive", "rc"] }
+serde_json = { version = "1.0.127" }
+ron = { version = "0.8.1" }
+async-trait = { version = "0.1.81" }
+uom = { version = "0.36.0", features = ["serde", "f32", "i64"] }
+chrono = { version = "0.4.38", features = ["serde"] }
+
+
 
 [profile.release]
 

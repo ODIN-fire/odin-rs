@@ -12,6 +12,10 @@
  * and limitations under the License.
  */
 
+// re-export these so that macro callers don't have import them explicitly (they don't see the macro implementation)
+pub extern crate bytes;
+pub extern crate lazy_static;
+
 use std::{io::Write,fs::{self,File},env,path::{Path,PathBuf},fmt::Write as FmtWrite, str, collections::HashMap, sync::Arc};
 use minifier::{js,css,json};  // js, json, css
 use minify_html_onepass::{Cfg, truncate};  // html, svg
@@ -90,11 +94,11 @@ pub fn create_asset_data ()->Result<()> {
 macro_rules! define_load_asset {
     () => {
         mod assets {
-            use lazy_static::lazy_static;
             use std::{collections::HashMap,sync::Mutex,path::Path};
-            use bytes::Bytes;
+            use $crate::lazy_static::lazy_static;
+            use $crate::bytes::Bytes;
 
-            lazy_static::lazy_static! {
+            lazy_static! {
                 // embedded assets are the ones we compiled into the (standalone) application
                 static ref EMBEDDED_ASSETS: HashMap<&'static str, odin_build::EmbeddedAssetEntry> = {
                     let mut map: HashMap<&'static str, odin_build::EmbeddedAssetEntry> = HashMap::new();
@@ -198,14 +202,15 @@ pub fn process_asset (filename: &str, data: Vec<u8>) -> Result<Vec<u8>> {
     if let Some(ext) = extension(filename) {
         match ext {
             "html" => process_html(data),
-            "css" => process_css(data),
-            "svg" => process_svg(data),
-            "js" => process_js(data),
+            "css"  => process_css(data),
+            "svg"  => process_svg(data),
+            "js"   => process_js(data),
             "json" => process_json(data),
-            "xml" => process_xml(data),
-            "csv" => process_csv(data),
-            "txt" => process_txt(data),
-            "jpeg" | "png" | "tif" | "webp" => Ok( data ),  // already compressed
+            "xml"  => process_xml(data),
+            "csv"  => process_csv(data),
+            "txt"  => process_txt(data),
+
+            "jpeg" | "png" | "webp" | "tif" | "mp4" | "mpeg" | "webm" | "weba" => Ok(data),
             _ => Err( OdinBuildError::ResourceTypeError( filename.into() ) )
         }
     } else { Err( OdinBuildError::ResourceTypeError(filename.into()) ) }
@@ -230,7 +235,8 @@ fn process_js (data: Vec<u8>)->Result<Vec<u8>> {
 }
 
 fn process_svg (data: Vec<u8>)->Result<Vec<u8>> {
-    process_html( data)
+    //process_html( data) // gets broken by minifier
+    compress_vec( &data)
 }
 
 fn process_json (data: Vec<u8>)->Result<Vec<u8>> {
@@ -250,4 +256,42 @@ fn process_csv (data: Vec<u8>) -> Result<Vec<u8>> {
 
 fn process_txt (data: Vec<u8>) -> Result<Vec<u8>> {
     compress_vec( &data)
+}
+
+pub struct ContentSpec {
+    pub mime_type: &'static str,
+    pub encoding: Option<&'static str>,
+}
+
+pub fn get_content_spec (pathname: &str)->ContentSpec {
+    let default_enc = default_encoding();
+
+    if let Some(ext) = extension(pathname) {
+        match ext {
+            // our compressed asset data types
+            "js"    => return ContentSpec { mime_type: "text/javascript",  encoding: default_enc },
+            "css"   => return ContentSpec { mime_type: "text/css",         encoding: default_enc },
+            "html"  => return ContentSpec { mime_type: "text/html",        encoding: default_enc },
+            "json"  => return ContentSpec { mime_type: "application/json", encoding: default_enc },
+            "svg"   => return ContentSpec { mime_type: "image/svg+xml",    encoding: default_enc },
+            "xml"   => return ContentSpec { mime_type: "application/xml",  encoding: default_enc },
+            "csv"   => return ContentSpec { mime_type: "text/csv",         encoding: default_enc },
+            "txt"   => return ContentSpec { mime_type: "text/plain",       encoding: default_enc },
+
+            // uncompressed asset data types (those have content specific compression)
+            "jpeg"  => return ContentSpec { mime_type: "image/jpeg",       encoding: None },
+            "png"   => return ContentSpec { mime_type: "image/png",        encoding: None },
+            "webp"  => return ContentSpec { mime_type: "image/webp",       encoding: None },
+            "tif"   => return ContentSpec { mime_type: "image/tif",        encoding: None },
+            "mp4"   => return ContentSpec { mime_type: "video/mp4",        encoding: None },
+            "mpeg"  => return ContentSpec { mime_type: "video/mpeg",       encoding: None },
+            "webm"  => return ContentSpec { mime_type: "video/webm",       encoding: None },
+            "weba"  => return ContentSpec { mime_type: "audio/weba",       encoding: None },
+
+            // ...and more to follow
+            &_      => {}
+        }
+    }
+
+    ContentSpec { mime_type: "application/octet-stream", encoding: None }
 }

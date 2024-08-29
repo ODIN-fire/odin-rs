@@ -6,11 +6,8 @@
 
 - [2. System Crates](sys_crates.md)
 
-  - [odin_config](odin_config/odin_config.md)
-    - [Config Modes](odin_config/modes.md)
-
+  - [odin_build](odin_build/odin_build.md)
   - [odin_action](odin_action/odin_action.md)
-
   - [odin_actor](odin_actor/odin_actor.md)
     - [Actor Programming Model](odin_actor/actor_basics.md)
     - [Basic Design](odin_actor/actor_impl.md)
@@ -33,9 +30,11 @@
       - [`requests`](odin_actor/examples/requests.md)
       - [`actor_config`](odin_actor/examples/actor_config.md)
       - [`heartbeat`](odin_actor/examples/heartbeat.md)
+  - [odin_server](odin_server/odin_server.md)
 
 - [3. Application Domain Crates](app_crates.md)
 
   - [odin_sentinel](odin_sentinel/odin_sentinel.md)
+  - [odin_goesr](odin_goesr/odin_goesr.md)
 
 - [Glossary](glossary.md)

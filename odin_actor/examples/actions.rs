@@ -155,8 +155,8 @@ async fn main ()->Result<()> {
     //--- set up the client
     let client = spawn_actor!( actor_system, "client", 
         WsServer::new( 
-            data_action!( provider.as_actor_handle(): ActorHandle<ProviderMsg> => 
-                              |addr:TAddr| provider.try_send_msg( ExecSnapshotAction{request: addr}))
+            data_action!( provider.to_actor_handle(): ActorHandle<ProviderMsg> => 
+                              |addr:TAddr| Ok( provider.try_send_msg( ExecSnapshotAction{request: addr})? ))
         )
     )?;
 
@@ -165,11 +165,11 @@ async fn main ()->Result<()> {
         Provider::new(
             data_action!( client.clone(): ActorHandle<WsServerMsg> => |data: TProviderUpdate| {
                 let msg = PublishUpdate{ws_msg: format!("{{\"update\": \"{data}\"}}")}; // construct client message from provider data
-                client.try_send_msg( msg)
+                Ok( client.try_send_msg( msg)? )
             }),
             bi_dataref_action!( client.clone(): ActorHandle<WsServerMsg> => |data: &TProviderSnapshot, req:TRequest| {
                 let msg = SendSnapshot{ addr: req, ws_msg: format!("{data:?}") }; // construct client message from label and provider data ref
-                client.try_send_msg( msg)
+                Ok( client.try_send_msg( msg)? )
             })     
         )
     )?;

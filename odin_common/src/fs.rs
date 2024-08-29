@@ -17,12 +17,22 @@ use std::fs;
 use std::io::{Read, Write};
 use std::time::{SystemTime,Duration};
 use io::ErrorKind::*;
-use std::fs::File;
+use std::fs::{File,OpenOptions};
 use std::path::{Path,PathBuf};
+use std::io::{Error as IOError,ErrorKind};
 
 use crate::macros::io_error;
 
 type Result<T> = std::result::Result<T,std::io::Error>;
+
+pub fn filename_of_path (path: impl AsRef<Path>)->Result<String> {
+    let path = path.as_ref();
+
+    Ok( path.file_name()
+        .ok_or(IOError::new(ErrorKind::InvalidFilename, format!(" not a valid filename {path:?}")) )?
+        .to_str().ok_or(IOError::new(ErrorKind::InvalidFilename, format!("invalid char in filename {path:?}")) )?
+        .to_string())
+}
 
 pub fn ensure_dir (path: impl AsRef<Path>)->io::Result<()> {
     let path = path.as_ref();
@@ -152,6 +162,24 @@ pub fn set_filepath_contents_with_backup (dir: &str, filename: &str, backup_ext:
     set_file_contents(&mut file, new_contents)
 }
 
+pub fn append_open (path: impl AsRef<Path>)->Result<File> {
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .append(true)
+        .open(path.as_ref())
+}
+
+pub fn append_to_file (path: impl AsRef<Path>, s: &str) -> Result<()> {
+    let mut file = append_open( path.as_ref())?;
+    write!( file, "{s}")
+}
+
+pub fn append_line_to_file (path: impl AsRef<Path>, s: &str) -> Result<()> {
+    let mut file = append_open( path.as_ref())?;
+    writeln!( file, "{s}")
+}
+
 pub fn get_filename_extension<'a> (path: &'a str) -> Option<&'a str> {
     if let Some(idx) = path.rfind('.') {
         if idx < path.len()-1 { 
@@ -162,6 +190,26 @@ pub fn get_filename_extension<'a> (path: &'a str) -> Option<&'a str> {
 
     //let path = Path::new(path);
     //path.extension().and_then( |ostr| ostr.to_str())
+}
+
+/// this is the non-extension part of a filename. Input can be a path - everything up to the last
+/// path separator is discarded (on Windows we accept both '\\' and '/' as separator)
+pub fn get_file_basename<'a> (path: &'a str) -> Option<&'a str> {
+    let i0 = if let Some(idx) = path.rfind( std::path::MAIN_SEPARATOR) { 
+        idx + 1 
+    } else {
+        if std::path::MAIN_SEPARATOR != '/' {
+            if let Some(idx) = path.rfind('/') { idx + 1 } else { 0 }
+        } else { 0 }
+    };
+
+    let i1 = if let Some(idx) = path.rfind('.') { idx } else { path.len() };
+
+    if i1 > i0 {
+        Some( path[i0..i1].as_ref() )
+    } else {
+        None
+    }
 }
 
 

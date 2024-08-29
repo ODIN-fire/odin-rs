@@ -14,6 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/**
+ * return the relative asset path of the provided url.
+ * Can be used to register module specific actions (e.g. websocket handlers)
+ * Example: "http://localhost:9009/basic_globe/asset/odin_cesium/odin_cesium.js" -> "odin_cesium/odin_cesium.js"
+ */
+export function asset_path(url) {
+    let idx = url.indexOf("/asset/");
+    if (idx >= 0) {
+        return url.substring(idx+7);
+    } else {
+        return url;
+    }
+}
+
 /**
  * a simple (extended) glob pattern to RegExp translator
  * we handle the Java PathMatcher glob syntax
@@ -141,7 +156,7 @@ export function toUtf8Array(str) {
             utf8.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
         } else {
             i++;
-            c = ((c & 0x3ff) << 10) | (str.charCodeAt(i) & 0x3ff)
+            c = ((c & 0x3ff) << 10) | (str.charCodeAt(i) & 0x3ff);
             utf8.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 0x3f), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
         }
     }
@@ -157,6 +172,17 @@ export function matchPath(path) {
 }
 
 //--- number formatting
+
+export function degString (rad) {
+    return f_0.format( toDegrees(rad));
+}
+
+export function maxString (str, maxLen) {
+    if (str && str.length > maxLen) {
+        return str.substring(0, maxLen-1) + '…';
+    }
+    return str;
+}
 
 export const f_0 = new Intl.NumberFormat('en-US', { notation: 'standard', maximumFractionDigits: 0, minimumFractionDigits: 0 });
 export const f_1 = new Intl.NumberFormat('en-US', { notation: 'standard', maximumFractionDigits: 1, minimumFractionDigits: 1 });
@@ -634,7 +660,7 @@ export const SRS = {
     _4978: EPSG_4978,
     ECEF:  EPSG_4978,
     //... more to follow
-}
+};
 
 // length of longitude degree at given latitude in meters
 export function lonDegMeters(lat) {
@@ -803,7 +829,7 @@ const csvRegEx = /(?:,|\n|^)("(?:(?:"")*[^"]*)*"|[^",\n]*|(?:\n|$))/g;
 
 export function parseCsvValues(line) {
     const regex = new RegExp(csvRegEx);
-    let values = []
+    let values = [];
     var matches = null;
     while (matches = regex.exec(line)) {
         if (matches.length > 1) {

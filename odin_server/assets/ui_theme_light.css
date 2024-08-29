@@ -1,0 +1,193 @@
+/* basic light theme CSS property values */
+
+
+/* common variables */
+
+:root {
+    --theme: "light";
+    /* basic values */
+    --color: rgb(55, 55, 55);
+    --darker-color: rgb(127, 127, 127);
+    --dim-color: rgb(143, 143, 143);
+    --data-color: #36438b;
+    /* rgb(0,255,0); */
+    --selected-data-color: yellow;
+    --input-data-color: rgb(58, 103, 39);
+    --disabled-color: rgba(200, 200, 200, 0.297);
+    --background: rgb(255, 255, 255);
+    --data-background: rgb(255, 255, 255);
+    --selection-background: rgb(64, 64, 200);
+    --hover-background: rgb(84, 84, 160);
+    --font-size: 11pt;
+    --font-size-small: 10pt;
+    --font-size-large: 13pt;
+    --font-family: sans-serif;
+    --font-family-mono: Courier;
+    --font: var(--font-size) var(--font-family);
+    --font-small: var(--font-size-small) var(--font-family);
+    --mono-font: var(--font-size) var(--font-family-mono);
+    --mono-font-large: var(--font-size-large) monospace;
+    --border-color: rgb(110, 110, 110);
+    --border-dark-color: rgb(80, 80, 80);
+    --border-bright-color: rgb(130, 130, 130);
+    /*--border-width: 2px;*/
+    /*--border: var(--border-width) inset var(--border-color);*/
+    --border-width: 1px;
+    --border: var(--border-width) solid var(--border-color);
+    --box-shadow: 5px 5px 8px rgb(136, 136, 136);
+    --padding: 5px;
+    --margin: 3px;
+    --gap: 3px;
+    --focus-color: rgb(130, 130, 0);
+    --focus-outline: 1px solid var(--focus-color);
+    /* icons (toplevel buttons with variable stroke/fill color SVGs and explicit 'on' state) */
+    /*   background used for transparent image parts, color for image stroke and fill-color for image fill */
+    --icon-size: 32px;
+    --icon-border: 1px solid var(--border-color);
+    --icon-background: var(--background);
+    --icon-color: rgb(200, 200, 200);
+    --icon-fill-color: rgb(180, 180, 180);
+    --icon-hover-background: var(--hover-background);
+    --icon-hover-color: cyan;
+    --icon-hover-fill-color: rgb(99, 166, 168);
+    --icon-on-background: var(--selection-background);
+    --icon-on-color: white;
+    --icon-on-fill-color: rgb(220, 220, 220);
+    --icon-on-border: 1px solid white;
+    --icon-border-radius: 5px;
+    /* tooltips */
+    --tooltip-color: rgb(255, 255, 93);
+    --tooltip-background: rgb(84, 84, 164);
+    --tooltip-border-color: var(--tooltip-color);
+    --tooltip-border-style: solid;
+    --tooltip-border-width: 1px;
+    --tooltip-border: var(--tooltip-border-width) var(--tooltip-border-style) var(--tooltip-border-color);
+    --tooltip-shadow: 2px 2px 2px var(--tooltip-border-color);
+    /* windows */
+    --titlebar-height: 1.4rem;
+    --titlebar-color: var(--color);
+    --titlebar-background: rgb(32, 32, 64);
+    --titlebar-font: var(--font);
+    --window-color: var(--color);
+    --window-background: var(--background);
+    --window-border: 1px solid var(--border-color);
+    --window-shadow: var(--box-shadow);
+    --window-padding: 0.8rem;
+    --window-gap: var(--gap);
+    --window-z: 50;
+    /* panels */
+    --panel-padding-top: 6px;
+    --panel-padding-bottom: 3px;
+    --panel-header-margin-top: 1rem;
+    --panel-header-margin-bottom: 0;
+    --panel-border-top: 1px solid var(--border-color);
+    --panel-background: var(--background);
+    /* containers */
+    --container-title-font: var(--font);
+    --container-title-color: var(--color);
+    --container-title-border: 1px solid var(--border-color); 
+    --container-border: var(--border);
+    /* scrollbars */
+    --scrollbar-track-width: 0.7rem;
+    --scrollbar-track-color: rgb(44, 44, 44);
+    --scrollbar-thumb-width: 0.6rem;
+    --scrollbar-thumb-color: rgb(100, 100, 100);
+    /* menus */
+    --popup-menu-border: 1px solid rgb(24, 24, 24);
+    --menuitem-font: var(--font);
+    --menuitem-height: 1.1rem;
+    --menuitem-color: var(--color);
+    --menuitem-background: rgb(64, 64, 64);
+    --menuitem-selection-color: rgb(255, 255, 255);
+    --menuitem-selection-background: rgb(64, 64, 200);
+    /* data fields */
+    --field-height: 1.5rem;
+    --field-label-width: 5rem;
+    --field-value-width: 8rem;
+    --field-value-color: var(--data-color);
+    --field-border: var(--border);
+    /* text input */
+    --input-height: 1.8rem;
+    --input-color: var(--input-data-color);
+    --input-active-color: yellow;
+    --input-active-background: rgb(64, 64, 200);
+    /* choices */
+    --choice-height: var(--field-height);
+    --choice-value-width: var(--field-value-width);
+    --choice-field-border: var(--border);
+    --choice-value-color: var(--input-data-color);
+    --choice-field-background: var(--data-background);
+    /* pushbuttons */
+    --button-height: 2rem;
+    --button-color: rgb(200, 200, 200);
+    --button-hover-color: rgb(230, 230, 230);
+    --button-background: rgb(62, 59, 122);
+    --button-hover-background: rgb(56, 56, 101);
+    --button-border: 3px groove var(--border-color);
+    --button-hover-border: var(--button-border);
+    --button-border-radius: 0px;
+    --button-color-pressed: yellow;
+    --button-border-pressed: var(--button-border);
+    /* checkboxes */
+    --checkbox-size: 1rem;
+    --checkbox-button-size: 0.8rem;
+    --checkbox-button-border: 1px solid var(--border-color);
+    /* radio buttons */
+    --radio-size: 1rem;
+    --radio-button-size: 0.9rem;
+    --radio-button-border: 1px solid var(--border-color);
+    --radio-button-selected-color: var(--data-color);
+    --radio-button-selected-background: var(--data-background);
+    /* lists */
+    --list-width: var(--field-value-width);
+    --list-item-height: 1.1rem;
+    --list-item-padding: 2px;
+    --list-border: var(--border);
+    --list-hover-background: rgb(80, 80, 80);
+    --list-selection-color: var(--selected-data-color);
+    --list-selection-background: var(--selection-background);
+    --list-header-font: var(--font-small);
+    /* tables */
+    --table-border: 1px solid rgb(50,50,50);
+    /* clocks */
+    --clock-date-font: var(--font-small);
+    --clock-time-font: bold 120% Courier;
+    --clock-color: var(--field-value-color);
+    /* sliders */
+    --slider-border: var(--border);
+    --slider-height: 2.0rem;
+    --slider-width: 12rem;
+    --slider-thumb-size: 1.2rem;
+    --slider-range-color: rgba(200, 200, 200, 0.6);
+    /* leveled progress bars */
+    --progress-border: none;
+    --progress-padding: 0;
+    --progress-0-background: transparent;
+    --progress-0-border: var(--border-width);
+    --progress-0-padding: 2px;
+    --progress-1-background: rgb(24, 141, 20);
+    --progress-1-border: none;
+    --progress-1-padding: 1px 0px 1px 0px;
+    /* tabs */
+    --tab-color: var(--darker-color);
+    --selected-tab-color: var(--color);
+    --tab-background: rgb(30, 30, 50);
+    --selected-tab-background: var(--background);
+    /* general containers */
+    --container-padding: 4px;
+    --container-margin: var(--margin) 0 var(--margin) 0;
+    --container-gap: 4px;
+    /* generic map rendering */
+    --map-brightness: 0.6;
+    --map-hue: 0.0;
+    --map-saturation: 1.0;
+    /* icon_box */
+    --icon-box-left: 0;
+    --icon-box-top: 0;
+    --icon-box-dir: row;
+    --icon-box-margin: var(--margin);
+    --icon-box-gap: var(--gap);
+    --icon-box-background: rgba(0, 0, 0, 0);
+    /* document */
+    --document-background: black;
+}

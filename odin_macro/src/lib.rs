@@ -54,108 +54,6 @@ macro_rules! stringify_path {
         stringify!($path)
     }
 }
-
-/* #region define_service_type ***************************************************/
-
-/// macro to define a composite SinglePageApplication type from a list of MicroServices. This is used for [`odin_server::Server`] 
-/// initialization and avoids the problem that we cannot use trait objects to put the micro services into a generic container
-/// (such as `Vec<Box<dyn MicroService>>`) since the MicroService trait is not object safe - it has methods returning
-/// `impl Future<..>` types. Use like so:
-/// ```
-///   define_spa! { TrackSPA = ImageryService + TrackService }
-/// ```
-/// which gets expanded into:
-/// ```
-///   struct TrackSPA (ImageryService, TrackService);
-///   impl SpaServiceList for TrackSPA {
-///       fn add_components (&self, spa: &mut SpaComponents)->Result<()> {
-///            self.0.add_components(spa)?;
-///            self.1.add_components(spa)
-///       }
-///       async fn init_connection (&self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr)->Result<()> {
-///            self.0.init_connection( hself.clone(), remote_addr.clone()).await?;
-///            self.1.init_connection( hself, remote_addr).await
-///       }
-///   }
-/// ```
-#[proc_macro]
-pub fn define_spa (item: TokenStream) -> TokenStream {
-    let ServiceComposition { visibility, name, generic_params, component_types, where_clause }= syn::parse(item).unwrap();
-    let len = component_types.len();
-    let len1 = len-1;
-
-    let generics = if generic_params.is_empty() { quote!{} } else { quote! { < #( #generic_params ),* > } };
-
-    let mut add_components: Vec<TokenStream2> = Vec::with_capacity(len);
-    for i in 0..len1 { add_components.push( quote! { self.#i.add_components( spa)?; }) }
-    add_components.push( quote! { self.#len1.add_components( spa) });
-    
-    let mut init_connection: Vec<TokenStream2> = Vec::with_capacity(len);
-    for i in 0..len1 { init_connection.push( quote! { self.#i.init_connection( hserver.clone(), remote_addr.clone()).await?; }) }
-    init_connection.push( quote! { self.#len1.init_connection( hserver, remote_addr).await });
-
-    let new_item: TokenStream = quote! {
-        #visibility struct #name #generics #where_clause (
-            #( #component_types ),*
-        );
-        impl SpaServiceList for #name {
-            fn add_components (&self, spa: &mut SpaComponents)->Result<()> {
-                #( #add_components )*
-            }
-            async fn init_connection (&self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr)->Result<()> {
-                #( #init_connection )*
-            }
-        }
-    }.into();
-    //println!("-----\n{}\n-----", new_item.to_string());
-    new_item
-}
-
-#[derive(Debug)]
-struct ServiceComposition {
-    visibility: Visibility,
-    name: Ident,
-    generic_params:Vec<GenericParam>,
-    component_types: Vec<Path>,
-    where_clause: Option<WhereClause>,
-}
-
-impl Parse for ServiceComposition {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let visibility: Visibility = parse_visibility(input);
-        let name: Ident = input.parse()?;
-
-        let mut generic_params: Vec<GenericParam> = Vec::new();
-        let mut lookahead = input.lookahead1();
-        if !input.is_empty() && lookahead.peek(Token![<]) {
-            input.parse::<Token![<]>()?;
-            generic_params = Punctuated::<GenericParam,Token![,]>::parse_separated_nonempty(input)?.into_iter().collect();
-            input.parse::<Token![>]>()?;
-            lookahead = input.lookahead1();
-        }
-
-        let component_types: Vec<Path> = if lookahead.peek(Token![=]) {
-            let _: Token![=] = input.parse()?;
-            let component_types = Punctuated::<Path,Token![+]>::parse_terminated(input)?;
-            component_types.into_iter().collect()
-        } else {
-            Vec::new()
-        };
-
-        let mut where_clause: Option<WhereClause> = None;
-        if !input.is_empty() {
-            lookahead = input.lookahead1();
-            if lookahead.peek(Token![where]) {
-                where_clause = Some(input.parse::<WhereClause>()?);
-            }
-        }
-        
-        Ok( ServiceComposition { visibility, name, generic_params, component_types, where_clause })
-    }
-}
-
-/* #endregion define_service_type */
-
 /* #region define_struct **************************************************************/
 
 /// convenience macro to generate a struct definition with respective default constructor
@@ -425,7 +323,7 @@ impl ToTokens for FieldSpec {
 /// ```
 #[proc_macro]
 pub fn define_algebraic_type (item: TokenStream) -> TokenStream {
-    let AdtEnum {visibility, name, derives, variant_types, methods }= match syn::parse(item) {
+    let AdtEnum {attrs, visibility, name, derives, variant_types, methods }= match syn::parse(item) {
         Ok(adt) => adt,
         Err(e) => panic!( "expected \"adtName [: Trait,..] = variantType | ..  [ func ... ]\" got error: {:?}", e)
     };
@@ -436,6 +334,7 @@ pub fn define_algebraic_type (item: TokenStream) -> TokenStream {
 
     let new_item: TokenStream = quote! {
         #derive_clause
+        #( #attrs )*
         #visibility enum #name {
             #( #variant_names ( #variant_types ) ),*
         }
@@ -536,7 +435,7 @@ impl<'a> Visit<'a> for BlockAnalyzer {
 /// 
 #[proc_macro]
 pub fn define_actor_msg_set (item: TokenStream) -> TokenStream {
-    let AdtEnum {visibility, name, derives, mut variant_types, methods }= syn::parse(item).unwrap();
+    let AdtEnum {attrs, visibility, name, derives, mut variant_types, methods }= syn::parse(item).unwrap();
     for var_type in get_sys_msg_types() {
         variant_types.push(var_type)
     }
@@ -551,6 +450,7 @@ pub fn define_actor_msg_set (item: TokenStream) -> TokenStream {
 
     let new_item: TokenStream = quote! {
         #derive_clause
+        #( #attrs )*
         #visibility enum #name {
             #( #variant_names ( #variant_types ) ),*
         }
@@ -594,6 +494,7 @@ fn get_variant_names_from_types (variant_types: &Vec<Path>)->Vec<Ident> {
 
 #[derive(Debug)]
 struct AdtEnum {
+    attrs: Vec<Attribute>,
     visibility: Visibility,
     name: Ident,
     derives: Vec<Path>,
@@ -603,6 +504,7 @@ struct AdtEnum {
 
 impl Parse for AdtEnum {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let attrs: Vec<Attribute> = input.call(Attribute::parse_outer)?;
         let visibility: Visibility = parse_visibility(input);
         let name: Ident = input.parse()?;
         let mut derives: Vec<Path> = Vec::new();
@@ -630,7 +532,7 @@ impl Parse for AdtEnum {
             lookahead = input.lookahead1()
         }
 
-        Ok( AdtEnum { visibility, name, derives, variant_types, methods })
+        Ok( AdtEnum { attrs, visibility, name, derives, variant_types, methods })
     }
 }
 

@@ -22,7 +22,7 @@ use crate::ws::WsCmd;
 
 //-- external messages (from other actors)
 
-#[derive(Debug)] pub struct ExecSnapshotAction(DynDataRefAction<SentinelStore>);
+#[derive(Debug)] pub struct ExecSnapshotAction( pub DynDataRefAction<SentinelStore> );
 
 /// request a specific update record
 #[derive(Debug)] pub struct GetSentinelUpdate {  pub record_id: String }
@@ -31,8 +31,8 @@ use crate::ws::WsCmd;
 #[derive(Debug)] pub struct SendSentinelCmd { sentinel_cmd: WsCmd }
 
 //-- internal messages. Note these are not public since we should only get them from our connector
-#[derive(Debug)] pub(crate) struct InitializeStore (pub(crate) SentinelStore);
-#[derive(Debug)] pub(crate) struct UpdateStore (pub(crate) SentinelUpdate);
+#[derive(Debug)] pub(crate) struct InitializeStore (pub(crate) SentinelStore);  // set initial store contents
+#[derive(Debug)] pub(crate) struct UpdateStore (pub(crate) SentinelUpdate); // single record update (triggered by websocket notification)
 #[derive(Debug)] pub(crate) struct ConnectorError (pub(crate) OdinSentinelError);
 
 define_actor_msg_set! { pub SentinelActorMsg = 
@@ -88,7 +88,7 @@ impl<C,InitAction,UpdateAction> SentinelActor <C,InitAction,UpdateAction>
         let res = match self.sentinels.get_update( &record_query.question.record_id) {
             Some(upd) => Ok(upd.clone()),
             None => Err( OdinSentinelError::NoSuchRecordError(record_query.question.record_id.clone()))
-        };        
+        };
         record_query.respond( res).await.map_err(|_| op_failed("receiver closed"))
     }
 
@@ -105,11 +105,10 @@ impl_actor! { match msg for Actor< SentinelActor<C,InitAction,UpdateAction>, Sen
         msg.0.execute( &self.sentinels).await;
     }
     Query<GetSentinelUpdate,Result<SentinelUpdate>> => cont! { 
-        let fut = self.handle_record_query(msg);
+        self.handle_record_query(msg).await;
     }
     Query<GetSentinelFile,Result<SentinelFile>> => cont! { 
-        // it might be in-flight so forward to connector
-        self.connector.handle_file_query(msg).await; 
+        self.connector.handle_sentinel_file_query(msg).await; // might be in-flight, hand over to connector
     }
 
     //--- connector messages
@@ -134,17 +133,3 @@ impl_actor! { match msg for Actor< SentinelActor<C,InitAction,UpdateAction>, Sen
     }
 }
 
-/// this is the abstraction over the actual source of external information, which can be either a live connection to a Delphire server
-/// or a replayer for archived data
-pub trait SentinelConnector {
-
-   fn start (&mut self, hself: ActorHandle<SentinelActorMsg>) -> impl Future<Output=Result<()>> + Send;
-
-   // note that these future do not wait until the request was resolved - only until the request has been queued (if it needs to)
-   fn send_cmd (&mut self, cmd: WsCmd) -> impl Future<Output=Result<()>> + Send;
-   fn handle_file_query (&self, file_query: Query<GetSentinelFile,Result<SentinelFile>>) -> impl Future<Output=Result<()>> + Send;
-
-   fn terminate (&mut self);
-
-   fn max_history(&self)->usize;
-}

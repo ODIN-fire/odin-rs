@@ -1,21 +1,18 @@
 /*
- * Copyright (c) 2023, United States Government, as represented by the
- * Administrator of the National Aeronautics and Space Administration.
- * All rights reserved.
+ * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The RACE - Runtime for Airspace Concept Evaluation platform is licensed
- * under the Apache License, Version 2.0 (the "License"); you may not use
- * this file except in compliance with the License. You may obtain a copy
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
+ * you may not use this file except in compliance with the License. You may obtain a copy 
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
 import * as ui from "./ui.js";
-import * as config from "./config.js";
+import {config} from "./ui_settings_config.js";
 
 //--- theme/settings UI
 
@@ -44,7 +41,33 @@ ui.registerLoadFunction(function initialize() {
     console.log("ui_settings initialized");
 });
 
-const themeRE = /blob\:|.*ui_theme.css(?:\?.+)?/;
+const themeRE = /.*\/asset\/odin_server\/ui_theme_.*\.css/;
+
+createIcon();
+createWindow();
+
+function createIcon() {
+    return ui.Icon("./asset/odin_server/settings.svg", (e)=> ui.toggleWindow(e,'settings'));
+}
+
+function createWindow() {
+    return ui.Window("UI Settings", "settings", "./asset/odin_server/settings.svg")(
+        ui.RowContainer()(
+            ui.Choice("theme", "settings.theme", selectTheme),
+            ui.Button("Edit", editTheme),
+            ui.Button("Remove", removeLocalTheme)
+        ),
+        ui.Panel("theme vars", false)(
+            ui.ColumnContainer("align_right")(
+                ui.List("settings.themeVars", 20, selectThemeVar),
+                ui.TextInput("value", "settings.value", themeVarChange, false, "", "15rem")
+            ),
+            ui.RowContainer()(
+                ui.Button("Save", saveLocalTheme)
+            )
+        )
+    );
+}
 
 function getThemeCss() {
     let styleSheets = document.styleSheets;
@@ -52,6 +75,7 @@ function getThemeCss() {
         let css = styleSheets[i];
         if (css.href && themeRE.test(css.href)) return css;
     }
+    console.log("no ui_theme_*.css found");
     return undefined;
 }
 
@@ -101,7 +125,7 @@ function colorInput(varName) {
     return null;
 }
 
-ui.exportToMain(function selectTheme(event) {
+function selectTheme(event) {
     let theme = ui.getSelectedChoiceValue(event);
     if (theme) {
         selectedTheme = theme;
@@ -112,9 +136,9 @@ ui.exportToMain(function selectTheme(event) {
             loadServerTheme(theme);
         }
     }
-});
+}
 
-ui.exportToMain(function saveLocalTheme() {
+function saveLocalTheme() {
     if (themeVars) {
         let themeName = themeVars.theme.replaceAll("\"", "");
         if (!themeName.startsWith(LOCAL)) themeName = LOCAL + themeName;
@@ -122,7 +146,7 @@ ui.exportToMain(function saveLocalTheme() {
         themeName = prompt("Please enter local theme name", themeName);
         if (themeName) {
             themeName = themeName.trim();
-            if (!themeName.startsWith(LOCAL)) themeName = LOCAL + themeName
+            if (!themeName.startsWith(LOCAL)) themeName = LOCAL + themeName;
             themeVars.theme = themeName;
 
             let themes = getLocalThemes();
@@ -144,10 +168,10 @@ ui.exportToMain(function saveLocalTheme() {
     } else {
         alert("no edited theme");
     }
-});
+}
 
 
-ui.exportToMain(function removeLocalTheme() {
+function removeLocalTheme() {
     console.log("removing " + selectedTheme);
     if (selectedTheme && selectedTheme.startsWith(LOCAL)) {
         if (confirm("delete theme: " + selectedTheme + " ?")) {
@@ -165,7 +189,7 @@ ui.exportToMain(function removeLocalTheme() {
         }
 
     } else alert("no local theme selected");
-});
+}
 
 function getThemes() {
     let allThemes = [];
@@ -192,7 +216,7 @@ function loadServerTheme(theme) {
 
     let themeLink = getThemeLink();
     if (themeLink) {
-        themeLink.href = "ui_theme.css?theme=" + theme;
+        themeLink.href = "./asset/odin_server/ui_theme_" + theme + ".css";
         checkThemeLoaded(theme);
     }
 }
@@ -253,10 +277,10 @@ function loadLocalTheme(theme) {
 
 
 function getThemeVars() {
-    let themeVars = {}
+    let themeVars = {};
 
     if (themeCss) {
-        console.log("@@@ ", themeCss);
+        //console.log("@@@ ", themeCss);
         let cssRules = themeCss.cssRules[0]; // themeCss only has custom properties, no rules
         for (var k = 0; k < cssRules.style.length; k++) {
             let name = cssRules.style[k];
@@ -282,24 +306,24 @@ function getCss(tvs) {
         css += (name == "theme") ? `"${tvs[name]}"` : tvs[name];
         css += ";\n";
     });
-    css += "}"
+    css += "}";
     return css;
 }
 
-ui.exportToMain(function editTheme() {
+function editTheme() {
     themeVars = getThemeVars();
     ui.setListItems(themeVarView, Object.getOwnPropertyNames(themeVars));
     ui.setButtonDisabled("settings.save", false);
-});
+}
 
-ui.exportToMain(function selectThemeVar(event) {
+function selectThemeVar(event) {
     let varName = event.detail.curSelection;
     if (varName) {
         ui.setField(themeVarEntry, themeVars[varName]);
     }
-});
+}
 
-ui.exportToMain(function themeVarChange(event) {
+function themeVarChange(event) {
     let newValue = ui.getFieldValue(event);
     let selectedThemeVar = ui.getSelectedListItem(themeVarView);
 
@@ -310,7 +334,7 @@ ui.exportToMain(function themeVarChange(event) {
         themeCss.cssRules[0].styleMap.set(key, newValue);
         ui.updateListItem(themeVarView, selectedThemeVar);
     }
-});
+}
 
 const colors = {
     "aliceblue": "#f0f8ff",

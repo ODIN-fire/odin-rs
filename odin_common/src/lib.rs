@@ -13,8 +13,10 @@
  */
 #![allow(unused,uncommon_codepoints)]
 #![feature(trait_alias)]
+#![feature(io_error_more)]
 
 pub mod strings;
+pub mod collections;
 pub mod macros;
 pub mod fs;
 pub mod datetime;
@@ -23,9 +25,18 @@ pub mod geo;
 pub mod sim_clock;
 pub mod ranges;
 pub mod schedule;
+pub mod admin;
+pub mod process;
 
 #[cfg(feature="s3")]
 pub mod s3;
+
+pub mod heap;
+
+pub mod slack; // only requires reqwest so no feature gate (yet)
+
+#[cfg(feature="slack_admin")]
+odin_build::define_load_config!();
 
 // syntactic sugar - this is just more readable
 #[inline] pub fn sin(x:f64) -> f64 { x.sin() }

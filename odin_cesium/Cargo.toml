@@ -1,0 +1,39 @@
+[package]
+name = "odin_cesium"
+version = "0.1.0"
+edition = "2021"
+build = "../build_resources.rs"
+
+[[bin]]
+name = "basic_globe"
+path = "src/bin/basic_globe.rs"
+
+[dependencies]
+# our ODIN crates
+odin_build = { workspace = true }
+odin_actor = { workspace = true }
+odin_common = { workspace = true, features = ["s3"] }
+odin_macro = { workspace = true }
+odin_server = { workspace = true }
+
+anyhow = "*"
+tokio = { version = "*", features = ["full"] }
+serde = { version = "*", features = ["derive"] }
+async-trait = "*"
+
+[build-dependencies]
+odin_build = { workspace = true }
+
+[package.metadata.odin_assets]
+odin_cesium_config = { file = "odin_cesium_config.js" }
+odin_cesium = { file = "odin_cesium.js" }
+view_icon = { file = "view.svg"}
+time_icon = { file = "time.svg"}
+layer_icon = { file = "layers.svg"}
+
+imglayer_config = { file = "imglayer_config.js"}
+imglayer = { file = "imglayer.js"}
+imglayer_icon = { file = "imglayer.svg"}
+
+[features]
+trace_server = ["odin_server/trace_server"]

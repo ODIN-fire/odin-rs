@@ -70,7 +70,7 @@ mod client {
         _Start_ => cont! {
             //let cb = Callback::from( try_send_msg_callback!( &self.hself, |v:&u64| Update(*v) ));
             let hself = self.hself.clone();
-            let action = dyn_data_action!( hself: ActorHandle<ClientMsg> =>  |v:u64| hself.try_send_msg( Update(v)) );
+            let action = dyn_data_action!( hself: ActorHandle<ClientMsg> =>  |v:u64| Ok( hself.try_send_msg( Update(v))? ));
 
             self.provider.send_msg( AddAction(action)).await;
             self.start_time = Instant::now();

@@ -12,7 +12,6 @@
  * and limitations under the License.
  */
 
-use anyhow::Result;
 use odin_build;
 use odin_actor::prelude::*;
 use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor,load_config};
@@ -41,8 +40,7 @@ impl_actor! { match msg for Actor<SentinelMonitor,SentinelMonitorMsg> as
 /* #endregion monitor actor */
 
 
-#[tokio::main]
-async fn main ()->Result<()> {
+async_main! {
     odin_build::set_bin_context!();
     
     let mut actor_system = ActorSystem::with_env_tracing("main");
@@ -53,16 +51,15 @@ async fn main ()->Result<()> {
         LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
         dataref_action!( hmonitor.clone(): ActorHandle<SentinelMonitorMsg> => |data:&SentinelStore| {
             let msg = Snapshot(data.to_json_pretty().unwrap());
-            hmonitor.try_send_msg( msg)
+            Ok( hmonitor.try_send_msg( msg)? )
         }),
-        data_action!( hmonitor: ActorHandle<SentinelMonitorMsg> => |data:SentinelUpdate| {
-            let msg = Update(data.to_json_pretty().unwrap());
-            hmonitor.try_send_msg( msg)
+        data_action!( hmonitor: ActorHandle<SentinelMonitorMsg> => |update:SentinelUpdate| {
+            //let msg = Update( odin_server::ws_msg!( "odin_sentinel.js", update).to_json()? );
+            let msg = Update(update.description());
+            Ok( hmonitor.try_send_msg( msg)? )
         }),
     ))?;
 
     actor_system.timeout_start_all(secs(2)).await?;
     actor_system.process_requests().await?;
-
-    Ok(())
 }

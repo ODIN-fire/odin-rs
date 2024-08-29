@@ -69,6 +69,9 @@ pub enum OdinSentinelError {
     #[error("error retrieving file {0}")]
     FileRequestError(String),
 
+    #[error("error retrieving record {0}")]
+    RecordRequestError(String),
+
     #[error("command error {0}")]
     CommandError(String),
 
@@ -100,7 +103,11 @@ map_to_opaque_error!{ odin_job::OdinJobError => OdinSentinelError::JobError }
 map_to_opaque_error!{ ron::error::Error => OdinSentinelError::ConfigError }
 map_to_opaque_error!{ tokio::time::error::Elapsed => OdinSentinelError::TimeoutError }
 map_to_opaque_error!{ std::process::ExitStatusError => OdinSentinelError::CommandError }
+
+#[cfg(feature="smtp")]
 map_to_opaque_error!{ lettre::transport::smtp::Error => OdinSentinelError::SmtpError }
+
+#[cfg(feature="signal_rpc")]
 map_to_opaque_error!{ jsonrpsee::core::client::Error => OdinSentinelError::RpcError }
 
 
@@ -114,6 +121,10 @@ pub fn op_failed (msg: impl ToString)->OdinSentinelError {
 
 pub fn connector_error (msg: impl ToString)->OdinSentinelError {
     OdinSentinelError::ConnectorError(msg.to_string())
+}
+
+pub fn ws_protocol_error (msg: impl ToString)->OdinSentinelError {
+    OdinSentinelError::WsProtocolError(msg.to_string())
 }
 
 pub fn send_error (msg: impl ToString)->OdinSentinelError {

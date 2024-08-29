@@ -27,7 +27,7 @@ pub use crate::{
     define_actor_msg_set, match_actor_msg, cont, stop, term, impl_actor, spawn_actor, spawn_pre_actor, spawn_dyn_actor,
     DataAction, DataRefAction, BiDataAction, BiDataRefAction, DynDataAction, DynDataRefAction, DynDataActionList, DynDataRefActionList,
     no_data_action, no_dataref_action, no_bi_data_action, no_bi_dataref_action,
-    data_action, dataref_action, bi_data_action, bi_dataref_action, dyn_data_action, dyn_dataref_action, 
-    map_action_err, action_err, action_ok, OdinActionError,  
-    trace,debug,info,warn,error
+    data_action, dataref_action, bi_data_action, bi_dataref_action, dyn_data_action, dyn_dataref_action,
+    OdinActionFailure,  
+    trace,debug,info,warn,error,async_main
 };

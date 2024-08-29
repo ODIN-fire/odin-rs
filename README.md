@@ -1,19 +1,19 @@
 # ODIN - Open Data Integration Framework
 
-**note - ODIN open source release is still pending. DO NOT DISTRIBUTE OUTSIDE NASA OR WITHOUT THIS WARNING**
-
 ## Introduction
 
 This is the readme for the odin-rs repository, which is the Rust version of the Open Data Integration (ODIN) framework developed at the NASA Ames Research Center.
 
-The goal of the ODIN framework is to efficiently create servers for static and dynamic data that support disaster management in order to improve situational awareness of responders. You can get an idea about ODIN applications by watching our [TFRSAC](https://fsapps.nwcg.gov/nirops/pages/tfrsac) presentations:
+ODIN is a software framework to efficiently create servers that support disaster management. 
+
+More specifically it is a framework to make it easy to import and process an open number of external data sources for information such as weather, ground-/aerial- and space-based sensors, threat assessment, simulation and tracking. The over-arching goal is to improve situational awareness of responders by making more - and more timely - information available in stakeholder-specific applications. ODINs goal is *not* to create yet another website running in the cloud. To that end it is open sourced under Apachev2, highly extensible and supports running ODIN servers within stakeholder organizations on a variety of hardware and operating systems.
+
+To get an idea of what such ODIN servers might look like we refer to two of our TFRSAC talks:
 
   * [spring 2023](https://www.youtube.com/watch?v=b9DfMBYCe-s&t=4950s)
   * [fall 2022](https://www.youtube.com/watch?v=gCBXOaybDLA)
 
-ODIN-RS is a Rust based successor of the [race-odin](https://nasarace.github.io/race-odin/) system that was implemented in Scala/Java (see [RACE](https://nasarace.github.io/race/)). It is our intention to open source ODIN-RS under Apache v2 license.
-
-At this point (03/2024) this repository holds work in progress. Not all crates do currently work and some might not even build.
+ODIN-RS is a Rust based successor of the [race-odin](https://nasarace.github.io/race-odin/) system that was implemented in Scala/Java (see [RACE](https://nasarace.github.io/race/)). This is still an on-going effort - please contact us if you are interested in the current status.
 
 POC: [Peter.C.Mehlitz\@nasa.gov](mailto:Peter.C.Mehlitz@nasa.gov) 
 
@@ -23,12 +23,22 @@ This Rust repository contains a [Cargo workspace](https://doc.rust-lang.org/carg
 
 ### Prerequisites
 
-  1. [Rust toolchain](https://www.rust-lang.org/tools/install) - we recommend to manage the toolchain via `rustup`
-     At this point ODIN-RS uses the nightly toolchain, which can be enabled via `rustup default nightly`
+  1. [Git](https://git-scm.com/) - the version control system that is by now ubiqitous 
 
-  2. [GDAL](https://gdal.org/) - this platform specific native library for handling geospatial data is required by the `odin_gdal` crate
-     and should be installed through respective package managers for your operating system, such as:
+  2. [Rust toolchain](https://www.rust-lang.org/tools/install) - we recommend to manage the toolchain via `rustup`
+     At this point ODIN-RS uses the nightly toolchain. To get, (locally) install `rustup` and switch to the nightly toolchain execute:
 
+     ```shell
+     $> curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+     ...
+     $> rustup default nightly
+     ``` 
+
+     Periodic updates of the toolchain can be done by executing `rustup update`
+
+  3. [GDAL](https://gdal.org/) - this platform specific native library for handling geospatial data is required by the `odin_gdal` crate and should be installed through respective package managers for your operating system
+
+     * Linux: gdal packages are available for all major Linux distributions through their native package managers
      * macOS: [homebrew](https://brew.sh/): `brew install gdal`
      * windows: [vcpkg](https://learn.microsoft.com/en-us/vcpkg/get_started/overview)
 
@@ -47,10 +57,27 @@ hello world!
 hello me!
 ```
 
-For IDEs we recommend [Visual Studio Code with the Rust Analyzer extension](https://code.visualstudio.com/docs/languages/rust) - just choose "File->Open Folder" with the directory this repository was cloned to and you should be all set.
+For IDEs we recommend [Visual Studio Code with the Rust Analyzer extension](https://code.visualstudio.com/docs/languages/rust) - just choose "File->Open Folder" with the directory this repository was cloned to and you should be ready to go.
 
 ## Further Documentation
 
-Apart from [in-source Rust documentation](https://doc.rust-lang.org/rustdoc/how-to-write-documentation.html) for its crates, ODIN-RS will eventually include an `odin_book` sub-directory containing a separate user/developer guide that is based on the same [`mdbook`](https://rust-lang.github.io/mdBook/) tool that is used to generate standard Rust documentation.
+Many ODIN applications require configuration and asset data that is not part of its source distribution. To learn about how to set up ODIN development systems, how to deploy production applications and about the details of existing ODIN sub-crates please refer to the `odin_book` which is part of the odin-rs repository and can be built/viewed through [`mdbook`](https://rust-lang.github.io/mdBook/) which is part of the Rust toolchain:
 
-At this early development stage the `examples` directories of respective crates might often hold the best documentation.
+```shell
+$> cd odin_book
+$> mdbook serve
+2024-07-18 10:07:57 [INFO] (mdbook::book): Book building has started
+2024-07-18 10:07:57 [INFO] (mdbook::book): Running the html backend
+2024-07-18 10:07:57 [INFO] (mdbook::cmd::serve): Serving on: http://localhost:3000
+...
+```
+
+Please also look at the `examples/` directories of various ODIN crates. 
+
+## License
+
+Copyright © 2024, United States Government, as represented by the Administrator of the National Aeronautics and Space Administration. All rights reserved.
+
+The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0.
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.

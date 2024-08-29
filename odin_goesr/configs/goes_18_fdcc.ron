@@ -1,0 +1,12 @@
+LiveGoesRHotspotImporterConfig(
+    satellite: 18,
+    s3_region: "us-east-1",
+    bucket: "noaa-goes18",
+    source: "ABI-L2-FDCC",
+    keep_files: true,
+    init_files: 3,
+    max_age: Duration(secs:43200,nanos:0),         // keep data entries for 12hr
+    cleanup_interval: Duration(secs:3600,nanos:0)  // purge old every hour 
+)
+
+

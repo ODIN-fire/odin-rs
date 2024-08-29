@@ -138,17 +138,17 @@ async fn main ()->Result<()> {
                 let hself = hself.clone();
                 let action = AddUpdateAction( dyn_data_action!( hself: ActorHandle<WsServerMsg> => |data: TUpdate| { // data is from updater
                     let msg = PublishUpdate{ ws_msg: format!("{{\"update\": {data}}}") }; // turn data into JSON message
-                    hself.try_send_msg(msg)
+                    Ok( hself.try_send_msg(msg)? )
                 }));
-                map_action_err( updater.send_msg( action).await)?;
+                updater.send_msg( action).await?
             }
 
             // now ask for a snapshot of the current Updater data in a format the WsServer understands
             let action = dyn_dataref_action!( hself: ActorHandle<WsServerMsg>, addr: TAddr => |data: &Vec<TUpdate>| {
                 let msg = SendSnapshot{ addr: addr.clone(), ws_msg: format!("{:?}", data) }; // turn data into JSON message
-                hself.try_send_msg( msg)
+                Ok( hself.try_send_msg( msg)? )
             });
-            updater.send_msg( ExecuteAction(action)).await
+            Ok( updater.send_msg( ExecuteAction(action)).await? )
         })
     ))?;
 

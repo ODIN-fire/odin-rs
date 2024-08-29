@@ -1,1 +1,1 @@
-# odin_sentinel
+../../../odin_sentinel/doc/odin_sentinel.md

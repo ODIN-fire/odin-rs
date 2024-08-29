@@ -20,6 +20,9 @@
 #![allow(unused)]
 #![feature(trait_alias)]
 
+// re-export for our macro impls
+pub extern crate tokio;
+
 use odin_job::{JobHandle, JobScheduler};
 use tokio::{
     time::{self,Interval,interval},
@@ -37,6 +40,7 @@ use crate::{
     create_sfc, debug, error, errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, info, micros, millis, nanos, secs, trace, unpack_ping_response, warn, ActorReceiver, ActorSystemRequest, DefaultReceiveAction, DynMsgReceiver, DynMsgReceiverTrait, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints, MsgSendFuture, MsgTypeConstraints, ObjSafeFuture, ReceiveAction, SendableFutureCreator, SysMsgReceiver, TryMsgReceiver, _Exec_, _Pause_, _Ping_, _Resume_, _Start_, _Terminate_, _Timer_
 };
 use odin_macro::fn_mut;
+use odin_common::process;
 
 /* #region channel abstractions ********************************************************************************/
 /*
@@ -256,7 +260,7 @@ impl <M> PreActorHandle <M>  where M: MsgTypeConstraints {
         PreActorHandle { hsys, id, tx, rx }
     }
 
-    pub fn as_actor_handle (&self)->ActorHandle<M> {
+    pub fn to_actor_handle (&self)->ActorHandle<M> {
         ActorHandle{ id: self.id.clone(), hsys: self.hsys.clone(), tx: self.tx.clone() }
     }
 }
@@ -887,6 +891,14 @@ impl ActorSystem {
         self.process_requests().await
     }
 
+    /// set a ctrlc signal handler that sends a RequestTermination instead of just bluntly exiting
+    /// the process. To be used if we have actors that need to shut down gracefully (e.g. store state)
+    pub fn request_termination_on_ctrlc (&self) {
+        let hsys = self.clone_handle();
+        odin_common::process::set_ctrlc_handler( move || {
+            hsys.try_send_msg( ActorSystemRequest::RequestTermination);
+        })
+    }
 }
 
 type ActorTuple<S,M> = (Actor<S,M>, ActorHandle<M>, MpscReceiver<M>);
@@ -1166,3 +1178,13 @@ async fn process_requests<P,R,T> (proc: P, rx: AsyncReceiver<R>) -> Result<()>
 
 /* #endregion RequestResolver */
 
+#[macro_export]
+macro_rules! async_main {
+    ( $( $t:tt )* ) => {
+        #[tokio::main]
+        async fn main ()->anyhow::Result<()> {
+            $( $t )*
+            Ok(())
+        }
+    }
+}

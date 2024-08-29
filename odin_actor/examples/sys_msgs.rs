@@ -33,12 +33,13 @@ impl_actor! { match msg for Actor<Ticker,TickerMsg> as
     _Start_ => cont! { 
         if let Ok(timer) = self.start_repeat_timer( 1, self.interval) {
             self.timer = Some(timer);
-            println!("started timer in '{}'", self.hself.id());
+            println!("started timer in '{}' for 10 ticks", self.hself.id());
         }
     }
-    _Timer_ => cont! { 
+    _Timer_ => { 
         self.count += 1;
         println!("tick {}", self.count);
+        if self.count > 10 { ReceiveAction::RequestTermination } else { ReceiveAction::Continue }
     }
     _Terminate_ => stop! {
         if let Some(timer) = &self.timer { 
@@ -52,14 +53,14 @@ impl_actor! { match msg for Actor<Ticker,TickerMsg> as
 #[tokio::main]
 async fn main() ->Result<()> {
     let mut actor_system = ActorSystem::new("main");
+    actor_system.request_termination_on_ctrlc(); // don't just exit the process - shut down gracefully
 
     //let actor_handle = actor_system.spawn_act( actor_system.new_actor("ticker", Ticker::new( secs(1)), 8))?;
     let actor_handle = spawn_actor!( actor_system, "ticker", Ticker::new( secs(1)));
 
-
     actor_system.start_all().await?; // sends out _Start_ messages
-    sleep( secs(5)).await;
-    actor_system.terminate_and_wait( millis(20)).await?;  // sends out _Terminate_ messages and waits for actor completion
+    actor_system.process_requests().await?;
 
+    println!("actor system terminated."); // would not show without setting termination handler
     Ok(())
 }
