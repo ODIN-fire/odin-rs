@@ -60,7 +60,7 @@ pub struct OrbitConfig {
 
 #[derive(Debug)] pub struct UpdateRawHotspots(pub(crate) RawHotspots);
 
-#[derive(Debug)] pub struct UpdateOverpassList(pub(crate) OverpassList);
+#[derive(Debug, Clone)] pub struct UpdateOverpassList(pub(crate) OverpassList);
  // #[derive(Debug)] pub struct Initialize(pub(crate) ViirsHotspots); // same behavior as update?
 #[derive(Debug)] pub struct ImportError(pub(crate) OdinJpssError);
 
@@ -123,7 +123,7 @@ impl_actor! { match msg for Actor< JpssImportActor<T, HotspotUpdateAction, Overp
     _Start_ => cont! { 
         let hself = self.hself.clone();
         let orbit_calculator =  self.orbit_calculator.clone() ;
-        self.jpss_importer.start( hself, orbit_calculator ).await; // move to initialization actor
+        self.jpss_importer.start( hself, orbit_calculator ); // move to initialization actor
     }
 
     ExecSnapshotAction => cont! { msg.0.execute( &self.hotspots).await; }
@@ -137,7 +137,9 @@ impl_actor! { match msg for Actor< JpssImportActor<T, HotspotUpdateAction, Overp
 
     UpdateHotspots => cont! { self.update_hotspots(msg.0).await; }
 
-    UpdateOverpassList => cont! { self.update_overpass_list(msg.0).await; }
+    UpdateOverpassList => cont! { 
+        self.update_overpass_list(msg.0).await; 
+    }
 
     ImportError => cont! { error!("{:?}", msg.0); }
     
@@ -146,7 +148,7 @@ impl_actor! { match msg for Actor< JpssImportActor<T, HotspotUpdateAction, Overp
 
  // abstraction trait
  pub trait JpssImporter {
-    fn start (&mut self, hself: ActorHandle<JpssImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> impl Future<Output=Result<()>> + Send;
+    fn start (&mut self, hself: ActorHandle<JpssImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> Result<()>;
     fn terminate (&mut self);
 }
 
@@ -182,7 +184,7 @@ impl_actor! { match msg for Actor< OrbitActor <T>, OrbitActorMsg>
         let overpass_list_res = self.orbit_calculator.calc_overpass_list(&msg.0);
         match overpass_list_res {
             Ok(overpass_list) => { msg.0.requester.send_msg(UpdateOverpassList(overpass_list)).await.unwrap(); }
-            Err(e) => println!("failed to calculate orbit: {}", e),
+            Err(e) => warn!("failed to calculate orbit: {}", e),
         }
     }
 
@@ -190,10 +192,10 @@ impl_actor! { match msg for Actor< OrbitActor <T>, OrbitActorMsg>
         let overpass_list_res = self.orbit_calculator.calc_overpass_list(&msg.question.0);
         match overpass_list_res {
             Ok(overpass_list) => match msg.respond(UpdateOverpassList(overpass_list)).await {
-                Ok(()) => {},
-                Err(e) => println!("failed to send overpasses: {}", e)
+                Ok(()) => { info!("sent an overpass list") },
+                Err(e) => warn!("failed to send overpasses: {}", e)
             }
-            Err(e) => println!("failed to calculate orbit: {}", e)
+            Err(e) => warn!("failed to calculate orbit: {}", e)
         }
         
     }
@@ -206,7 +208,7 @@ impl_actor! { match msg for Actor< OrbitActor <T>, OrbitActorMsg>
  
  /* #endregion orbit calculator actor*/
 
- /*orbit actor: use query actor example for blue print
+ /*orbit actor: 
  - takes in request message
  - gets overpasses
  - responds with overpasses

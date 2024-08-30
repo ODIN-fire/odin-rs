@@ -53,7 +53,7 @@ impl LiveJpssImporter {
         LiveJpssImporter{ config, cache_dir, file_import_task:None, overpass_import_task: None, file_cleanup_task:None }
     }
 
-    async fn initialize (&mut self, hself: ActorHandle<JpssImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> Result<()> {
+    fn initialize (&mut self, hself: ActorHandle<JpssImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> Result<()> {
         let config = &self.config;
         let cache_dir = &self.cache_dir;
         self.overpass_import_task = Some( self.spawn_overpass_import_task( hself.clone(), orbit_handle, cache_dir.clone() )? );
@@ -83,8 +83,8 @@ impl LiveJpssImporter {
 }
 
 impl JpssImporter for LiveJpssImporter {
-    async fn start (&mut self, hself: ActorHandle<JpssImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> Result<()> {
-        self.initialize(hself, orbit_handle).await?;
+    fn start (&mut self, hself: ActorHandle<JpssImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> Result<()> {
+        self.initialize(hself, orbit_handle)?;
         Ok(())
     }
 
@@ -136,14 +136,15 @@ async fn run_overpass_acquisition (hself: ActorHandle<JpssImportActorMsg>, orbit
     let hself_id = hself.id.clone();
     // initial overpass download
     let mut last_overpass_date = Utc::now();
-    match timeout_query_ref(&orbit_handle, AskOverpassRequest(get_overpass_request(config.clone(), hself.clone())), secs(1)).await {
+    match timeout_query_ref(&orbit_handle, AskOverpassRequest(get_overpass_request(config.clone(), hself.clone())), secs(60)).await {
         Ok(response) => { 
-            last_overpass_date = response.0.get_end()?;
-            hself.try_send_msg(response)?
+            // switch these two lines back to avoid clone
+            hself.try_send_msg(response.clone())?;
+            last_overpass_date = response.0.get_end()?; // causes error and exits thread if empty set of overpasses
         }, // send overpasses 
         Err(e) => match e {
-            OdinActorError::ReceiverClosed => println!("{} : Orbit Actor not available", hself.id.clone()),
-            other => println!("{} : Orbit Actor Error", hself.id.clone())
+            OdinActorError::ReceiverClosed => error!("{} : Orbit Actor not available", hself.id.clone()),
+            other => error!("{} : Orbit Actor Error", hself.id.clone())
         }
     }
     // initial data download
@@ -167,8 +168,8 @@ async fn run_overpass_acquisition (hself: ActorHandle<JpssImportActorMsg>, orbit
                 hself.try_send_msg(response)?
             }, 
             Err(e) => match e {
-                OdinActorError::ReceiverClosed => println!("{} : Orbit Actor not available", hself_id_clone),
-                other => println!("{} : Orbit Actor Error", hself_id_clone)
+                OdinActorError::ReceiverClosed => error!("{} : Orbit Actor not available", hself_id_clone),
+                other => error!("{} : Orbit Actor Error", hself_id_clone)
             }
         }
         for overpass in overpass_list.overpasses.into_iter() {

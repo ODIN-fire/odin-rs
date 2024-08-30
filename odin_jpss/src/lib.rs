@@ -184,7 +184,6 @@ pub fn read_jpss(filename: &PathBuf) -> Result<RawHotspots> {
     let mut iter = rdr.deserialize();
     for result in iter {
         let record: RawHotspot = result?;
-        println!("{:?}", record);
         hs.push(record);
     }
     Ok(RawHotspots{hotspots:hs})
