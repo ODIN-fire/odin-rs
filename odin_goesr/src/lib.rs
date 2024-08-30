@@ -252,7 +252,7 @@ pub struct GoesrFileInfo {
     pub level: String, // e.g. "L2"
     pub product: String, // e.g. FDCC
     pub mode: String, // e.g. "M6"
-    pub sat_id: u8, // e.g. 16
+    pub sat_id: u32, // SATCAT, e.g. 41866 
     pub start_time: DateTime<Utc>,
     pub end_time: DateTime<Utc>,
     pub create_time: DateTime<Utc>,
@@ -271,7 +271,7 @@ pub fn parse_filename (path: impl AsRef<Path>)->Option<GoesrFileInfo> {
         level = cap[3].to_string(),
         product = cap[4].to_string(),
         mode = cap[5].to_string(),
-        Ok(sat_id) = cap[6].parse::<u8>(),
+        Ok(sat_id) = cap[6].parse::<u32>(),
         Some(start_time) = parse_goesr_dtg( &cap[7]),
         Some(end_time) = parse_goesr_dtg( &cap[8]),
         Some(create_time) = parse_goesr_dtg(&cap[9]) => {
