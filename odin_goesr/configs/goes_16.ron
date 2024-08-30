@@ -1,0 +1,6 @@
+GoesrSatelliteInfo(
+    sat_id: 41866,
+    name: "G16",
+    description: "GOES East",
+    show: true,
+)

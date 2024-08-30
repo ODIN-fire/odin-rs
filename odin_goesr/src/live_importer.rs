@@ -21,13 +21,13 @@ use std::{path::Path,time::Instant};
 
 /// configuration for live GoesR FDCC hotspot import
 #[derive(Serialize,Deserialize,Debug,Clone)]
-pub struct LiveGoesRHotspotImporterConfig {
-    pub satellite: u8,  // 16 or 18
+pub struct LiveGoesrHotspotImporterConfig {
+    pub sat_id: u32,  // SATCAT # (e.g. 51850 for GOES-18)
     pub s3_region: String, // e.g. "us-east-1"
     pub bucket: String, // e.g. "noaa-goes18"
     pub source: String, // e.g. "ABI-L2-FDCC"
     pub keep_files: bool,
-    pub init_files: usize, // number of most recent data files to retrieve
+    pub init_files: usize, // number of most recent data files to retrieve on initialization
     pub cleanup_interval: Duration,
     pub max_age: Duration,
 }
@@ -37,8 +37,8 @@ pub struct LiveGoesRHotspotImporterConfig {
 /// (REQ) instance should check availability of new data sets on a guaranteed time interval
 /// (REQ) instance should not miss any available data set once initialized 
 #[derive(Debug)]
-pub struct LiveGoesRHotspotImporter {
-    config: LiveGoesRHotspotImporterConfig,
+pub struct LiveGoesrHotspotImporter {
+    config: LiveGoesrHotspotImporterConfig,
     cache_dir: Arc<PathBuf>,
 
     /// values set during initialization
@@ -46,15 +46,15 @@ pub struct LiveGoesRHotspotImporter {
     file_cleanup_task: Option<AbortHandle>,
 }
 
-impl LiveGoesRHotspotImporter {
-    pub fn new (config: LiveGoesRHotspotImporterConfig) -> Self {
+impl LiveGoesrHotspotImporter {
+    pub fn new (config: LiveGoesrHotspotImporterConfig) -> Self {
         let cache_dir = Arc::new( odin_build::cache_dir().join("goesr"));
         ensure_writable_dir(cache_dir.as_ref()).unwrap(); // Ok to panic - this is a toplevel application object
 
-        LiveGoesRHotspotImporter{ config, cache_dir, import_task:None, file_cleanup_task:None }
+        LiveGoesrHotspotImporter{ config, cache_dir, import_task:None, file_cleanup_task:None }
     }
 
-    async fn initialize  (&mut self, hself: ActorHandle<GoesRHotspotImportActorMsg>) -> Result<()> { 
+    async fn initialize  (&mut self, hself: ActorHandle<GoesrHotspotImportActorMsg>) -> Result<()> { 
         let config = &self.config;
         let init_files = config.init_files;
         let s3_client = create_s3_client( config.s3_region.clone()).await?;
@@ -64,11 +64,11 @@ impl LiveGoesRHotspotImporter {
         Ok(())
     }
 
-    fn spawn_import_task(&mut self, client: S3Client, hself: ActorHandle<GoesRHotspotImportActorMsg>) -> Result<AbortHandle> { 
+    fn spawn_import_task(&mut self, client: S3Client, hself: ActorHandle<GoesrHotspotImportActorMsg>) -> Result<AbortHandle> { 
         let data_dir = self.cache_dir.clone();
         let config = self.config.clone();
 
-        Ok( spawn( &format!("goes-{}-data-acquisition", self.config.satellite), async move {
+        Ok( spawn( &format!("goes-{}-data-acquisition", self.config.sat_id), async move {
                 run_data_acquisition( hself, config, data_dir, client).await
             })?.abort_handle()
         )
@@ -79,15 +79,15 @@ impl LiveGoesRHotspotImporter {
         let cleanup_interval = self.config.cleanup_interval;
         let max_age = self.config.max_age;
 
-        Ok( spawn( &format!("goes-{}-file-cleanup", self.config.satellite), async move {
+        Ok( spawn( &format!("goes-{}-file-cleanup", self.config.sat_id), async move {
                 run_file_cleanup( cache_dir, cleanup_interval, max_age).await
             })?.abort_handle()
         )
     }
 }
 
-impl GoesRHotspotImporter for LiveGoesRHotspotImporter {
-    async fn start (&mut self, hself: ActorHandle<GoesRHotspotImportActorMsg>) -> Result<()> {
+impl GoesrHotspotImporter for LiveGoesrHotspotImporter {
+    async fn start (&mut self, hself: ActorHandle<GoesrHotspotImportActorMsg>) -> Result<()> {
         self.initialize(hself).await?;
         Ok(())
     }
@@ -98,11 +98,11 @@ impl GoesRHotspotImporter for LiveGoesRHotspotImporter {
     }
 }
 
-async fn run_data_acquisition (hself: ActorHandle<GoesRHotspotImportActorMsg>, config: LiveGoesRHotspotImporterConfig, cache_dir: Arc<PathBuf>, client: S3Client)->Result<()> 
+async fn run_data_acquisition (hself: ActorHandle<GoesrHotspotImportActorMsg>, config: LiveGoesrHotspotImporterConfig, cache_dir: Arc<PathBuf>, client: S3Client)->Result<()> 
 {
     let source = Arc::new( config.source); // no need to keep gazillions of copies
     let bucket = &config.bucket;
-    let sat_id = config.satellite;
+    let sat_id = config.sat_id;
     let mut last_obj: Option<S3Object> = None;
 
     //--- get 3h most recent object entries so that we can build a schedule

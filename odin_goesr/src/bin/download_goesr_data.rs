@@ -28,22 +28,22 @@ use odin_build;
 use odin_common::{define_cli,fs::ensure_writable_dir};
 use odin_common::s3::{S3Object,create_s3_client, get_s3_objects, get_last_s3_object};
 use odin_common::schedule::{get_hourly_schedule,Compaction,get_next_hourly_event_dtg};
-use odin_goesr::{load_config,get_goesr_data, get_most_recent_objects, get_objects_since, no_object_error, OdinGoesRError, Result, LiveGoesRHotspotImporterConfig};
+use odin_goesr::{load_config,get_goesr_data, get_most_recent_objects, get_objects_since, no_object_error, OdinGoesrError, Result, LiveGoesrHotspotImporterConfig};
 
 define_cli! { ARGS [about="GOES-R file download tool"] =
-    config: String [help="pathname to LiveGoesRDataImporterConfig config"]
+    config: String [help="pathname to LiveGoesrDataImporterConfig config"]
 }
 
 #[tokio::main]
 async fn main()->Result<()> {
     odin_build::set_bin_context!();
-    let config: LiveGoesRHotspotImporterConfig = load_config( &ARGS.config)?;
+    let config: LiveGoesrHotspotImporterConfig = load_config( &ARGS.config)?;
     let cache_dir = odin_build::cache_dir().join("goesr");
     ensure_writable_dir(&cache_dir)?;
 
     let client = create_s3_client( config.s3_region.clone()).await?;
     let bucket = &config.bucket;
-    let sat_id = config.satellite;
+    let sat_id = config.sat_id;
     let source = Arc::new(config.source.clone());
     let n_objs = config.init_files;
     let mut last_obj: Option<S3Object> = None;

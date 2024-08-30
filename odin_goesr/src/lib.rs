@@ -27,7 +27,7 @@ use futures::Future;
 use regex::Regex;
 use lazy_static::lazy_static;
 
-use odin_build::define_load_config;
+use odin_build::{define_load_asset, define_load_config};
 use odin_actor::ActorHandle;
 use odin_actor::prelude::*;
 use odin_actor::error;
@@ -47,27 +47,58 @@ pub use actor::*;
 pub mod live_importer;
 pub use live_importer::*;
 
+pub mod web;
+pub use web::*;
+
 mod geo;
-use geo::{GoesRBoundingBox,GoesRProjection,get_bounds};
+use geo::{GoesrBoundingBox,GoesrProjection,get_bounds};
 
 define_load_config!{}
+define_load_asset!{}
 
 /* #region Goes R data structures  ***************************************************************************/
 
 #[derive(Debug,PartialEq,Clone)]
-pub struct GoesRData {
-    pub sat_id: u8,
+pub struct GoesrData {
+    pub sat_id: u32,
     pub file: PathBuf,
     pub source: Arc<String>,
     pub date: DateTime<Utc>
 }
 
+// data quality flag, see see https://www.goes-r.gov/products/docs/PUG-L2+-vol5.pdf pg.494pp
+const DQF_UNKNOWN: u8                   = 255;
+const DQF_GOOD_FIRE: u8                 = 0;   // good_quality_fire_pixel_qf
+const DQF_GOOD_FIRE_FREE: u8            = 1;   // good_quality_fire_free_land_pixel_qf ?
+const DQF_INVALID_CLOUD: u8             = 2;   // invalid_due_to_opaque_cloud_pixel_qf
+const DQF_INVALID_MISC: u8              = 3;   // invalid_due_to_surface_type_or_sunglint_or_LZA_threshold_exceeded_or_off_earth_or_missing_input_data_qf
+const DQF_INVALID_INPUT: u8             = 4;   // invalid_due_to_bad_input_data_qf
+const DWF_INVALID_ALG: u8               = 5;   // invalid_due_to_algorithm_failure_qf
+
+// mask values for fire pixels, see https://www.goes-r.gov/products/docs/PUG-L2+-vol5.pdf pg.493pp
+const MASK_GOOD: u16                    = 10;  // good_fire_pixel
+const MASK_SATURATED: u16               = 11;  // saturated_fire_pixel
+const MASK_CLOUD_CONTAMINATED: u16      = 12;  // cloud_contaminated_fire_pixel
+const MASK_HIGH_PROB: u16               = 13;  // high_probability_fire_pixel
+const MASK_MED_PROB: u16                = 14;  // medium_probability_fire_pixel
+const MASK_LOW_PROB: u16                = 15;  // low_probability_fire_pixel
+const MASK_TEMP_GOOD: u16               = 30;  // temporally_filtered_good_fire_pixel
+const MASK_TEMP_SATURATED: u16          = 31;  // temporally_filtered_saturated_fire_pixel
+const MASK_TEMP_COULD_CONTAMINATED: u16 = 32;  // temporally_filtered_cloud_contaminated_fire_pixel
+const MASK_TEMP_HIGH_PROB: u16          = 33;  // temporally_filtered_high_probability_fire_pixel
+const MASK_TEMP_MED_PROB: u16           = 34;  // temporally_filtered_medium_probability_fire_pixel
+const MASK_TEMP_LOW_PROB: u16           = 35;  // temporally_filtered_low_probability_fire_pixel
+
+
+
 #[derive(Debug,Clone, Serialize)]
-pub struct GoesRHotSpot {
-    pub sat_id: u8,
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct GoesrHotspot {
+    pub sat_id: u32,
+    #[serde(serialize_with = "odin_common::datetime::ser_epoch_millis")]
     pub date: DateTime<Utc>,
     pub position: LatLon,
-    pub bounds: GoesRBoundingBox,
+    pub bounds: GoesrBoundingBox,
     pub bright: ThermodynamicTemperature, 
     pub frp: Power, 
     pub area: Area,
@@ -77,9 +108,9 @@ pub struct GoesRHotSpot {
     pub pixel_size: Length
 }
 
-impl GoesRHotSpot {
-    pub fn new (data: &GoesRData, mask: u16, bright:u16, frp:f32, dqf:u8, area:u16, bounds: GoesRBoundingBox, center:LatLon)->Self {
-        GoesRHotSpot {
+impl GoesrHotspot {
+    pub fn new (data: &GoesrData, mask: u16, bright:u16, frp:f32, dqf:u8, area:u16, bounds: GoesrBoundingBox, center:LatLon)->Self {
+        GoesrHotspot {
             sat_id: data.sat_id,
             date: data.date,
             //location info
@@ -96,23 +127,50 @@ impl GoesRHotSpot {
             pixel_size: Length::new::<meter>(2000.0)
           }
     }
+
+    pub fn is_good_pixel (&self)->bool { (self.mask == MASK_GOOD) || (self.mask == MASK_TEMP_GOOD) }
+    pub fn is_high_probability_pixel (&self)->bool { (self.mask == MASK_HIGH_PROB) || (self.mask == MASK_TEMP_HIGH_PROB) }
+    pub fn is_medium_probability_pixel (&self)->bool { (self.mask == MASK_MED_PROB) || (self.mask == MASK_TEMP_MED_PROB) }
+    pub fn is_low_probability_pixel (&self)->bool { (self.mask == MASK_LOW_PROB) || (self.mask == MASK_TEMP_LOW_PROB) }
+    pub fn is_temporally_filtered (&self)->bool {
+        (self.mask == MASK_TEMP_GOOD) || (self.mask == MASK_TEMP_HIGH_PROB) || (self.mask == MASK_TEMP_MED_PROB) || (self.mask == MASK_TEMP_LOW_PROB)
+    }
 }
 
 #[derive(Debug,Clone, Serialize)] // to do: add to json, to json pretty
-pub struct GoesRHotSpots {
-    pub sat_id: u8,
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct GoesrHotspotSet {
+    pub sat_id: u32,
+    #[serde(serialize_with = "odin_common::datetime::ser_epoch_millis")]
     pub date: DateTime<Utc>,
     pub source: Arc<String>,
-    pub hotspots: Vec<GoesRHotSpot>
+    pub hotspots: Vec<GoesrHotspot>,
+    //--- stats
+    pub n_good: usize,
+    pub n_high: usize,
+    pub n_medium: usize,
+    pub n_low: usize
 }
 
-impl GoesRHotSpots {
-    pub fn new(data: &GoesRData, hotspot_vec: Vec<GoesRHotSpot>) -> Self {
-        GoesRHotSpots {
+impl GoesrHotspotSet {
+    pub fn new(data: &GoesrData, hotspot_vec: Vec<GoesrHotspot>) -> Self {
+        let mut n_good = 0;
+        let mut n_high = 0;
+        let mut n_medium = 0;
+        let mut n_low = 0;
+        for h in &hotspot_vec {
+            if h.is_good_pixel() { n_good += 1; }
+            if h.is_high_probability_pixel() { n_high += 1; } 
+            else if h.is_medium_probability_pixel() { n_medium += 1; } 
+            else if h.is_low_probability_pixel() { n_low += 1; }
+        }
+
+        GoesrHotspotSet {
             date: data.date.clone(),
-            sat_id: data.sat_id.clone(),
+            sat_id: data.sat_id,
             source: data.source.clone(),
-            hotspots: hotspot_vec
+            hotspots: hotspot_vec,
+            n_good, n_high, n_medium, n_low
         }
     }
     pub fn to_json_pretty (&self)->Result<String> {
@@ -124,18 +182,18 @@ impl GoesRHotSpots {
 }
 
 #[derive(Debug,Clone, Serialize)]
-pub struct HotspotStore {
-    hotspots: VecDeque<GoesRHotSpots>,
+pub struct GoesrHotspotStore {
+    hotspots: VecDeque<GoesrHotspotSet>,
     max_capacity: usize
 }
-impl HotspotStore {
+impl GoesrHotspotStore {
     pub fn new(capacity: usize) -> Self {
-        HotspotStore {
+        GoesrHotspotStore {
             hotspots:VecDeque::with_capacity(capacity),
             max_capacity:capacity
         }
     }
-    pub fn update_hotspots(&mut self, new_hotspots: GoesRHotSpots) -> () {
+    pub fn update_hotspots(&mut self, new_hotspots: GoesrHotspotSet) -> () {
         // if vec is not max add in - assume update is from newer date
         if self.hotspots.len() < self.max_capacity {
             self.hotspots.push_front(new_hotspots);
@@ -146,11 +204,16 @@ impl HotspotStore {
         }
     }
 
-    pub fn initialize_hotspots(&mut self, init_hotspots: Vec<GoesRHotSpots>) -> () {
+    pub fn initialize_hotspots(&mut self, init_hotspots: Vec<GoesrHotspotSet>) -> () {
         for hs in init_hotspots {
             self.hotspots.push_front(hs);
         }
     }
+
+    pub fn iter<'a> (&'a self) -> impl Iterator<Item=&'a GoesrHotspotSet> {
+        self.hotspots.iter()
+    }
+
     pub fn to_json_pretty (&self)->Result<String> {
         Ok(serde_json::to_string_pretty( &self.hotspots )?)
     } 
@@ -273,8 +336,8 @@ pub async fn get_most_recent_objects (client: &S3Client, bucket: &str, source: &
 /// return all objects since the given last one, in ascending time order (newest last)
 /// Use this for getting updates
 pub async fn get_objects_since_last (client: &S3Client, bucket: &str, source: &str, last_obj: &S3Object, now: DateTime<Utc>)  -> Result<Vec<S3Object>> {
-    let key = last_obj.key().ok_or(OdinGoesRError::NoObjectKeyError())?;
-    let dt_start = parse_goesr_create_dtg(key).ok_or(OdinGoesRError::NoObjectDateError())?;
+    let key = last_obj.key().ok_or(OdinGoesrError::NoObjectKeyError())?;
+    let dt_start = parse_goesr_create_dtg(key).ok_or(OdinGoesrError::NoObjectDateError())?;
     let hours = (full_hour(now) - full_hour(dt_start)).num_hours();
     let mut objects: Vec<S3Object> = Vec::with_capacity( 12 * (hours+1) as usize); // assuming update interval is 5min
 
@@ -303,8 +366,8 @@ pub async fn get_objects_since (client: &S3Client, bucket: &str, source: &str, l
     }
 }
 
-pub async fn download_and_read_objects (client: &S3Client, bucket: &str, source: &Arc<String>, sat_id: u8, data_dir: &PathBuf, objs: &Vec<S3Object>) -> Result<Vec<GoesRHotSpots>> {
-    let mut hotspots: Vec<GoesRHotSpots> = Vec::with_capacity(objs.len());
+pub async fn download_and_read_objects (client: &S3Client, bucket: &str, source: &Arc<String>, sat_id: u32, data_dir: &PathBuf, objs: &Vec<S3Object>) -> Result<Vec<GoesrHotspotSet>> {
+    let mut hotspots: Vec<GoesrHotspotSet> = Vec::with_capacity(objs.len());
 
     for obj in objs {
         let gdata = get_goesr_data( client, obj, data_dir, bucket, source.clone(), sat_id).await?;
@@ -317,14 +380,14 @@ pub async fn download_and_read_objects (client: &S3Client, bucket: &str, source:
     Ok( hotspots )
 }
 
-pub async fn get_goesr_data (client: &S3Client, obj: &S3Object, path: &PathBuf, bucket: &str, source:Arc<String>, sat_id:u8) -> Result<GoesRData>{
+pub async fn get_goesr_data (client: &S3Client, obj: &S3Object, path: &PathBuf, bucket: &str, source: Arc<String>, sat_id: u32) -> Result<GoesrData>{
     if obj.is_dated() {
         let date = obj.date();
         let file = download_s3_object(client, bucket, obj, path).await?;
-        let data = GoesRData{sat_id, file, source, date};
+        let data = GoesrData{sat_id, file, source, date};
         Ok(data)
     } else {
-        Err( OdinGoesRError::NoObjectDateError())
+        Err( OdinGoesrError::NoObjectDateError())
     }
 }
 
@@ -342,9 +405,9 @@ fn find_fire_pixels_in_slice (i1: usize, row: &[u16], grid_points: &mut Vec<Grid
     }
 }
 
-pub fn read_goesr_data (data: &GoesRData) -> Result<GoesRHotSpots> {
+pub fn read_goesr_data (data: &GoesrData) -> Result<GoesrHotspotSet> {
     let mask_ds = quiet_nc_dataset( &data.file,"Mask")?;
-    let proj = GoesRProjection::from_dataset( &mask_ds)?;
+    let proj = GoesrProjection::from_dataset( &mask_ds)?;
     let hs = find_grid_points_in_slice( &mask_ds, 1, find_fire_pixels_in_slice)?;
 
     let area: Vec<f32> = get_grid_point_values( &quiet_nc_dataset( &data.file, "Area")?, 1, Some(NAN), &hs)?;
@@ -355,18 +418,18 @@ pub fn read_goesr_data (data: &GoesRData) -> Result<GoesRHotSpots> {
     let x_range = get_linear_range::<f64>( &nc_dataset(&data.file,"x")?, 1)?;
     let y_range = get_linear_range::<f64>( &nc_dataset(&data.file,"y")?, 1)?;
 
-    let mut hotspots: Vec<GoesRHotSpot> = Vec::with_capacity(hs.len());
+    let mut hotspots: Vec<GoesrHotspot> = Vec::with_capacity(hs.len());
     for (i,p) in hs.iter().enumerate() {
         let center = proj.lat_lon_from_instrument_angles(x_range.at(p.i0), y_range.at(p.i1));
         let bounds = get_bounds( &proj, &x_range, &y_range, &p);
 
         if !temp[i].is_nan() {
-            let hotspot = GoesRHotSpot::new( data, p.value, temp[i] as u16, power[i], dqf[i], area[i] as u16, bounds, center);
+            let hotspot = GoesrHotspot::new( data, p.value, temp[i] as u16, power[i], dqf[i], area[i] as u16, bounds, center);
             hotspots.push( hotspot)
         }
     }
 
-    Ok( GoesRHotSpots::new( data, hotspots) )
+    Ok( GoesrHotspotSet::new( data, hotspots) )
 }
 
 /* #endregion hotspot parsing */

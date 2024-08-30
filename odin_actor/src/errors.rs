@@ -15,6 +15,7 @@ use thiserror::Error;
 use std::time::Duration;
 
 pub type Result<T> = std::result::Result<T, OdinActorError>;
+pub type OdinActorResult<T> = std::result::Result<T, OdinActorError>;
 
 #[derive(Error,Debug)]
 pub enum OdinActorError {
@@ -54,6 +55,9 @@ pub enum OdinActorError {
 
     #[error("job error {0}")]
     JobError( #[from] odin_job::OdinJobError),
+
+    #[error("build error {0}")]
+    BuildError( #[from] odin_build::OdinBuildError),
 
     // a generic error
     #[error("operation failed {0}")]

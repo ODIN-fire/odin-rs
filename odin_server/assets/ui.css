@@ -702,7 +702,7 @@ div.ui_radio_button {
 
 div.ui_radio.selected div.ui_radio_button::before {
     /*content: "◉";*/
-    content: "\2b24";
+    content: "\25cf";
 }
 
 div.ui_radio_label {

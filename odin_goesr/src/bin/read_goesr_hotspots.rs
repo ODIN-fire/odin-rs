@@ -19,7 +19,7 @@ use anyhow::{Result,anyhow};
 use std::{sync::Arc,path::Path};
 
 use odin_common::define_cli;
-use odin_goesr::{parse_filename, read_goesr_data, GoesRData, GoesrFileInfo};
+use odin_goesr::{parse_filename, read_goesr_data, GoesrData, GoesrFileInfo};
 
 define_cli! { ARGS [about="tool to extract hotspots from GOES-R OR_ABI-L2-FDCC data product files"] =
     pathname: String [help="path to netcdf file"]
@@ -30,7 +30,7 @@ fn main() {
     if path.is_file() { 
         let filename = path.file_name().unwrap();
         if let Some(file_info) = parse_filename(filename) {
-            let gdata = GoesRData {
+            let gdata = GoesrData {
                 sat_id: file_info.sat_id,
                 file: path.to_path_buf(),
                 source: Arc::new(format!("{}-{}-{}", file_info.instrument, file_info.level, file_info.product)),

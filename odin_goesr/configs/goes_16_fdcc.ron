@@ -1,4 +1,4 @@
-LiveGoesRHotspotImporterConfig(
+LiveGoesrHotspotImporterConfig(
     satellite: 16,
     s3_region: "us-east-1",
     bucket: "noaa-goes16",

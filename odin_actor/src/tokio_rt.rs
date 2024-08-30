@@ -263,6 +263,10 @@ impl <M> PreActorHandle <M>  where M: MsgTypeConstraints {
     pub fn to_actor_handle (&self)->ActorHandle<M> {
         ActorHandle{ id: self.id.clone(), hsys: self.hsys.clone(), tx: self.tx.clone() }
     }
+
+    pub fn get_id (&self)->Arc<String> {
+        self.id.clone()
+    }
 }
 
 impl <M> Identifiable for PreActorHandle<M> where M: MsgTypeConstraints {
@@ -278,6 +282,10 @@ pub struct ActorHandle <M> where M: MsgTypeConstraints {
 }
 
 impl <M> ActorHandle <M> where M: MsgTypeConstraints {
+    pub fn get_id (&self)->Arc<String> {
+        self.id.clone()
+    }
+
     pub fn hsys(&self)->&ActorSystemHandle {
         self.hsys.as_ref()
     }
@@ -416,6 +424,12 @@ impl <M> Identifiable for ActorHandle<M> where M: MsgTypeConstraints {
 impl <M> Debug for ActorHandle<M> where M: MsgTypeConstraints {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ActorHandle(\"{}\")", self.id)
+    }
+}
+
+impl<M> PartialEq for ActorHandle<M> where M: MsgTypeConstraints {
+    fn eq (&self, other: &Self) -> bool {
+        self.id == other.id // this immplies the id Arcs are pointing to the same object
     }
 }
 

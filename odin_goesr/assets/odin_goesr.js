@@ -1,24 +1,26 @@
 /*
- * Copyright (c) 2023, United States Government, as represented by the
- * Administrator of the National Aeronautics and Space Administration.
- * All rights reserved.
+ * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The RACE - Runtime for Airspace Concept Evaluation platform is licensed
- * under the Apache License, Version 2.0 (the "License"); you may not use
- * this file except in compliance with the License. You may obtain a copy
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
+ * you may not use this file except in compliance with the License. You may obtain a copy 
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
-import * as config from "./config.js";
-import * as ws from "./ws.js";
-import * as util from "./ui_util.js";
-import * as ui from "./ui.js";
-import * as uiCesium from "./ui_cesium.js";
+import { config } from "./odin_goesr_config.js";
+
+import * as util from "../odin_server/ui_util.js";
+import * as ui from "../odin_server/ui.js";
+import * as ws from "../odin_server/ws.js";
+import * as odinCesium from "../odin_cesium/odin_cesium.js";
+
+const MODULE_PATH = util.asset_path(import.meta.url);
+
+ws.addWsHandler( MODULE_PATH, handleWsMessages);
 
 const maskDesc = new Map();
 maskDesc
@@ -58,14 +60,14 @@ var lastSelPeerDs = undefined;
 
 var pixelLevel = "all";  // high, probable, all
 var latestOnly = true; // do we just show pixels reported in the last batch
-var followLatest = config.goesr.followLatest;
-var lockStep = config.goesr.lockStep;
+var followLatest = config.followLatest;
+var lockStep = config.lockStep;
 
 var refDate = Number.MAX_INTEGER;
 
 //--- display params we can change
-var pointSize = config.goesr.pointSize;
-var maxMissingMin = config.goesr.maxMissingMin;
+var pointSize = config.pointSize;
+var maxMissingMin = config.maxMissingMin;
 
 createIcon();
 createWindow();
@@ -79,18 +81,17 @@ ui.setCheckBox("goesr.lockStep", lockStep);
 ui.selectRadio( "goesr.level.all");
 initSliders();
 
-uiCesium.setEntitySelectionHandler(goesrSelection);
-ws.addWsHandler(handleWsGoesrMessages);
+odinCesium.setEntitySelectionHandler(goesrSelection);
 
-uiCesium.initLayerPanel("goesr", config.goesr, showGoesr);
+odinCesium.initLayerPanel("goesr", config, showGoesr);
 console.log("ui_cesium_goesr initialized");
 
 function createIcon() {
-    return ui.Icon("geo-sat-icon.svg", (e)=> ui.toggleWindow(e,'goesr'));
+    return ui.Icon("./asset/odin_goesr/geo-sat-icon.svg", (e)=> ui.toggleWindow(e,'goesr'));
 }
 
 function createWindow() {
-    return ui.Window("GOES-R Satellites", "goesr", "geo-sat-icon.svg")(
+    return ui.Window("GOES-R Satellites", "goesr", "./asset/odin_goesr/geo-sat-icon.svg")(
         ui.LayerPanel("goesr", toggleShowGoesr),
         ui.Panel("data sets", true)(
             ui.RowContainer()(
@@ -145,8 +146,8 @@ function initHotspotView() {
             { name: "class", tip: "classification of fire pixel", width: "3rem", attrs: ["fixed", "alignRight"], map: e => hotspotClass(e) },
             ui.listItemSpacerColumn(),
             { name: "sat", tip: "name of satellite", width: "4rem", attrs: [], map: e => satNames[e.satId] },
-            { name: "lat", width: "6rem", attrs: ["fixed", "alignRight"], map: e => util.f_4.format(e.lat) },
-            { name: "lon", width: "6.5rem", attrs: ["fixed", "alignRight"], map: e => util.f_4.format(e.lon) },
+            { name: "lat", width: "6rem", attrs: ["fixed", "alignRight"], map: e => util.f_4.format(e.position.lat_deg) },
+            { name: "lon", width: "6.5rem", attrs: ["fixed", "alignRight"], map: e => util.f_4.format(e.position.lon_deg) },
         ]);
     }
     return view;
@@ -266,7 +267,7 @@ function updateHotspots() {
         clearEntities();
         ui.clearList(hotspotView);
     }
-    uiCesium.requestRender();
+    odinCesium.requestRender();
 }
 
 function getHotspots() {
@@ -275,44 +276,6 @@ function getHotspots() {
     list = list.filter(hs=> filterPixel(hs));
     list = list.sort( (a,b) => b.center - a.center); // spatial clustering (roughly east to west)
     return list;
-}
-
-function _getHotspots () {
-    let hsList = [];
-    let cutoff = latestOnly ? 0 : maxMissingMin * 60000; // duration in millis
-
-    if (selectedDataSet) {
-        let hsMaps = satellites.map( sat=> new Map());
-        let processed = 0;
-
-        for (let i=0; i<displayDataSets.length; i++) {
-            let ds = dataSets[i];
-            let satIdx = ds.sat.satIdx;
-
-            if (ds.date > refDate) continue; // newer than selected date
-            if (ds.date < (refDate - cutoff)) {
-                if (++processed == satellites.length) break; // done
-            }
-
-            let hsMap = hsMaps[satIdx];
-            if (hsMap.size == 0) { // first dataset for this sat
-                ds.hotspots.forEach( hs=> {
-                    if (filterPixel(hs)) hsMap.set(hs.center, hs)
-                });
-            } else {
-                ds.hotspots.forEach( hs=> {
-                    if (filterPixel(hs)) {
-                        if (!hsMap.has(hs.center)) hsMap.set(hs.center, hs) 
-                    }
-                });
-            }
-        }
-
-        hsMaps.forEach( hsMap=> hsMap.forEach( (hs,key)=> hsList.push(hs)));
-        hsList.sort( sortHotspots); // cluster approximation over all satellites
-    }
-
-    return hsList;
 }
 
 // approximation of a cluster function 
@@ -350,7 +313,7 @@ function setEntities (hotspots) {
         });
     });
 
-    uiCesium.requestRender();
+    odinCesium.requestRender();
 }
 
 function clearEntities() {
@@ -383,13 +346,13 @@ function createHotspotEntity (hs) {
     let clr = color(hs);
 
     let e = new Cesium.Entity({
-        position: Cesium.Cartesian3.fromDegrees( hs.lon, hs.lat),
+        position: Cesium.Cartesian3.fromDegrees( hs.position.lon_deg, hs.position.lat_deg),
         point: {
             pixelSize: pointSize,
             color: clr,
             outlineColor: outlineColor(hs),
             outlineWidth: outlineWidth(hs),
-            distanceDisplayCondition: config.goesr.pointDC,
+            distanceDisplayCondition: config.pointDC,
             disableDepthTestDistance: Number.NEGATIVE_INFINITY
         },
         polygon: {
@@ -399,7 +362,7 @@ function createHotspotEntity (hs) {
             outline: true,
             outlineColor: clr,
             outlineWidth: outlineWidth(hs),
-            distanceDisplayCondition: config.goesr.boundsDC,
+            distanceDisplayCondition: config.boundsDC,
             //heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
             height: 0
             //zIndex: 1
@@ -413,30 +376,30 @@ function createHotspotEntity (hs) {
 
 function color(hs) {
     let mask = hs.mask;
-    if (isGoodPixel(mask) || ((isCloudPixel(mask) || isSaturatedPixel(mask)))) return config.goesr.goodColor;
-    else if (isProbablePixel(mask)) return config.goesr.probableColor;
-    else if (isSaturatedPixel(mask)) return config.goesr.saturatedColor;
-    else if (isCloudPixel(mask)) return config.goesr.cloudColor;
-    else return config.goesr.otherColor;
+    if (isGoodPixel(mask) || ((isCloudPixel(mask) || isSaturatedPixel(mask)))) return config.goodColor;
+    else if (isProbablePixel(mask)) return config.probableColor;
+    else if (isSaturatedPixel(mask)) return config.saturatedColor;
+    else if (isCloudPixel(mask)) return config.cloudColor;
+    else return config.otherColor;
 }
 
 function polygonMaterial(hs) { // those should be translucent
     let mask = hs.mask;
-    if (isGoodPixel(mask)) return config.goesr.goodFillColor;
-    else if (isProbablePixel(mask)) return config.goesr.probableFillColor;
-    else return config.goesr.otherFillColor;
+    if (isGoodPixel(mask)) return config.goodFillColor;
+    else if (isProbablePixel(mask)) return config.probableFillColor;
+    else return config.otherFillColor;
 }
 
 function outlineColor(hs) {
     let mask = hs.mask;
     if (getMissingMin(hs)) {
-        return config.goesr.missingColor;
+        return config.missingColor;
     } else {
-        if (isGoodPixel(mask)) return config.goesr.goodOutlineColor;
-        else if (isCloudPixel(mask)) return config.goesr.cloudColor;
-        else if (isSaturatedPixel(mask)) return config.goesr.saturatedColor;
-        else if (isProbablePixel(mask)) return config.goesr.probableOutlineColor;
-        else return config.goesr.otherColor;
+        if (isGoodPixel(mask)) return config.goodOutlineColor;
+        else if (isCloudPixel(mask)) return config.cloudColor;
+        else if (isSaturatedPixel(mask)) return config.saturatedColor;
+        else if (isProbablePixel(mask)) return config.probableOutlineColor;
+        else return config.otherColor;
     }
 }
 
@@ -446,13 +409,19 @@ function getMissingMin(hs) {
 }
 
 function outlineWidth(hs) {
-    if (isGoodPixel(hs.mask)) return config.goesr.strongOutlineWidth; // make this more prominent
-    else return config.goesr.outlineWidth;
+    if (isGoodPixel(hs.mask)) return config.strongOutlineWidth; // make this more prominent
+    else return config.outlineWidth;
 }
 
 function polygon (hs) {
-    let vertices = hs.bounds.map(p => new Cesium.Cartesian3.fromDegrees(p[1], p[0]));
-    return new Cesium.PolygonHierarchy(vertices);
+    let bounds = hs.bounds;
+
+    return Cesium.Cartesian3.fromDegreesArray([
+        bounds.ne.lon_deg, bounds.ne.lat_deg,
+        bounds.se.lon_deg, bounds.se.lat_deg,
+        bounds.sw.lon_deg, bounds.sw.lat_deg,
+        bounds.nw.lon_deg, bounds.nw.lat_deg
+    ]);
 }
 
 function getHotspotHistory (hs) {
@@ -477,7 +446,7 @@ function toggleGoesrLatestOnly(event) {
 }
 
 function goesrSelection() {
-    let sel = uiCesium.getSelectedEntity();
+    let sel = odinCesium.getSelectedEntity();
     if (sel && sel._hotspot) {
         let hs = sel._hotspot;
         if (selectedHotspot != hs) {
@@ -488,41 +457,35 @@ function goesrSelection() {
 
 //--- data messages
 
-function handleWsGoesrMessages(msgType, msg) {
+function handleWsMessages(msgType, msg) {
     switch (msgType) {
-        case "goesrSatellites":
-            handleGoesrSatellites(msg.goesrSatellites);
-            return true;
-        case "goesrDataSet":
-            handleGoesrDataSet(msg.goesrDataSet);
-            return true;
-        default:
-            return false;
+        case "satellites": handleGoesrSatellites(msg); break;
+        case "hotspots": handleGoesrDataSet(msg); break;
     }
 }
 
-function handleGoesrSatellites(goesrSatellites) {
-    satellites = goesrSatellites;
+function handleGoesrSatellites(sats) {
+    satellites = sats;
     var idx = 0;
-    satellites.forEach( sat=> {
+    sats.forEach( sat=> {
         ui.setCheckBox("goesr." + sat.name, sat.show);
         satNames[sat.satId] = sat.name;
         sat.satIdx = idx++;
         sat.dataSource = new Cesium.CustomDataSource("goesr-" + sat.name);
-        uiCesium.addDataSource(sat.dataSource);
+        odinCesium.addDataSource(sat.dataSource);
     });
 }
 
-function handleGoesrDataSet (dataSet) {
-    dataSet.sat = getSatelliteWithId(dataSet.satId);
-    if (dataSet.sat) {
-        dataSets.push(dataSet);
+function handleGoesrDataSet (hotspots) {
+    hotspots.sat = getSatelliteWithId(hotspots.satId);
+    if (hotspots.sat) {
+        dataSets.push(hotspots);
 
         saveSelections();
         updateDataSets();
 
         let now = ui.getClockEpochMillis("time.utc"); // we don't want to do this during init of history
-        if (followLatest && Math.abs(now - dataSet.date) < 30000) {
+        if (followLatest && Math.abs(now - hotspots.date) < 30000) {
             ui.selectFirstListItem(dataSetView);
         } else {
             restoreSelections();
@@ -562,10 +525,10 @@ function filterPixel(hs) {
 function toggleShowGoesrSatellite(event) {
     let cb = ui.getCheckBox(event.target);
     if (cb) {
-        let satName = ui.getCheckBoxLabel(cb)
+        let satName = ui.getCheckBoxLabel(cb);
         let se = getSatelliteWithName(satName);
         if (se) {
-            se.show = !se.show            
+            se.show = !se.show;
             let restoreSel = selectedDataSet && (selectedDataSet.satId != se.satId);
             if (restoreSel) saveSelections();
 
@@ -582,7 +545,7 @@ function showGoesr(cond) {
     satellites.forEach( sat=> {
         sat.dataSource.show = cond;
     });
-    uiCesium.requestRender();
+    odinCesium.requestRender();
 }
 
 function setGoesrPixelLevel(event) {
@@ -616,8 +579,8 @@ function zoomToGoesrHotspot(event) {
     if (lv) {
         let hs = ui.getSelectedListItem(lv);
         if (hs) {
-            uiCesium.zoomTo(Cesium.Cartesian3.fromDegrees(hs.lon, hs.lat, config.goesr.zoomHeight));
-            if (hs.entity) uiCesium.setSelectedEntity(hs.entity);
+            odinCesium.zoomTo(Cesium.Cartesian3.fromDegrees(hs.lon, hs.lat, config.zoomHeight));
+            if (hs.entity) odinCesium.setSelectedEntity(hs.entity);
         }
     }
 }
@@ -634,7 +597,7 @@ function setGoesrPointSize(event) {
             })
         }
     });
-    uiCesium.requestRender();
+    odinCesium.requestRender();
 }
 
 function toggleFollowLatestGoesr(event) {

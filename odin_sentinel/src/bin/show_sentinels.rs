@@ -12,6 +12,7 @@
  * and limitations under the License.
  */
 
+use std::any::type_name;
 use odin_build;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
@@ -21,6 +22,8 @@ use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelA
 async_main! {
     odin_build::set_bin_context!();
     let mut actor_system = ActorSystem::new("main");
+    actor_system.request_termination_on_ctrlc();
+
     let hsentinel = PreActorHandle::new( &actor_system, "updater", 8);
 
     let hserver = spawn_actor!( actor_system, "server", SpaServer::new(

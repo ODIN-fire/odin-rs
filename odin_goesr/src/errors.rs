@@ -14,10 +14,10 @@
 
 use thiserror::Error;
 
-pub type Result<T> = std::result::Result<T, OdinGoesRError>;
+pub type Result<T> = std::result::Result<T, OdinGoesrError>;
 
 #[derive(Error,Debug)]
-pub enum OdinGoesRError {
+pub enum OdinGoesrError {
 
     #[error("build error {0}")]
     BuildError( #[from] odin_build::OdinBuildError),
@@ -65,14 +65,14 @@ pub enum OdinGoesRError {
     GdalError( #[from] odin_gdal::errors::GdalError)
 }
 
-pub fn misc_error (msg: impl ToString)->OdinGoesRError {
-    OdinGoesRError::MiscError(msg.to_string())
+pub fn misc_error (msg: impl ToString)->OdinGoesrError {
+    OdinGoesrError::MiscError(msg.to_string())
 }
 
-pub fn no_object_error (msg: impl ToString)->OdinGoesRError {
-    OdinGoesRError::NoObjectError(msg.to_string())
+pub fn no_object_error (msg: impl ToString)->OdinGoesrError {
+    OdinGoesrError::NoObjectError(msg.to_string())
 }
 
-pub fn filename_error (msg: impl ToString)->OdinGoesRError {
-    OdinGoesRError::FilenameError(msg.to_string())
+pub fn filename_error (msg: impl ToString)->OdinGoesrError {
+    OdinGoesrError::FilenameError(msg.to_string())
 }

@@ -18,62 +18,56 @@ use odin_actor::prelude::*;
 use crate::*; 
 
 #[derive(Serialize,Deserialize,Debug)]
-pub struct GoesRImportActorConfig {
+pub struct GoesrImportActorConfig {
     pub max_records: usize,
 }
 
 /// external message to request action execution with the current HotspotStore
-#[derive(Debug)] pub struct ExecSnapshotAction(DynDataRefAction<HotspotStore>);
+#[derive(Debug)] pub struct ExecSnapshotAction(pub DynDataRefAction<GoesrHotspotStore>);
 
 // internal messages sent by the GoesRDataImporter
-#[derive(Debug)] pub struct Update(pub(crate) GoesRHotSpots);
-#[derive(Debug)] pub struct Initialize(pub(crate) Vec<GoesRHotSpots>);
-#[derive(Debug)] pub struct ImportError(pub(crate) OdinGoesRError);
+#[derive(Debug)] pub struct Update(pub(crate) GoesrHotspotSet);
+#[derive(Debug)] pub struct Initialize(pub(crate) Vec<GoesrHotspotSet>);
+#[derive(Debug)] pub struct ImportError(pub(crate) OdinGoesrError);
 
-define_actor_msg_set! { pub GoesRHotspotImportActorMsg = ExecSnapshotAction | Initialize | Update | ImportError }
+define_actor_msg_set! { pub GoesrHotspotImportActorMsg = ExecSnapshotAction | Initialize | Update | ImportError }
 
 /// user part of the GoesR import actor
 /// this basically provides a message interface around an encapsulated, async updated HotspotStore
 #[derive(Debug)]
-pub struct GoesRHotspotImportActor<T, InitAction, UpdateAction> 
-    where T: GoesRHotspotImporter + Send, 
-          InitAction: DataAction<Vec<GoesRHotSpots>>, 
-          UpdateAction: DataAction<GoesRHotSpots>
+pub struct GoesrHotspotActor<T,I,U> 
+    where T: GoesrHotspotImporter + Send, I: DataRefAction<GoesrHotspotStore>, U: DataAction<GoesrHotspotSet>
 {
-    hotspot_store: HotspotStore,
+    hotspot_store: GoesrHotspotStore,
     goesr_importer: T,
-    init_action: InitAction,
-    update_action: UpdateAction
+    init_action: I,
+    update_action: U
 }
  
-impl <T,InitAction,UpdateAction> GoesRHotspotImportActor<T, InitAction, UpdateAction> 
-    where T: GoesRHotspotImporter + Send, 
-          InitAction: DataAction<Vec<GoesRHotSpots>>, 
-          UpdateAction: DataAction<GoesRHotSpots>
+impl <T,I,U> GoesrHotspotActor<T,I,U> 
+    where T: GoesrHotspotImporter + Send, I: DataRefAction<GoesrHotspotStore>, U: DataAction<GoesrHotspotSet>
 {
-    pub fn new (config: GoesRImportActorConfig, goesr_importer:T, init_action:InitAction, update_action: UpdateAction) -> Self {
-        let hotspot_store = HotspotStore::new(config.max_records);
+    pub fn new (config: GoesrImportActorConfig, goesr_importer: T, init_action: I, update_action: U) -> Self {
+        let hotspot_store = GoesrHotspotStore::new(config.max_records);
 
-        GoesRHotspotImportActor{hotspot_store, goesr_importer, init_action, update_action}
+        GoesrHotspotActor{hotspot_store, goesr_importer, init_action, update_action}
     }
 
-    pub async fn init (&mut self, init_hotspots: Vec<GoesRHotSpots>) -> Result<()> {
+    pub async fn init (&mut self, init_hotspots: Vec<GoesrHotspotSet>) -> Result<()> {
         self.hotspot_store.initialize_hotspots(init_hotspots.clone());
-        self.init_action.execute(init_hotspots).await;
+        self.init_action.execute(&self.hotspot_store).await;
         Ok(())
     }
 
-    pub async fn update (&mut self, new_hotspots: GoesRHotSpots) -> Result<()> {
+    pub async fn update (&mut self, new_hotspots: GoesrHotspotSet) -> Result<()> {
         self.hotspot_store.update_hotspots(new_hotspots.clone());
         self.update_action.execute(new_hotspots).await;
         Ok(())
     }
 }
  
-impl_actor! { match msg for Actor< GoesRHotspotImportActor<T,InitAction,UpdateAction>, GoesRHotspotImportActorMsg> 
-    where T:GoesRHotspotImporter + Send + Sync, 
-          InitAction: DataAction<Vec<GoesRHotSpots>> + Sync,
-          UpdateAction: DataAction<GoesRHotSpots> + Sync
+impl_actor! { match msg for Actor< GoesrHotspotActor<T,I,U>, GoesrHotspotImportActorMsg> 
+    where T:GoesrHotspotImporter + Send + Sync, I: DataRefAction<GoesrHotspotStore> + Sync, U: DataAction<GoesrHotspotSet> + Sync
     as
     _Start_ => cont! { 
         let hself = self.hself.clone();
@@ -93,7 +87,7 @@ impl_actor! { match msg for Actor< GoesRHotspotImportActor<T,InitAction,UpdateAc
 
 /// abstraction for the data acquisition mechanism used by the GoesRImportActor
 /// impl objects are used as GoesRImportActor constructor arguments. It is Ok to panic in the instantiation
-pub trait GoesRHotspotImporter {
-    fn start (&mut self, hself: ActorHandle<GoesRHotspotImportActorMsg>) -> impl Future<Output=Result<()>> + Send;
+pub trait GoesrHotspotImporter {
+    fn start (&mut self, hself: ActorHandle<GoesrHotspotImportActorMsg>) -> impl Future<Output=Result<()>> + Send;
     fn terminate (&mut self);
 }

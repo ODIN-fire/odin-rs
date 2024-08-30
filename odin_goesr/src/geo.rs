@@ -16,18 +16,18 @@ use odin_common::{*, geo::LatLon, ranges::LinearRange};
 use odin_gdal::{Dataset, GdalValueType, GridPoint, Metadata, MetadataEntry}; // gdal re-exports
 use serde::Serialize;
 
-use crate::{OdinGoesRError,Result};
+use crate::{OdinGoesrError,Result};
 
 
 #[derive(Debug,Clone, Copy, Serialize)]
-pub struct GoesRBoundingBox {
+pub struct GoesrBoundingBox {
     pub ne: LatLon,
     pub nw:LatLon,
     pub sw: LatLon,
     pub se: LatLon
 }
 
-pub fn get_bounds<T> (proj: &GoesRProjection, x_range: &LinearRange<f64>, y_range: &LinearRange<f64>, p: &GridPoint<T>)->GoesRBoundingBox 
+pub fn get_bounds<T> (proj: &GoesrProjection, x_range: &LinearRange<f64>, y_range: &LinearRange<f64>, p: &GridPoint<T>)->GoesrBoundingBox 
     where T: GdalValueType
 {
     let x_inc = x_range.inc() / 2.0;
@@ -46,7 +46,7 @@ pub fn get_bounds<T> (proj: &GoesRProjection, x_range: &LinearRange<f64>, y_rang
     let sw = proj.lat_lon_from_instrument_angles( xw, ys);
     let se = proj.lat_lon_from_instrument_angles( xe, ys);
 
-    GoesRBoundingBox{ne,nw,sw,se}
+    GoesrBoundingBox{ne,nw,sw,se}
 }
 
 /// structure that supports instrument scan/elevation angle to/from geodetic position conversion
@@ -54,14 +54,14 @@ pub fn get_bounds<T> (proj: &GoesRProjection, x_range: &LinearRange<f64>, y_rang
 /// the satellite specific `longitude_of_projection_origin` and `perspective_point_height`.
 /// See https://www.goes-r.gov/products/docs/PUG-L2+-vol5.pdf pg. 23
 #[derive(Debug)]
-pub struct GoesRProjection {
+pub struct GoesrProjection {
     h: f64,
     r2: f64,
     lon0: f64,
     c: f64
 }
 
-impl GoesRProjection {
+impl GoesrProjection {
     pub fn from_dataset (ds: &Dataset)->Result<Self> {
         // the values we get from the dataset metadata
         let mut f_inv: f64 = 298.257222096;
@@ -77,20 +77,20 @@ impl GoesRProjection {
             else if key.ends_with("#semi_major_axis") { r_eq = value.parse()? }
             else if key.ends_with("#semi_minor_axis") { r_pol = value.parse()? }
         }
-        if (lon0.is_nan() || pph.is_nan()) { return Err( OdinGoesRError::DatasetError("missing projection metadata".into())) }
+        if (lon0.is_nan() || pph.is_nan()) { return Err( OdinGoesrError::DatasetError("missing projection metadata".into())) }
 
         let r2:f64 = pow2( r_eq / r_pol);
         let h: f64 = pph + r_eq;
         let c: f64 = pow2(h) - pow2(r_eq);
 
-        Ok( GoesRProjection { h, r2, lon0, c } )
+        Ok( GoesrProjection { h, r2, lon0, c } )
     }
 
     pub fn lat_lon_from_instrument_angles (&self, ew_scan: f64, ns_elevation: f64)->LatLon {
         let x = ew_scan;
         let y = ns_elevation;
 
-        let GoesRProjection{ h, r2, lon0, c } = self;
+        let GoesrProjection{ h, r2, lon0, c } = self;
 
         let sin_x = x.sin();
         let cos_x = x.cos();
