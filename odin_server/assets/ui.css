@@ -111,6 +111,7 @@ div.ui_window.resizable {
     /* display: inline-block; */
     width: inherit;
     height: inherit;
+    resize: both;
 }
 
 div.ui_titlebar {

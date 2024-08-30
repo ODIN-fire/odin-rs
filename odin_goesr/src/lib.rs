@@ -181,11 +181,13 @@ impl GoesrHotspotSet {
     }
 }
 
+/// data structure to keep the max_capacity last GoesrHotspotSet items, with newest one first
 #[derive(Debug,Clone, Serialize)]
 pub struct GoesrHotspotStore {
-    hotspots: VecDeque<GoesrHotspotSet>,
+    hotspots: VecDeque<GoesrHotspotSet>, 
     max_capacity: usize
 }
+
 impl GoesrHotspotStore {
     pub fn new(capacity: usize) -> Self {
         GoesrHotspotStore {
@@ -210,8 +212,9 @@ impl GoesrHotspotStore {
         }
     }
 
-    pub fn iter<'a> (&'a self) -> impl Iterator<Item=&'a GoesrHotspotSet> {
-        self.hotspots.iter()
+    /// note this iterates old-to-new, i.e. the newest entry comes last
+    pub fn iter_old_to_new<'a> (&'a self) -> impl Iterator<Item=&'a GoesrHotspotSet> {
+        self.hotspots.iter().rev()
     }
 
     pub fn to_json_pretty (&self)->Result<String> {

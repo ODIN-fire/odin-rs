@@ -34,20 +34,19 @@ async fn main()->Result<()> {
     let hgoes18 = PreActorHandle::new( &actor_system, "goes18", 8);
     let goes18 = GoesrSat::new( load_config("goes_18.ron")?, hgoes18.to_actor_handle());
 
-    //let hgoes16 = PreActorHandle::new( &actor_system, "goes16", 8);
-    //let goes16 = GoesrSat::new( load_config("goes_16.ron")?, hgoes16.to_actor_handle());
+    let hgoes16 = PreActorHandle::new( &actor_system, "goes16", 8);
+    let goes16 = GoesrSat::new( load_config("goes_16.ron")?, hgoes16.to_actor_handle());
 
     let hserver = spawn_actor!( actor_system, "server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
         "goesr",
         SpaServiceListBuilder::new()
-            //.add( build_service!( GoesrService::new( vec![goes18,goes16])) )
-            .add( build_service!( GoesrService::new( vec![goes18])) )
+            .add( build_service!( GoesrService::new( vec![goes18,goes16])) )
             .build()
     ))?;
 
     let _hgoes18 = spawn_goesr_updater( &mut actor_system, "goes18", hgoes18, load_config( "goes_18_fdcc.ron")?, &hserver)?;
-    //let _hgoes16 = spawn_goesr_updater( &mut actor_system, "goes16", hgoes16, load_config( "goes_16_fdcc.ron")?, &hserver)?;
+    let _hgoes16 = spawn_goesr_updater( &mut actor_system, "goes16", hgoes16, load_config( "goes_16_fdcc.ron")?, &hserver)?;
 
     actor_system.timeout_start_all(secs(2)).await?;
     actor_system.process_requests().await?;
@@ -68,8 +67,8 @@ fn spawn_goesr_updater (
         dataref_action!( hserver.clone(): ActorHandle<SpaServerMsg>, name: &'static str => |_store:&GoesrHotspotStore| {
             Ok( hserver.try_send_msg( DataAvailable{ sender_id: name, data_type: type_name::<GoesrHotspotStore>()} )? )
         }),
-        data_action!( hserver.clone(): ActorHandle<SpaServerMsg> => |hs:GoesrHotspotSet| {
-            let data = ws_msg!("odin_goesr.js",hs).to_json()?;
+        data_action!( hserver.clone(): ActorHandle<SpaServerMsg> => |hotspots:GoesrHotspotSet| {
+            let data = ws_msg!("odin_goesr.js",hotspots).to_json()?;
             Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
         }),
     ))

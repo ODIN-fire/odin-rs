@@ -49,7 +49,7 @@ async fn main() -> Result<()>{
         load_config( "goesr.ron")?, 
         LiveGoesrHotspotImporter::new( load_config( "goes_18_fdcc.ron")?),
         dataref_action!( hmonitor.clone(): ActorHandle<GoesrMonitorMsg> => |store: &GoesrHotspotStore| {
-            for hs in store.iter(){
+            for hs in store.iter_old_to_new(){
                 let msg = Update(hs.to_json_pretty().unwrap());
                 hmonitor.try_send_msg(msg);
             }

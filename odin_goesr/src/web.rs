@@ -86,7 +86,7 @@ impl SpaService for GoesrService {
     
                 if self.has_connections {
                     let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg> => |store: &GoesrHotspotStore| {
-                        for hotspots in store.iter(){
+                        for hotspots in store.iter_old_to_new(){
                             let data = ws_msg!("odin_goesr.js",hotspots).to_json()?;
                             hself.try_send_msg( BroadcastWsMsg{data})?;
                         }
@@ -111,7 +111,7 @@ impl SpaService for GoesrService {
             let remote_addr = conn.remote_addr;
             for sat in &self.satellites {
                 let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg>, remote_addr: SocketAddr  => |store: &GoesrHotspotStore| {
-                    for hotspots in store.iter(){
+                    for hotspots in store.iter_old_to_new(){
                         let remote_addr = remote_addr.clone();
                         let data = ws_msg!("odin_goesr.js",hotspots).to_json()?;
                         hself.try_send_msg( SendWsMsg{remote_addr,data})?;

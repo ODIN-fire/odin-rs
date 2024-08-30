@@ -479,7 +479,7 @@ function handleGoesrSatellites(sats) {
 function handleGoesrDataSet (hotspots) {
     hotspots.sat = getSatelliteWithId(hotspots.satId);
     if (hotspots.sat) {
-        dataSets.push(hotspots);
+        util.sortIn( dataSets, hotspots, (a,b)=> a.date >= b.date ); // sort in order of arrival
 
         saveSelections();
         updateDataSets();
