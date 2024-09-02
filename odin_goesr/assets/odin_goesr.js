@@ -485,7 +485,7 @@ function handleGoesrDataSet (hotspots) {
         updateDataSets();
 
         let now = ui.getClockEpochMillis("time.utc"); // we don't want to do this during init of history
-        if (followLatest && Math.abs(now - hotspots.date) < 30000) {
+        if (followLatest && Math.abs(now - hotspots.date) < 180000) { // auto follow if within 2.5min
             ui.selectFirstListItem(dataSetView);
         } else {
             restoreSelections();

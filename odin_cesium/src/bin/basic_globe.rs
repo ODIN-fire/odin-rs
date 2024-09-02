@@ -17,20 +17,14 @@ use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_cesium::ImgLayerService;
 
-async_main! {
-    odin_build::set_bin_context!();
+run_actor_system!( actor_system => {
     
-    let mut actor_system = ActorSystem::new("main");
-    actor_system.request_termination_on_ctrlc(); // shut down gracefully
-
     spawn_actor!( actor_system, "spa_server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
         "basic_globe",
-        SpaServiceListBuilder::new()
+        SpaServiceList::new()
             .add( build_service!( ImgLayerService::new())) // this automatically includes Cesium and UI services
-            .build()
     ));
 
-    actor_system.timeout_start_all(secs(2)).await?;
-    actor_system.process_requests().await?;
-}
+    Ok(())
+});

@@ -37,6 +37,9 @@ pub enum OdinServerError {
     #[error("connect error: {0}")]
     ConnectError(String),
 
+    #[error("axum error: {0}")]
+    AxumError( #[from] axum::Error),
+
     #[error("operation failed: {0}")]
     OpFailed( String ),
 }

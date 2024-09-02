@@ -1192,13 +1192,45 @@ async fn process_requests<P,R,T> (proc: P, rx: AsyncReceiver<R>) -> Result<()>
 
 /* #endregion RequestResolver */
 
+/* #region DRY macros ****************************************************************************/
+
+// don't use a tt here since it would not show errors within it - only the whole body would get rejected
+// slightly reduces readability since it has to be used as `run_async_main({...});` but for that we get
+// precise compiler errors in the provided block
 #[macro_export]
-macro_rules! async_main {
-    ( $( $t:tt )* ) => {
+macro_rules! run_async_main {
+    ( $body:expr ) => {
+        use tokio;
+        use anyhow;
+
         #[tokio::main]
         async fn main ()->anyhow::Result<()> {
-            $( $t )*
+            Ok( $body? )
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! run_actor_system {
+    ($asys:ident => $set_up:expr) => {
+        use tokio;
+        use anyhow;
+
+        #[tokio::main]
+        async fn main ()->anyhow::Result<()> {
+            odin_build::set_bin_context!();
+            let mut $asys = ActorSystem::new("main");
+            $asys.request_termination_on_ctrlc();
+
+            let _res: anyhow::Result<()> = $set_up;
+            _res?;
+
+            $asys.timeout_start_all(secs(2)).await?;
+            $asys.process_requests().await?;
+
             Ok(())
         }
     }
 }
+
+/* #endregion  DRY macros */

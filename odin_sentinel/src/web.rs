@@ -33,13 +33,11 @@ use crate::{load_asset, sentinel_cache_dir, ExecSnapshotAction, SentinelActorMsg
 /// SpaService to show sentinel infos on a cesium display
 pub struct SentinelService {
     hsentinel: ActorHandle<SentinelActorMsg>, // our data source
-    is_data_available: bool,
-    has_connections: bool
 }
 
 impl SentinelService {
     pub fn new (hsentinel: ActorHandle<SentinelActorMsg>)->Self { 
-        SentinelService{hsentinel, is_data_available: false, has_connections: false}
+        SentinelService{hsentinel}
     }
 
     async fn image_handler (path: AxumPath<String>) -> Response {
@@ -54,7 +52,7 @@ impl SentinelService {
 
 #[async_trait]
 impl SpaService for SentinelService {
-    fn add_dependencies (&self, spa_builder: SpaServiceListBuilder) -> SpaServiceListBuilder {
+    fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
         spa_builder.add( build_service!( ImgLayerService::new()))
     }
 
@@ -70,37 +68,35 @@ impl SpaService for SentinelService {
         Ok(())
     }
 
-    async fn data_available (&mut self, hself: &ActorHandle<SpaServerMsg>, sender_id: &'static str, data_type: &'static str) -> OdinServerResult<()> {
-        if self.hsentinel.id() == sender_id && data_type == type_name::<SentinelStore>() { // is this for us?
-            self.is_data_available = true;
+    async fn data_available (&mut self, hself: &ActorHandle<SpaServerMsg>, has_connections: bool, sender_id: &str, data_type: &str) -> OdinServerResult<bool> {
+        let mut is_our_data = false;
 
-            if self.has_connections {
+        if self.hsentinel.id() == sender_id && data_type == type_name::<SentinelStore>() { // is this for us?
+            if has_connections {
                 let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg> => |data: &SentinelStore| {
                     let sentinels = data.values();
-                    let data = ws_msg!("odin_sentinel.js",sentinels).to_json()?;
+                    let data = ws_msg!("odin_sentinel/odin_sentinel.js",sentinels).to_json()?;
                     Ok( hself.try_send_msg( BroadcastWsMsg{data})? )
                 });
-                return Ok( self.hsentinel.send_msg( ExecSnapshotAction(action)).await? )
+                self.hsentinel.send_msg( ExecSnapshotAction(action)).await?;
             }
+            is_our_data = true;
         }
-        Ok(()) // either not for us or we don't have connections yet
+        Ok(is_our_data) // either not for us or we don't have connections yet
     }
 
     // send an ExecSnapshotAction to the SentinelActor to send a JSON websocket message to the new connection
-    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, conn: &mut SpaConnection) -> OdinServerResult<()> {
-        self.has_connections = true;
-
-        if self.is_data_available {
+    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
+        if is_data_available {
             let remote_addr = conn.remote_addr;
             let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg>, remote_addr: SocketAddr => |data: &SentinelStore| {
                 let sentinels = data.values();
-                let data = ws_msg!("odin_sentinel.js",sentinels).to_json()?;
+                let data = ws_msg!("odin_sentinel/odin_sentinel.js",sentinels).to_json()?;
                 let remote_addr = remote_addr.clone();
                 Ok( hself.try_send_msg( SendWsMsg{remote_addr,data})? )
             });
-            Ok( self.hsentinel.send_msg( ExecSnapshotAction(action)).await? )
-        } else {
-            Ok(())
+            self.hsentinel.send_msg( ExecSnapshotAction(action)).await?;
         }
+        Ok(())
     }
 }

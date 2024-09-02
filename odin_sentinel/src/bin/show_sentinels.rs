@@ -19,19 +19,14 @@ use odin_server::prelude::*;
 use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor,load_config, web::SentinelService};
 
 
-async_main! {
-    odin_build::set_bin_context!();
-    let mut actor_system = ActorSystem::new("main");
-    actor_system.request_termination_on_ctrlc();
-
+run_actor_system!( actor_system => {
     let hsentinel = PreActorHandle::new( &actor_system, "updater", 8);
 
     let hserver = spawn_actor!( actor_system, "server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
         "sentinels",
-        SpaServiceListBuilder::new()
+        SpaServiceList::new()
             .add( build_service!( hsentinel.to_actor_handle() => SentinelService::new(hsentinel))) // this automatically includes Cesium and UI services
-            .build()
     ))?;
 
     let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
@@ -42,11 +37,10 @@ async_main! {
             Ok( hserver.try_send_msg( DataAvailable{sender_id:"updater",data_type: type_name::<SentinelStore>()} )? )
         }),
         data_action!( hserver: ActorHandle<SpaServerMsg> => |update:SentinelUpdate| {
-            let data = ws_msg!("odin_sentinel.js",update).to_json()?;
+            let data = ws_msg!("odin_sentinel/odin_sentinel.js",update).to_json()?;
             Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
         }),
     ))?;
     
-    actor_system.timeout_start_all(secs(2)).await?;
-    actor_system.process_requests().await?;
-}
+    Ok(())
+});
