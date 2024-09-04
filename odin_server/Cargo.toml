@@ -10,7 +10,6 @@ build = "../build_resources.rs"
 doctest = false
 
 [dependencies]
-tokio-tungstenite = { version = "*", features = ["rustls"] }
 axum-server = { version = "*", features = ["tls-rustls"] }
 bytes = "*"
 thiserror = "*"
@@ -39,6 +38,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 ron = { workspace = true }
 tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
 async-trait = { workspace = true }
 
 

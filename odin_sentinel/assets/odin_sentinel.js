@@ -551,6 +551,7 @@ function handleWsMessages(msgType, msg) {
 function handleSentinelsMessage(sentinels) {
     sentinelEntries.clear();
     sentinels.forEach(sentinel => addSentinelEntry(sentinel));
+    odinCesium.requestRender();
 }
 
 function addSentinelEntry(sentinel) {

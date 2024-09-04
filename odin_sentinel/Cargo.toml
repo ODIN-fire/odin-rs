@@ -48,6 +48,7 @@ odin_common = { workspace = true }
 odin_macro = { workspace = true }
 
 tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
 reqwest = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true }
@@ -66,7 +67,6 @@ futures = "*"
 async-stream = "*"
 http = "*"
 url = "*"
-tokio-tungstenite = { version = "*", features = ["native-tls"] }
 lazy_static = "*"
 structopt = "*"
 displaydoc = "*"

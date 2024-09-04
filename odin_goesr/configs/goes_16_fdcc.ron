@@ -1,5 +1,5 @@
-LiveGoesRHotspotImporterConfig(
-    satellite: 16,
+LiveGoesrHotspotImporterConfig(
+    sat_id: 41866,
     s3_region: "us-east-1",
     bucket: "noaa-goes16",
     source: "ABI-L2-FDCC",

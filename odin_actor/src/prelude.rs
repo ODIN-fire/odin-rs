@@ -21,7 +21,7 @@ pub use crate::{
     MsgReceiverList, DynMsgReceiverList, msg_receiver_list,
     SysMsgReceiver, SysMsg, DefaultReceiveAction, FromSysMsg, Identifiable,
     _Start_, _Ping_, _Timer_, _Exec_, _Pause_, _Resume_, _Terminate_,
-    OdinActorError,
+    OdinActorError, OdinActorResult,
     secs,millis,micros,nanos,minutes,hours,
     DEFAULT_CHANNEL_BOUNDS,
     define_actor_msg_set, match_actor_msg, cont, stop, term, impl_actor, spawn_actor, spawn_pre_actor, spawn_dyn_actor,

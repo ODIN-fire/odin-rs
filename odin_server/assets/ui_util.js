@@ -490,12 +490,6 @@ export function intern(s) {
     }
 }
 
-export function prependElement(e, array) {
-    var newArray = array.slice();
-    newArray.unshift(e);
-    return newArray;
-}
-
 //--- type tests
 
 export function isDefined(v) {
@@ -584,15 +578,71 @@ export function distanceBetweenGeoPos(lat1Deg,lon1Deg, lat2Deg,lon2Deg) {
     return meanEarthRadius * c;
 }
 
-//--- expandable tree
+//--- array utilities
 
-
-
-//--- misc
+export function prependElement(e, array) {
+    var newArray = array.slice();
+    newArray.unshift(e);
+    return newArray;
+}
 
 export function countMatching(array, pred) {
     return array.reduce((acc, e) => pred(e) ? acc + 1 : acc, 0);
 }
+
+export function haveEqualElements (array1, array2) {
+    for (var i=0; i<array1.length; i++) {
+        for (var j=0; j<array2.length; j++) {
+            if (array1[i] == array2[j]) return true;
+        }
+    }
+    return false;
+}
+
+export function mkString(array, sep) {
+    return array.reduce( (acc,e) =>  (acc.length == 0) ? e.toString() : acc + sep + e.toString(), "");
+}
+
+export function sortIn (list, e, compareFunc) {
+    for (let i=0; i<list.length; i++) {
+        if (compareFunc(list[i],e) > 0) {
+            list.splice(i,0,e);
+            return i;
+        }
+    }
+
+    list.push(e);
+    return list.length-1;
+}
+
+export function sortInUnique (list, e, compareFunc = defaultCompare, replace = false) {
+    for (let i=0; i<list.length; i++) {
+        switch (compareFunc(list[i],e)) {
+            case -1: continue;
+            case 0: 
+                if (replace) {
+                    list.splice(i,1,e); return i;
+                } else {
+                    return -1;
+                }
+            case 1: list.splice(i,0,e); return i;
+        }
+    }
+
+    list.push(e);
+    return list.length-1;
+}
+
+export function defaultCompare (a,b) {
+    if (a < b) return -1;
+    else if (a > b) return 1;
+    else return 0;
+}
+
+
+//--- misc
+
+
 
 export function firstDefined(...theArgs) {
     for (const arg of theArgs) {
@@ -607,19 +657,6 @@ export function checkDefined(...theArgs) {
         if (!arg) return undefined;
     }
     return arg;
-}
-
-export function haveEqualElements (array1, array2) {
-    for (var i=0; i<array1.length; i++) {
-        for (var j=0; j<array2.length; j++) {
-            if (array1[i] == array2[j]) return true;
-        }
-    }
-    return false;
-}
-
-export function mkString(array, sep) {
-    return array.reduce( (acc,e) =>  (acc.length == 0) ? e.toString() : acc + sep + e.toString(), "");
 }
 
 export function filterIterator(it,f) {

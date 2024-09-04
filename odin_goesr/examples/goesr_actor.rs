@@ -19,16 +19,16 @@
 use tokio;
 use anyhow::Result;
 use odin_actor::prelude::*;
-use odin_goesr::actor::GoesRHotspotImportActor;
-use odin_goesr::{live_importer::LiveGoesRHotspotImporter, GoesRHotSpots, load_config};
+use odin_goesr::actor::{self, GoesrHotspotActor};
+use odin_goesr::{live_importer::LiveGoesrHotspotImporter, GoesrHotspotStore, GoesrHotspotSet, load_config};
 use odin_build;
 
 #[derive(Debug)] pub struct Update(String);
 
-define_actor_msg_set! { GoesRMonitorMsg = Update }
-struct GoesRMonitor {}
+define_actor_msg_set! { GoesrMonitorMsg = Update }
+struct GoesrMonitor {}
 
-impl_actor! { match msg for Actor<GoesRMonitor,GoesRMonitorMsg> as
+impl_actor! { match msg for Actor<GoesrMonitor,GoesrMonitorMsg> as
     Update => cont! { 
         println!("------------------------------ update");
         println!("{}", msg.0) 
@@ -41,21 +41,22 @@ async fn main() -> Result<()>{
     odin_build::set_bin_context!();
 
     let mut actor_system = ActorSystem::with_env_tracing("main");
+    actor_system.request_termination_on_ctrlc(); // don't just kill the process - we might be in the middle of retrieving AWS data
 
-    let hmonitor = spawn_actor!( actor_system, "monitor", GoesRMonitor{})?;
+    let hmonitor = spawn_actor!( actor_system, "monitor", GoesrMonitor{})?;
 
-    let _actor_handle = spawn_actor!( actor_system, "goesr",  GoesRHotspotImportActor::new(
+    let _actor_handle = spawn_actor!( actor_system, "goesr",  GoesrHotspotActor::new(
         load_config( "goesr.ron")?, 
-        LiveGoesRHotspotImporter::new( load_config( "goes_18_fdcc.ron")?),
-        data_action!( hmonitor.clone(): ActorHandle<GoesRMonitorMsg> => |data:Vec<GoesRHotSpots>| {
-            for hs in data.into_iter(){
+        LiveGoesrHotspotImporter::new( load_config( "goes_18_fdcc.ron")?),
+        dataref_action!( hmonitor.clone(): ActorHandle<GoesrMonitorMsg> => |store: &GoesrHotspotStore| {
+            for hs in store.iter_old_to_new(){
                 let msg = Update(hs.to_json_pretty().unwrap());
                 hmonitor.try_send_msg(msg);
             }
             Ok(())
         }),
-        data_action!( hmonitor: ActorHandle<GoesRMonitorMsg> => |data:GoesRHotSpots| {
-            let msg = Update(data.to_json_pretty().unwrap());
+        data_action!( hmonitor: ActorHandle<GoesrMonitorMsg> => |hs:GoesrHotspotSet| {
+            let msg = Update(hs.to_json_pretty().unwrap());
             Ok( hmonitor.try_send_msg( msg)? )
         }),
     ))?;

@@ -45,7 +45,7 @@ pub mod console_ui;
 pub mod tui;
 
 pub mod errors;
-pub use errors::{OdinActorError,Result};
+pub use errors::{OdinActorError,Result,OdinActorResult};
 
 mod msg_patterns;
 pub use msg_patterns::*;
