@@ -480,7 +480,7 @@ function clickTab(event) {
 
 //--- containers
 
-function genContainer (containerCls, align, eid, title, isBordered, children) {
+function genContainer (containerCls, align, eid, title, isBordered, children, width=undefined) {
     let e = _createElement("DIV", "ui_container");
 
     e.classList.add(containerCls);
@@ -491,14 +491,18 @@ function genContainer (containerCls, align, eid, title, isBordered, children) {
     if (eid) e.setAttribute("id", eid);
     if (title) e.setAttribute("data-title", title);
 
+    if (width) {
+        e.style.width = width;
+    }
+
     for (const c of children) e.appendChild(c);
 
     return e;
 }
 
-export function RowContainer (align=null, eid=null, title=null, isBordered=false) {
+export function RowContainer (align=null, eid=null, title=null, isBordered=false, width=undefined) {
     return function (...children) {
-        return genContainer( "row", align, eid, title, isBordered, children);
+        return genContainer( "row", align, eid, title, isBordered, children, width);
     };
 }
 
@@ -709,10 +713,15 @@ export function Label (eid, isPermanent=false, maxWidthInRem=0, minWidthInRem=0)
 }
 
 // un-labeled text data
-export function Text (eid, maxWidthInRem, minWidthInRem=0, text=null) {
+export function Text (eid, maxWidthInRem=0, minWidthInRem=0, text=null) {
     let e = _createElement("DIV", "ui_text");
     e.setAttribute("id", eid);
-    setWidthStyle(e,maxWidthInRem,minWidthInRem);
+    if (maxWidthInRem) { 
+        setWidthStyle(e,maxWidthInRem,minWidthInRem);
+    }
+    if (text) {
+        e.innerText = text;
+    }
     return e;
 }
 
@@ -1014,7 +1023,7 @@ function initializeTimer(e) {
 function _updateTimer(e, t) {
     if (e._uiT0 == 0) e._uiT0 = t;
 
-    if (_isShowing(e)) {
+    if (isShowing(e)) {
         let dt = Math.round((t - e._uiT0) * e._uiTimeScale);
         let s = Math.floor(dt / 1000) % 60;
         let m = Math.floor(dt / 60000) % 60;
@@ -1120,11 +1129,15 @@ function _updateClock(e, t) {
     } else {
         if (e._uiW0 == 0) { // first time init with previous uiSetClock
             e._uiW0 = t;
+        }
 
-        } else if (_isShowing(e)) {
-            let s = e._uiS0 + (t - e._uiW0) * e._uiTimeScale;
-            let date = new Date(s);
-            e._uiDate = date;
+        let s = e._uiS0 + (t - e._uiW0) * e._uiTimeScale;
+        let date = new Date(s);
+        e._uiDate = date;
+
+        // this means we are lagging behind 1 sec with visible update but save a constant stream of
+        // allocations if the clock window is not showing
+        if (isShowing(e)) {
             let day = s / MILLIS_IN_DAY;
             if (day != e._uiSday) {
                 let doy = util.dayOfYear(date);
@@ -1205,11 +1218,12 @@ const sliderResizeObserver = new ResizeObserver(entries => {
     }
 });
 
-export function Slider (label, eid, changeAction) {
+export function Slider (label, eid, changeAction, trackWidth=undefined) {
     let e = _createElement( "DIV", "ui_slider");
 
     if (eid) e.setAttribute("data-id", eid);
     if (label) e.setAttribute("data-label", label);
+    if (trackWidth) e.setAttribute("data-width", trackWidth);
     if (changeAction instanceof Function) e.addEventListener("change", changeAction); else e.onchange = changeAction;
 
     return e;
@@ -1222,6 +1236,7 @@ function initializeSlider (e) {
         // default init - likely to be set by subsequent uiSetSliderRange/Value calls
         let minValue = _parseInt(e.dataset.minValue, 0);
         let maxValue = _parseInt(e.dataset.maxValue, 100);
+        let trackWidth = e.dataset.width;
         let v = _parseInt(e.dataset.value, minValue);
 
         if (maxValue > minValue) {
@@ -1261,6 +1276,10 @@ function initializeSlider (e) {
             right.addEventListener("click", clickMax);
             track._uiRightLimit = right;
             track.appendChild(right);
+
+            if (trackWidth) {
+                track.style.width = trackWidth;
+            }
 
             e.appendChild(track);
             sliderResizeObserver.observe(track);
@@ -2459,7 +2478,7 @@ export function removeLastNListItems(o, n) {
     }
 }
 
-function _setSelectedItemElement(listBox, itemElement) {
+function _setSelectedItemElement(listBox, itemElement, srcEvent) {
     let prevItem = null;
     let nextItem = null;
 
@@ -2490,6 +2509,7 @@ function _setSelectedItemElement(listBox, itemElement) {
             detail: {
                 curSelection: nextItem,
                 prevSelection: prevItem,
+                src: srcEvent
             }
         });
         listBox.dispatchEvent(event);
@@ -2501,7 +2521,7 @@ function _selectListItem(event) {
     if (itemElement.classList.contains("ui_list_item")) {
         let listBox = nearestParentWithClass(itemElement, "ui_list");
         if (listBox) {
-            _setSelectedItemElement(listBox, itemElement);
+            _setSelectedItemElement(listBox, itemElement, event);
         }
     }
 }
@@ -2869,7 +2889,7 @@ export function LayerPanel (windowId, showAction, isExpanded=false) {
     )
 }
 
-//--- images
+//--- images & ImageViewerWindow
 
 export function createImage(src, placeholder, w, h) {
     let e = document.createElement("img");
@@ -2880,11 +2900,54 @@ export function createImage(src, placeholder, w, h) {
     return e;
 }
 
+export function Image (id, imgUri, placeHolder, w, h) {
+    let e = _createElement("IMG", "ui_img");
+    e.id = id;
+    e.src = imgUri;
+    if (placeHolder) e.alt = placeHolder;
+    if (w) e.width = w;
+    if (h) e.height = h;
+    return e;
+}
+
+export function ImageWindow (title, id, closeAction, icon, imgUri, caption, 
+                             minScale=0.2, maxScale=2.0, scaleStep=0.1, initScale=1.0) {
+    let img = Image( id+".img", imgUri);
+    let label = Label( id+".caption");
+
+    function setImgScale (event) {
+        let v = getSliderValue(event.target);
+        console.log("scale ", img.id, " to: ", v);
+    }
+
+    let slider = Slider("scale", id+".scale", setImgScale, "20rem");
+
+    let window = Window( title, id, icon)(
+        img,
+        RowContainer("align_left",null,null,false,"100%")(
+            label,
+            HorizontalSpacer(3),
+            slider
+        )
+    );
+
+    setLabelText( label, caption);
+    setSliderRange( slider, minScale, maxScale, scaleStep, util.f_1);
+    setSliderValue( slider, initScale);
+
+    if (closeAction) window.closeAction = closeAction;
+    setWindowResizable(window, true);
+    return window;
+}
+
 //--- spacers
 
-export function HorizontalSpacer (minWidthInRem) {
+export function HorizontalSpacer (minWidthInRem=2, maxWidthInRem=undefined) {
     let e = _createElement("DIV", "spacer");
     e.style = `min-width:${minWidthInRem}rem`;
+    if (maxWidthInRem) {
+        e.style = `max-width:${minWidthInRem}rem`;
+    }
     return e;
 }
 
@@ -2894,6 +2957,24 @@ export function stopAllOtherProcessing(event) {
     event.stopImmediatePropagation();
     event.stopPropagation();
     event.preventDefault();
+}
+
+export function isShowing(e) {
+    if ((e.offsetParent === null) /*|| (e.getClientRects().length == 0)*/ ) return false; // shortcut
+    let style = window.getComputedStyle(e);
+    if (style.visibility !== 'visible' || style.display === 'none') return false;
+
+    e = e.parentElement;
+    while (e) {
+        style = window.getComputedStyle(e);
+        if (style.visibility !== 'visible' || style.display === 'none') return false;
+
+        // we could also check for style.maxHeight == 0
+        if (e.classList.contains('collapsed')) return false;
+        e = e.parentElement;
+    }
+
+    return true;
 }
 
 //--- general utility functions
@@ -3048,7 +3129,9 @@ function _childIndexOf(element) {
 function _firstChildWithClass(element, cls) {
     var c = element.firstChild;
     while (c) {
-        if (c instanceof HTMLElement && c.classList.contains(cls)) return c;
+        if (c instanceof HTMLElement && c.classList.contains(cls)) {
+            return c;
+        }
         c = c.nextElementSibling;
     }
     return undefined;
@@ -3163,24 +3246,6 @@ function _createDate(dateSpec) {
         }
     }
     return undefined;
-}
-
-function _isShowing(e) {
-    if ((e.offsetParent === null) /*|| (e.getClientRects().length == 0)*/ ) return false; // shortcut
-    let style = window.getComputedStyle(e);
-    if (style.visibility !== 'visible' || style.display === 'none') return false;
-
-    e = e.parentElement;
-    while (e) {
-        style = window.getComputedStyle(e);
-        if (style.visibility !== 'visible' || style.display === 'none') return false;
-
-        // we could also check for style.maxHeight == 0
-        if (e.classList.contains('collapsed')) return false;
-        e = e.parentElement;
-    }
-
-    return true;
 }
 
 function _hasBorderedParent(e) {
