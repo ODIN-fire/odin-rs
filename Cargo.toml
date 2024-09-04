@@ -20,6 +20,7 @@ members = [
   "odin_goesr",
   "odin_smoke",
   "odin_jpss",
+  "odin_demo",
   "gpshub",
 
   "opendata_splitter",
@@ -39,6 +40,8 @@ odin_actor  = { version = "*", path = "odin_actor" }
 odin_job    = { version = "*", path = "odin_job" }
 odin_server = { version = "*", path = "odin_server" }
 odin_cesium = { version = "*", path = "odin_cesium" }
+odin_goesr  = { version = "*", path = "odin_goesr" }
+odin_sentinel = { version = "*", path = "odin_sentinel" }
 
 # external crates for which we have to ensure the same version
 axum = { version = "0.7.5", features = [ "http2", "ws", "macros"] }

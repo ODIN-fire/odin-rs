@@ -214,7 +214,8 @@ function selectGoesrDataSet(event) {
         if (lockStep) selectedPeerDataSet = getPeerDataSet(selectedDataSet);
         refDate = ds.date;
 
-        if (ds != displayDataSets[0]) { // if we explicitly select an earlier element we disable followLatest
+        // if this is an interactive event and we selected something other than the first set then clear followLatest
+        if (event.detail.src && ds != displayDataSets[0]) {
             followLatest = false;
             ui.setCheckBox("goesr.followLatest", false);
         }
@@ -485,7 +486,8 @@ function handleGoesrDataSet (hotspots) {
         updateDataSets();
 
         let now = ui.getClockEpochMillis("time.utc"); // we don't want to do this during init of history
-        if (followLatest && Math.abs(now - hotspots.date) < 30000) {
+
+        if (followLatest && Math.abs(now - hotspots.date) < 300000) { // auto follow if within 5min (filter initial sets)
             ui.selectFirstListItem(dataSetView);
         } else {
             restoreSelections();

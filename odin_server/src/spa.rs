@@ -13,7 +13,7 @@
  */
 #![allow(unused)]
 
-use std::{boxed, collections::HashMap, sync::{Arc,Mutex}, 
+use std::{boxed, collections::HashMap, sync::{Arc,Mutex}, ops::{Deref,DerefMut},
     net::SocketAddr, future::{Future,ready}, time::SystemTime, 
     path::{PathBuf}, any::type_name, fmt::Write,
     result::Result, error::Error
@@ -58,7 +58,7 @@ use crate::errors::{OdinServerResult,op_failed};
 #[async_trait]
 pub trait SpaService: Send + Sync + 'static {
     /// override this if the service depends on other services. Default is it doesn't
-    fn add_dependencies (&self, sb: SpaServiceListBuilder)->SpaServiceListBuilder {sb} // defaut is no dependencies
+    fn add_dependencies (&self, sb: SpaServiceList)->SpaServiceList {sb} // defaut is no dependencies
     
     /// this adds document fragments and route data for this micro service
     /// Called during server construction to accumulate components of all included SpaServices
@@ -74,14 +74,17 @@ pub trait SpaService: Send + Sync + 'static {
     /// NOTE: this is called from within the actor loop of the server, i.e. we should NOT await message sends
     /// to the server from within init_connection() implementations as this might deadlock if the server mailbox is full.
     /// Directly send websocket messages through `conn.send(..)` in this case (which is also more efficient)
-    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, conn: &mut SpaConnection) -> OdinServerResult<()> {
+    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
         Ok(())
     }
 
-    /// can be used to broadcast newly available data to all connections. This is useful if the ws messages to be sent
-    /// would be expensive to create and/or we want to store availability state (hence `&mut self`)
-    async fn data_available (&mut self, hself: &ActorHandle<SpaServerMsg>, sender_id: &'static str, data_type: &'static str)-> OdinServerResult<()> {
-        Ok(())
+    /// can be used to broadcast newly available data to all connections. This is normally sent from an init action
+    /// of the actor providing service data. It is useful if the ws messages to be sent would be expensive to create
+    /// and hence should be avoided if there are no connections yet.
+    /// Returns a result with a boolean value indicating if the data required by the service is available
+    async fn data_available (&mut self, hself: &ActorHandle<SpaServerMsg>, has_connections: bool, 
+                             sender_id: &str, data_type: &str) -> OdinServerResult<bool> {
+        Ok(true)
     }
 
     /// called from ws input task of respective connection
@@ -90,15 +93,36 @@ pub trait SpaService: Send + Sync + 'static {
     }
 }
 
-/// an object to build SpaService lists from services that can recursively depend on other services.
-/// Each service type is included just once, in the order of first occurrence
-pub struct SpaServiceListBuilder {
-    seen: Vec<&'static str>,
-    services: Vec<Box<dyn SpaService>>
+/// SpaServer internal structure to keep track of SpaService state
+struct SpaSvc {
+    service: Box<dyn SpaService>,
+    is_data_available: bool, // this is where we store the data_available() response of the service
+}
+impl SpaSvc {
+    pub fn new (service: impl SpaService)->Self {
+        SpaSvc {
+            service: Box::new(service),
+            is_data_available: false,
+        }
+    }
+}
+impl Deref for SpaSvc {
+    type Target = Box<dyn SpaService>;
+    fn deref(&self) -> &Self::Target { &self.service }
+}
+impl DerefMut for SpaSvc {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.service }
 }
 
-impl SpaServiceListBuilder {
-    pub fn new ()->Self { SpaServiceListBuilder{seen: Vec::new(), services: Vec::new()} }
+/// an object to build SpaService lists from services that can recursively depend on other services.
+/// Each service type is included just once, in the order of first occurrence
+pub struct SpaServiceList {
+    seen: Vec<&'static str>,
+    services: Vec<SpaSvc>
+}
+
+impl SpaServiceList {
+    pub fn new ()->Self { SpaServiceList{seen: Vec::new(), services: Vec::new()} }
 
     pub fn add<F,T> (self, svc_ctor: F)->Self where F: FnOnce()->T, T: SpaService + 'static {
         let name = type_name::<T>();
@@ -106,15 +130,14 @@ impl SpaServiceListBuilder {
             let svc = svc_ctor();
             let mut sb = svc.add_dependencies( self);
             sb.seen.push(name);
-            sb.services.push( Box::new(svc));
+
+            let svc_state = SpaSvc::new(svc);
+            sb.services.push( svc_state);
+
             sb
         } else {
             self
         }
-    }
-
-    pub fn build (self)->Vec<Box<dyn SpaService>> { 
-        self.services
     }
 }
 
@@ -126,8 +149,9 @@ pub struct SpaConnection {
 }
 
 impl SpaConnection {
-    pub async fn send (&mut self, msg: String) {
-        self.ws_sender.send( Message::Text(msg)).await;
+    // note this should not be used if we send multiple messages to the same connection (use feed() or send_all() in this case)
+    pub async fn send (&mut self, msg: String)->OdinServerResult<()> {
+        Ok( self.ws_sender.send( Message::Text(msg)).await? )
     }
 }
 
@@ -143,33 +167,32 @@ pub struct SpaServerConfig {
     pub tls: Option<TlsConfig>, // if set use TLS (https)
 }
 
-/// this is the state that can be passed into axum handlers
-/// note this has to clone efficiently
+
+/// this is the state that can be passed into service specific axum handlers
+/// note this has to clone efficiently and needs to be invariant
 #[derive(Clone)]
 pub struct SpaServerState {
     pub name: Arc<String>,
     pub hself: ActorHandle<SpaServerMsg>
-    // TODO - should we add Arc<Mutex<HashMap<SocketAddr,SpaConnection>>>> here so that handlers can directly add/send?
 }
-
 
 /// the actor state for a single page application server actor
 pub struct SpaServer {
     config: SpaServerConfig,
     name: String, // this is not from the config so that we can have the same for different apps
-    services: Vec<Box<dyn SpaService>>,
+    services: Vec<SpaSvc>,
 
     connections: HashMap<SocketAddr,SpaConnection>, // updated when receiving an AddConnection actor message
-    server_task: Option<JoinHandle<()>> // for the server task itself, initialized upon _Start_
+    server_task: Option<JoinHandle<()>>, // for the server task itself, initialized upon _Start_
 }
 
 impl SpaServer {
 
-    pub fn new (config: SpaServerConfig, name: impl ToString, services: Vec<Box<dyn SpaService>>)->Self {
+    pub fn new (config: SpaServerConfig, name: impl ToString, service_list: SpaServiceList)->Self {
         SpaServer { 
             config, 
             name: name.to_string(), 
-            services,
+            services: service_list.services,
             connections: HashMap::new(),
             server_task: None,
         }
@@ -179,10 +202,13 @@ impl SpaServer {
         self.services.iter().find( |s| s.is_websocket()).is_some()
     }
 
+    fn has_connections (&self)->bool {
+        !self.connections.is_empty()
+    }
+
     /// called when receiving _Start_ message
     async fn start_server (&mut self, hself: ActorHandle<SpaServerMsg>)->OdinServerResult<()> {
         if self.server_task.is_none() {
-            
             if cfg!(feature="trace_server") {
                 // note this only succeeds if there is no global subscriber set yet
                 tracing_subscriber::fmt()
@@ -218,7 +244,7 @@ impl SpaServer {
     }
 
     fn build_router (&self, hself: &ActorHandle<SpaServerMsg>)->OdinServerResult<Router> {
-        let comps = SpaComponents::from( &self.services)?;
+        let comps = SpaComponents::from_svcs( &self.services)?;
         let doc = Arc::new(comps.to_html( &self.name));
         let proxies = comps.proxies;
         let assets = comps.assets;
@@ -232,7 +258,7 @@ impl SpaServer {
 
         // add service specific routes
         if !comps.routes.is_empty() {
-            let spa_server_state = SpaServerState {
+            let spa_server_state = SpaServerState { // note this is immutable state
                 name: Arc::new( self.name.clone()),
                 hself: hself.clone(),
             };
@@ -375,38 +401,53 @@ impl SpaServer {
         let conn_ref = self.connections.get_mut( &raddr).unwrap();
 
         for svc in self.services.iter_mut() { // tell services to send their initial data
-            svc.init_connection( &hself, conn_ref).await.map_err(|e| connect_error(e))?;
+            svc.service.init_connection( &hself, svc.is_data_available, conn_ref).await.map_err(|e| connect_error(e))?;
         }
 
         Ok(())
     }
 
-    fn remove_connection (&mut self, remote_addr: SocketAddr) {
+    fn remove_connection (&mut self, remote_addr: SocketAddr)->OdinServerResult<()> {
         self.connections.remove(&remote_addr);
+        Ok(())
     }
 
     // TODO - these should use timeouts (we can't have a connection block the server)
 
-    async fn data_available (&mut self, hself: ActorHandle<SpaServerMsg>, sender_id: &'static str, data_type: &'static str) {
+    async fn data_available (&mut self, hself: ActorHandle<SpaServerMsg>, sender_id: &'static str, data_type: &'static str)->OdinServerResult<()> {
+        let has_connections = self.has_connections();
+
         for svc in self.services.iter_mut() {
-            svc.data_available( &hself, sender_id, data_type).await;
+            match svc.data_available( &hself, has_connections, sender_id, data_type).await {
+                Ok(true) => svc.is_data_available = true,
+                Ok(false) => {}
+                Err(e) => error!("data available check failed: {e}")
+            }
         }
+        Ok(())
     }
 
-    // called when receiving a BroadcastWsMsg message
-    async fn broadcast_ws_msg (&mut self, m: String) {
+    /// send a ws message to all connections.
+    /// this does not bail on message delivery failure
+    async fn broadcast_ws_msg (&mut self, m: String)->OdinServerResult<()> {
         // TODO - use feed() or send_all() for batches
         let ws_msg = Message::Text(m);
         for conn in self.connections.values_mut() {
-            conn.ws_sender.send(ws_msg.clone()).await; 
+            if let Err(e) = conn.ws_sender.send(ws_msg.clone()).await {
+                error!("failed to broadcast ws message to {:?}: {}", conn.remote_addr, e);
+            }
         }
+        Ok(())
     }
 
-    /// called when receiving a SendWsMsg message
-    async fn send_ws_msg (&mut self, remote_addr: SocketAddr, m: String) {
+    /// send a ws message to the connection of the provided client address
+    async fn send_ws_msg (&mut self, remote_addr: SocketAddr, m: String)->OdinServerResult<()> {
         if let Some(conn) = self.connections.get_mut( &remote_addr) {
-            conn.send( m).await;
+            if let Err(e) = conn.send( m).await {
+                error!("failed to send ws message to {:?}: {}", conn.remote_addr, e);
+            }
         }
+        Ok(())
     }
 
     /// called when receiving _Terminate_ message
@@ -456,24 +497,36 @@ define_actor_msg_set! { pub SpaServerMsg = AddConnection | DataAvailable | Broad
 impl_actor! { match msg for Actor<SpaServer,SpaServerMsg> as
     _Start_ => cont! { 
         let hself = self.hself.clone();
-        self.start_server( hself).await;
+        if let Err(e) = self.start_server( hself).await {
+            error!("failed to start server: {e:?}");
+        }
     }
     AddConnection => cont! {
         let hself = self.hself.clone();
-        self.add_connection( hself, msg.remote_addr, msg.ws).await;
+        if let Err(e) = self.add_connection( hself, msg.remote_addr, msg.ws).await {
+            error!("failed to add connection to {:?}: {:?}", msg.remote_addr, e);
+        }
     }
     DataAvailable => cont! {
         let hself = self.hself.clone();
-        self.data_available( hself, msg.sender_id, msg.data_type).await;
+        if let Err(e) = self.data_available( hself, msg.sender_id, msg.data_type).await {
+            error!("failed to notify data availability: {e:?}");
+        }
     }
     BroadcastWsMsg => cont! {
-        self.broadcast_ws_msg( msg.data).await;
+        if let Err(e) = self.broadcast_ws_msg( msg.data).await {
+            error!("failed to broadcast ws message: {e:?}");
+        }
     }
     SendWsMsg => cont! {
-        self.send_ws_msg( msg.remote_addr, msg.data).await;
+        if let Err(e) = self.send_ws_msg( msg.remote_addr, msg.data).await {
+            error!("failed to send ws message: {e:?}");
+        }
     }
     RemoveConnection => cont! {
-        self.remove_connection( msg.remote_addr);
+        if let Err(e) = self.remove_connection( msg.remote_addr) {
+            error!("failed to remove connection to {:?}: {:?}", msg.remote_addr, e);
+        }
     }
     _Terminate_ => stop! {
         self.stop_server();
@@ -528,9 +581,17 @@ define_struct! { pub SpaComponents =
 
 impl SpaComponents {
 
-    pub fn from (services: &Vec<Box<dyn SpaService>>)->OdinServerResult<SpaComponents> {
+    fn from_svcs (services: &Vec<SpaSvc>)->OdinServerResult<SpaComponents> {
         let mut comps = SpaComponents::new();
         for svc in services {
+            svc.add_components( &mut comps).map_err(|e| init_error(e))?;
+        }
+        Ok(comps)
+    }
+
+    pub fn from (svc_list: &SpaServiceList)->OdinServerResult<SpaComponents> {
+        let mut comps = SpaComponents::new();
+        for svc in &svc_list.services {
             svc.add_components( &mut comps).map_err(|e| init_error(e))?;
         }
         Ok(comps)

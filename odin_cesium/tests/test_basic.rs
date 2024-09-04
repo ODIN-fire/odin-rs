@@ -12,14 +12,13 @@
  * and limitations under the License.
  */
 
-use odin_server::{build_service, errors::OdinServerResult, spa::{SpaComponents, SpaServiceListBuilder}};
+use odin_server::{build_service, errors::OdinServerResult, spa::{SpaComponents, SpaServiceList}};
 use odin_cesium::ImgLayerService;
 
 #[test]
 fn test_doc_assembly()->OdinServerResult<()> {
-    let services = SpaServiceListBuilder::new()
-        .add( build_service!( ImgLayerService::new()))
-        .build();
+    let services = SpaServiceList::new()
+        .add( build_service!( ImgLayerService::new()));
 
     let spa_comps = SpaComponents::from( &services)?;
 

@@ -71,15 +71,14 @@ use std::any::type_name;
 
 
 pub struct WsMsg<T> where T: Serialize {
-    pub crate_name: &'static str,
-    pub js_module: &'static str,
+    pub js_module_path: &'static str, // this is composed of crate_name/js_module (e.g. "odin_cesium/odin_cesium.js")
     pub payload_name: &'static str,
     pub payload: T
 }
 
 impl <T>  WsMsg<T> where T: Serialize {
-    pub fn new (crate_name: &'static str, js_module: &'static str, payload_name: &'static str, payload: T)->Self { 
-        WsMsg {crate_name, js_module, payload_name, payload}
+    pub fn new (js_module_path: &'static str, payload_name: &'static str, payload: T)->Self { 
+        WsMsg {js_module_path, payload_name, payload}
     }
 
     pub fn to_json (&self)->OdinServerResult<String> {
@@ -87,15 +86,14 @@ impl <T>  WsMsg<T> where T: Serialize {
     }
 }
 
+// we need our own Serialize impl since we use the payload_name field as the key for the payload value
 impl <T> Serialize for WsMsg<T> where T: Serialize {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let js_mod_path = format!("{}/{}", self.crate_name, self.js_module);
-
         let mut state = serializer.serialize_struct("WsMsg", 2)?;
-        state.serialize_field("mod", &js_mod_path)?;
+        state.serialize_field("mod", &self.js_module_path)?;
         state.serialize_field( &self.payload_name, &self.payload)?;
         state.end()
     }
@@ -103,13 +101,9 @@ impl <T> Serialize for WsMsg<T> where T: Serialize {
 
 #[macro_export]
 macro_rules! ws_msg {
-    ($js_module:literal, $p:ident) => {
-        odin_server::ws_service::WsMsg::new( env!("CARGO_PKG_NAME"), $js_module, stringify!($p), $p)
+    ($js_module_path:expr, $payload_var:ident) => {
+        odin_server::ws_service::WsMsg::new( $js_module_path, stringify!($payload_var), $payload_var)
     };
-
-    ($crate_name:literal, $js_module:literal, $p:ident) => {
-        odin_server::ws_service::WsMsg::new( $crate_name, $js_module, stringify($p), $p)
-    }
 }
 
 /// syntactic sugar for payload structs we want to send over web sockets

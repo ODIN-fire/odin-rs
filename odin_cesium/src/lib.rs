@@ -43,7 +43,7 @@ impl CesiumService {
 #[async_trait]
 impl SpaService for CesiumService {
 
-    fn add_dependencies (&self, spa_builder: SpaServiceListBuilder) -> SpaServiceListBuilder {
+    fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
         spa_builder
             .add( build_service!( UiService::new()))
             .add( build_service!( WsService::new()))
@@ -69,9 +69,9 @@ impl SpaService for CesiumService {
         Ok(())
     }
 
-    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, conn: &mut SpaConnection) -> OdinServerResult<()> {
+    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
         let clock = SetClock{time: epoch_millis(), time_scale: 1.0};
-        let msg = ws_msg!( "odin_cesium.js", clock).to_json()?;
+        let msg = ws_msg!( "odin_cesium/odin_cesium.js", clock).to_json()?;
         conn.send(msg).await;
         Ok(())
     }
@@ -91,7 +91,7 @@ impl ImgLayerService {
 }
 
 impl SpaService for ImgLayerService {
-    fn add_dependencies (&self, spa_builder: SpaServiceListBuilder) -> SpaServiceListBuilder {
+    fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
         spa_builder.add( build_service!( CesiumService::new()))
     }
 

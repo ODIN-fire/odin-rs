@@ -56,18 +56,15 @@ impl GoesrSat {
 /// microservice for GOES-R hotspot data
 pub struct GoesrService {
     satellites: Vec<GoesrSat>,
-
-    is_data_available: bool,
-    has_connections: bool
 }
 
 impl GoesrService {
-    pub fn new (satellites: Vec<GoesrSat>)-> Self { GoesrService{satellites, is_data_available:false, has_connections: false} }
+    pub fn new (satellites: Vec<GoesrSat>)-> Self { GoesrService{satellites} }
 }
 
 #[async_trait]
 impl SpaService for GoesrService {
-    fn add_dependencies (&self, spa_builder: SpaServiceListBuilder) -> SpaServiceListBuilder {
+    fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
         spa_builder.add( build_service!( ImgLayerService::new()))
     }
 
@@ -79,41 +76,40 @@ impl SpaService for GoesrService {
         Ok(())
     }
 
-    async fn data_available (&mut self, hself: &ActorHandle<SpaServerMsg>, sender_id: &'static str, data_type: &'static str) -> OdinServerResult<()> {
+    async fn data_available (&mut self, hself: &ActorHandle<SpaServerMsg>, has_connections: bool, sender_id: &str, data_type: &str) -> OdinServerResult<bool> {
+        let mut is_our_data = false;
+        
         if let Some(hupdater) = self.satellites.iter().find( |s| *s.hupdater.id == sender_id).map( |s| &s.hupdater) {
             if data_type == type_name::<GoesrHotspotStore>() {
-                self.is_data_available = true;
-    
-                if self.has_connections {
+                if has_connections {
                     let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg> => |store: &GoesrHotspotStore| {
                         for hotspots in store.iter_old_to_new(){
-                            let data = ws_msg!("odin_goesr.js",hotspots).to_json()?;
+                            let data = ws_msg!( "odin_goesr/odin_goesr.js", hotspots).to_json()?;
                             hself.try_send_msg( BroadcastWsMsg{data})?;
                         }
                         Ok(())
                     });
                     hupdater.send_msg( ExecSnapshotAction(action)).await?;
                 }
+                is_our_data = true;
             }
         }
 
-        Ok(())
+        Ok(is_our_data)
     }
 
-    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, conn: &mut SpaConnection) -> OdinServerResult<()> {
-        self.has_connections = true;
-
+    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
         let satellites: Vec<&GoesrSatelliteInfo> = self.satellites.iter().map( |s| &s.info).collect();
-        let msg = ws_msg!( "odin_goesr.js", satellites).to_json()?;
+        let msg = ws_msg!( "odin_goesr/odin_goesr.js", satellites).to_json()?;
         conn.send(msg).await;
 
-        if self.is_data_available {
+        if is_data_available {
             let remote_addr = conn.remote_addr;
             for sat in &self.satellites {
                 let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg>, remote_addr: SocketAddr  => |store: &GoesrHotspotStore| {
                     for hotspots in store.iter_old_to_new(){
                         let remote_addr = remote_addr.clone();
-                        let data = ws_msg!("odin_goesr.js",hotspots).to_json()?;
+                        let data = ws_msg!( "odin_goesr/odin_goesr.js", hotspots).to_json()?;
                         hself.try_send_msg( SendWsMsg{remote_addr,data})?;
                     }
                     Ok(())

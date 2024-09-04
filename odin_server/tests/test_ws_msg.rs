@@ -27,7 +27,7 @@ fn test_ws_msg()->OdinServerResult<()> {
     let v = vec![&s1,&s2];
     
     let sentinels = &v;
-    let json = ws_msg!("odin_sentinel.js", sentinels).to_json()?;
+    let json = ws_msg!("odin_sentinel/odin_sentinel.js", sentinels).to_json()?;
     println!("{json}");
 
     Ok(())

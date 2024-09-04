@@ -11,19 +11,21 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
-#![allow(unused)]
 
-use odin_actor::prelude::*;
-use odin_server::prelude::*;
-use odin_cesium::ImgLayerService;
+import * as ui from "../odin_server/ui.js";
 
-run_actor_system!( actor_system => {
-    
-    spawn_actor!( actor_system, "spa_server", SpaServer::new(
-        odin_server::load_config("spa_server.ron")?,
-        "basic_globe",
-        SpaServiceList::new().add( build_service!( ImgLayerService::new())) // this automatically includes Cesium and UI services
-    ));
+//ImageWindow (title, id, closeAction, icon, imgUri, caption, minScale, maxScale, initScale, w, h)
+let w = ui.ImageWindow( 
+    "Image Viewer",
+    "img1",
+    ()=>{console.log("closed image viewer")},
+    "./asset/odin_server/settings.svg", 
+    "./asset/odin_server/fire.webp",
+    "test fire",
+    0.5, 2.0, 0.1, 1.0
+);
 
-    Ok(())
-});
+ui.addWindow(w);
+ui.setWindowLocation(w, 100,100);
+ui.showWindow(w);
+

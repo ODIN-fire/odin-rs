@@ -74,6 +74,13 @@ macro_rules! self_crate {
 }
 
 #[macro_export]
+macro_rules! js_module_path {
+    ($mod_name:literal) => {
+        concat!( self_crate!(), "/", $mod_name)
+    }
+}
+
+#[macro_export]
 macro_rules! build_service {
     ( $($v:ident $(. $op:ident ())?),* => $e:expr) => {
         {

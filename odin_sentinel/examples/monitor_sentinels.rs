@@ -40,9 +40,8 @@ impl_actor! { match msg for Actor<SentinelMonitor,SentinelMonitorMsg> as
 /* #endregion monitor actor */
 
 
-async_main! {
+run_async_main!({
     odin_build::set_bin_context!();
-    
     let mut actor_system = ActorSystem::with_env_tracing("main");
 
     let hmonitor = spawn_actor!( actor_system, "monitor", SentinelMonitor{})?;
@@ -61,5 +60,5 @@ async_main! {
     ))?;
 
     actor_system.timeout_start_all(secs(2)).await?;
-    actor_system.process_requests().await?;
-}
+    actor_system.process_requests().await
+});

@@ -1,0 +1,21 @@
+[package]
+name = "odin_demo"
+version = "0.1.0"
+edition = "2021"
+build = "../build_resources.rs"
+
+[dependencies]
+# our ODIN crates
+odin_build = { workspace = true }
+odin_action = { workspace = true }
+odin_actor = { workspace = true }
+odin_macro = { workspace = true }
+odin_server = { workspace = true }
+odin_goesr = { workspace = true }
+odin_sentinel = { workspace = true }
+
+tokio = { workspace = true }
+anyhow = "*"
+
+[build-dependencies]
+odin_build = { workspace = true }
