@@ -13,22 +13,20 @@
  */
 #![allow(unused)]
 
-use std::{os::raw, time::Duration};
-use std::collections::{HashMap, VecDeque};
+use std::time::Duration;
+use std::collections::HashMap;
 use std::collections::BTreeMap;
 use std::vec::Vec;
-use std::f64::consts::PI;
 use chrono::{DateTime, NaiveDate, NaiveTime};
-use geo::{GeodesicBearing, GeodesicDestination, Point};
+use geo::{GeodesicBearing, GeodesicDestination};
 use nav_types::{ECEF, WGS84};
 use odin_common::{angle::{LatAngle, LonAngle}, geo::LatLon};
-use orekit::{get_trajectory_point, OrbitalTrajectory, Overpass};
+use orekit::{get_trajectory_point, OrbitalTrajectory};
 use serde::{Serialize, Deserialize};
 use uom::si::f32::{Power,ThermodynamicTemperature};
 use odin_common::fs::ensure_writable_dir;
 use odin_build::define_load_config;
 use reqwest;
-use tokio;
 use chrono::Utc;
 use std::{fs, path::PathBuf};
 use tempfile;
@@ -108,14 +106,14 @@ impl RawHotspots {
 // formatted viirs hotspot - has bounds, slightly different value set and variable names - alligns with RACE-ODIN json
 #[derive(Serialize,Deserialize,Debug,Clone)]
 pub struct ViirsHotspot {
-    date: DateTime<Utc>, // batched
-    lat: LatAngle,
-    lon: LonAngle,
-    bright: ThermodynamicTemperature,
-    frp: Power,
-    confidence: char,
-    version: String,
-    bounds: Vec<LatLon>
+    pub date: DateTime<Utc>, // batched
+    pub lat: LatAngle,
+    pub lon: LonAngle,
+    pub bright: ThermodynamicTemperature,
+    pub frp: Power,
+    pub confidence: char,
+    pub version: String,
+    pub bounds: Vec<LatLon>
 }
 impl ViirsHotspot {
     pub fn to_json_pretty (&self)->Result<String> {
@@ -139,12 +137,6 @@ impl ViirsHotspots {
     pub fn new (satellite: u32, source: String) -> Self {
         ViirsHotspots { satellite, source, hotspots: Vec::new() }
     }
-    pub fn update_hotspots (&mut self, new_hotspots: ViirsHotspots) {
-        // to do: more sophisticated update that removes hs older than max age and adds updated ones
-        self.hotspots = new_hotspots.hotspots;
-        // store by date, pair of (rounded) lat,lons,  
-        // 
-    }
     pub fn to_json_pretty (&self)->Result<String> {
         Ok(serde_json::to_string_pretty( &self )?)
     }
@@ -153,12 +145,58 @@ impl ViirsHotspots {
     }
 }
 
-pub struct HotspotMap {
-    hs: HashMap<DateTime<Utc>,HashMap<LatLon, Vec<ViirsHotspot>> >
+#[derive(Serialize,Deserialize,Debug,Clone)]
+pub struct ViirsHotspotMap {
+    satellite: u32,
+    source: String,
+    hotspots: HashMap<DateTime<Utc>, HashMap<String, ViirsHotspot>> // we use a string for latlon comparison
 }
+
+impl ViirsHotspotMap {
+    pub fn new (satellite: u32, source: String) -> Self {
+        ViirsHotspotMap{satellite, source, hotspots: HashMap::new()}
+    }
+    pub fn update(&mut self, new_hs: ViirsHotspots, max_age: Duration) {
+        // --- step 1: identify hs that are past max_age
+        let mut old_dates = vec![];
+        for dt in self.hotspots.keys() {
+            if Utc::now() < (dt.clone() + max_age) {
+                old_dates.push(dt.to_owned());
+            }
+        }
+        // --- step 2: remove hs that are past max_age
+        for dt in old_dates.into_iter() {
+            self.hotspots.remove(&dt);
+        }
+        // --- step 3: add new hotspots based on date, latlon - check for existing hs with latlon rounded to 4 decimal
+        for hs in new_hs.hotspots.into_iter() {
+            let hs_loc = format!("({:.4}, {:.4})", hs.lat.degrees(), hs.lon.degrees());
+            let hs_date = &hs.date.clone();
+            if let Some(date_map) = self.hotspots.get_mut(hs_date) {
+                // --- update pixel even if it is in the map, ensures we use most accurate hotspot data
+                date_map.insert(hs_loc, hs);
+            } else {
+                // -- datetime not in map yet, need to create it
+                let mut date_map: HashMap<String, ViirsHotspot> = HashMap::new();
+                date_map.insert(hs_loc, hs);
+                self.hotspots.insert(hs_date.clone(), date_map);
+            }
+        }
+    }   
+    pub fn to_hotspots(&self) -> ViirsHotspots {
+        let hs_list: Vec<HashMap<String, ViirsHotspot>> = self.hotspots.clone().into_values().collect();
+        let mut hs: Vec<ViirsHotspot> = vec![];
+        for latlon_map in hs_list.into_iter() { // to do: write this cleaner
+            let vals: Vec<ViirsHotspot> = latlon_map.into_iter().map(|(latlon, hs_val)| hs_val).collect();
+            hs.extend(vals);
+        }
+        ViirsHotspots { satellite: self.satellite, source: self.source.clone(), hotspots: hs }
+    }
+}
+
 /* #endregion VIIRS data structure */
 
-pub async fn get_latest_jpss(query_bounds: &String, data_dir: &PathBuf, url: &String, source: &String) -> Result<PathBuf> {
+pub async fn get_latest_jpss(data_dir: &PathBuf, url: &String, source: &String) -> Result<PathBuf> {
     let request_date = Utc::now();
     let filename = data_dir.join(format!("{}_{}.csv", source, request_date.format("%Y-%m-%d_H-%M-%S")));
     let mut file = tempfile::NamedTempFile::new().unwrap(); // don't use path yet as that would expose partial downloads to the world
@@ -181,7 +219,7 @@ pub async fn get_latest_jpss(query_bounds: &String, data_dir: &PathBuf, url: &St
 pub fn read_jpss(filename: &PathBuf) -> Result<RawHotspots> {
     let mut hs:Vec<RawHotspot> = Vec::new();
     let mut rdr = Reader::from_path(filename)?;
-    let mut iter = rdr.deserialize();
+    let iter = rdr.deserialize();
     for result in iter {
         let record: RawHotspot = result?;
         hs.push(record);

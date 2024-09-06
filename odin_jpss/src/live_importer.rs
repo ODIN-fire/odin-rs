@@ -17,7 +17,6 @@ use std::sync::Arc;
 use odin_common::geo::LatLon;
 use odin_common::fs::remove_old_files;
 use odin_actor::prelude::*;
-use odin_actor::ObjSafeFuture;
 use crate::*;
 use crate::actor::JpssImportActorMsg;
 
@@ -54,7 +53,6 @@ impl LiveJpssImporter {
     }
 
     fn initialize (&mut self, hself: ActorHandle<JpssImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> Result<()> {
-        let config = &self.config;
         let cache_dir = &self.cache_dir;
         self.overpass_import_task = Some( self.spawn_overpass_import_task( hself.clone(), orbit_handle, cache_dir.clone() )? );
         self.file_cleanup_task = Some( self.spawn_file_cleanup_task()? );
@@ -106,7 +104,7 @@ pub fn get_overpass_request(config: LiveJpssImporterConfig, hself: ActorHandle<J
 async fn run_init_data_acquisition (hself: ActorHandle<JpssImportActorMsg>, config: LiveJpssImporterConfig, cache_dir:Arc<PathBuf>) -> Result<()> {
     let query_bounds = get_query_bounds(&config.region);
     let url = format!("{}/usfs/api/area/csv/{}/{}/{}/3", &config.server, &config.map_key, &config.source, &query_bounds);
-    let filename = get_latest_jpss(&query_bounds, &cache_dir, &url, &config.source).await?;
+    let filename = get_latest_jpss( &cache_dir, &url, &config.source).await?;
     let hs = read_jpss(&filename)?;
     hself.try_send_msg(UpdateRawHotspots(hs))?;
     Ok(())
@@ -115,7 +113,7 @@ async fn run_init_data_acquisition (hself: ActorHandle<JpssImportActorMsg>, conf
 
 async fn run_data_acquisition (hself: ActorHandle<JpssImportActorMsg>, config: LiveJpssImporterConfig, cache_dir:Arc<PathBuf>, overpass: OrbitalTrajectory) -> Result<()> {
     // set up schedule for next acquisition 
-    let mut schedule = get_data_request_schedule(overpass, config.request_delay)?;
+    let schedule = get_data_request_schedule(overpass, config.request_delay)?;
     let query_bounds = get_query_bounds(&config.region);
     for dt_next in schedule.into_iter() {
         //  sleep until next download
@@ -123,7 +121,7 @@ async fn run_data_acquisition (hself: ActorHandle<JpssImportActorMsg>, config: L
         sleep( sleep_time.to_std()?).await;
         //  download
         let url = format!("{}/usfs/api/area/csv/{}/{}/{}/1", &config.server, &config.map_key, &config.source, &query_bounds);
-        let filename = get_latest_jpss(&query_bounds, &cache_dir, &url, &config.source).await?;
+        let filename = get_latest_jpss( &cache_dir, &url, &config.source).await?;
         let hs = read_jpss(&filename)?;
         hself.try_send_msg(UpdateRawHotspots(hs))?;
     }
@@ -132,7 +130,6 @@ async fn run_data_acquisition (hself: ActorHandle<JpssImportActorMsg>, config: L
 
 
 async fn run_overpass_acquisition (hself: ActorHandle<JpssImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>, config: LiveJpssImporterConfig, cache_dir:Arc<PathBuf>) -> Result<()> {
-    let sat_id = &config.satellite.clone();
     let hself_id = hself.id.clone();
     // initial overpass download
     let mut last_overpass_date = Utc::now();
@@ -144,7 +141,7 @@ async fn run_overpass_acquisition (hself: ActorHandle<JpssImportActorMsg>, orbit
         }, // send overpasses 
         Err(e) => match e {
             OdinActorError::ReceiverClosed => error!("{} : Orbit Actor not available", hself.id.clone()),
-            other => error!("{} : Orbit Actor Error", hself.id.clone())
+            err => error!("{} : Orbit Actor Error - {}", hself.id.clone(), err)
         }
     }
     // initial data download
@@ -169,7 +166,7 @@ async fn run_overpass_acquisition (hself: ActorHandle<JpssImportActorMsg>, orbit
             }, 
             Err(e) => match e {
                 OdinActorError::ReceiverClosed => error!("{} : Orbit Actor not available", hself_id_clone),
-                other => error!("{} : Orbit Actor Error", hself_id_clone)
+                err => error!("{} : Orbit Actor Error - {}", hself_id_clone, err)
             }
         }
         for overpass in overpass_list.overpasses.into_iter() {
@@ -182,7 +179,6 @@ async fn run_overpass_acquisition (hself: ActorHandle<JpssImportActorMsg>, orbit
             // })?;
         }
     }
-    Ok(())
 }
 
 async fn run_file_cleanup (cache_dir: Arc<PathBuf>, interval: Duration, max_age: Duration) {

@@ -21,7 +21,7 @@ use odin_jpss::orekit::OverpassList;
 use tokio;
 use anyhow::Result;
 use odin_actor::prelude::*;
-use odin_jpss::actor::{JpssImportActor, OrbitActor};
+use odin_jpss::actor::{JpssImportActor, JpssImportActorMsg, OrbitActor};
 use odin_jpss::{live_importer::LiveJpssImporter, ViirsHotspots, load_config};
 use odin_build;
 
@@ -42,7 +42,7 @@ impl_actor! { match msg for Actor<JpssMonitor, JpssMonitorMsg> as
     }
 }
 
- #[tokio::main]
+#[tokio::main]
 async fn main() -> Result<()>{
     odin_build::set_bin_context!();
 
@@ -54,16 +54,16 @@ async fn main() -> Result<()>{
         LiveOrbitCalculator {}
     ))?;
 
-    let _actor_handle = spawn_actor!( actor_system, "jpss",  JpssImportActor::new(
+    let _actor_handle: ActorHandle<JpssImportActorMsg> = spawn_actor!( actor_system, "jpss",  JpssImportActor::new(
         load_config( "jpss.ron")?, 
         LiveJpssImporter::new( load_config( "jpss_noaa20.ron")?),
         data_action!( hmonitor.clone(): ActorHandle<JpssMonitorMsg> => |data:ViirsHotspots| {
             let msg = HotspotUpdate(data.to_json_pretty().unwrap());
-            hmonitor.try_send_msg( msg)
+            Ok(hmonitor.try_send_msg( msg)?)
         }),
         data_action!( hmonitor.clone(): ActorHandle<JpssMonitorMsg> => |data:OverpassList| {
             let msg = OverpassUpdate(data.to_json_pretty().unwrap());
-            hmonitor.try_send_msg( msg)
+            Ok(hmonitor.try_send_msg( msg)?)
         }),
         orbit_actor_handle
     ))?;

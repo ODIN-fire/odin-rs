@@ -16,9 +16,8 @@ use std::time::Duration;
 use odin_common::geo::LatLon;
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
-use core::future::Future;
-use crate::orekit::{OrbitalTrajectory, OverpassList};
-use crate::{ViirsHotspots, RawHotspots};
+use crate::orekit::OverpassList;
+use crate::{ViirsHotspots, RawHotspots, ViirsHotspotMap};
 use crate::errors::OdinJpssError;
 use crate::errors::Result;
 use crate::process_hotspots;
@@ -27,7 +26,8 @@ use crate::process_hotspots;
  #[derive(Serialize,Deserialize,Debug,Clone)]
 pub struct JpssConfig {
     pub satellite: u32,
-    pub source: String
+    pub source: String,
+    pub max_age: Duration
 }
 
 pub struct OrbitConfig {
@@ -76,7 +76,8 @@ pub struct JpssImportActor<T, HotspotUpdateAction, OverpassUpdateAction>
         OverpassUpdateAction: DataAction<OverpassList>
 {   source: String,
     satellite: u32,
-    hotspots: ViirsHotspots,
+    max_age: Duration,
+    hotspots: ViirsHotspotMap,
     overpass_list: OverpassList,
     jpss_importer: T,
     hs_update_action: HotspotUpdateAction,
@@ -93,14 +94,14 @@ impl <T, HotspotUpdateAction, OverpassUpdateAction> JpssImportActor<T, HotspotUp
           OverpassUpdateAction: DataAction<OverpassList>
 {
     pub fn new (config: JpssConfig, jpss_importer:T, hs_update_action: HotspotUpdateAction, op_update_action: OverpassUpdateAction, orbit_calculator:ActorHandle<OrbitActorMsg>) -> Self {
-        let hotspots: ViirsHotspots = ViirsHotspots::new(config.satellite.clone(), config.source.clone());
+        let hotspots: ViirsHotspotMap = ViirsHotspotMap::new(config.satellite.clone(), config.source.clone());
         let overpass_list: OverpassList = OverpassList::new();
-        JpssImportActor{source: config.source, satellite: config.satellite, hotspots, overpass_list, jpss_importer, hs_update_action, op_update_action, orbit_calculator}
+        JpssImportActor{source: config.source, max_age: config.max_age, satellite: config.satellite, hotspots, overpass_list, jpss_importer, hs_update_action, op_update_action, orbit_calculator}
     }
 
 
     pub async fn update_hotspots (&mut self, new_hotspots: ViirsHotspots) {
-        self.hotspots.update_hotspots(new_hotspots.clone());
+        self.hotspots.update(new_hotspots.clone(), self.max_age);
         self.hs_update_action.execute(new_hotspots).await;
     }
 
@@ -126,7 +127,7 @@ impl_actor! { match msg for Actor< JpssImportActor<T, HotspotUpdateAction, Overp
         self.jpss_importer.start( hself, orbit_calculator ); // move to initialization actor
     }
 
-    ExecSnapshotAction => cont! { msg.0.execute( &self.hotspots).await; }
+    ExecSnapshotAction => cont! { msg.0.execute( &self.hotspots.to_hotspots()).await; }
 
     UpdateRawHotspots => cont! { 
         match self.process_raw_hotspots(msg.0) {
