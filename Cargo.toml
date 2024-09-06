@@ -18,7 +18,6 @@ members = [
 
   "odin_sentinel",
   "odin_goesr",
-  "odin_smoke",
   "odin_jpss",
   "odin_demo",
   "gpshub",
