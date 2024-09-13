@@ -364,7 +364,7 @@ impl <T> GridPoint<T> where T: GdalValueType {
 
 /// get vec of GridPoint2D elements that match the provided predicate
 /// note that the RasterBand::read_* functions swap axis order
-pub fn find_grid_points<T,P> (ds: &Dataset, band_index: isize, predicate: P)->Result<Vec<GridPoint<T>>> 
+pub fn find_grid_points<T,P> (ds: &Dataset, band_index: usize, predicate: P)->Result<Vec<GridPoint<T>>> 
     where T: GdalValueType, P: Fn(T)->bool 
 {
     let band = ds.rasterband(band_index)?;
@@ -390,7 +390,7 @@ pub fn find_grid_points<T,P> (ds: &Dataset, band_index: isize, predicate: P)->Re
 
 // a version that uses a caller provided closure to iterate over a whole data row, thus allowing optimizations
 // such as inlining or simd to speed up
-pub fn find_grid_points_in_slice<T,F> (ds: &Dataset, band_index: isize, accumulator: F)->Result<Vec<GridPoint<T>>> 
+pub fn find_grid_points_in_slice<T,F> (ds: &Dataset, band_index: usize, accumulator: F)->Result<Vec<GridPoint<T>>> 
     where T: GdalValueType, F: Fn(usize,&[T],&mut Vec<GridPoint<T>>)
 {
     let band = ds.rasterband(band_index)?;
@@ -409,7 +409,7 @@ pub fn find_grid_points_in_slice<T,F> (ds: &Dataset, band_index: isize, accumula
 
 
 /// get Vec of values for given Vec<GridPoint2D> reference
-pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: isize, sub_no_data: Option<T>, pts: &Vec<GridPoint<U>> )->Result<Vec<T>> 
+pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: usize, sub_no_data: Option<T>, pts: &Vec<GridPoint<U>> )->Result<Vec<T>> 
     where T: GdalValueType + Into<f64>, U: GdalValueType
 {
     let band = ds.rasterband(band_index)?;
@@ -437,14 +437,14 @@ pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: isize, sub_no_data:
 }
 
 
-pub fn get_vec_f64<T> (ds: &Dataset, band_index: isize)->Result<Vec<f64>> 
+pub fn get_vec_f64<T> (ds: &Dataset, band_index: usize)->Result<Vec<f64>> 
     where T: GdalValueType + Into<f64>
 {
     let band = ds.rasterband(band_index)?;
     let scale = if let Some(v) = band.scale() { v } else { 1.0 };
     let offset = if let Some(v) = band.offset() { v } else { 0.0 };
     let buf: Buffer<T> = band.read_as( (0,0), band.size(), band.size(), None)?;
-    let data = buf.data;
+    let data = buf.data();
     let len = data.len();
     let mut values: Vec<f64> = Vec::with_capacity(len);
     values.resize( len, 0.0);
@@ -457,7 +457,7 @@ pub fn get_vec_f64<T> (ds: &Dataset, band_index: isize)->Result<Vec<f64>>
 }
 
 
-pub fn get_linear_range<T> (ds: &Dataset, band_index: isize)->Result<LinearRange<f64>>
+pub fn get_linear_range<T> (ds: &Dataset, band_index: usize)->Result<LinearRange<f64>>
     where T: GdalValueType + Into<f64> + Sub<Output=T>
 {
     let band = ds.rasterband(band_index)?;
