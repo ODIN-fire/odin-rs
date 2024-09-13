@@ -111,9 +111,10 @@ pub struct GeoPos {
     pub alt: f64,
 }
 
-#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
+#[derive(Debug,Copy,Clone)] // TODO - add serde
 pub struct DatedGeoPos {
     pub pos: GeoPos,
+    //#[serde(serialize_with = "odin_common::datetime::ser_epoch_millis")]
     pub date: DateTime<Utc>
 }
 
