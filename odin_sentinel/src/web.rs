@@ -28,16 +28,22 @@ use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_cesium::ImgLayerService;
 
-use crate::{load_asset, sentinel_cache_dir, ExecSnapshotAction, SentinelActorMsg, SentinelStore};
+use crate::{
+    load_config, load_asset, sentinel_cache_dir, ExecSnapshotAction, SentinelActorMsg, SentinelStore, SentinelDeviceInfo, SentinelDeviceInfos
+};
+
+pub const JS_MOD_PATH: &'static str = "odin_sentinel/odin_sentinel.js";
 
 /// SpaService to show sentinel infos on a cesium display
 pub struct SentinelService {
+    device_infos: SentinelDeviceInfos,
     hsentinel: ActorHandle<SentinelActorMsg>, // our data source
 }
 
 impl SentinelService {
-    pub fn new (hsentinel: ActorHandle<SentinelActorMsg>)->Self { 
-        SentinelService{hsentinel}
+    pub fn new (hsentinel: ActorHandle<SentinelActorMsg>, )->Self { 
+        let device_infos = load_config("sentinel_info.ron").expect("failed to load sentinel_info.ron config"); // Ok to panic in ctor
+        SentinelService{device_infos,hsentinel}
     }
 
     async fn image_handler (path: AxumPath<String>) -> Response {
@@ -75,7 +81,7 @@ impl SpaService for SentinelService {
             if has_connections {
                 let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg> => |data: &SentinelStore| {
                     let sentinels = data.values();
-                    let data = ws_msg!("odin_sentinel/odin_sentinel.js",sentinels).to_json()?;
+                    let data = ws_msg!( JS_MOD_PATH, sentinels).to_json()?;
                     Ok( hself.try_send_msg( BroadcastWsMsg{data})? )
                 });
                 self.hsentinel.send_msg( ExecSnapshotAction(action)).await?;
@@ -87,11 +93,16 @@ impl SpaService for SentinelService {
 
     // send an ExecSnapshotAction to the SentinelActor to send a JSON websocket message to the new connection
     async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
+        let remote_addr = conn.remote_addr;
+
+        let device_infos = &self.device_infos;
+        let data = ws_msg!( JS_MOD_PATH, device_infos).to_json()?;
+        hself.try_send_msg( SendWsMsg{remote_addr,data})?;
+
         if is_data_available {
-            let remote_addr = conn.remote_addr;
             let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg>, remote_addr: SocketAddr => |data: &SentinelStore| {
                 let sentinels = data.values();
-                let data = ws_msg!("odin_sentinel/odin_sentinel.js",sentinels).to_json()?;
+                let data = ws_msg!( JS_MOD_PATH, sentinels).to_json()?;
                 let remote_addr = remote_addr.clone();
                 Ok( hself.try_send_msg( SendWsMsg{remote_addr,data})? )
             });

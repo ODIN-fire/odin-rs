@@ -44,11 +44,11 @@ console.log("ui_cesium_imglayer initialized");
 //--- end init
 
 function createIcon() {
-    return ui.Icon("./asset/odin_cesium/imglayer.svg", (e)=> ui.toggleWindow(e,'imglayer'));
+    return ui.Icon("./asset/odin_cesium/globe.svg", (e)=> ui.toggleWindow(e,'imglayer'));
 }
 
 function createWindow() {
-    return ui.Window("Imagery Layers", "imglayer", "./asset/odin_cesium/imglayer.svg")(
+    return ui.Window("Imagery Layers", "imglayer", "./asset/odin_cesium/globe.svg")(
         ui.LayerPanel("imglayer", toggleShowImgLayer),
         ui.Panel("sources", true)(
           ui.TreeList("imglayer.source.list", 15, 25, selectImgLayerSrc),

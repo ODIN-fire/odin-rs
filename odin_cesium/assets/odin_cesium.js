@@ -24,6 +24,11 @@ const MODULE_PATH = util.asset_path(import.meta.url);
 ws.addWsHandler( MODULE_PATH, handleWsMessages);
 setCesiumContainerVisibility(false); // don't render before everybody is initialized
 
+if (config.accessToken) {
+    console.log("using configured access token");
+    Cesium.Ion.defaultAccessToken = config.accessToken;
+}
+
 const UI_POSITIONS = "race-ui-positions";
 const LOCAL = "local-";  // prefix for local position set names
 
@@ -101,8 +106,6 @@ const centerOrientation = {
     pitch: Cesium.Math.toRadians(-90.0),
     roll: Cesium.Math.toRadians(0.0)
 };
-
-if (config.accessToken) Cesium.Ion.defaultAccessToken = config.accessToken;
 
 export const ellipsoidTerrainProvider = new Cesium.EllipsoidTerrainProvider();
 var terrainProvider = ellipsoidTerrainProvider; // switched on demand
@@ -290,11 +293,11 @@ function initViewWindow() {
 }
 
 function createViewWindow() {
-    return ui.Window("View", "view", "./asset/odin_cesium/view.svg")(
+    return ui.Window("View", "view", "./asset/odin_cesium/camera.svg")(
         ui.RowContainer()(
             ui.CheckBox("fullscreen", toggleFullScreen),
             ui.HorizontalSpacer(1),
-            ui.CheckBox("terrain", toggleTerrain),
+            ui.CheckBox("terrain", toggleTerrain, "view.show_terrain"),
             ui.HorizontalSpacer(1),
             ui.Button("⟘", setDownView, 2.5),  // ⇩  ⊾ ⟘
             ui.Button("⌂", setHomeView, 2.5) // ⌂ ⟐ ⨁
@@ -356,7 +359,7 @@ function initPositionsView() {
 }
 
 function createViewIcon() {
-    return ui.Icon("./asset/odin_cesium/view.svg", (e)=> ui.toggleWindow(e,'view'));
+    return ui.Icon("./asset/odin_cesium/camera.svg", (e)=> ui.toggleWindow(e,'view'));
 }
 
 //--- time window
@@ -1360,13 +1363,18 @@ function setCesiumContainerVisibility (isVisible) {
 
 // executed after all modules have been loaded and initialized
 export function postInitialize() {
-    initModuleLayerViewData();
-
+    initModuleLayerViewData();    
     terrainProviderPromise = getTerrainProviderPromise();
     terrainProviderPromise.then( (tp) => { 
         console.log("topoTerrainProvider set: ", tp);
         topoTerrainProvider = tp;
         console.log("topographic terrain loaded");
+
+        if (config.showTerrain) {
+            console.log("enabling terrain display");
+            ui.setCheckBox( "view.show_terrain", true);
+            switchToTopoTerrain();
+        }
     });
 
     setCesiumContainerVisibility(true);

@@ -28,18 +28,23 @@ define_cli! { ARGS [about="static SentinelDeviceInfo test"] =
 }
 
 fn main()->Result<()> {
-    let cfg: SentinelDeviceInfos = if let Some(pathname) = &ARGS.path {
+    let dev_infos: SentinelDeviceInfos = if let Some(pathname) = &ARGS.path {
         let path = Path::new(pathname);
         load_config_path( &path)?
     } else {
         load_config("sentinel_info.ron")?
     };
 
+    println!("\n-- Rust");
     if ARGS.pretty {
-        println!("{:#?}", cfg)
+        println!("{:#?}", dev_infos)
     } else {
-        println!("{:?}", cfg)
+        println!("{:?}", dev_infos)
     }
+
+    println!("\n-- JSON");
+    let dis: Vec<&SentinelDeviceInfo> = dev_infos.values().collect();
+    println!( "{}", if ARGS.pretty { serde_json::to_string_pretty(&dis)? } else { serde_json::to_string(&dis)? });
 
     Ok(())
 }

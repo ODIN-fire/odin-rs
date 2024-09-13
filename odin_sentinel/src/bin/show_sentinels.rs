@@ -20,13 +20,14 @@ use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelA
 
 
 run_actor_system!( actor_system => {
+
     let hsentinel = PreActorHandle::new( &actor_system, "updater", 8);
 
     let hserver = spawn_actor!( actor_system, "server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
         "sentinels",
         SpaServiceList::new()
-            .add( build_service!( hsentinel.to_actor_handle() => SentinelService::new(hsentinel))) // this automatically includes Cesium and UI services
+            .add( build_service!( hsentinel.to_actor_handle() => SentinelService::new( hsentinel)))
     ))?;
 
     let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(

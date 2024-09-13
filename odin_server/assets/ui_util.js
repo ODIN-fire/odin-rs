@@ -29,6 +29,11 @@ export function asset_path(url) {
     }
 }
 
+export function filename(path) {
+    let idx = path.lastIndexOf('/');
+    return path.substring(idx+1);
+}
+
 /**
  * a simple (extended) glob pattern to RegExp translator
  * we handle the Java PathMatcher glob syntax

@@ -109,13 +109,13 @@ div.ui_window.show {
 
 div.ui_window.resizable {
     /* display: inline-block; */
-    width: inherit;
-    height: inherit;
+    /*width: inherit;*/
+    /*height: inherit;*/
     resize: both;
 }
 
 div.ui_titlebar {
-    padding: 5px;
+    padding: var(--titlebar-padding);
     color: var(--titlebar-color);
     background: var(--titlebar-background);
     font: var(--font);
@@ -343,12 +343,13 @@ textarea.ui_textarea.fixed {
 /* fields (label + display) */
 
 div.ui_field_label {
-    display: inline-block;
+    /* display: flex; */
+    /* align-items: center; */
+    display: inline;
     padding-right: 3px;
     text-align: right;
-    line-height: var(--field-height);
     vertical-align: middle;
-    /* width: var(--field-label-width); */
+    line-height: var(--field-height);
     height: var(--field-height);
     white-space: pre;
     font: var(--font);

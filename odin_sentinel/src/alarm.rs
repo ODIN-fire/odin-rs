@@ -13,9 +13,10 @@
  */
 
 use std::collections::{VecDeque,HashMap};
-use std::{time::Duration,sync::Arc,future::Future, path::PathBuf, io::Write};
+use std::{time::Duration,sync::Arc,future::Future, path::PathBuf, io::Write as IoWrite, fmt::Write as FmtWrite};
 use futures::SinkExt;
 use odin_common::fs::get_filename_extension;
+use odin_common::geo::DatedGeoPos;
 use odin_common::sim_clock;
 use odin_common::{datetime::Dated,sim_clock::now,fs::{append_open,append_to_file,append_line_to_file}};
 use serde::{Deserialize,Serialize,Serializer};
@@ -26,9 +27,7 @@ use odin_actor::prelude::*;
 use odin_macro::{match_algebraic_type, define_struct};
 use uom::si::f32::Time;
 
-use crate::{op_failed, sentinel_cache_dir, 
-    ExternalImage, FireData, GetSentinelFile, RecordDataBounds, RecordRef, SensorRecord, 
-    SentinelDeviceInfo, SentinelDeviceInfos, SentinelFile, SentinelStore, SentinelUpdate, SmokeData
+use crate::{op_failed, sentinel_cache_dir, ExternalImage, FireData, GetSentinelFile, GetSentinelPosition, RecordDataBounds, RecordRef, SensorRecord, SentinelDeviceInfo, SentinelDeviceInfos, SentinelFile, SentinelStore, SentinelUpdate, SmokeData
 };
 use crate::actor::{SentinelActorMsg,GetSentinelUpdate};
 use crate::errors::{OdinSentinelError, Result};
@@ -39,6 +38,7 @@ pub struct Alarm {
     pub device_id: String,
     pub description: String,
     pub time_recorded: DateTime<Utc>,
+    pub pos: Option<DatedGeoPos>,
     pub evidence_info: Vec<EvidenceInfo>,
 }
 
@@ -173,24 +173,37 @@ impl SentinelAlarmMonitor {
         }   
     }
 
-    async fn process_alarm (&self, hself: ActorHandle<SentinelAlarmMonitorMsg>, alarm_id: &str, record_id: &str, device_id: String, description: String, 
+    async fn process_alarm (&self, hself: ActorHandle<SentinelAlarmMonitorMsg>, alarm_id: &str, record_id: &str, device_id: String, mut description: String, 
                             time_recorded: DateTime<Utc>, evidence_recs: &Vec<RecordRef>) {
         self.log_alarm( alarm_id, &description, evidence_recs);
+        let hupdater = &self.hupdater;
+        let pos = self.retrieve_pos( hupdater, &device_id, time_recorded).await;
+        if let Some(p) = pos {
+            write!( description, "\nhttps://wildfireai.com/odin?view={},{},{}", p.lat, p.lon, p.alt);
+        }
 
         if !self.config.attach_image {  // send right away
-            hself.send_msg( Alarm { device_id, description, time_recorded, evidence_info: Vec::with_capacity(0) }).await;
+            hself.send_msg( Alarm { device_id, description, time_recorded, pos, evidence_info: Vec::with_capacity(0) }).await;
 
         } else { // we have to dig up the evidence image(s)
-            let hupdater = &self.hupdater;
             let timeout = self.config.image_timeout;
-
             let mut evidence_info: Vec<EvidenceInfo> = self.retrieve_evidence( hupdater, evidence_recs, timeout).await;
 
             if let Some(device_info) = self.device_infos.get(&device_id) {
                 self.add_external_evidence( &mut evidence_info, device_info, hupdater, record_id, time_recorded, timeout).await;
             }
 
-            hself.send_msg( Alarm { device_id, description, time_recorded, evidence_info }).await;
+            hself.send_msg( Alarm { device_id, description, time_recorded, pos, evidence_info }).await;
+        }
+    }
+
+    async fn retrieve_pos (&self, hupdater: &ActorHandle<SentinelActorMsg>, device_id: &String, date: DateTime<Utc>) -> Option<DatedGeoPos> {
+        match timeout_query_ref( hupdater, GetSentinelPosition{device_id: device_id.clone(),date}, secs(2)).await {
+            Ok(res) => res,
+            _ => {
+                warn!("failed to retrieve position for device {} at {}", device_id, date);
+                None
+            }
         }
     }
 

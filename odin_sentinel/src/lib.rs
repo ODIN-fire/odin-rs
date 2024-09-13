@@ -14,6 +14,7 @@
 #![allow(unused)]
 #![feature(trait_alias,exit_status_error,duration_constructors)]
 
+use std::u64;
 #[doc = include_str!("../doc/odin_sentinel.md")]
 
 use std::{
@@ -36,6 +37,7 @@ use lazy_static::lazy_static;
 use odin_build::{define_load_asset, define_load_config};
 use odin_common::{angle::{LatAngle, LonAngle, Angle},
     datetime::{Dated,deserialize_duration,to_epoch_millis},
+    geo::DatedGeoPos,
     fs::{ensure_writable_dir, get_filename_extension}
 };
 use odin_actor::{MsgReceiver, Query, ActorHandle};
@@ -746,6 +748,48 @@ impl Sentinel {
             self.time_recorded = Some(latest)
         }
     }
+
+    pub fn get_position_at (&self, dt: DateTime<Utc>)->Option<DatedGeoPos> {
+        if let Some(i_gps) = get_closest_record_idx( dt, &self.gps) {
+            let gps = &self.gps[i_gps].data;
+            if let Some(i_gas) = get_closest_record_idx( dt, &self.gas) {
+                let gas = &self.gas[i_gas].data;
+                Some( DatedGeoPos::new( gps.latitude, gps.longitude, gas.altitude, dt) )
+            } else {
+                Some( DatedGeoPos::new( gps.latitude, gps.longitude, gps.altitude.unwrap_or(0.0), dt) )
+            }
+        } else {
+            None
+        }
+    }
+
+
+}
+
+pub fn get_closest_record_idx<T> (dt: DateTime<Utc>, recs: &VecDeque< Arc<SensorRecord<T>> >)->Option<usize> 
+    where T: RecordDataBounds
+{
+    if recs.is_empty() {
+        None
+
+    } else {
+        let millis = dt.timestamp_millis();
+        let mut d = u64::MAX;
+        let mut idx = 0;
+
+        for i in 0..recs.len() {
+            let nd = i64::abs_diff(recs[i].time_recorded.timestamp_millis(), millis);
+            if nd == 0 { return Some(i) }
+
+            if nd > d { 
+                return Some(idx) 
+            } else {
+                idx = i;
+                d = nd;
+            }
+        }
+        Some(idx)
+    }
 }
 
 pub fn rec_key (device_id: &str, sensor_no: u32, capa: SensorCapability)->String {
@@ -896,25 +940,35 @@ pub fn sentinel_cache_dir()->PathBuf {
 
 
 /// device information that is not obtained through Delphire server APIs 
-#[derive(Deserialize,Debug)]
+#[derive(Serialize,Deserialize,Debug)]
+#[serde(rename_all(serialize="camelCase"))]
 pub struct SentinelDeviceInfo {
     pub name: String,
-    pub smoke_prob: Vec<SensorProbability>, // overrides general probabilities per image sensor 
-    pub fire_prob: Vec<SensorProbability>,
+    pub sensor_infos: Vec<SensorInfo>,
     pub external_images: Vec<ExternalImage>,
+}
+
+impl SentinelDeviceInfo {
+    pub fn to_json (&self)->Result<String> { Ok(serde_json::to_string(&self)?) }
+    pub fn to_json_pretty (&self)->Result<String> { Ok(serde_json::to_string_pretty(&self)?) }
 }
 
 /// the type we use to configure additional SentinelDeviceInfos
 pub type SentinelDeviceInfos = HashMap<String,SentinelDeviceInfo>;
 
-#[derive(Deserialize,Debug)]
-pub struct SensorProbability {
+#[derive(Serialize, Deserialize,Debug)]
+#[serde(rename_all(serialize="camelCase"))]
+pub struct SensorInfo {
     pub sensor_no: u32,
-    pub prob: f32
+    pub smoke_prob: f32,
+    pub fire_prob: f32,
+    pub fov_left: Angle,
+    pub fov_right: Angle,
+    pub fov_dist: f64,
 }
 
-define_algebraic_type! { pub ExternalImage: Deserialize = 
-    DirectUriImage
+define_algebraic_type! { 
+    pub ExternalImage: Serialize + Deserialize = DirectUriImage
 
     pub fn name (&self)->&str { __.name.as_str() }
 
@@ -933,7 +987,8 @@ define_algebraic_type! { pub ExternalImage: Deserialize =
 
 
 /// something we can retrieve from a fixed URI with a simple GET
-#[derive(Deserialize,Debug)]
+#[derive(Serialize,Deserialize,Debug)]
+#[serde(rename="image")] // FIXME - this does not rename variant names ?
 pub struct DirectUriImage {
     pub name: String,
     pub sensors: Vec<u32>, // Sentinel image sensor_no for which this external image can be used (empty means any one)

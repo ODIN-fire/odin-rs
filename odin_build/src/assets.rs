@@ -204,13 +204,21 @@ pub fn process_asset (filename: &str, data: Vec<u8>) -> Result<Vec<u8>> {
             "html" => process_html(data),
             "css"  => process_css(data),
             "svg"  => process_svg(data),
-            "js"   => process_js(data),
+            "js"   => {
+                if filename.ends_with(".min.js") {
+                    process_compressed(data) // don't minify
+                } else {
+                    process_js(data)
+                }
+            }
             "json" => process_json(data),
             "xml"  => process_xml(data),
             "csv"  => process_csv(data),
             "txt"  => process_txt(data),
 
             "jpeg" | "png" | "webp" | "tif" | "mp4" | "mpeg" | "webm" | "weba" => Ok(data),
+            "gz"  => Ok(data),
+
             _ => Err( OdinBuildError::ResourceTypeError( filename.into() ) )
         }
     } else { Err( OdinBuildError::ResourceTypeError(filename.into()) ) }
@@ -232,6 +240,8 @@ fn process_js (data: Vec<u8>)->Result<Vec<u8>> {
     let content = str::from_utf8(&data)?;
     let mini = js::minify(content).to_string();
     compress_vec( &mini.into_bytes())
+
+    //compress_vec(&data)  // ONLY outside repo
 }
 
 fn process_svg (data: Vec<u8>)->Result<Vec<u8>> {
@@ -258,6 +268,10 @@ fn process_txt (data: Vec<u8>) -> Result<Vec<u8>> {
     compress_vec( &data)
 }
 
+fn process_compressed (data: Vec<u8>) -> Result<Vec<u8>> {
+    compress_vec( &data)
+}
+
 pub struct ContentSpec {
     pub mime_type: &'static str,
     pub encoding: Option<&'static str>,
@@ -270,6 +284,7 @@ pub fn get_content_spec (pathname: &str)->ContentSpec {
         match ext {
             // our compressed asset data types
             "js"    => return ContentSpec { mime_type: "text/javascript",  encoding: default_enc },
+            "js-raw" => return ContentSpec { mime_type: "text/javascript",  encoding: default_enc },
             "css"   => return ContentSpec { mime_type: "text/css",         encoding: default_enc },
             "html"  => return ContentSpec { mime_type: "text/html",        encoding: default_enc },
             "json"  => return ContentSpec { mime_type: "application/json", encoding: default_enc },

@@ -15,7 +15,7 @@
 use std::path::Path;
 use tokio;
 use chrono::Utc;
-use odin_common::define_cli;
+use odin_common::{angle::{LatAngle, LonAngle}, define_cli, geo::DatedGeoPos};
 use odin_sentinel::{load_config, Alarm, AlarmMessenger, EvidenceInfo, 
     ConsoleAlarmMessenger, SmtpAlarmMessenger, SignalCmdAlarmMessenger, SlackAlarmMessenger, SentinelFile
 };
@@ -36,13 +36,17 @@ define_cli! { ARGS [about="Delphire Sentinel Slack alarm test"] =
 #[tokio::main]
 async fn main()->Result<()> {
     let description = if let Some(descr) = &ARGS.text { descr.clone() } else { "test alarm".into() };
+    let now = Utc::now();
+    let pos = Some( DatedGeoPos::new(LatAngle::from_degrees(37.1668), LonAngle::from_degrees(-121.9633), 560.0, now));
+
     let alarm = if let Some(img) = &ARGS.img {
         let pathname = Path::new(&img).to_path_buf();
         if !pathname.is_file() { panic!("image file does not exist: {img}") }
         Alarm { 
             device_id: "test-device".to_string(),
             description, 
-            time_recorded: Utc::now(),
+            time_recorded: now,
+            pos,
             evidence_info: vec!( 
                 EvidenceInfo { 
                     sensor_no: 0,
@@ -56,6 +60,7 @@ async fn main()->Result<()> {
             device_id: "test-device".to_string(),
             description, 
             time_recorded: Utc::now(),
+            pos,
             evidence_info: Vec::new() 
         }
     };

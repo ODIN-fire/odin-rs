@@ -53,9 +53,19 @@ impl SpaService for CesiumService {
         spa.add_assets( self_crate!(), load_asset);
 
         //--- add Cesium (we could turn this into assets to ensure it's there)
-        spa.add_proxy( "cesium", "https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium");
-        spa.add_script( proxy_uri!( "cesium", "Cesium.js"));
-        spa.add_css( proxy_uri!( "cesium", "Widgets/widgets.css"));
+        //spa.add_proxy( "cesium", "https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium");
+        //spa.add_script( proxy_uri!( "cesium", "Cesium.js"));
+        //spa.add_css( proxy_uri!( "cesium", "Widgets/widgets.css"));
+
+        // download *.zip from https://cesium.com/downloads/ and put it into ODIN_ROOT/assets/odin_cesium/
+        // rename Cesium/Cesium.js into Cesium/Cesium.min.js - it is already minified 
+        spa.add_script( asset_uri!("cesium_base_url.js")); // required since we renamed Cesium.js
+        spa.add_script( asset_uri!("cesiumjs/Build/Cesium/Cesium.min.js"));
+        spa.add_css( asset_uri!("cesiumjs/Build/Cesium/Widgets/widgets.css"));
+
+
+        //spa.add_script( "https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium/Cesium.js");
+        //spa.add_css( "https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium/Widgets/widgets.css");
 
         spa.add_css( asset_uri!("odin_cesium.css"));
 

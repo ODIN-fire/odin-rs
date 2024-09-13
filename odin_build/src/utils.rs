@@ -128,12 +128,14 @@ macro_rules! path_cond {
     ( $pred:ident, $path_expr:expr, $($e:expr),* ) => {
         {
             let path: &mut PathBuf = $path_expr;
-            let mut n = 0;
-            $( path.push($e); n += 1; )*
+            let n0 = path.components().count();
+            $( path.push($e); )*
             if path.$pred() { 
                 true
             } else {
-                while n > 0 { path.pop(); n -= 1; }
+                // restore path
+                let mut n = path.components().count();
+                while n > n0 { path.pop(); n -= 1; }
                 false
             }
         }

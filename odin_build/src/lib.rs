@@ -206,12 +206,15 @@ fn find_resource_file (resource_dir: &str, ctx: &Option<&BinContext>, resource_c
 }
 
 fn find_external_resource (path: &mut PathBuf, resource_dir: &str, bin_ctx: &Option<&BinContext>, resource_crate: &str, filename: &str)->bool {
+
+    // check bin specific override first
     if let Some(ctx) = bin_ctx {
         let bin_crate = ctx.bin_crate.as_str();
         let bin_name = ctx.bin_name.as_str();
         if path_cond!( is_file, path, resource_dir, bin_crate, bin_name, resource_crate, filename) { return true }
     }
 
+    // now check resource crate global
     if path_cond!( is_file, path, resource_dir, resource_crate, filename) { return true }
     
     false

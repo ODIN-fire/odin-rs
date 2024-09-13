@@ -17,6 +17,7 @@
 
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
+use odin_common::{geo::LatLon};
 use crate::*;
 use crate::ws::WsCmd;
 
@@ -26,6 +27,12 @@ use crate::ws::WsCmd;
 
 /// request a specific update record
 #[derive(Debug)] pub struct GetSentinelUpdate {  pub record_id: String }
+
+/// retrieve device position
+#[derive(Debug)] pub struct GetSentinelPosition {  pub device_id: String, pub date: DateTime<Utc> }
+
+// the answer for a GetSentinelPosition query
+
 
 /// send a command to Sentinel devices
 #[derive(Debug)] pub struct SendSentinelCmd { sentinel_cmd: WsCmd }
@@ -40,6 +47,7 @@ define_actor_msg_set! { pub SentinelActorMsg =
     ExecSnapshotAction |
     Query<GetSentinelUpdate,Result<SentinelUpdate>> |
     Query<GetSentinelFile,Result<SentinelFile>> |
+    Query<GetSentinelPosition,Option<DatedGeoPos>> |
 
     //-- messages we get from our connector
     InitializeStore |
@@ -88,6 +96,13 @@ impl<C,I,U> SentinelActor <C,I,U>
         record_query.respond( res).await.map_err(|_| op_failed("receiver closed"))
     }
 
+    async fn handle_position_query( &self, query: Query<GetSentinelPosition,Option<DatedGeoPos>>)->Result<()> {
+        if let Some(sentinel) = self.sentinels.get( &query.question.device_id) {
+            query.respond( sentinel.get_position_at( query.question.date)).await.map_err(|_| op_failed("receiver closed"))
+        } else {
+            query.respond(None).await.map_err(|_| op_failed("receiver closed"))
+        }
+    }
 
 }
 
@@ -103,6 +118,9 @@ impl_actor! { match msg for Actor< SentinelActor<C,I,U>, SentinelActorMsg>
     }
     Query<GetSentinelFile,Result<SentinelFile>> => cont! { 
         self.connector.handle_sentinel_file_query(msg).await; // might be in-flight, hand over to connector
+    }
+    Query<GetSentinelPosition,Option<DatedGeoPos>> => cont! {
+        self.handle_position_query(msg).await;
     }
 
     //--- connector messages

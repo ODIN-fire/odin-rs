@@ -43,7 +43,7 @@ run_actor_system!( actor_system => {
         "odin",
         SpaServiceList::new()
             .add( build_service!( GoesrService::new( vec![goes18,goes16])) )
-            .add( build_service!( hsentinel.to_actor_handle() => SentinelService::new(hsentinel)))
+            .add( build_service!( hsentinel.to_actor_handle() => SentinelService::new( hsentinel)))
     ))?;
  
     //--- (3) spawn the data source actors we did set up in (1) 

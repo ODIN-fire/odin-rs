@@ -44,6 +44,7 @@ impl SpaService for UiService {
         spa.add_module( asset_uri!("ui_data.js"));
         spa.add_module( asset_uri!("ui_util.js"));
         spa.add_module( asset_uri!("ui.js"));
+        spa.add_module( asset_uri!("ui_windows.js"));
         spa.add_module( asset_uri!("ui_settings_config.js"));
         spa.add_module( asset_uri!("ui_settings.js"));
 

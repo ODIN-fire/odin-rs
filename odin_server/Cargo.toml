@@ -31,6 +31,7 @@ paste = "*"
 mime = "*"
 mime_guess = "*"
 rand = "*"
+open = "5"
 
 axum = { workspace = true }
 reqwest = {workspace = true }

@@ -12,10 +12,16 @@
  * and limitations under the License.
  */
 #![allow(unused,uncommon_codepoints,non_snake_case)]
+use std::ops::Deref;
+
+use chrono::{DateTime,Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::angle::LatAngle;
+use crate::angle::LonAngle;
 use crate::*;
 use crate::angle;
+use crate::datetime;
 use num::{Num, ToPrimitive, traits, zero};
 
 #[repr(C)]
@@ -92,12 +98,40 @@ impl UtmBoundingBox {
     }
 }
 
-
 #[derive(Debug,Copy,Clone,Serialize,Deserialize)]
 pub struct LatLon {
     pub lat_deg: f64,
     pub lon_deg: f64,
 }
+
+#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
+pub struct GeoPos {
+    pub lat: LatAngle,
+    pub lon: LonAngle,
+    pub alt: f64,
+}
+
+#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
+pub struct DatedGeoPos {
+    pub pos: GeoPos,
+    pub date: DateTime<Utc>
+}
+
+impl Deref for DatedGeoPos {
+    type Target = GeoPos;
+    fn deref(&self) -> &Self::Target { &self.pos }
+}
+
+impl datetime::Dated for DatedGeoPos {
+    fn date (&self)->DateTime<Utc> { self.date }
+}
+
+impl DatedGeoPos {
+    pub fn new (lat: LatAngle, lon: LonAngle, alt: f64, date: DateTime<Utc>)->Self {
+        DatedGeoPos{ pos: GeoPos{lat,lon, alt}, date }
+    }
+}
+
 
 #[derive(Debug,Copy,Clone,Serialize,Deserialize)]
 pub struct UTM {
