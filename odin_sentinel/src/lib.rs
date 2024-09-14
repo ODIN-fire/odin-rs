@@ -332,11 +332,6 @@ define_sensor_data! { Power = // can use uom here for current, volatage, temp?
     pub soc: f64,
     pub battery_temp: ThermodynamicTemperature, // temp
     pub controller_temp: ThermodynamicTemperature, //temp
-    pub battery_status: String,
-    //pub charging_volatage_status: String,  // changed by Delphire 04/01/24
-    pub charging_status: String,
-    //pub load_volatage_status: String,       // changed by Delphire 04/01/24
-    pub load_status: String
 }
 
 define_sensor_data! { Smoke =
