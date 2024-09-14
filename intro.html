@@ -1,0 +1,305 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>1. Introduction - ODIN</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="the Open Data Integration Framework">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="odin.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="about.html">About this Document</a></li><li class="chapter-item expanded "><a href="install.html">Installation</a></li><li class="chapter-item expanded "><a href="intro.html" class="active">1. Introduction</a></li><li class="chapter-item expanded "><a href="sys_crates.html">2. System Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_build/odin_build.html">odin_build</a></li><li class="chapter-item "><a href="odin_action/odin_action.html">odin_action</a></li><li class="chapter-item "><a href="odin_actor/odin_actor.html">odin_actor</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_actor/actor_basics.html">Actor Programming Model</a></li><li class="chapter-item "><a href="odin_actor/actor_impl.html">Basic Design</a></li><li class="chapter-item "><a href="odin_actor/actor_communication.html">Actor Communication</a></li><li class="chapter-item "><a href="odin_actor/examples/examples.html">Examples</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_actor/examples/hello_world.html">hello_world</a></li><li class="chapter-item "><a href="odin_actor/examples/sys_msgs.html">sys_msgs</a></li><li class="chapter-item "><a href="odin_actor/examples/spawn.html">spawn</a></li><li class="chapter-item "><a href="odin_actor/examples/spawn_blocking.html">spawn_blocking</a></li><li class="chapter-item "><a href="odin_actor/examples/exec.html">exec</a></li><li class="chapter-item "><a href="odin_actor/examples/jobs.html">jobs</a></li><li class="chapter-item "><a href="odin_actor/examples/producer_consumer.html">producer_consumer</a></li><li class="chapter-item "><a href="odin_actor/examples/pub_sub.html">pub_sub</a></li><li class="chapter-item "><a href="odin_actor/examples/pin_pong.html">ping_pong</a></li><li class="chapter-item "><a href="odin_actor/examples/query.html">query</a></li><li class="chapter-item "><a href="odin_actor/examples/dyn_actor.html">dyn_actor</a></li><li class="chapter-item "><a href="odin_actor/examples/actions.html">actions</a></li><li class="chapter-item "><a href="odin_actor/examples/dyn_actions.html">dyn_actions</a></li><li class="chapter-item "><a href="odin_actor/examples/retry.html">retry</a></li><li class="chapter-item "><a href="odin_actor/examples/requests.html">requests</a></li><li class="chapter-item "><a href="odin_actor/examples/actor_config.html">actor_config</a></li><li class="chapter-item "><a href="odin_actor/examples/heartbeat.html">heartbeat</a></li></ol></li></ol></li><li class="chapter-item "><a href="odin_server/odin_server.html">odin_server</a></li></ol></li><li class="chapter-item expanded "><a href="app_crates.html">3. Application Domain Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_sentinel/odin_sentinel.html">odin_sentinel</a></li><li class="chapter-item "><a href="odin_goesr/odin_goesr.html">odin_goesr</a></li></ol></li><li class="chapter-item expanded "><a href="glossary.html">Glossary</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">ODIN</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
+<p>ODIN is a software framework to efficiently create servers that support disaster management.</p>
+<img class="mono right" src="../img/info-fragmentation.svg" width="40%"/>
+<p>More specifically it is a framework to build servers that import and process an open number of external data sources for information such as weather, ground-/aerial- and space-based sensors, threat assessment, simulation, vehicle/crew tracking and many more. The over-arching goal is to improve situational awareness of stakeholders by making more - and more timely - information available in stakeholder-specific applications. The main challenge for this is not the availability of data, it is how this data can be integrated in extensible and customizable applications.</p>
+<p>We want to mitigate the <strong>information fragmentation- and compartmentalization problem</strong>. No more hopping between dozens of browser tabs. No more manual refreshes to stay up-to-date. No more printouts to communicate. No more take-it-or-leave-it systems that can't be extended.</p>
+<p>ODINs goal is <em>not</em> to create yet another website that is supposed to replace all the ones that already exist. We want to enable stakeholder organizations to assemble <em>their</em> server applictions showing the information <em>they</em> need, with the capability to run those servers/applications on <em>their</em> machines (even out in the field if need be). We also want to do this in a way that makes it easy to integrate new data sources and functions as they become available from government, research organizations and commercial vendors. We want ODIN to be extensible, scalable, portable - and last not least - accessible.</p>
+<p>To that end ODIN is open sourced under <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache v2 license</a>. It is a library you can use and extend in your projects.</p>
+<h2 id="stakeholders"><a class="header" href="#stakeholders">Stakeholders</a></h2>
+<img class="mono left" src="../img/stakeholders.svg" width="55%"/>
+<p>Our vision for ODIN goes beyond a single stakeholder. We want it to be an open (freely available) platform for both users and developers. The ODIN maintainers are just one part of the puzzle, developing and maintaining the core framework other developers can build on. We only see our role in creating generic components that implement a consistent, extensible and scalable architecture.</p>
+<p>User stakeholders are more than just responder organizations (of which there are many). We also envision local communities who want to improve their level of preparedness / disaster planning. Another example would be utility providers monitoring critical infrastructure. The common goal for such user stakeholders is to enhance their situational awareness but what information that entails depends on the specific incident type, stakeholder and location.</p>
+<p>What holds for most user stakeholder organizations is that they lack the resources to develop respective systems from scratch. The stakeholders who do have development capacity often find themselves reinventing the wheel. The stakeholders who subscribe to commercial services have no way to tailor or extend such services.</p>
+<p>There is no single organization that could develop all service components on its own. Commercial vendors come up with new sensors. Research organizations develop new forecast models and simulators. What holds for all such provider stakeholders is that they want to focus on their specific expertise. They don't want to duplicate existing functions just to make their products available. If they do so it just increases the information fragmentation problem we started with.</p>
+<p>ODIN aspires to become the common ground on which stakeholders can meet - free, open and extensible for all.</p>
+<h2 id="underlying-sw-architecturedesign"><a class="header" href="#underlying-sw-architecturedesign">Underlying SW Architecture/Design</a></h2>
+<img class="mono right" src="../img/actors-mono.svg" width="35%"/>
+<p>To be that common basis ODIN needs a strong architectural foundation. Since ODINs main task is to collect and then process data from various independent external sources we need good support for concurrent computation - one of the most challenging topics for software development. ODIN meets this challenge by using the <a href="https://en.wikipedia.org/wiki/Actor_model">Actor Programming Model</a>: asynchronously executing objects which only communicate through messages and don't share internal state (see <a href="odin_actor/odin_actor.html">odin_actor</a> and <a href="odin_actor/actor_basics.html">The Actor Programming Model</a> for details).</p>
+<p>ODIN also has to work with existing software. There is a large collection of existing work we want to build on, such as fire-behavior and micro grid wind simulators (e.g. <a href="https://weather.firelab.org/windninja/">WindNinja</a>) and general geospatial data processing libraries (e.g. <a href="https://gdal.org/">GDAL</a>). Given the binary nature of many of the underlying data formats, the need to efficiently use 3rd-party native libraries, the challenges of concurrent programming and the portability we strive for we chose <a href="https://www.rust-lang.org/">Rust</a> as the implementation platform as it gives us</p>
+<ul>
+<li>language intrinsic memory- and thread- safety</li>
+<li>a well defined <a href="https://en.wikipedia.org/wiki/Application_binary_interface">Application Binary Interface</a></li>
+<li>a comprehensive cross-platform standard library</li>
+<li>a huge external <a href="https://crates.io/">eco-system</a></li>
+<li>good asynchronous programming support, both in the language and its libraries</li>
+<li>powerful abstraction features for large scale program design</li>
+<li>a mature, consistent tool chain (especially including dependency management)</li>
+<li>high efficiency / low system overhead (one of Rusts design goals is "zero cost abstraction")</li>
+</ul>
+<p>What do we want to build on that basis?</p>
+<h2 id="odin-application-types"><a class="header" href="#odin-application-types">ODIN Application Types</a></h2>
+<p>While ODIN contains all sort of command line tools, the primary targets are two types of servers:</p>
+<ul>
+<li>user servers - providing data visualization for end users</li>
+<li>edge servers - factoring out network-, compute- and data volume-intense tasks to dedicated machinery</li>
+</ul>
+<p>Both are built from the same ODIN components and follow the same architectural design outlined above.</p>
+<h3 id="user-servers"><a class="header" href="#user-servers">User Servers</a></h3>
+<p>ODIN user servers are not supposed to handle millions of requests from large numbers of simultaneous but isolated users. The servers we mainly target support medium size workgroups of stakeholder users (&lt;1000) with the need for:</p>
+<ul>
+<li>automatic data update (also for low latency tracking data)</li>
+<li>collaboration (synchronized views)</li>
+</ul>
+<p>The main application model for user servers is a <a href="https://en.wikipedia.org/wiki/Single-page_application">Single Page Application</a>. The main user interface is a web browser - ODIN does not require end user installation and can be used on existing machinery.</p>
+<img class="mono left" src="../img/odin-spa-mono.svg" width="45%"/>
+<p>A Single Page Application (SPA) mainly uses two types of actors: importers and a SPAServer. An Importer is a dedicated component to handle a single external data source, including data retrieval schedule and translation into ODIN internal format (if required). Importers are completely independent of each other which makes it simple to add new ones. Their results are sent via messages to a SPA-Server actor that distributes the information to connected users.</p>
+<p>The SPA-Server actor utilizes MicroService objects that are managing static and dynamic content which is shown as separate layers on the served web page. Static content mostly consists of HTML and associated Javascript modules. It can be initialized from files or compiled into stand-alone executables and is served via http(s) protocol.</p>
+<p>Stand alone ODIN SPA servers do not require any additional files/installation other than the executable itself (see <a href="odin_build/odin_build.html">odin_build</a> for details). They can be thought of as traditional desktop applications that just use a browser as the user interface.</p>
+<p>To ensure realtime update (down to 1Hz) of low latency data such as tracked objects ODIN utilizes <a href="https://en.wikipedia.org/wiki/WebSocket">WebSockets</a> that are managed by the MicroService objects, and processed in the browser by ODINs Javascript modules (assets).</p>
+<p>For geospatial display in the browser ODIN uses the open source <a href="https://cesium.com/platform/cesiumjs/">CesiumJS</a> library, which is built on top of <a href="https://en.wikipedia.org/wiki/WebGL">WebGL</a> and hence supports hardware accelerated 3D graphics to display a virtual globe.</p>
+<p>ODINs user interface components such as (movable) windows, lists and buttons are implemented with ODINs own Javascript library that resembles a traditional desktop and is highly (user-) configurable.</p>
+<h3 id="edge-servers"><a class="header" href="#edge-servers">Edge Servers</a></h3>
+<p>ODIN edge servers are the means to make ODIN applications scalable - they provide condensed/consolidated input data for user servers by factoring out high computational workloads and/or large input data volumes into dedicated machines with high speed network access. Edge servers are primarily used to reduce downstream processing and data volume.</p>
+<img class="mono right" src="../img/odin-edge-mono.svg" width="45%"/>
+<p>Assume for instance micro-grid (location/terrain- aware) wind forecast for a given incident area, such as provided by <a href="https://weather.firelab.org/windninja/">WindNinja</a>. This not only requires high speed machinery to execute the simulation but also needs significant bandwidth/connectivity to periodically obtain the required input data such as weather forecasts and station reports, high resolution digital elevation models, vegetation/fuel models and more. The user-facing results of the simulation can be compiled into relatively simple text (CSV) files containing a wind vector grid in the area of interest.</p>
+<p>As a general rule we want to be able to run functions where the data is most easily accessible. For information that is obtained from sensors in the field (such as local tracking data) that can be a local incident command server. For functions that use large amounts of input such as NOAA weather forecasts this can be a high speed data center. For functions that are computationally expensive this should be a super computer.</p>
+<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
+<p>To get an idea of what ODIN servers might look like on end user machines we refer to two of our TFRSAC talks:</p>
+<ul>
+<li><a href="https://www.youtube.com/watch?v=b9DfMBYCe-s&amp;t=4950s">spring 2023</a></li>
+<li><a href="https://www.youtube.com/watch?v=gCBXOaybDLA">fall 2022</a></li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="install.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="sys_crates.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="install.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="sys_crates.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <!-- Livereload script (if served using the cli tool) -->
+        <script>
+            const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsAddress = wsProtocol + "//" + location.host + "/" + "__livereload";
+            const socket = new WebSocket(wsAddress);
+            socket.onmessage = function (event) {
+                if (event.data === "reload") {
+                    socket.close();
+                    location.reload();
+                }
+            };
+
+            window.onbeforeunload = function() {
+                socket.close();
+            }
+        </script>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>

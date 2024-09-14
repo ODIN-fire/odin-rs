@@ -1,0 +1,640 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Actor Communication - ODIN</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="the Open Data Integration Framework">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../odin.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../about.html">About this Document</a></li><li class="chapter-item expanded "><a href="../install.html">Installation</a></li><li class="chapter-item expanded "><a href="../intro.html">1. Introduction</a></li><li class="chapter-item expanded "><a href="../sys_crates.html">2. System Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../odin_build/odin_build.html">odin_build</a></li><li class="chapter-item "><a href="../odin_action/odin_action.html">odin_action</a></li><li class="chapter-item expanded "><a href="../odin_actor/odin_actor.html">odin_actor</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../odin_actor/actor_basics.html">Actor Programming Model</a></li><li class="chapter-item "><a href="../odin_actor/actor_impl.html">Basic Design</a></li><li class="chapter-item expanded "><a href="../odin_actor/actor_communication.html" class="active">Actor Communication</a></li><li class="chapter-item "><a href="../odin_actor/examples/examples.html">Examples</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../odin_actor/examples/hello_world.html">hello_world</a></li><li class="chapter-item "><a href="../odin_actor/examples/sys_msgs.html">sys_msgs</a></li><li class="chapter-item "><a href="../odin_actor/examples/spawn.html">spawn</a></li><li class="chapter-item "><a href="../odin_actor/examples/spawn_blocking.html">spawn_blocking</a></li><li class="chapter-item "><a href="../odin_actor/examples/exec.html">exec</a></li><li class="chapter-item "><a href="../odin_actor/examples/jobs.html">jobs</a></li><li class="chapter-item "><a href="../odin_actor/examples/producer_consumer.html">producer_consumer</a></li><li class="chapter-item "><a href="../odin_actor/examples/pub_sub.html">pub_sub</a></li><li class="chapter-item "><a href="../odin_actor/examples/pin_pong.html">ping_pong</a></li><li class="chapter-item "><a href="../odin_actor/examples/query.html">query</a></li><li class="chapter-item "><a href="../odin_actor/examples/dyn_actor.html">dyn_actor</a></li><li class="chapter-item "><a href="../odin_actor/examples/actions.html">actions</a></li><li class="chapter-item "><a href="../odin_actor/examples/dyn_actions.html">dyn_actions</a></li><li class="chapter-item "><a href="../odin_actor/examples/retry.html">retry</a></li><li class="chapter-item "><a href="../odin_actor/examples/requests.html">requests</a></li><li class="chapter-item "><a href="../odin_actor/examples/actor_config.html">actor_config</a></li><li class="chapter-item "><a href="../odin_actor/examples/heartbeat.html">heartbeat</a></li></ol></li></ol></li><li class="chapter-item "><a href="../odin_server/odin_server.html">odin_server</a></li></ol></li><li class="chapter-item expanded "><a href="../app_crates.html">3. Application Domain Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../odin_sentinel/odin_sentinel.html">odin_sentinel</a></li><li class="chapter-item "><a href="../odin_goesr/odin_goesr.html">odin_goesr</a></li></ol></li><li class="chapter-item expanded "><a href="../glossary.html">Glossary</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">ODIN</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="actor-communication"><a class="header" href="#actor-communication">Actor Communication</a></h1>
+<p>Actors don't live in isolation - their whole purpose is to build modular, scalable concurrent systems out of sets of
+communicating actors. We therefore need to define</p>
+<ul>
+<li>what can be sent between actors (messages),</li>
+<li>how we can send messages</li>
+<li>how to program sender actors when, what and to whom messages should be sent</li>
+</ul>
+<p>Moreover, in <code>odin_actor</code> we need to do this in a type-safe, statically checked way. Since our implementation language
+is Rust we want to ensure that</p>
+<ul>
+<li>we can only send thread- and memory-safe messages</li>
+<li>we can only send messages to actors that handle them (are in the receiver's message interface)</li>
+<li>each actor behavior is complete (no forgotten messages in the actor implementation)</li>
+<li>actors combine (we can build systems out of generic actors that only need to know a minimum about each other)</li>
+</ul>
+<p>While the first three requirements are supported by Rust in a straight forward way, the forth requirement is complex.
+Let's take it one step at a time.</p>
+<h2 id="messages"><a class="header" href="#messages">Messages</a></h2>
+<p>This one is easy - <code>odin_actor</code> does not have a specific message type or trait. Anything that is <code>Send</code> + <code>Debug</code> +
+<code>'static</code> can be a message. The <code>Send</code> constraint is obvious as we pass messages between concurrent tasks (actors).
+The<code>Debug</code> constraint is only for generic tracing/debugging support. The message type needs to be <code>static</code> since it is
+part of the receiver actors definition. Some message sender methods do also require <code>Clone</code> as all sender methods do
+consume the message argument. Should cloning be inefficient the message can also be an <code>Arc&lt;T&gt;</code>.</p>
+<p>Since an actor typically processes more than one message we need to wrap all of its input message types into an <code>enum</code>.
+This message set becomes part of the generic <code>Actor&lt;MsgSet,ActorState&gt;</code> type. Defining the message set is supported by
+the <code>define_actor_msg_set!{..}</code> macro:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>define_actor_msg_set! { MyActorMsg = Msg1 | Msg2 }
+<span class="boring">}</span></code></pre></pre>
+<p>which roughly expands to</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// automatically generated code
+enum MyActorMsg {
+   Msg1(Msg1),                // user messages...
+   Msg2(Msg2),                
+   _Start_ (_Start_),         // system messages...
+   ... 
+   _Terminate_ (_Terminate_) 
+}
+impl From&lt;Msg1&gt; for MyActorMsg { ... }
+impl From&lt;Msg2&gt; for MyActorMsg { ... }
+...
+<span class="boring">}</span></code></pre></pre>
+<p>The macro automatically adds variants for each of the system messages</p>
+<ul>
+<li><code>_Start_</code> - sent by the <code>ActorSystem</code> to indicate that all actors have been instantiated and should start to process</li>
+<li><code>_Timer_</code> - sent by timers created from within the actor</li>
+<li><code>_Exec_</code> - a generic message that executes the provided closure within the actor task</li>
+<li><code>_Pause_</code> and <code>_Resume_</code> - can be used by actor systems that replay content</li>
+<li><code>_Terminate_</code> - sent by the <code>ActorSystem</code> to indicate the application is about to shut down</li>
+</ul>
+<p>System messages don't need to be explicitly handled. They are sent either by the <code>ActorSystem</code> (e.g. <code>_Start_</code>) or
+implicitly by <code>Actor</code> methods such as <code>start_timer(..)</code> or <code>exec(..)</code>.</p>
+<p>The message set name (e.g. <code>MyActorMsg</code>) is then used to define the actor like so:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl_actor! { match msg for Actor&lt;MyActorMsg,MyActorState&gt; as
+  Msg1 =&gt; ... // handle message 'msg' of type 'Msg1'
+  Msg2 =&gt; ...
+}
+<span class="boring">}</span></code></pre></pre>
+<p>Both <code>define_actor_msg_set!{..}</code> and <code>impl_actor!{..}</code> automatically translate generic message types (e.g. <code>Query&lt;Q,A&gt;</code>)
+into valid variant names of the actor message set. Although this mapping is readable and intuitive the programmer does not
+need to know (other than to understand related compiler error messages).</p>
+<p>Using an enum to encode all possible input messages for an actor also explains why message types should not be large. Not
+only would this increase <code>clone()</code> cost but it also would enlarge the message set enum, which is sized according to its largest
+variant.</p>
+<p><a id="message-size"></a>
+Since this message set enum is the type of the actor mailbox (channel) this size matters - a Rust <code>enum</code> is sized according to
+its largest variant. If the ratio of max to min size of variants is too large then the channel can waste a lot of memory. If this is a problem we can always wrap (part of) large messages within heap-allocated containers (<code>Box</code>, <code>Arc</code>, <code>Vec</code> etc.) which collapses the size of the wrapped data to a pointer.</p>
+<h2 id="how-to-send-messages"><a class="header" href="#how-to-send-messages">How to Send Messages</a></h2>
+<p>Actor mailboxes in <code>odin_actor</code> are implemented as bounded async channels. This means sending messages can block the
+sender if the receiver queue is full. Since it depends on the actor/message types if this is acceptable we need to support
+alternative send operations:</p>
+<ul>
+<li><code>send_msg(msg)</code> - this is an <code>async</code> function that can suspend the sender and hence can only be called from an <code>async</code> context</li>
+<li><code>timeout_send_msg(msg,timeout)</code> - also <code>async</code> but guaranteed to finish in bounded time, possibly returning a timeout error</li>
+<li><code>try_send_msg(msg)</code> - sync call. returning an error of the receiver queue is full</li>
+<li><code>retry_send_msg(max_attempts,delay,msg)</code> - also sync but re-scheduling the message if receiver queue is full</li>
+</ul>
+<p>It is important to note that <code>retry_send_msg(..)</code> <em>can</em> violate the property that messages from the <em>same sender</em> are
+processed by the receiver in the order in which they were sent. If partial send order is required this has to be
+explicitly enforced in the sender.</p>
+<p>All send operations return <code>Result&lt;(),OdinActorError&gt;</code> values. Senders should handle <code>ReceiverClosed</code> and - for async sends -
+<code>ReceiverFull</code> and/or <code>Timeout</code> error values.</p>
+<p>Send methods are defined in <code>ActorHandle</code>, <code>MsgReceiver</code> and <code>Actor</code> (the latter one used to send messages to itself).</p>
+<p>Normal message send operations are unidirectional - should the sender expect a response that needs to retain request
+information the responder has to do this association explicitly (e.g. by copying relevant request info into the response message, or by keeping a list of pending requests in the sender).</p>
+<h2 id="waiting-for-a-response---queryqa"><a class="header" href="#waiting-for-a-response---queryqa">Waiting for a Response - <code>Query&lt;Q,A&gt;</code></a></h2>
+<p>The bi-directional <code>query(..)</code> operations overcome this restriction in cases where the sender should wait for a response
+before going on. The underlying message type is a generic <code>Query&lt;Question,Answer&gt;</code> struct which has to be in the
+responders input message set, the concrete <code>Question</code> and <code>Answer</code> types being provided by the user (with normal message
+type constraints).</p>
+<p>The requester sends queries like so:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>...
+  let question = ... 
+  match query( responder_handle, question).await {
+     Ok(response) =&gt; ... // process response value
+     Err(e) =&gt; ... // handle failed query
+  }
+<span class="boring">}</span></code></pre></pre>
+<p>The corresponding responder code would be:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>define_actor_msg_set! { ResponderMsg = ... | Query&lt;Question,Answer&gt; | ...}
+
+impl_actor!{ match msg for Actor&lt;ResponderMsg,ResponderState&gt; as
+  ...
+  Query&lt;Question,Answer&gt; =&gt; {
+     let answer = ...
+     if let Err(e) = msg.respond( answer).await {
+       ...// handle response send error
+     }
+  }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>In many other actor system libraries this is known as the <em>ask pattern</em>.</p>
+<p>If the requester message processing should not be blocked (i.e. there are other messages the requester still has to
+react to while waiting for a response) the query should be performed from a spawned task. Since the task closure can
+capture the query context (e.g. the question) this can still be preferrable to explicit request/response mapping for
+one-way messages.</p>
+<p>Due to this round trip (and potential per request response channel allocation) queries are less efficient than
+normal message send operations. For repetitive queries from within the same requester there is a <code>QueryBuilder</code>
+that avoids the response channel allocation for consecutive queries of the same type.</p>
+<h2 id="how-to-make-senders-generic---receivers-and-actions"><a class="header" href="#how-to-make-senders-generic---receivers-and-actions">How to Make Senders Generic - Receivers and Actions</a></h2>
+<p>This is the big topic for typed actor communication in (open) actor system frameworks:</p>
+<p class="standout">how to connect actors from different domains that do not know about each other?</p>
+<p>In other words - how do we make actors in open actor systems reusable in different contexts. This is not a
+problem if actors are just used in a single application or a single domain (such as a generic web server) - here the set
+of actor and message types is closed and known a priori. It becomes a vital problem for a framework such as <code>odin_actor</code>
+that is meant to be extended by 3rd parties and for various kinds of applications.</p>
+<p>This section describes the levels at which we can separate sender and receiver code in <code>odin_actor</code>,</p>
+<p>The basis for all this is how we can specify the receiver of a particular message within the sender</p>
+<h3 id="1-actorhandlem" class="bottom-sep"><a class="header" href="#1-actorhandlem">(1) <code>ActorHandle&lt;M&gt;</code></a></h3>
+<p><code>ActorHandle&lt;M&gt;</code> fields can be used to send messages of any variant of the message set that is defined by the
+<code>define_actor_msg_set</code> macro:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>define_actor_msg_set!{ MyMsgSet = Msg1 | Msg2 | ..}
+...
+impl_actor! { match msg for Actor&lt;MyMsgSet,MyActorState&gt; as 
+   Msg1 =&gt; ...
+   Msg2 =&gt; ...
+   ...
+}
+<span class="boring">}</span></code></pre></pre>
+<p>This is the least amount of separation between sender and receiver since the sender has to know the full message
+interface of the receiver (e.g. <code>MyMsgSet</code>), not only the message it wants to send (e.g. <code>Msg2</code>). In most cases this is
+synonym to knowing the concrete type of the receiver actor, which practically limits this mechanism to very general
+receivers or to actors from the same domain (i.e. actors that know about their concrete types anyways).</p>
+<p><code>ActorHandle&lt;M&gt;</code> is a <code>struct</code> that is <code>Clone</code> + <code>Send</code>, hence it can be sent in messages and stored in fields.
+Cloning <code>ActorHandle</code> is inexpensive.</p>
+<h3 id="2-msgreceivert-and-msgreceiverlistt" class="bottom-sep"><a class="header" href="#2-msgreceivert-and-msgreceiverlistt">(2) <code>MsgReceiver&lt;T&gt;</code> and <code>MsgReceiverList&lt;T&gt;</code></a></h3>
+<p><code>MsgReceiver&lt;T&gt;</code> can be used to send messages of a single type <code>T</code> to the receiver (if <code>T</code> is in the receiving actors
+message set - see above). This is the next level of separation since now the sender only has to know that the receiver
+understands <code>T</code> - it does not need to know what other messages the receiver processes.</p>
+<p><code>ActorHandle&lt;M&gt;</code> has a blanket impl for <code>MsgReceiver&lt;T&gt;</code> for all variants of its message set <code>M</code>.</p>
+<p><code>MsgReceiver&lt;T&gt;</code> is a trait, which means it can only be stored within the sender using a type variable</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>struct MySender&lt;R&gt; where R: MsgReceiver&lt;SomeMsg&gt; {
+   receiver: R, ...
+}
+<span class="boring">}</span></code></pre></pre>
+<p>To support heterogenous lists of <code>MsgReceiver&lt;T&gt;</code> implementors we provide a <code>MsgReceiverList&lt;T&gt;</code> trait together with
+a <code>msg_receiver_list!(..)</code> macro that can be used like so:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>   //--- receiver actor module(s)
+   define_actor_msg_set! { Receiver1Msg =  Msg1 | ... }
+   define_actor_msg_set! { Receiver2Msg =  ... | Msg1 | ... }
+   ...
+   struct Receiver1 { ... }
+   struct Receiver2 { ... }
+
+   //--- sender actor module
+   struct MySender&lt;L&gt; where L: MsgReceiverList&lt;Msg1&gt; {
+      receivers: L, ...
+   }
+   impl&lt;L&gt; MySender&lt;L&gt; where L: MsgReceiverList&lt;Msg1&gt; {
+      ... self.receivers.send_msg( Msg1{...}, true).await ...
+   }
+
+   //--- actor system construction (main)
+   let receiver1_handle = spawn_actor!( actor_system, "recv1", Receiver1 {..});
+   let receiver2_handle = spawn_actor!( actor_system, "recv2", Receiver2 {..});
+
+   spawn_actor!( actor_system, "sender", 
+                 Sender::new( msg_receiver_list!( receiver1_handle, receiver2_handle : MsgReceiver&lt;Msg1&gt;) ))
+<span class="boring">}</span></code></pre></pre>
+<p><code>MsgReceiverList&lt;T&gt;</code> has the usual send functions but adds a <code>ignore_err: bool</code> argument to each of them, defining
+if the send operation for the list should ignore error results for its elements. If set to false, the first element
+send operation that fails shortcuts the list send operation.</p>
+<p><code>MsgReceiver&lt;T&gt;</code> and <code>MsgReceiverList&lt;T&gt;</code> represent static receiver types - with them we cannot dynamically add
+new receivers at runtime.</p>
+<h3 id="3-dynmsgreceivert-and-dynmsgreceiverlistt" class="bottom-sep"><a class="header" href="#3-dynmsgreceivert-and-dynmsgreceiverlistt">(3) <code>DynMsgReceiver&lt;T&gt;</code> and <code>DynMsgReceiverList&lt;T&gt;</code></a></h3>
+<p><code>DynMsgReceiver&lt;T&gt;</code> is a type that allows us to send and store <code>MsgReceiver&lt;T&gt;</code> implementors as trait objects at
+runtime. It is boxing a normally transparent <code>DynMsgReceiverTrait&lt;T&gt;</code> for which <code>ActorHandle&lt;M&gt;</code> has blanket impls.
+It is less efficient than the static <code>MsgReceiver&lt;T&gt;</code> since it incurs extra runtime cost for each send
+operation (pin-boxing the futures returned by its send operations).</p>
+<p><code>DynMsgReceiverList&lt;T&gt;</code> is a container for <code>DynMsgReceiver&lt;T&gt;</code> objects. It is used like this:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>   //--- receiver actor module(s)
+   define_actor_msg_set! { Receiver1Msg =  Msg1 | ... }
+   
+   struct Receiver1&lt;S&gt; where S: MsgReceiver&lt;AddMsg1Receiver&gt; { sender: S... }
+
+   impl_actor! { match msg for Actor&lt;Receiver1&lt;S&gt;,Receiver1Msg&gt; where S: MsgReceiver&lt;AddMsg1Receiver&gt; as
+      ... self.sender.send_msg( AddMsg1Receiver(self.hself.into())).await ...
+      Msg1 =&gt; ...
+   }
+
+   define_actor_msg_set! { Receiver2Msg =  ... | Msg1 | ... }
+   struct Receiver2&lt;S&gt; where S: MsgReceiver&lt;AddMsg1Receiver&gt; { sender: S... }
+   ...
+
+   //--- sender actor module
+   #[derive(Debug)]
+   struct AddMsg1Receiver(DynMsg1Receiver&lt;Msg1&gt;);
+
+   define_actor_msg_set! { MySenderMsg = AddMsg1Receiver | ...}
+
+   struct MySender  {
+      receivers: DynMsgReceiverList&lt;Msg1&gt;, ...
+   }
+
+   impl_actor! { match msg for Actor&lt;MySender,MySenderMsg&gt; as 
+      AddMsg1Receiver =&gt; cont! { self.receivers.push(msg.0) }
+      ...
+      ... self.receivers.send_msg( Msg1{..}, true).await ...
+   }
+
+   //--- actor system construction (main)
+   let sender = spawn_actor!( actor_system, "sender", MySender {..});
+   spawn_actor!( actor_system, "recv1", Receiver1{sender, ...});
+   spawn_actor!( actor_system, "recv2", Receiver2{sender, ...});
+<span class="boring">}</span></code></pre></pre>
+<p><code>MsgReceiverList&lt;T&gt;</code> and <code>DynMsgReceiverList&lt;T&gt;</code> are used to implement static/dynamic publish/subscribe patterns.
+They allow us to abstract concrete receiver types our sender can communicate with, provided all these
+receivers have the message type we send in their message set.</p>
+<p>The limitations are that both sender and receivers have to know the respective message type, and the sender has
+to know how to instantiate that message. This is a serious constraint for multi-domain frameworks.</p>
+<h3 id="4-dataactiont-and-the-data_action-macro" class="bottom-sep"><a class="header" href="#4-dataactiont-and-the-data_action-macro">(4) <code>DataAction&lt;T&gt;</code> and the <code>data_action!{..}</code> macro</a></h3>
+<p><code>DataAction&lt;T&gt;</code>is an abstraction that overcomes the limitation of being able to send only one message type
+and having to hard-code message construction in the sender actor (which might not know the messages understood
+by potential receivers).</p>
+<p>Data actions are defined and documented in the [<code>odin_action</code>] crate - while the <strong>action</strong> construct is not
+actor specific it is most useful to make actors from different domains inter-operable. They can be viewed as
+async "callbacks" that allow the sender to inject its own data into action executions. All the sender actor
+has to know is when to execute an action and what data to provide for its execution.</p>
+<p>Actions can be defined explicitly as in:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>   // sender actor definition 
+   struct Sender&lt;A&gt; where A: DataAction&lt;SenderData&gt; {
+       action: A, ...
+   }
+   impl&lt;A&gt; Sender&lt;A&gt; where A: DataAction&lt;SenderData&gt; {
+       ...
+         let data: SenderData = ...; // create the data that should be passed into the action
+         self.action.execute( data ).await ...
+   }
+   ...
+   // action definition (at the actor system construction site, e.g. main())
+   struct MyDataAction {..}
+   impl DataAction&lt;SenderData&gt; for MyAction {
+       async fn execute (data: &amp;SenderData)-&gt;Result&lt;()&gt; { ... } // ⬅︎ concrete action defined here
+   }
+
+   ...  Sender::new( MyDataAction{..}, ...)
+<span class="boring">}</span></code></pre></pre>
+<p>More often actions are one-of-a-kind objects that are defined and instantiated through the macros that are
+provided by [<code>odin_action</code>], and their action expressions are sending messages to other actors:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>  // actor modules
+  define_actor_msg_set! { Receiver1Msg = Msg1 | ... }
+  define_actor_msg_set! { Receiver2Msg = ... | Msg2 | ... }
+  ...
+  struct Sender&lt;A&gt; where A: DataRefAction&lt;SenderData&gt; { 
+     data: SenderData,
+     action: A, ...
+  }
+  impl&lt;A&gt; Sender&lt;A&gt; where A: DataRefAction&lt;SenderData&gt; {
+    fn new (action: A)-&gt;Self { ... }
+
+    ... self.action.execute(&amp;self.data).await ...
+  }
+  
+  // actor system construction site (e.g. main() function)
+     receiver1 = spawn_actor!( actor_system, "recv1", Receiver1{..})?;
+     receiver2 = spawn_actor!( actor_system, "recv1", Receiver1{..})?;
+     ...
+     sender = spawn_actor!( actor_system, "sender", Sender::new(
+         dataref_action!( receiver1: ActorHandle&lt;Receiver1Msg&gt;, receiver2: ActorHandle&lt;Receiver2Msg&gt; =&gt; |data: &amp;SenderData| {
+            receiver1.send_msg( Msg1::new( ...data.clone().,,)).await?;
+            receiver2.try_send_msg( Msg2::new(...data.translate() ...))
+         })
+     ))?;
+<span class="boring">}</span></code></pre></pre>
+<p>The interesting aspect about the <code>data_action!(..)</code> macros is that they can capture data from the macro call site without
+requiring a closure (Rust does not yet support async closures). The general pattern of the macro call is as follows:</p>
+<pre><code>data_action!( «captured-receiver-var» :  «capture-type», ... =&gt; |«data-var»: «data-var-type»| «execute-expr»)
+</code></pre>
+<p>While data actions effectively separate sender and receiver code there is one last constraint: data actions have to be created
+upfront, at system construction time. We cannot send them to actors.</p>
+<h3 id="6-dyndataactiont-and-the-dyn_data_action-macro" class="bottom-sep"><a class="header" href="#6-dyndataactiont-and-the-dyn_data_action-macro">(6) <code>DynDataAction&lt;T&gt;</code> and the <code>dyn_data_action!{..}</code> macro</a></h3>
+<p>The [<code>odin_action</code>] crate also supports dynamic (trait object) actions through its [<code>dyn_data_action</code>] and [<code>dyn_dataref_action</code>]
+macros, which does allow to send actions in messages. This is in turn useful to</p>
+<ul>
+<li>execute such actions when the receiver processes the containing message</li>
+<li>store actions for later execution (e.g. in a subscriber list)</li>
+</ul>
+<p>To store action trait objects and execute their entries [<code>odin_action</code>] provides the [<code>DynDataActionList</code>] and
+[<code>DynDataRefActionList</code>] containers:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// receiver actor impl module
+struct Msg1 { .. }
+...
+define_actor_msg_set { ReceiverMsg = Msg1 | ... }
+...
+impl_actor! { match msg for Actor&lt;ReceiverMsg,Receiver&gt; as
+   Msg1 =&gt; ...
+   ...
+}
+
+// sender actor impl module
+struct AddUpdateAction(DynDataRefAction&lt;SenderData&gt;)
+...
+define_actor_msg_set { SenderMsg = AddUpdateAction | PublishChanges | ... }
+
+struct Sender {
+   data: SenderData,
+   update_action: DynDataRefActionList&lt;SenderData&gt; 
+   ...
+}
+impl_actor! { match msg for Actor&lt;SenderMsg,Sender&gt; as
+   AddUpdateAction =&gt; { ... self.update_action.push( msg.0) ... }
+   PublishChanges =&gt; { ... self.update_action.execute( &amp;self.data).await ... }
+   ...
+}
+...
+// actor system construction module
+...
+receiver = spawn_actor!( actor_system, "receiver", Receiver::new(..))?;
+sender = spawn_actor!( actor_system, "sender", Sender::new(..))?;
+...
+let action = send_msg_dyn_action!( receiver, |data: &amp;SenderData| Msg1::new(data));
+sender.send_msg( AddUpdateAction(action)).await?;
+<span class="boring">}</span></code></pre></pre>
+<p>Actions sent in messages can also be executed when the receiver processes such messages. Since dyn actions can capture
+data from the creation site (within the sender code) this can be useful as a less expensive alternative to the <code>query()</code>
+mechanism described above (only using the normal actor task context).</p>
+<p>With power comes responsibility - being able to use loops within action bodies we have to be aware of two potential
+problems:</p>
+<ul>
+<li>back pressure and</li>
+<li>loss-of-information</li>
+</ul>
+<p>The back pressure problem arises if we send messages from within iteration cycles, as in:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>... dataref_action( ... |data: &amp;Vec&lt;SomeData&gt;| {...
+      for e in data {
+         ... receiver.try_send_msg( SomeMessage::new(e)); ...
+      }
+    }) ...
+<span class="boring">}</span></code></pre></pre>
+<p>This can result in <code>OdinActorError::ReceiverFull</code> results when sending messages. If we use <code>try_send_msg(..)</code> without
+processing the return value (as in above snippet) this might even be silently ignored. The solution for this is to
+either check the return value or use</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>         ... receiver.send_msg( SomeMessage::new(e)).await ...
+<span class="boring">}</span></code></pre></pre>
+<p>In this case we have to be aware though that the sender might get blocked, i.e. becomes un-responsive if it is also
+a potential message receiver. Should this apply we can run the loop from within a spawned task.</p>
+<p>There also might be a (semantic) loss-of-information problem if we need to preserve that all messages sent from within
+the loop came from the same input data (the <code>execute()</code> argument). Unless receivers could easily reconstruct this from
+the respective message payload the solution is to collect the payloads into a container and send that container as one
+message, which turns the above case into:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>... dataref_action( ... |data: &amp;Vec&lt;SomeData&gt;| {...
+      let msg_payload: Vec&lt;SomePayload&gt; = data.iter().map(|e| payload(e)).collect();
+      receiver.try_send_msg( SomeMessage::new( msg_payload)) ...
+    }) ...
+<span class="boring">}</span></code></pre></pre>
+<p>This also addresses the message variant size problem mentioned (above)[#message-size].</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../odin_actor/actor_impl.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../odin_actor/examples/examples.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../odin_actor/actor_impl.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../odin_actor/examples/examples.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <!-- Livereload script (if served using the cli tool) -->
+        <script>
+            const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsAddress = wsProtocol + "//" + location.host + "/" + "__livereload";
+            const socket = new WebSocket(wsAddress);
+            socket.onmessage = function (event) {
+                if (event.data === "reload") {
+                    socket.close();
+                    location.reload();
+                }
+            };
+
+            window.onbeforeunload = function() {
+                socket.close();
+            }
+        </script>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>
