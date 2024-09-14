@@ -40,7 +40,7 @@ run_actor_system!( actor_system => {
     //--- (2) spawn the server actor
     let hserver = spawn_actor!( actor_system, "server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
-        "odin",
+        "odin-fire",
         SpaServiceList::new()
             .add( build_service!( GoesrService::new( vec![goes18,goes16])) )
             .add( build_service!( hsentinel.to_actor_handle() => SentinelService::new( hsentinel)))
