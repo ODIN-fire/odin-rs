@@ -217,7 +217,7 @@
 <li>collaboration (synchronized views)</li>
 </ul>
 <p>The main application model for user servers is a <a href="https://en.wikipedia.org/wiki/Single-page_application">Single Page Application</a>. The main user interface is a web browser - ODIN does not require end user installation and can be used on existing machinery.</p>
-<img class="mono left" src="../img/odin-spa-mono.svg" width="45%"/>
+<img class="mono left" src="./img/odin-spa-mono.svg" width="45%"/>
 <p>A Single Page Application (SPA) mainly uses two types of actors: importers and a SPAServer. An Importer is a dedicated component to handle a single external data source, including data retrieval schedule and translation into ODIN internal format (if required). Importers are completely independent of each other which makes it simple to add new ones. Their results are sent via messages to a SPA-Server actor that distributes the information to connected users.</p>
 <p>The SPA-Server actor utilizes MicroService objects that are managing static and dynamic content which is shown as separate layers on the served web page. Static content mostly consists of HTML and associated Javascript modules. It can be initialized from files or compiled into stand-alone executables and is served via http(s) protocol.</p>
 <p>Stand alone ODIN SPA servers do not require any additional files/installation other than the executable itself (see <a href="odin_build/odin_build.html">odin_build</a> for details). They can be thought of as traditional desktop applications that just use a browser as the user interface.</p>
@@ -226,7 +226,7 @@
 <p>ODINs user interface components such as (movable) windows, lists and buttons are implemented with ODINs own Javascript library that resembles a traditional desktop and is highly (user-) configurable.</p>
 <h3 id="edge-servers"><a class="header" href="#edge-servers">Edge Servers</a></h3>
 <p>ODIN edge servers are the means to make ODIN applications scalable - they provide condensed/consolidated input data for user servers by factoring out high computational workloads and/or large input data volumes into dedicated machines with high speed network access. Edge servers are primarily used to reduce downstream processing and data volume.</p>
-<img class="mono right" src="../img/odin-edge-mono.svg" width="45%"/>
+<img class="mono right" src="./img/odin-edge-mono.svg" width="45%"/>
 <p>Assume for instance micro-grid (location/terrain- aware) wind forecast for a given incident area, such as provided by <a href="https://weather.firelab.org/windninja/">WindNinja</a>. This not only requires high speed machinery to execute the simulation but also needs significant bandwidth/connectivity to periodically obtain the required input data such as weather forecasts and station reports, high resolution digital elevation models, vegetation/fuel models and more. The user-facing results of the simulation can be compiled into relatively simple text (CSV) files containing a wind vector grid in the area of interest.</p>
 <p>As a general rule we want to be able to run functions where the data is most easily accessible. For information that is obtained from sensors in the field (such as local tracking data) that can be a local incident command server. For functions that use large amounts of input such as NOAA weather forecasts this can be a high speed data center. For functions that are computationally expensive this should be a super computer.</p>
 <h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
