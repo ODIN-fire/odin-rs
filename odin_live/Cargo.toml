@@ -1,5 +1,5 @@
 [package]
-name = "odin_demo"
+name = "odin_live"
 version = "0.1.0"
 edition = "2021"
 build = "../build_resources.rs"
