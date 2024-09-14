@@ -2,7 +2,7 @@
 
 ODIN is a software framework to efficiently create servers that support disaster management. 
 
-<img class="mono right" src="../img/info-fragmentation.svg" width="40%"/>
+<img class="mono right" src="./img/info-fragmentation.svg" width="40%"/>
 
 More specifically it is a framework to build servers that import and process an open number of external data sources for information such as weather, ground-/aerial- and space-based sensors, threat assessment, simulation, vehicle/crew tracking and many more. The over-arching goal is to improve situational awareness of stakeholders by making more - and more timely - information available in stakeholder-specific applications. The main challenge for this is not the availability of data, it is how this data can be integrated in extensible and customizable applications. 
 
@@ -14,7 +14,7 @@ To that end ODIN is open sourced under [Apache v2 license](http://www.apache.org
 
 ## Stakeholders
 
-<img class="mono left" src="../img/stakeholders.svg" width="55%"/>
+<img class="mono left" src="./img/stakeholders.svg" width="55%"/>
 
 Our vision for ODIN goes beyond a single stakeholder. We want it to be an open (freely available) platform for both users and developers. The ODIN maintainers are just one part of the puzzle, developing and maintaining the core framework other developers can build on. We only see our role in creating generic components that implement a consistent, extensible and scalable architecture. 
 
@@ -29,7 +29,7 @@ ODIN aspires to become the common ground on which stakeholders can meet - free, 
 
 ## Underlying SW Architecture/Design
 
-<img class="mono right" src="../img/actors-mono.svg" width="35%"/>
+<img class="mono right" src="./img/actors-mono.svg" width="35%"/>
 
 To be that common basis ODIN needs a strong architectural foundation. Since ODINs main task is to collect and then process data from various independent external sources we need good support for concurrent computation - one of the most challenging topics for software development. ODIN meets this challenge by using the [Actor Programming Model](https://en.wikipedia.org/wiki/Actor_model): asynchronously executing objects which only communicate through messages and don't share internal state (see [odin_actor](odin_actor/odin_actor.md) and [The Actor Programming Model](odin_actor/actor_basics.md) for details). 
 
