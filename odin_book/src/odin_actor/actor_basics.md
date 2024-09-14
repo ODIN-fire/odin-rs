@@ -12,7 +12,7 @@ related complexity of systems that use actors as their primary building blocks.
 
 The Actor programming model as used by `odin_actor` revolves around five components:
 
-<img class="mono right" src="../img/actors-mono.svg" width="35%"/>
+<img class="mono right" src="./img/actors-mono.svg" width="35%"/>
 
  - an **ActorSystem** that instantiates and manages actors
  - the **Actors** themselves as the units of concurrent execution

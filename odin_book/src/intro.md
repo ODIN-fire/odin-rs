@@ -66,7 +66,7 @@ ODIN user servers are not supposed to handle millions of requests from large num
  
 The main application model for user servers is a [Single Page Application](https://en.wikipedia.org/wiki/Single-page_application). The main user interface is a web browser - ODIN does not require end user installation and can be used on existing machinery.
 
-<img class="mono left" src="../img/odin-spa-mono.svg" width="45%"/>
+<img class="mono left" src="./img/odin-spa-mono.svg" width="45%"/>
 
 A Single Page Application (SPA) mainly uses two types of actors: importers and a SPAServer. An Importer is a dedicated component to handle a single external data source, including data retrieval schedule and translation into ODIN internal format (if required). Importers are completely independent of each other which makes it simple to add new ones. Their results are sent via messages to a SPA-Server actor that distributes the information to connected users. 
 
@@ -85,7 +85,7 @@ ODINs user interface components such as (movable) windows, lists and buttons are
 
 ODIN edge servers are the means to make ODIN applications scalable - they provide condensed/consolidated input data for user servers by factoring out high computational workloads and/or large input data volumes into dedicated machines with high speed network access. Edge servers are primarily used to reduce downstream processing and data volume.
 
-<img class="mono right" src="../img/odin-edge-mono.svg" width="45%"/>
+<img class="mono right" src="./img/odin-edge-mono.svg" width="45%"/>
 
 Assume for instance micro-grid (location/terrain- aware) wind forecast for a given incident area, such as provided by [WindNinja](https://weather.firelab.org/windninja/). This not only requires high speed machinery to execute the simulation but also needs significant bandwidth/connectivity to periodically obtain the required input data such as weather forecasts and station reports, high resolution digital elevation models, vegetation/fuel models and more. The user-facing results of the simulation can be compiled into relatively simple text (CSV) files containing a wind vector grid in the area of interest. 
 
