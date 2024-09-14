@@ -179,7 +179,7 @@ impl SentinelAlarmMonitor {
         let hupdater = &self.hupdater;
         let pos = self.retrieve_pos( hupdater, &device_id, time_recorded).await;
         if let Some(p) = pos {
-            write!( description, "\nhttps://wildfireai.com/odin?view={},{},{}", p.lat, p.lon, p.alt);
+            write!( description, "\nhttps://wildfireai.com/odin?view={:.4},{:.4},{:.0}", p.lat.degrees(), p.lon.degrees(), p.alt);
         }
 
         if !self.config.attach_image {  // send right away
