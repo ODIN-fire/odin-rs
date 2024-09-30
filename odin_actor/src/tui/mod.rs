@@ -30,14 +30,16 @@ use anyhow::{Error, Result};
 
 use crate::{prelude::*, ActorSystemUITrait, errors, error};
 
+use crate::load_config;
+
 mod actors_tab;
 use actors_tab::ActorsTab;
 
 mod messages_tab;
 use messages_tab::MessagesTab;
 
-mod theme;
-use theme::THEME;
+pub mod theme;
+use theme::{TuiTheme, MainTheme};
 
 /// this represents the events that are forwarded to TUI from the actor system
 pub enum TuiEvent {
@@ -126,18 +128,21 @@ pub struct Tui {
     tab: Tab,
     actors_tab: ActorsTab,
     messages_tab: MessagesTab,
+    theme: MainTheme,
 }
 
 impl Tui {
-    pub fn new(hsys: Arc<ActorSystemHandle>) -> Self {
+    pub fn new(hsys: Arc<ActorSystemHandle>, config_filename: &str) -> Self {
         let (atx, arx) = create_mpsc_sender_receiver::<TuiEvent>(20);
+        let tui_theme: TuiTheme = load_config(config_filename).unwrap();
         Self {
             tx: atx,
             rx: arx,
             hsys,
             tab: Tab::Actors,
-            actors_tab: ActorsTab::new(),
+            actors_tab: ActorsTab::new(tui_theme.actors_tab),
             messages_tab: MessagesTab::new(),
+            theme: tui_theme.main,
         }
     }
 
@@ -235,7 +240,7 @@ impl Tui {
     /// this is the main entry point for drawing to the terminal which draws a single frame 
     pub fn draw(&self, terminal: &mut Terminal<impl Backend>)->io::Result<()> {
         terminal
-            .draw(|frame| frame.render_widget(self, frame.size()))?;
+            .draw(|frame| frame.render_widget(self, frame.area()))?;
         Ok(())
     }
 
@@ -249,7 +254,7 @@ impl Widget for &Tui {
     /// tui
     fn render(self, area: Rect, buf: &mut Buffer) {
         let block = Block::bordered()
-            .style(THEME.root)
+            .style(self.theme.root)
             .border_set(BorderType::QuadrantOutside.to_border_set());
         block.render(area, buf);
         
@@ -274,7 +279,7 @@ impl Widget for &Tui {
         
         self.render_title_bar(title_bar, buf);
         self.render_selected_tab(tab, buf);
-        Tui::render_command_bar(command_bar, buf);
+        self.render_command_bar(command_bar, buf);
     }
 }
 
@@ -284,13 +289,13 @@ impl Tui {
         let layout = Layout::horizontal([Constraint::Min(10), Constraint::Length(20)]);
         let [title, tabs] = layout.areas(area);
 
-        Span::styled(" ODIN-fire ", THEME.root_title)
+        Span::styled(" ODIN-fire ", self.theme.root_title)
             .render(title, buf);
         let tab_titles = Tab::TABS.map(Tab::title);
 
         Tabs::new(tab_titles)
-            .style(THEME.tabs)
-            .highlight_style(THEME.tabs_selected)
+            .style(self.theme.tabs)
+            .highlight_style(self.theme.tabs_selected)
             .select(self.tab as usize)
             .divider(" ")
             .padding("", "")
@@ -306,7 +311,7 @@ impl Tui {
     }
 
     /// it renders the command bar
-    fn render_command_bar(area: Rect, buf: &mut Buffer) {
+    fn render_command_bar(&self, area: Rect, buf: &mut Buffer) {
         let commands = [
             ("←", "Left"),
             ("→", "Right"),
@@ -318,13 +323,13 @@ impl Tui {
         let spans: Vec<Span> = commands
             .iter()
             .flat_map(|(key, desc)| {
-                let command = Span::styled(format!(" {key} "), THEME.command_bar.command);
-                let desc = Span::styled(format!(" {desc}  "), THEME.command_bar.description);
+                let command = Span::styled(format!(" {key} "), self.theme.command_bar.command);
+                let desc = Span::styled(format!(" {desc}  "), self.theme.command_bar.description);
                 [command, desc]
             }).collect();
         Line::from(spans)
             .centered()
-            .style(THEME.command_bar.bar)
+            .style(self.theme.command_bar.bar)
             .render(area, buf);
     }
 }
@@ -405,7 +410,7 @@ pub fn restore_terminal()->io::Result<()> {
 /// 
 /// Note that this is consider the the tui entry point from the odin application. 
 pub async fn create_tui (hsys: Arc<ActorSystemHandle>)->Result<Box<TuiHandle>> {
-    let mut tui = Tui::new(hsys);
+    let mut tui = Tui::new(hsys, "tui_theme.ron");
     let tuih = tui.get_tui_handle();
 
     tokio::spawn(async move {
