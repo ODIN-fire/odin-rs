@@ -4,11 +4,11 @@ ODIN is a software framework to efficiently create servers that support disaster
 
 <img class="mono right" src="./img/info-fragmentation.svg" width="40%"/>
 
-More specifically it is a framework to build servers that import and process an open number of external data sources for information such as weather, ground-/aerial- and space-based sensors, threat assessment, simulation, vehicle/crew tracking and many more. The over-arching goal is to improve situational awareness of stakeholders by making more - and more timely - information available in stakeholder-specific applications. The main challenge for this is not the availability of data, it is how this data can be integrated in extensible and customizable applications. 
+More specifically it is a framework to build servers that import and process an open number of external data sources for information such as weather, ground-, aerial- and space-based sensors, threat assessment, simulation, vehicle/crew tracking and many more. The over-arching goal is to improve situational awareness of stakeholders by making more - and more timely - information available in stakeholder-specific applications. The main challenge for this is not the availability of data, it is how this data can be integrated in extensible and customizable applications. 
 
 We want to mitigate the **information fragmentation- and compartmentalization problem**. No more hopping between dozens of browser tabs. No more manual refreshes to stay up-to-date. No more printouts to communicate. No more take-it-or-leave-it systems that can't be extended.
 
-ODINs goal is *not* to create yet another website that is supposed to replace all the ones that already exist. We want to enable stakeholder organizations to assemble *their* server applictions showing the information *they* need, with the capability to run those servers/applications on *their* machines (even out in the field if need be). We also want to do this in a way that makes it easy to integrate new data sources and functions as they become available from government, research organizations and commercial vendors. We want ODIN to be extensible, scalable, portable - and last not least - accessible.
+ODINs goal is *not* to create yet another website that is supposed to replace all the ones that already exist. We want to enable stakeholder organizations to assemble *their* server applictions showing the information *they* need, with the capability to run those servers/applications on *their* machines (even out in the field if need be). We also want to do this in a way that makes it easy to integrate new data sources and functions as they become available from government, research organizations and commercial vendors. We want ODIN to be extensible, scalable, portable and - last not least - accessible.
 
 To that end ODIN is open sourced under [Apache v2 license](http://www.apache.org/licenses/LICENSE-2.0). It is a library you can use and extend in your projects. 
 
@@ -74,7 +74,7 @@ The SPA-Server actor utilizes MicroService objects that are managing static and 
 
 Stand alone ODIN SPA servers do not require any additional files/installation other than the executable itself (see [odin_build](odin_build/odin_build.md) for details). They can be thought of as traditional desktop applications that just use a browser as the user interface.
 
-To ensure realtime update (down to 1Hz) of low latency data such as tracked objects ODIN utilizes [WebSockets](https://en.wikipedia.org/wiki/WebSocket) that are managed by the MicroService objects, and processed in the browser by ODINs Javascript modules (assets).
+To ensure realtime update of low latency data (down to 1Hz) such as tracked objects ODIN utilizes [WebSockets](https://en.wikipedia.org/wiki/WebSocket) that are managed by the MicroService objects, and processed in the browser by ODINs Javascript modules (assets).
 
 For geospatial display in the browser ODIN uses the open source [CesiumJS](https://cesium.com/platform/cesiumjs/) library, which is built on top of [WebGL](https://en.wikipedia.org/wiki/WebGL) and hence supports hardware accelerated 3D graphics to display a virtual globe.
 

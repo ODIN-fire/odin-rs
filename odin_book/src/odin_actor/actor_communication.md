@@ -189,6 +189,12 @@ receivers or to actors from the same domain (i.e. actors that know about their c
 `ActorHandle<M>` is a `struct` that is `Clone` + `Send`, hence it can be sent in messages and stored in fields. 
 Cloning `ActorHandle` is inexpensive.
 
+Normally `ActorHandles` are created by calling our `spawn_actor!(..)` macro. Sometimes we need to create an
+`ActorHandle` **before** we can spawn the actor, e.g. if there are cyclic dependencies between actors. For this purpose
+`odin_actor` provides a `PreActorHandle` struct that can only be used for two purposes: (a) to subsequently spawn an
+actor (using the `spawn_pre_actor!(..)` macro) and (b) to explicitly create a compatible `ActorHandle` from it that can
+be stored/used by other actors. Note that `PreActorHandle` does not compromise type safety or actor encapsulation. 
+
 
 ### (2) `MsgReceiver<T>` and `MsgReceiverList<T>` {.bottom-sep}
 

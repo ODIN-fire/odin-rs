@@ -19,7 +19,7 @@ futures = "*"
 futures-util = { version = "*", features = ["sink"] }
 xattr = "*"
 minify-html = "*"
-http-body = "*"
+http-body = "1.0.1"
 http-body-util = "*"
 tower = { version = "*", features = ["full"] }
 tower-http = { version = "*", features = ["full"] }

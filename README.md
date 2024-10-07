@@ -8,6 +8,8 @@ ODIN is a software framework to efficiently create servers that support disaster
 
 More specifically it is a framework to make it easy to import and process an open number of external data sources for information such as weather, ground-/aerial- and space-based sensors, threat assessment, simulation and tracking. The over-arching goal is to improve situational awareness of responders by making more - and more timely - information available in stakeholder-specific applications. ODINs goal is *not* to create yet another website running in the cloud. To that end it is open sourced under Apachev2, highly extensible and supports running ODIN servers within stakeholder organizations on a variety of hardware and operating systems.
 
+The online documentation for odin-rs can be found on https://odin-fire.github.io/odin-rs/ (or built from `odin_book` in this repository).
+
 To get an idea of what such ODIN servers might look like we refer to two of our TFRSAC talks:
 
   * [spring 2023](https://www.youtube.com/watch?v=b9DfMBYCe-s&t=4950s)
@@ -71,6 +73,8 @@ $> mdbook serve
 2024-07-18 10:07:57 [INFO] (mdbook::cmd::serve): Serving on: http://localhost:3000
 ...
 ```
+
+The online version of `odin_book` is available on https://odin-fire.github.io/odin-rs/
 
 Please also look at the `examples/` directories of various ODIN crates. 
 

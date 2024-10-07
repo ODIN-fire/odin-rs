@@ -54,7 +54,6 @@ uom = { version = "0.36.0", features = ["serde", "f32", "i64"] }
 chrono = { version = "0.4.38", features = ["serde"] }
 
 
-
 [profile.release]
 
 codegen-units = 1
