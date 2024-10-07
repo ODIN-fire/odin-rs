@@ -331,6 +331,11 @@ synonym to knowing the concrete type of the receiver actor, which practically li
 receivers or to actors from the same domain (i.e. actors that know about their concrete types anyways).</p>
 <p><code>ActorHandle&lt;M&gt;</code> is a <code>struct</code> that is <code>Clone</code> + <code>Send</code>, hence it can be sent in messages and stored in fields.
 Cloning <code>ActorHandle</code> is inexpensive.</p>
+<p>Normally <code>ActorHandles</code> are created by calling our <code>spawn_actor!(..)</code> macro. Sometimes we need to create an
+<code>ActorHandle</code> <strong>before</strong> we can spawn the actor, e.g. if there are cyclic dependencies between actors. For this purpose
+<code>odin_actor</code> provides a <code>PreActorHandle</code> struct that can only be used for two purposes: (a) to subsequently spawn an
+actor (using the <code>spawn_pre_actor!(..)</code> macro) and (b) to explicitly create a compatible <code>ActorHandle</code> from it that can
+be stored/used by other actors. Note that <code>PreActorHandle</code> does not compromise type safety or actor encapsulation.</p>
 <h3 id="2-msgreceivert-and-msgreceiverlistt" class="bottom-sep"><a class="header" href="#2-msgreceivert-and-msgreceiverlistt">(2) <code>MsgReceiver&lt;T&gt;</code> and <code>MsgReceiverList&lt;T&gt;</code></a></h3>
 <p><code>MsgReceiver&lt;T&gt;</code> can be used to send messages of a single type <code>T</code> to the receiver (if <code>T</code> is in the receiving actors
 message set - see above). This is the next level of separation since now the sender only has to know that the receiver
@@ -600,22 +605,6 @@ message, which turns the above case into:</p>
 
         </div>
 
-        <!-- Livereload script (if served using the cli tool) -->
-        <script>
-            const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsAddress = wsProtocol + "//" + location.host + "/" + "__livereload";
-            const socket = new WebSocket(wsAddress);
-            socket.onmessage = function (event) {
-                if (event.data === "reload") {
-                    socket.close();
-                    location.reload();
-                }
-            };
-
-            window.onbeforeunload = function() {
-                socket.close();
-            }
-        </script>
 
 
 

@@ -254,20 +254,20 @@ $&gt; mdbook serve
 <p>Once the mdbook server is running you can view the odin_book contents in any browser at http://localhost:3000</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
 <p>ODIN is a software framework to efficiently create servers that support disaster management.</p>
-<img class="mono right" src="../img/info-fragmentation.svg" width="40%"/>
-<p>More specifically it is a framework to build servers that import and process an open number of external data sources for information such as weather, ground-/aerial- and space-based sensors, threat assessment, simulation, vehicle/crew tracking and many more. The over-arching goal is to improve situational awareness of stakeholders by making more - and more timely - information available in stakeholder-specific applications. The main challenge for this is not the availability of data, it is how this data can be integrated in extensible and customizable applications.</p>
+<img class="mono right" src="./img/info-fragmentation.svg" width="40%"/>
+<p>More specifically it is a framework to build servers that import and process an open number of external data sources for information such as weather, ground-, aerial- and space-based sensors, threat assessment, simulation, vehicle/crew tracking and many more. The over-arching goal is to improve situational awareness of stakeholders by making more - and more timely - information available in stakeholder-specific applications. The main challenge for this is not the availability of data, it is how this data can be integrated in extensible and customizable applications.</p>
 <p>We want to mitigate the <strong>information fragmentation- and compartmentalization problem</strong>. No more hopping between dozens of browser tabs. No more manual refreshes to stay up-to-date. No more printouts to communicate. No more take-it-or-leave-it systems that can't be extended.</p>
-<p>ODINs goal is <em>not</em> to create yet another website that is supposed to replace all the ones that already exist. We want to enable stakeholder organizations to assemble <em>their</em> server applictions showing the information <em>they</em> need, with the capability to run those servers/applications on <em>their</em> machines (even out in the field if need be). We also want to do this in a way that makes it easy to integrate new data sources and functions as they become available from government, research organizations and commercial vendors. We want ODIN to be extensible, scalable, portable - and last not least - accessible.</p>
+<p>ODINs goal is <em>not</em> to create yet another website that is supposed to replace all the ones that already exist. We want to enable stakeholder organizations to assemble <em>their</em> server applictions showing the information <em>they</em> need, with the capability to run those servers/applications on <em>their</em> machines (even out in the field if need be). We also want to do this in a way that makes it easy to integrate new data sources and functions as they become available from government, research organizations and commercial vendors. We want ODIN to be extensible, scalable, portable and - last not least - accessible.</p>
 <p>To that end ODIN is open sourced under <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache v2 license</a>. It is a library you can use and extend in your projects.</p>
 <h2 id="stakeholders"><a class="header" href="#stakeholders">Stakeholders</a></h2>
-<img class="mono left" src="../img/stakeholders.svg" width="55%"/>
+<img class="mono left" src="./img/stakeholders.svg" width="55%"/>
 <p>Our vision for ODIN goes beyond a single stakeholder. We want it to be an open (freely available) platform for both users and developers. The ODIN maintainers are just one part of the puzzle, developing and maintaining the core framework other developers can build on. We only see our role in creating generic components that implement a consistent, extensible and scalable architecture.</p>
 <p>User stakeholders are more than just responder organizations (of which there are many). We also envision local communities who want to improve their level of preparedness / disaster planning. Another example would be utility providers monitoring critical infrastructure. The common goal for such user stakeholders is to enhance their situational awareness but what information that entails depends on the specific incident type, stakeholder and location.</p>
 <p>What holds for most user stakeholder organizations is that they lack the resources to develop respective systems from scratch. The stakeholders who do have development capacity often find themselves reinventing the wheel. The stakeholders who subscribe to commercial services have no way to tailor or extend such services.</p>
 <p>There is no single organization that could develop all service components on its own. Commercial vendors come up with new sensors. Research organizations develop new forecast models and simulators. What holds for all such provider stakeholders is that they want to focus on their specific expertise. They don't want to duplicate existing functions just to make their products available. If they do so it just increases the information fragmentation problem we started with.</p>
 <p>ODIN aspires to become the common ground on which stakeholders can meet - free, open and extensible for all.</p>
 <h2 id="underlying-sw-architecturedesign"><a class="header" href="#underlying-sw-architecturedesign">Underlying SW Architecture/Design</a></h2>
-<img class="mono right" src="../img/actors-mono.svg" width="35%"/>
+<img class="mono right" src="./img/actors-mono.svg" width="35%"/>
 <p>To be that common basis ODIN needs a strong architectural foundation. Since ODINs main task is to collect and then process data from various independent external sources we need good support for concurrent computation - one of the most challenging topics for software development. ODIN meets this challenge by using the <a href="https://en.wikipedia.org/wiki/Actor_model">Actor Programming Model</a>: asynchronously executing objects which only communicate through messages and don't share internal state (see <a href="odin_actor/odin_actor.html">odin_actor</a> and <a href="odin_actor/actor_basics.html">The Actor Programming Model</a> for details).</p>
 <p>ODIN also has to work with existing software. There is a large collection of existing work we want to build on, such as fire-behavior and micro grid wind simulators (e.g. <a href="https://weather.firelab.org/windninja/">WindNinja</a>) and general geospatial data processing libraries (e.g. <a href="https://gdal.org/">GDAL</a>). Given the binary nature of many of the underlying data formats, the need to efficiently use 3rd-party native libraries, the challenges of concurrent programming and the portability we strive for we chose <a href="https://www.rust-lang.org/">Rust</a> as the implementation platform as it gives us</p>
 <ul>
@@ -295,16 +295,16 @@ $&gt; mdbook serve
 <li>collaboration (synchronized views)</li>
 </ul>
 <p>The main application model for user servers is a <a href="https://en.wikipedia.org/wiki/Single-page_application">Single Page Application</a>. The main user interface is a web browser - ODIN does not require end user installation and can be used on existing machinery.</p>
-<img class="mono left" src="../img/odin-spa-mono.svg" width="45%"/>
+<img class="mono left" src="./img/odin-spa-mono.svg" width="45%"/>
 <p>A Single Page Application (SPA) mainly uses two types of actors: importers and a SPAServer. An Importer is a dedicated component to handle a single external data source, including data retrieval schedule and translation into ODIN internal format (if required). Importers are completely independent of each other which makes it simple to add new ones. Their results are sent via messages to a SPA-Server actor that distributes the information to connected users.</p>
 <p>The SPA-Server actor utilizes MicroService objects that are managing static and dynamic content which is shown as separate layers on the served web page. Static content mostly consists of HTML and associated Javascript modules. It can be initialized from files or compiled into stand-alone executables and is served via http(s) protocol.</p>
 <p>Stand alone ODIN SPA servers do not require any additional files/installation other than the executable itself (see <a href="odin_build/odin_build.html">odin_build</a> for details). They can be thought of as traditional desktop applications that just use a browser as the user interface.</p>
-<p>To ensure realtime update (down to 1Hz) of low latency data such as tracked objects ODIN utilizes <a href="https://en.wikipedia.org/wiki/WebSocket">WebSockets</a> that are managed by the MicroService objects, and processed in the browser by ODINs Javascript modules (assets).</p>
+<p>To ensure realtime update of low latency data (down to 1Hz) such as tracked objects ODIN utilizes <a href="https://en.wikipedia.org/wiki/WebSocket">WebSockets</a> that are managed by the MicroService objects, and processed in the browser by ODINs Javascript modules (assets).</p>
 <p>For geospatial display in the browser ODIN uses the open source <a href="https://cesium.com/platform/cesiumjs/">CesiumJS</a> library, which is built on top of <a href="https://en.wikipedia.org/wiki/WebGL">WebGL</a> and hence supports hardware accelerated 3D graphics to display a virtual globe.</p>
 <p>ODINs user interface components such as (movable) windows, lists and buttons are implemented with ODINs own Javascript library that resembles a traditional desktop and is highly (user-) configurable.</p>
 <h3 id="edge-servers"><a class="header" href="#edge-servers">Edge Servers</a></h3>
 <p>ODIN edge servers are the means to make ODIN applications scalable - they provide condensed/consolidated input data for user servers by factoring out high computational workloads and/or large input data volumes into dedicated machines with high speed network access. Edge servers are primarily used to reduce downstream processing and data volume.</p>
-<img class="mono right" src="../img/odin-edge-mono.svg" width="45%"/>
+<img class="mono right" src="./img/odin-edge-mono.svg" width="45%"/>
 <p>Assume for instance micro-grid (location/terrain- aware) wind forecast for a given incident area, such as provided by <a href="https://weather.firelab.org/windninja/">WindNinja</a>. This not only requires high speed machinery to execute the simulation but also needs significant bandwidth/connectivity to periodically obtain the required input data such as weather forecasts and station reports, high resolution digital elevation models, vegetation/fuel models and more. The user-facing results of the simulation can be compiled into relatively simple text (CSV) files containing a wind vector grid in the area of interest.</p>
 <p>As a general rule we want to be able to run functions where the data is most easily accessible. For information that is obtained from sensors in the field (such as local tracking data) that can be a local incident command server. For functions that use large amounts of input such as NOAA weather forecasts this can be a high speed data center. For functions that are computationally expensive this should be a super computer.</p>
 <h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
@@ -938,6 +938,11 @@ synonym to knowing the concrete type of the receiver actor, which practically li
 receivers or to actors from the same domain (i.e. actors that know about their concrete types anyways).</p>
 <p><code>ActorHandle&lt;M&gt;</code> is a <code>struct</code> that is <code>Clone</code> + <code>Send</code>, hence it can be sent in messages and stored in fields.
 Cloning <code>ActorHandle</code> is inexpensive.</p>
+<p>Normally <code>ActorHandles</code> are created by calling our <code>spawn_actor!(..)</code> macro. Sometimes we need to create an
+<code>ActorHandle</code> <strong>before</strong> we can spawn the actor, e.g. if there are cyclic dependencies between actors. For this purpose
+<code>odin_actor</code> provides a <code>PreActorHandle</code> struct that can only be used for two purposes: (a) to subsequently spawn an
+actor (using the <code>spawn_pre_actor!(..)</code> macro) and (b) to explicitly create a compatible <code>ActorHandle</code> from it that can
+be stored/used by other actors. Note that <code>PreActorHandle</code> does not compromise type safety or actor encapsulation.</p>
 <h3 id="2-msgreceivert-and-msgreceiverlistt" class="bottom-sep"><a class="header" href="#2-msgreceivert-and-msgreceiverlistt">(2) <code>MsgReceiver&lt;T&gt;</code> and <code>MsgReceiverList&lt;T&gt;</code></a></h3>
 <p><code>MsgReceiver&lt;T&gt;</code> can be used to send messages of a single type <code>T</code> to the receiver (if <code>T</code> is in the receiving actors
 message set - see above). This is the next level of separation since now the sender only has to know that the receiver
@@ -1218,9 +1223,302 @@ message, which turns the above case into:</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="actor_config"><a class="header" href="#actor_config">actor_config</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="heartbeat"><a class="header" href="#heartbeat">heartbeat</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="odin_server"><a class="header" href="#odin_server">odin_server</a></h1>
-<p>The <code>odin_server</code> crate provides actors that encapsulate servers. The primary server type is the <code>SpaServer</code> that
-implements a <a href="https://en.wikipedia.org/wiki/Single-page_application"><em>Single Page Application</em></a> web server model
-with composable <code>SpaService</code> (<a href="https://en.wikipedia.org/wiki/Microservices"><em>Micro Service</em></a>) stacks.</p>
+<p>The <code>odin_server</code> system crate provides the infrastructure to create servers. The primary server type is the
+<code>SpaServer</code> which implements a <a href="https://en.wikipedia.org/wiki/Single-page_application"><em>Single Page Application</em></a>
+web server with composable <code>SpaService</code> (<a href="https://en.wikipedia.org/wiki/Microservices"><em>micro service</em></a>) stacks.
+The crate it based on the <a href="https://docs.rs/axum/latest/axum/">Axum</a> framework and hence seamlessly integrates with
+the <a href="https://docs.rs/tokio/latest/tokio/index.html">Tokio</a> async runtime that is also used for our actor system
+implementation in the <a href="odin_server/../odin_actor/odin_actor.html">odin_actor</a> crate.</p>
+<p>The general use case for our servers is to support soft-realtime updates of sensor and tracking data down to 1Hz
+latency. To achieve this we push data updates over websockets to all connected clients and hence assume a limited
+number of simultaneous users (&lt; 1000).</p>
+<p>The primary constructs of <code>odin_server</code> are</p>
+<ul>
+<li>the <code>SpaServer</code> actor</li>
+<li>the <code>SpaService</code> trait</li>
+</ul>
+<p>There is one <code>SpaServer</code> actor and an open number of <code>SpaService</code> trait implementations, hence the latter is the main
+abstraction of <code>odin_server</code>. <code>SpaService</code> instances often act as display layers for a multitude of dynamic data types
+such as tracked objects, weather info and satellite observations.</p>
+<p>A <code>SpaService</code> has two main purposes:</p>
+<ul>
+<li>provide the components that are served via http.
+The main resource component of a <code>SpaService</code> is usually a Javascript module that contains the client-side code to communicate with the server and to display data received from it. Those <em>assets</em> make full use of the <a href="odin_server/../odin_build/odin_build.html">odin_build</a> crate, i.e.
+they can be inlined (for stand-alone servers) or looked up in a number of file system locations</li>
+<li>trigger the initial data download via websocket when a new client (browser) connects.</li>
+</ul>
+<p>Dynamic data such as tracked objects normally comes from a separate <em>DataActor</em> that is associated with a <code>SpaService</code>. Although this is a role (not a type) it has a common message interface to <code>SpaServer</code>:</p>
+<ul>
+<li>announce availability of data</li>
+<li>provide a current data snapshot to be sent to new clients (connected browsers)</li>
+<li>provide data updates to be sent to all clients when the internal state changes</li>
+</ul>
+<pre><code>                     ┌────────────────────────┐                      
+                     │      SpaServer         │                assets
+                     │                        │      ┌─────────────┐ 
+                     │  ┌──────────────────┐  │   ┌──┤  js-module  │ 
+                     │  │  SpaServiceList  │  │   │  └─────────────┘ 
+                     │  │                  │  │   │  ┌─────────────┐ 
+┌───────────┐        │  │ ┏━━━━━━━━━━━━┓◄──┼──┼───┼──┤     ...     │ 
+│ DataActor ├─┐ ◄────┼──┼─┃ SpaService ┃─┐ │  │   │  └─────────────┘ 
+└─┬─────────┘ │      │  │ ┗━┯━━━━━━━━━━┛ │ │  │   │                  
+  └─────┬─────┘      │  │   └────────────┘ │  │   │           proxies
+        │            │  └──────────────────┘  │   └──── name | url   
+        │            │                        │         ...  | ...   
+        │            │      connections       │                      
+        │  init      │  ┌──────────────────┐  │                      
+        └───────────►│  │ip-addr  websocket│  │                      
+           update    │  │  ...      ...    │  │                      
+                     │  └──────────────────┘  │                      
+                     │                        │                      
+                     └────┬─────────────▲─────┘                      
+                          │             │                            
+                 - - - - -│- - - - - - -│- - - - - -                 
+                   http://│             │wss://                      
+                          ▼   clients   ▼                                                
+</code></pre>
+<p>The <code>SpaServer</code> actor encapsulates two pieces of information:</p>
+<ul>
+<li>the static <code>SpaServiceList</code> that contains an ordered sequence of <code>SpaService</code> trait objects for the web application.
+This list is provided as a <code>SpaServer</code> contstructor parameter (e.g. created in <code>main()</code>) but uses its own type since <code>SpaService</code> instances can depend on other SpaServices.</li>
+<li>the dynamic list of client connections (client IP address and associated websocket)</li>
+</ul>
+<p><code>SpaServer</code> has an internal and external message interface. The internal interface is used to update the connection list (which
+is not shared with the <code>SpaServices</code>). The external interface includes two generic message types sent by <em>DataActors</em>:</p>
+<ul>
+<li><code>SendWsMsg(ip_addr,data)</code> to send data snapshots to a new connection (address provided in the message)</li>
+<li><code>BroadcastMsg(data)</code> to broadcast data updates to all current connections</li>
+</ul>
+<p>We use <a href="https://www.json.org/json-en.html">JSON</a> for all websocket communications.</p>
+<p><code>SpaServer</code>, <code>SpaService</code> and <em>DataActor</em> implementations do not need to know each other, they can reside in different crates and
+even domains (system or application). This is mostly achieved through <code>SpaService</code> trait objects and
+<a href="odin_server/../odin_action/odin_action.html"><code>odin_action</code> data actions</a> which are set in the only code that needs to know the concrete types - the
+actor system instantiation site (e.g. <code>main()</code>).</p>
+<p>Each web application actor system is implemented as a single executable. In general, development of new web applications therefore
+involves two steps:</p>
+<ol>
+<li>creating <em>DataActor</em> and associated <code>SpaService</code> implementations for new data sources</li>
+<li>writing code that instantiates the required actors and connects them through <em>data actions</em>
+(see <a href="odin_server/../odin_action/odin_action.html">odin_action</a>)</li>
+</ol>
+<h2 id="1-creating-spaservice-implementations"><a class="header" href="#1-creating-spaservice-implementations">1. Creating <code>SpaService</code> Implementations</a></h2>
+<p>As a <code>SpaService</code> has the two main functions of (1) initializing the server and then (2) initializing clients through their
+websockets. We look at these steps in sequence.</p>
+<h3 id="11-initializing-the-server"><a class="header" href="#11-initializing-the-server">1.1 Initializing the Server</a></h3>
+<p><code>SpaService</code> objects are <code>SpaServer</code> constructor arguments. They have to be created first but instead of passing them directly
+into the <code>SpaServer</code> constructor we use a <code>SpaServiceList</code> accumulator to do so. The rationale is that <code>SpaServices</code> can depend
+on each other, e.g. a track service depending on the framework provided websocket and virtual globe rendering services.
+<code>SpaServiceList</code> is used to make sure only one service of each type name is included. It is initialized like so:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>SpaServiceList::new()
+    .add( build_service!( GoesrService::new(...)) )
+    ...
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>odin_server::build_service!(expr)</code> macro is just syntactic sugar that wraps the provided expr into a closure to defer the actual creation of the service until we know its typename has not been seen yet. The <code>SpaServiceList::add()</code> funtion then calls the <code>SpaService::add_dependencies(..)</code> implementation, which can recursively repeat the process:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>    fn add_dependencies (&amp;self, svc_list: SpaServiceList) -&gt; SpaServiceList {
+        svc_list
+            .add( build_service!( UiService::new()))
+            .add( build_service!( WsService::new()))
+    }
+<span class="boring">}</span></code></pre></pre>
+<p>While <code>SpaServiceList</code> is used to accumulate the required <code>SpaService</code> instances it is not used to store them in the <code>SpaServer</code>.
+Instead, we extract these instances and wrap them as trait objects in an internal <code>SpaSvc</code> type that allows us to add some
+service specific state.  Once a <code>SpaServer</code> actor receives a <code>_Start_</code> system message it begins to assemble the served document by traversing the stored <code>SpaService</code> trait objects.</p>
+<p>There are two component types each <code>SpaService</code> can add:</p>
+<ul>
+<li>document fragments (HTML elements such as scripts)</li>
+<li>routes (HTML GET/POST handlers that respond to service specific asset requests)</li>
+</ul>
+<p>Again, the <code>SpaServer</code> does not add such components directly to the generated HTML document and Axum handlers but accumulates them in a
+<code>SpaComponents</code> struct that can filter out redundant components (e.g. external script references). The <code>SpaComponets</code> type is
+essentially our single page document model that includes:</p>
+<ul>
+<li>header items (CSS links, external script links, <code>odin_server</code> Javascript modules)</li>
+<li>body fragments (HTML elements)</li>
+<li>routes (the HTML URIs we serve)</li>
+<li>proxies (a map of symbolic external server names to their respective base URIs)</li>
+<li>assets (a map from symbolic asset filenames to <code>SpaService</code> crate specific <code>load_asset()</code> lookup functions)</li>
+</ul>
+<p><code>SpaComponents</code> includes methods to add each of those components from within <code>SpaService::add_components(..)</code> implementations like so:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>    fn add_components (&amp;self, spa: &amp;mut SpaComponents) -&gt; OdinServerResult&lt;()&gt;  {
+        spa.add_assets( self_crate!(), load_asset);
+        spa.add_module( asset_uri!("odin_sentinel_config.js"));
+        spa.add_module( asset_uri!("odin_sentinel.js"));
+
+        spa.add_route( |router, spa_server_state| {
+            router.route( &amp;format!("/{}/sentinel-image/*unmatched", spa_server_state.name.as_str()), get(Self::image_handler))
+        });
+
+        Ok(())
+    }
+<span class="boring">}</span></code></pre></pre>
+<p><code>SpaService</code> implementor crates use the <a href="odin_server/../odin_build/odin_build.html">odin_build</a> crate to generate respective <code>load_asset(..)</code> functions
+from their <code>lib.rs</code> modules like so:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use odin_build::define_load_asset;
+...
+define_load_asset!{}
+...
+<span class="boring">}</span></code></pre></pre>
+<p>Although our own <code>SpaService</code> specific Javascript modules are looked up/served through this <code>load_asset()</code> function we have to
+add them explicitly through calling <code>add_asset(..)</code> since our document model supports post-initialization hooks that are automatically
+called at the end of the BODY element and we have to ensure that all (possibly asynchronous) Javascript modules are initialized
+at this point.</p>
+<p><code>SpaService</code> implementations only have to add the components they need. Once all services have added their components the <code>SpaServer</code>
+calls the <code>SpaComponents::to_html(..)</code> function to generate the served document and generates required Axum
+<a href="https://docs.rs/axum/latest/axum/index.html#routing">routers</a> with their respective
+<a href="https://docs.rs/axum/latest/axum/index.html#handlers">handler</a> functions.</p>
+<pre><code>                                               ┌──────────────┐                           
+                                               │ OtherService │                   configs 
+                                               └──────┬───────┘         ┌──────────────┐  
+                  ┌──────────────┐                    │       ┌─────────┤my_service.ron│  
+                  │SpaServiceList│                    │       │   init  └──────────────┘  
+                  └──┬──▲────────┘                    │       │                           
+                     │  │   ┌─────────────────────────┼───────▼──┐                 assets 
+ _Start_             │  │   │ MyService : SpaService  │          │       ┌─────────────┐  
+                     │  │   │                         ▼          │    ┌──┤my_service.js│  
+    start()_server() │  └───┼─ add_dependencies(svc_list)        │    │  └─────────────┘  
+                     ▼      │                                    │    │  ┌─────────────┐  
+           build_router()  ◄┼─ add_components(spa_components)◄───┼────┼──┤     ...     │  
+                     │      │                         │          │    │  └─────────────┘  
+                     │      │  ...                    │          │    │                   
+                     │      └─────────────────────────│──────────┘    │           proxies 
+                     ▼                                ▼               └──── name | url    
+               doc_handler()  ◄────────────────── document                  ...  | ...    
+                                                                                          
+               asset_handler()                                                            
+                                                                                          
+               proxy_handler()                                                            
+                     │                                                                    
+                     ▼                                                                    
+                 http://                                                                  
+</code></pre>
+<p>At this point <code>SpaServer::start_server()</code> spawns the Axum <code>TcpListener</code> task and we are ready to serve client requests.</p>
+<h3 id="12-initializing-and-updating-clients"><a class="header" href="#12-initializing-and-updating-clients">1.2 Initializing and Updating Clients</a></h3>
+<p>Most application domain <code>SpaService</code> implementations involve dynamic data that needs to be pushed to connected browsers. That
+data typically does not get generated by the <code>SpaService</code> itself but by some dedicated <em>DataActor</em> that is only concerned about
+maintaining that data, not about distributing or rendering it. To make this available in a web server context we use
+interaction between the respective <code>SpaService</code>, its <em>DataActor</em> and the <code>SpaServer</code>.</p>
+<p>There are two types of interaction</p>
+<ul>
+<li>initialization of new clients</li>
+<li>update of all connected clients</li>
+</ul>
+<p>Since we need to push data both work by sending JSON messages over the websocket associated with a client.</p>
+<p>New connections are deteced by a request for the websocket URI that is handled by the framework provided <code>WsService</code> (which
+is a dependency for all dynamic data services). Once the protocol upgrade (http -&gt; ws) is accepted the <code>WsService</code> handler sends
+an internal <code>AddConnection</code> message to the <code>SpaServer</code> which in response stores the new remote address and websocket in its
+connection list and then calls the <code>init_connection(..)</code> method of all its <code>SpaServices</code>.</p>
+<p>The <code>SpaService::init_connection(..)</code> implementations then send a message to their <em>DataActor</em> that contains a
+[<code>odin_action::DynDataRefAction](odin_action/odin_action.md) object which captures both the handle of the </code>SpaServer<code>actor and the ip address of the new connection. When the *DataActor* processes that message it executes the</code>DynDataRefAction<code>passing in a reference to its internal data. The action body itself generates a JSON message from the data reference and  sends it as a</code>SendWsMsg<code>message to the</code>SpaServer` actor, which then uses the remote ip address of the message to look up
+the corresponding websocket in its connection list and then sends the JSON message payload over it.</p>
+<pre><code>                                   ┌────────────────────────────────────────────────┐
+                                   │                  SpaServer                     │
+                                   │                                                │
+                                   │  ┌─────────────────────────────────────┐       │
+                                   │  │ MyService : SpaService              │       │
+┌─────────────────┐                │  │                                     │       │
+│    DataActor    │                │  │  ...                                │       │
+│                 │ DataAvailable  │  │                                     │       │
+│ [init_action]  ─┼────────────────┼──┼► data_available(hself,has_conn,..)  │       │
+│                 │                │  │                                     │       │
+│ exec( action) ◄─┼────────────────┼──┼─ init_connection(hself,has_data,..)◄─────────────┐
+│        │        │                │  │                                     ├────┐  │    │AddConnection
+│        │        │                │  └─────────────────────────┬───────────┘    │  │    │
+│        │        │   SendWsMsg    │                            │     WsService  ────────┘ 
+│        └────────┼────────────────┼──► send_ws_msg()           └────────────────┘  │
+│                 │                │                              ┌───────────┐     │
+│ [update_action]─┼────────────────┼──► broadcast_ws_msg() ◄──────┤connections│     │
+│                 │ BroadcastWsMsg │         │                    └───────────┘     │
+└─────────────────┘                │         │                                      │
+                                   └─────────┼──────────────────────────────────────┘
+                                             │                                    
+                                             │                                    
+                                             ▼                                    
+                                           wss://                                 
+</code></pre>
+<p>A typical <code>SpaService::init_connection(..)</code> implementation looks like this:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>async fn init_connection (&amp;mut self, hself: &amp;ActorHandle&lt;SpaServerMsg&gt;, is_data_available: bool, conn: &amp;mut SpaConnection) 
+  -&gt; OdinServerResult&lt;()&gt; {
+        ...
+        if is_data_available {
+            let action = dyn_dataref_action!( hself.clone(): ActorHandle&lt;SpaServerMsg&gt;, remote_addr: SocketAddr =&gt; |data: &amp;MyData| {
+                let data = ws_msg!( JS_MOD_PATH, data).to_json()?;
+                let remote_addr = remote_addr.clone();
+                Ok( hself.try_send_msg( SendWsMsg{remote_addr,data})? )
+            });
+            self.h_data_actor.send_msg( ExecSnapshotAction(action)).await?;
+        }
+        Ok(())
+    }
+<span class="boring">}</span></code></pre></pre>
+<p>Since the <code>SpaService</code> needs to send a message to its <em>DataActor</em> this implies that a handle to the actor is stored in the
+<code>SpaService</code>, usually from a <code>PreActorHandle</code> of the <em>DataActor</em> passed into the <code>SpaService</code> constructor.</p>
+<p>Some <em>DataActors</em> have to obtain input from remote servers according to specific schedules hence there is a chance the first
+clients are going to connect before the <em>DataActor</em> is ready. To avoid the overhead of creating, sending and executing superfluous
+data actions and websocket messages we keep track of the <code>data_available</code> state of <em>DataActors</em> within the <code>SpaServer</code>. This works
+by using a <code>init_action</code> field in the <em>DataActor</em> that has its actions executed once the data is initialized. The actor system
+instantiation site (e.g. <code>main()</code>) then sets this action to send a <code>DataAvailable</code> message to the <code>SpaServer</code>, which passes it on
+to matching <code>SpaServices</code> by calling their <code>data_available(..)</code> functions. Those functions can use the <em>DataActor</em> name and/or
+the data type to determine if this is a relevant data source. If it is, and if the server already has connections, the <code>data_available()</code>
+implementation sends a <code>DataRefAction</code> containing message to the <em>DataActor</em> just like in the <code>init_connection()</code> case above. The
+<code>SpaServer</code> then stores the <code>data_available</code> status for that service, to be passed into subsequent <code>init_connection(..)</code> calls.</p>
+<p>While the data availability tracking adds some overhead to both <em>DataActors</em> and <code>SpaService</code> implementations it is an effective
+way to deal with the intrinsic race condition between connection requests and external data acquisition.</p>
+<p>This leaves us with data updates, which are always initiated by the <em>DataActor</em>. When its internal data model changes the <em>DataActor</em>
+executes a <code>DataAction</code> that is stored in one of its fields which is set from the actor system instantiation site (<code>main()</code>) to an
+action that creates a JSON message from the updated data and sends it as a <code>BroadcastWsMsg</code> message to the <code>SpaServer</code>. The
+server then distributes the JSON message over the websockets of all of its current connections.</p>
+<h2 id="2-instantiating-the-web-application-actor-system"><a class="header" href="#2-instantiating-the-web-application-actor-system">2. Instantiating the Web Application Actor System</a></h2>
+<p>What ties all this together is the site where we create the <code>SpaServices</code>, <em>DataActors</em> and the <code>SpaServer</code> - usually the <code>main()</code>
+function of the application binary.</p>
+<p>The following code is an example from the <a href="odin_server/../odin_sentinel/odin_sentinel.html"><code>odin_sentinel</code></a> crate. The <code>SentinelActor</code> takes
+the <em>DataActor</em> role, The <code>SentinelService</code> is the associated <code>SpaService</code>.</p>
+<p>We use a <code>PreActorHandle</code> for the <code>SentinelActor</code> (<em>DataActor</em>) since we need to pass it into the <code>SentinelService</code>
+(<code>SpaService</code>) constructor, which is required to create the <code>SpaServer</code>, which is then in turn used to initialize the init/update
+action fields when instantiating the <code>SentinelActor</code> (see <a href="odin_server/../odin_actor/actor_communication.html">actor communication</a> in
+<code>odin_actor</code>).</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use std::any::type_name;
+use odin_build;
+use odin_actor::prelude::*;
+use odin_server::prelude::*;
+use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor,load_config, web::SentinelService};
+
+run_actor_system!( actor_system =&gt; {
+
+    let hsentinel = PreActorHandle::new( &amp;actor_system, "updater", 8);
+
+    let hserver = spawn_actor!( actor_system, "server", SpaServer::new(
+        odin_server::load_config("spa_server.ron")?,
+        "sentinels",
+        SpaServiceList::new()
+            .add( build_service!( hsentinel.to_actor_handle() =&gt; SentinelService::new( hsentinel)))
+    ))?;
+
+    let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
+        LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
+        dataref_action!( hserver.clone(): ActorHandle&lt;SpaServerMsg&gt; =&gt; |_store: &amp;SentinelStore| {
+            Ok( hserver.try_send_msg( DataAvailable{sender_id:"updater",data_type: type_name::&lt;SentinelStore&gt;()} )? )
+        }),
+        data_action!( hserver: ActorHandle&lt;SpaServerMsg&gt; =&gt; |update:SentinelUpdate| {
+            let data = ws_msg!("odin_sentinel/odin_sentinel.js",update).to_json()?;
+            Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
+        }),
+    ))?;
+    
+    Ok(())
+});
+<span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="application-domain-crates"><a class="header" href="#application-domain-crates">Application Domain Crates</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="odin_sentinel"><a class="header" href="#odin_sentinel">odin_sentinel</a></h1>
 <p>The <code>odin_sentinel</code> crate is a user (data) crate for retrieval, realtime import and processing of <a href="https://delphiretech.com/products/">Delphire
@@ -1334,22 +1632,6 @@ action points (see [odin_action])
 
         </div>
 
-        <!-- Livereload script (if served using the cli tool) -->
-        <script>
-            const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsAddress = wsProtocol + "//" + location.host + "/" + "__livereload";
-            const socket = new WebSocket(wsAddress);
-            socket.onmessage = function (event) {
-                if (event.data === "reload") {
-                    socket.close();
-                    location.reload();
-                }
-            };
-
-            window.onbeforeunload = function() {
-                socket.close();
-            }
-        </script>
 
 
 
