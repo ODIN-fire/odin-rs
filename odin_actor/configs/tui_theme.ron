@@ -1,0 +1,101 @@
+TuiTheme(
+    main: (
+        root: (
+            fg: Some("Black"),
+            bg: None,
+            underline_color: None,
+            add_modifier: ("BOLD"),
+            sub_modifier: (""),
+        ),
+        root_title: (
+            fg: Some("White"),
+            bg: None,
+            underline_color: None,
+            add_modifier: ("BOLD"),
+            sub_modifier: (""),
+        ),
+        tabs: (
+            fg: Some({"Rgb":[128, 128, 128]}),
+            bg: None,
+            underline_color: None,
+            add_modifier: (""),
+            sub_modifier: (""),
+        ),
+        tabs_selected: (
+            fg: Some("White"),
+            bg: Some("Black"),
+            underline_color: None,
+            add_modifier: ("BOLD"),
+            sub_modifier: ("REVERSED"),
+        ),
+        command_bar: (
+            command: (
+                fg: Some("Black"),
+                bg: Some({"Rgb":[68, 68, 68]}),
+                underline_color: None,
+                add_modifier: (""),
+                sub_modifier: ("")
+            ),
+            description: (
+                fg: Some({"Rgb":[68, 68, 68]}),
+                bg: None,
+                underline_color: None,
+                add_modifier: (""),
+                sub_modifier: ("")
+            ),
+            bar: (
+                fg: None,
+                bg: Some("Black"),
+                underline_color: None,
+                add_modifier: (""),
+                sub_modifier: ("")
+            )
+        )
+    ),
+    actors_tab: (
+        actor_table: (
+            header: (
+                fg: Some("Black"),
+                bg: Some({"Rgb":[68, 68, 68]}),
+                underline_color: None,
+                add_modifier: ("BOLD"),
+                sub_modifier: ("")
+            ),
+            selected: (
+                fg: Some({"Rgb":[255, 207, 51]}),
+                bg: None,
+                underline_color: None,
+                add_modifier: ("BOLD"),
+                sub_modifier: ("")
+            )
+        ),
+        chart: (
+            ave_bar: {"Rgb":[255, 207, 51]},
+            ave_val: (
+                fg: Some({"Rgb":[128, 128, 128]}),
+                bg: Some({"Rgb":[255, 207, 51]}),
+                underline_color: None,
+                add_modifier: (""),
+                sub_modifier: ("")
+            ),
+            min_bar: {"Rgb":[240, 127, 0]},
+            min_val: (
+                fg: Some({"Rgb":[128, 128, 128]}),
+                bg: Some({"Rgb":[240, 127, 0]}),
+                underline_color: None,
+                add_modifier: (""),
+                sub_modifier: ("")
+            ),
+            max_bar: {"Rgb":[212, 0, 0]},
+            max_val: (
+                fg: Some("Black"),
+                bg: Some({"Rgb":[212, 0, 0]}),
+                underline_color: None,
+                add_modifier: (""),
+               sub_modifier: ("")
+            ),
+            bar_width: 5,
+            group_gap: 3,
+        )
+    )
+)

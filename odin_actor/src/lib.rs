@@ -60,6 +60,9 @@ pub use odin_macro::{
 // re-export actions - they are ubiquitous with actors
 pub use odin_action::*;
 
+use odin_build::define_load_config;
+
+define_load_config! {}
 
 #[inline] pub fn days (n: u64)->Duration { Duration::from_secs(n*60*60*24) }
 #[inline] pub fn hours (n: u64)->Duration { Duration::from_secs(n*60*60) }
