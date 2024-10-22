@@ -1219,7 +1219,7 @@ macro_rules! run_actor_system {
         #[tokio::main]
         async fn main ()->anyhow::Result<()> {
             odin_build::set_bin_context!();
-            let mut $asys = ActorSystem::new("main");
+            let mut $asys = ActorSystem::with_env_tracing("main");
             $asys.request_termination_on_ctrlc();
 
             let _res: anyhow::Result<()> = $set_up;

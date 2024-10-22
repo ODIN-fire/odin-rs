@@ -220,7 +220,7 @@ an internal `AddConnection` message to the `SpaServer` which in response stores 
 connection list and then calls the `init_connection(..)` method of all its `SpaServices`. 
 
 The `SpaService::init_connection(..)` implementations then send a message to their *DataActor* that contains a 
-[`odin_action::DynDataRefAction](odin_action/odin_action.md) object which captures both the handle of the `SpaServer` actor
+[`odin_action::DynDataRefAction`](odin_action/odin_action.md) object which captures both the handle of the `SpaServer` actor
 and the ip address of the new connection. When the *DataActor* processes that message it executes the `DynDataRefAction`
 passing in a reference to its internal data. The action body itself generates a JSON message from the data reference and 
 sends it as a `SendWsMsg` message to the `SpaServer` actor, which then uses the remote ip address of the message to look up

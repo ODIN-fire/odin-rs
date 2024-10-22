@@ -19,6 +19,9 @@ path = "src/bin/translate_bbox.rs"
 
 [dependencies]
 odin_common = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
 
 gdal-sys = { version = "0.10.0", features = ["bindgen"]}
 #gdal-sys = { version = "0.10.0" }
@@ -27,9 +30,7 @@ lazy_static = "*"
 libc = "*"
 geo = "*"
 anyhow = "*"
-thiserror = "*"
 structopt = "*"
 meshgridrs = "*"
 ndarray = "*"
-serde = { version = "*", features = ["rc","derive"] }
 

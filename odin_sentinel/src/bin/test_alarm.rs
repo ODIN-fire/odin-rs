@@ -84,10 +84,10 @@ fn create_messengers()->Result<Vec<Box<dyn AlarmMessenger>>> {
         messengers.push( Box::new( SlackAlarmMessenger::new( load_config("slack_alarm.ron")?)))
     }
     if ARGS.smtp { 
-        messengers.push( Box::new( SmtpAlarmMessenger::new( load_config("smtp")?))) 
+        messengers.push( Box::new( SmtpAlarmMessenger::new( load_config("smtp.ron")?))) 
     }
     if ARGS.signal_cli { 
-        messengers.push( Box::new( SignalCmdAlarmMessenger::new( load_config("signal_cmd")?))) 
+        messengers.push( Box::new( SignalCmdAlarmMessenger::new( load_config("signal_cmd.ron")?))) 
     }
 
     Ok(messengers)

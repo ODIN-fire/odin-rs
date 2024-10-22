@@ -84,8 +84,8 @@ macro_rules! data_action {
         {            
             struct SomeDataAction { $( $v: $v_type ),* }
 
-            impl DataAction<$data_type> for SomeDataAction {
-                async fn execute (&self, $data : $data_type) -> std::result::Result<(),OdinActionFailure> {
+            impl odin_action::DataAction<$data_type> for SomeDataAction {
+                async fn execute (&self, $data : $data_type) -> std::result::Result<(),odin_action::OdinActionFailure> {
                     $( let $v = &self. $v;)*
                     $e
                 }

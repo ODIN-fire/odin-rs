@@ -299,32 +299,35 @@ define_actor_msg_set! {
  * we intercept logging/tracing macros here to have a central place where we can remove/replace them 
  */
 
+ // the re-exports we need for our logging macros (we have to rename the target macros to avoid collision)
+pub use tracing::{trace as _trace, debug as _debug, info as _info, error as _error, warn as _warn};
+
 #[macro_export]
 macro_rules! trace {
-    ( $( $id:ident = $e:expr ),* ) => { tracing::trace!( $( $id = $e ),* ) };
-    ( $( $e: expr ),* ) => { tracing::trace!( $( $e ),* ) }
+    ( $( $id:ident = $e:expr ),* ) => { $crate::_trace!( $( $id = $e ),* ) };
+    ( $( $e: expr ),* ) => { $crate::_trace!( $( $e ),* ) }
 }
 
 #[macro_export]
 macro_rules! debug {
-    ( $( $id:ident = $e:expr ),* ) => { tracing::debug!( $( $id = $e ),* ) };
-    ( $( $e: expr ),* ) => { tracing::debug!( $( $e ),* ) }
+    ( $( $id:ident = $e:expr ),* ) => { $crate::_debug!( $( $id = $e ),* ) };
+    ( $( $e: expr ),* ) => { $crate::_debug!( $( $e ),* ) }
 }
 
 #[macro_export]
 macro_rules! info {
-    ( $( $id:ident = $e:expr ),* ) => { tracing::info!( $( $id = $e ),* ) };
-    ( $( $e: expr ),* ) => { tracing::info!( $( $e ),* ) }
+    ( $( $id:ident = $e:expr ),* ) => { $crate::_info!( $( $id = $e ),* ) };
+    ( $( $e: expr ),* ) => { $crate::_info!( $( $e ),* ) }
 }
 
 #[macro_export]
 macro_rules! warn {
-    ( $( $id:ident = $e:expr ),* ) => { tracing::warn!( $( $id = $e ),* ) };
-    ( $( $e: expr ),* ) => { tracing::warn!( $( $e ),* ) }
+    ( $( $id:ident = $e:expr ),* ) => { $crate::_warn!( $( $id = $e ),* ) };
+    ( $( $e: expr ),* ) => { $crate::_warn!( $( $e ),* ) }
 }
 
 #[macro_export]
 macro_rules! error {
-    ( $( $id:ident = $e:expr ),* ) => { tracing::error!( $( $id = $e ),* ) };
-    ( $( $e: expr ),* ) => { tracing::error!( $( $e ),* ) }
+    ( $( $id:ident = $e:expr ),* ) => { $crate::_error!( $( $id = $e ),* ) };
+    ( $( $e: expr ),* ) => { $crate::_error!( $( $e ),* ) }
 }

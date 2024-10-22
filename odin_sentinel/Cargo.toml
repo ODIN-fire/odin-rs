@@ -47,6 +47,7 @@ odin_job = { workspace = true }
 odin_common = { workspace = true }
 odin_macro = { workspace = true }
 
+futures = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 reqwest = { workspace = true }
@@ -56,14 +57,12 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 uom = { workspace = true }
 async-trait = { workspace = true }
+thiserror = { workspace = true }
+ron = { workspace = true }
 
-tracing = "*"
 anyhow = "*"
-thiserror = "*"
-ron = "*"
 serde_with = "*" 
 tokio-util = { version = "*", features = ["full"] }
-futures = "*"
 async-stream = "*"
 http = "*"
 url = "*"

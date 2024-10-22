@@ -372,13 +372,9 @@ const TUI_AREA: (u16, u16, u16, u16) = (0, 0, 105, 25);
 
 /// it initializes the terminal interface by enabling the raw mode and entering 
 /// an alternate screen.
-pub fn init_terminal()->io::Result<Terminal<impl Backend>> {
-    let options = TerminalOptions {
-        viewport: Viewport::Fixed(Rect::new(TUI_AREA.0, TUI_AREA.1, TUI_AREA.2, TUI_AREA.3)),
-    };
-    
+pub fn init_terminal()->io::Result<Terminal<impl Backend>> {    
     let backend = CrosstermBackend::new(io::stderr());
-    let mut terminal = Terminal::with_options(backend, options)?;
+    let mut terminal = Terminal::new(backend)?;
     
     terminal::enable_raw_mode()?;
     crossterm::execute!(io::stderr(), EnterAlternateScreen, EnableMouseCapture)?;

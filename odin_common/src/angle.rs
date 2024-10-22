@@ -13,7 +13,7 @@
  */
 #![allow(unused)]
 
-use std::{ops,cmp,fmt};
+use std::{ops,cmp,fmt,hash::{Hash,Hasher}};
 use serde::{Serialize,Deserialize};
 
 pub fn canonicalize_90 (d:f64) -> f64 {
@@ -153,6 +153,12 @@ impl LatAngle {
     pub fn canonicalize(&self) -> f64 { canonicalize_90(self.0) }
 }
 
+impl Hash for LatAngle {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
+    }
+}
+
 impl fmt::Display for LatAngle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}°", self.0)
@@ -237,6 +243,12 @@ impl LonAngle {
 
     pub fn to_angle(&self) -> Angle { Angle(canonicalize_360(self.0)) }
     pub fn canonicalize(&self) -> f64 { canonicalize_180(self.0) }
+}
+
+impl Hash for LonAngle {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
+    }
 }
 
 impl fmt::Display for LonAngle {

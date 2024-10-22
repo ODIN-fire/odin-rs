@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 #![allow(unused,uncommon_codepoints,non_snake_case)]
-use std::ops::Deref;
+use std::{ops::Deref, hash::{Hash,Hasher}};
 
 use chrono::{DateTime,Utc};
 use serde::{Deserialize, Serialize};
@@ -82,11 +82,32 @@ impl <T: Num + Copy + ToPrimitive> BoundingBox<T> {
 
 //--- bbox types that avoid confusion about coordinate type and order (note the fields are not public)
 
-pub struct GeoBoundingBox (BoundingBox<f64>);
+// geographic bounding box given in latitude/longitude
+#[derive(Clone,Copy,Serialize,Deserialize,Debug,PartialEq)]
+pub struct GeoBoundingBox {
+    pub west: LonAngle,
+    pub south: LatAngle,
+    pub east: LonAngle,
+    pub north: LatAngle
+}
 
 impl GeoBoundingBox {
     pub fn from_wsen_degrees (wsen: &[f64;4]) -> GeoBoundingBox {
-        GeoBoundingBox(BoundingBox::<f64>::from_wsen(wsen))
+        GeoBoundingBox {
+            west: LonAngle::from_degrees(wsen[0]),
+            south: LatAngle::from_degrees(wsen[1]),
+            east: LonAngle::from_degrees(wsen[2]),
+            north: LatAngle::from_degrees(wsen[3])
+        }
+    }
+}
+
+impl Hash for GeoBoundingBox {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.west.hash(state);
+        self.south.hash(state);
+        self.east.hash(state);
+        self.north.hash(state);
     }
 }
 

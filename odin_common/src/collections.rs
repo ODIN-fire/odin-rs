@@ -36,4 +36,3 @@ impl<K,V> Snapshot<(K,V)> for HashMap<K,V> where K:Clone, V:Clone {
         })
     }
 }
-

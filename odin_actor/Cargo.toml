@@ -17,27 +17,28 @@ flume = { version = "*", features = ["default", "spin"], optional = true }
 ratatui = { version = "0.28.1", features = ["all-widgets", "serde"], optional = true }
 crossterm = { version = "0.28.1", features = ["event-stream"], optional = true }
 
-futures = "*"
-thiserror = "*"
 anyhow = "*"
-ron = "*"
-serde = { version = "*", features = ["derive"] }
 parse_duration = "*"
 colored = "*"
 #quanta = "*"
 paste = "*"
-async-trait = "*"
 lazy_static = "*"
 
-tracing = "*"
-tracing-subscriber = "*"
-console-subscriber = "*"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+console-subscriber = "0.4.0"
 
 odin_build = { workspace = true }
 odin_macro = { workspace = true }
 odin_job = { workspace = true }
 odin_action = { workspace = true }
 odin_common = { workspace = true }
+
+async-trait = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+ron = { workspace = true }
 
 [features]
 default = ["tokio_kanal"]

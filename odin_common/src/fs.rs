@@ -240,3 +240,11 @@ pub fn remove_old_files<T> (dir: &T, max_age: Duration)->Result<usize> where T: 
         Err( io_error!(NotFound, "dir {:?}", dir))
     }
 }
+
+
+/// generic notification of file availability (can be used as a message)
+#[derive(Debug,Clone)]
+pub struct FileAvailable {
+    pub topic: String,
+    pub pathname: PathBuf,
+}

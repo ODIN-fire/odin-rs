@@ -341,7 +341,7 @@ pub async fn get_most_recent_objects (client: &S3Client, bucket: &str, source: &
 pub async fn get_objects_since_last (client: &S3Client, bucket: &str, source: &str, last_obj: &S3Object, now: DateTime<Utc>)  -> Result<Vec<S3Object>> {
     let key = last_obj.key().ok_or(OdinGoesrError::NoObjectKeyError())?;
     let dt_start = parse_goesr_create_dtg(key).ok_or(OdinGoesrError::NoObjectDateError())?;
-    let hours = (full_hour(now) - full_hour(dt_start)).num_hours();
+    let hours = (full_hour(&now) - full_hour(&dt_start)).num_hours();
     let mut objects: Vec<S3Object> = Vec::with_capacity( 12 * (hours+1) as usize); // assuming update interval is 5min
 
     for h in (0..=hours).rev() {

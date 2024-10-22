@@ -33,7 +33,7 @@
   - [odin_server](odin_server/odin_server.md)
 
 - [3. Application Domain Crates](app_crates.md)
-
+  - [odin_hrrr](odin_hrrr/odin_hrrr.md)
   - [odin_sentinel](odin_sentinel/odin_sentinel.md)
   - [odin_goesr](odin_goesr/odin_goesr.md)
 

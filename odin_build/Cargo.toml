@@ -9,11 +9,8 @@ name = "bob"
 [dependencies]
 lazy_static = "*"
 anyhow = "*"
-thiserror = "*"
-ron = "*"
 toml = "*"
 cargo_toml = "*"
-serde = { version = "*", features = ["derive"] }
 bytes = "*"
 flate2 = "*"
 brotli = "*"
@@ -24,3 +21,6 @@ rand = "*"
 pgp = "*"
 magic-crypt = "*"
 
+thiserror = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }

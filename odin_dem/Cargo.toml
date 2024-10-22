@@ -22,16 +22,16 @@ odin_gdal = { workspace = true }
 
 lazy_static = "*"
 structopt = "*"
-tokio = { version = "*", features = ["full"] }
 tokio-util = { version = "*", features = ["full"] }
 tower-http = { version = "*", features = ["full"] }
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter"] }
 http = "*"
 axum = "*"
-serde = "*"
 serde_derive = "*"
-thiserror = "*"
 gdal = "*"
 gdal-sys = "*"
 
+tokio = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

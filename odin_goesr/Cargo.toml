@@ -28,18 +28,17 @@ axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ron = { workspace = true }
+futures = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 uom = { workspace = true }
 chrono = { workspace = true }
+thiserror = { workspace = true }
 
 serde_with = "*" 
 anyhow = "*"
-thiserror = "*"
 meshgridrs = "*"
 paste = "*"
-futures = "*"
-tracing = "*"
 structopt = "*"
 lazy_static = "*"
 regex = "*"

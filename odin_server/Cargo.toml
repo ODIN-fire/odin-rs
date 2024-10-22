@@ -12,10 +12,8 @@ doctest = false
 [dependencies]
 axum-server = { version = "*", features = ["tls-rustls"] }
 bytes = "*"
-thiserror = "*"
 anyhow = "*"
 headers = "*"
-futures = "*"
 futures-util = { version = "*", features = ["sink"] }
 xattr = "*"
 minify-html = "*"
@@ -23,7 +21,6 @@ http-body = "1.0.1"
 http-body-util = "*"
 tower = { version = "*", features = ["full"] }
 tower-http = { version = "*", features = ["full"] }
-tracing = "*"
 tracing-subscriber = "*"
 reqwest-middleware = { version = "*" }
 http-cache-reqwest = { version = "*" }
@@ -38,10 +35,11 @@ reqwest = {workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ron = { workspace = true }
+futures = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 async-trait = { workspace = true }
-
+thiserror = { workspace = true }
 
 odin_build = { workspace = true }
 odin_macro = { workspace = true }
