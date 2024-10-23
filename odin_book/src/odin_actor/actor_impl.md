@@ -1,6 +1,28 @@
 # Basic Design
 
-This chapter describes how the general actor constructs introduced in [actor_basics](actor_basics.md) are implemented in `odin_actor`.
+This chapter describes how the general actor constructs introduced in [actor_basics](actor_basics.md) are implemented in `odin_actor`,
+which reflects our major design choices:
+
+- map each actor into a dedicated [async task](https://rust-lang.github.io/async-book/) that owns the actor state 
+- use an actor specific enum type to define the set of messages that can be sent to/are processed by this actor
+  (each message type is wrapped into a tuple struct variant of this enum)
+- use bounded [multi-producer/single-consumer (MPSC) channels](https://doc.rust-lang.org/rust-by-example/std_misc/channels.html)
+  of this message set enum to implement actor mailboxes 
+- wrap the sender part of the channel into a (cloneable) actor handle and move the receiver part and the actor state into
+  the task function, which loops to process received messages
+- use normal enum matching to dispatch messages from within the actor task
+- use the actor handle to send messages to the associated actor
+
+This ensures our basic requirements:
+
+- actor message interfaces can be checked at compile time - we can only send messages to actors who process them, and
+  each actor processes all of the message types in its interface
+- actor state cannot accidentally leak from within its task (neither during construction nor while sending messages)
+- actors can process concurrently (and - depending on async runtime and hardware - in parallel)
+- message processing back pressure is propagated (bounded channel write blocks until receiver is ready), the system related
+  memory per actor is bounded (no out-of-memory conditions because of "hung" actors)
+
+The remainder of this page looks at each of the actor elements: messages, mailboxes, actors (handles and state) and actor systems.
 
 
 ## Messages and Actor Message Sets
@@ -31,6 +53,21 @@ use odin_actor::prelude::*;
 define_actor_msg_set! { MyActorMsg = MsgA | MsgB }
 ...
 ```
+
+This gets expanded to an enum type with `From<T>` impls for each of its variants:
+
+```rust
+...
+enum MyActorMsg {
+    MsgA(MsgA),
+    MsgB(MsgB)
+}
+impl From<MsgA> for MyActorMsg {...}
+impl From<MsgB> for MyActorMsg {...}
+...
+```
+
+The macro also adds variants for the system messages so that we can send them to each actor.
 
 Apart from automatic `From<..>` impls the main operation performed on message set enums is matching their variants inside of
 actor `receive()` functions. To avoid boilerplate and to make the code more readable we provide support matching on variant
