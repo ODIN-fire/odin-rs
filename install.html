@@ -190,16 +190,26 @@ $&gt; rustup default nightly
 </code></pre>
 <p>Periodic updates of the toolchain can be done by executing <code>rustup update</code></p>
 <p>To install the <a href="https://rust-lang.github.io/mdBook/"><code>mdbook</code></a> tool to compile and serve online documentation
-please run <code>cargo install mdbook</code></p>
+please run</p>
+<pre><code class="language-shell">$&gt; cargo install mdbook
+</code></pre>
+<p>If you are new to Rust you can find documentation and tutorials on <a href="https://www.rust-lang.org/learn">https://www.rust-lang.org/learn</a>.
+Information about the vast Rust ecosystem of available 3rd party libraries is available on <a href="https://crates.io">https://crates.io</a>.</p>
 </li>
 <li>
 <p><a href="https://gdal.org/">GDAL</a> - this platform specific native library for handling geospatial data is required by the
 <code>odin_gdal</code> crate and should be installed through respective package managers for your operating system</p>
 <ul>
-<li>Linux: gdal packages are available for all major Linux distributions through their native package managers</li>
+<li>Linux: gdal packages are available for all major Linux distributions through their native package managers.
+Please note that Ubuntu 20.04 only supported old versions of GDAL which might require to <a href="https://gdal.org/en/latest/development/building_from_source.html#building-from-source">install/build from source</a></li>
 <li>macOS: <a href="https://brew.sh/">homebrew</a>: <code>brew install gdal</code></li>
 <li>windows: <a href="https://learn.microsoft.com/en-us/vcpkg/get_started/overview">vcpkg</a></li>
 </ul>
+</li>
+<li>
+<p>odin-rs sources - downloadable via <a href="https://git-scm.com/">Git</a> from <a href="https://github.com/ODIN-fire/odin-rs">https://github.com/ODIN-fire/odin-rs</a>:</p>
+<pre><code class="language-shell">$&gt; git clone https://github.com/ODIN-fire/odin-rs
+</code></pre>
 </li>
 </ol>
 <h3 id="directory-structure"><a class="header" href="#directory-structure">Directory Structure</a></h3>
@@ -214,13 +224,13 @@ and such files under a single root directory. To conform with the <code>odin_bui
     │
     └── odin-rs/...                     ⬅︎ directory into which ODIN source repository is cloned
 </code></pre>
-<p>The name of the ❬odin-root-dir❭ can be chosen at will. You can have several root dirs with different odin versions/branches and/or resource files. An installation as outlined above does not require any environment variables to set.</p>
+<p>The name of the ❬odin-root-dir❭ can be chosen at will. You can have several root dirs with different odin versions/branches and/or resource files. An installation as outlined above does not require any environment variables to be set.</p>
 <p>Resource directories (configs/, assets/ and data/) can be populated upon demand later-on - please see the [odin_build] documentation for further details.</p>
 <p>On a Unix/macOS system this amounts to a sequence of commands like:</p>
-<pre><code class="language-shell">$&gt; mkdir my-odin
-$&gt; cd my-odin
+<pre><code class="language-shell">$&gt; mkdir odin
+$&gt; cd odin
 $&gt; mkdir configs assets data cache
-$&gt; git clone http://github.com/nasa-odin/odin-rs  # or other odin-rs repository URL
+$&gt; git clone https://github.com/ODIN-fire/odin-rs  # or other odin-rs repository URL
 ...
 $&gt; cd odin-rs
 </code></pre>
