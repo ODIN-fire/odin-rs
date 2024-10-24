@@ -14,56 +14,33 @@
 #![allow(unused)]
 
 use odin_dem::*;
-use lazy_static::lazy_static;
-use structopt::StructOpt;
-use odin_common:: {
-    geo::BoundingBox,
-    fs,
-};
+use odin_common:: {define_cli, geo::BoundingBox,fs};
 
-#[derive(StructOpt)]
-struct CliOpts {
-    /// west boundary in degrees
-    #[structopt(long, short, allow_hyphen_values = true)]
-    west: f64,
+define_cli! { ARGS [about="get_dem - retrieve DEM file from given GDAL VRT"] =
+    west:  f64 [help="west boundaries in degrees", allow_hyphen_values = true, long, short],
+    south: f64 [help="south boundaries in degrees", allow_hyphen_values = true, long, short],
+    east:  f64 [help="east boundaries in degrees", allow_hyphen_values = true, long, short],
+    north: f64 [help="north boundaries in degrees", allow_hyphen_values = true, long, short],
 
-    /// south boundary in degrees
-    #[structopt(long, short, allow_hyphen_values = true)]
-    south: f64,
-
-    /// east boundary in degrees
-    #[structopt(long, short, allow_hyphen_values = true)]
-    east: f64,
-
-    /// north boundary in degrees
-    #[structopt(long, short, allow_hyphen_values = true)]
-    north: f64,
-
-    /// the image type to create
-    #[structopt(short,long,default_value="tif")]
-    img_type: String,
-
-    /// the GDAL *.vrt file to create the DEM from
-    vrt_file: String
-}
-
-lazy_static! {
-    static ref ARGS: CliOpts = CliOpts::from_args();
+    img_type: String [help="image type to create (png,tif)", short,long,default_value="tif"],
+    epsg: u32 [help="target SRS for returned DEM (also has to be used for bounding box)", long,default_value="32610"],
+    vrt_file: String [help="the GDAL *.vrt file to create the DEM from"]
 }
 
 fn main() {
     odin_build::set_bin_context!();
 
-    let bbox = BoundingBox::from_wsen::<f64>(&[ARGS.west, ARGS.south, ARGS.east, ARGS.north]);
+    // we use the generic BoundingBox instead of GeoBoundingBox since the values depend on the target srs 
+    let bbox = BoundingBox::<f64>::new( ARGS.west, ARGS.south, ARGS.east, ARGS.north);
     if let Some(img_type) = DemImgType::for_ext(ARGS.img_type.as_str()) {
         if fs::existing_non_empty_file_from_path(&ARGS.vrt_file).is_ok() {
-            let srs = DemSRS::UTM { epsg: 32610 };
+            let dem_srs = DemSRS::from_epsg( ARGS.epsg).expect("unsupported EPSG");
+            let dem_img = DemImgType::for_ext( &ARGS.img_type).expect("unsupported DEM image type");
 
-            match get_dem(&bbox,srs,img_type,ARGS.vrt_file.as_str()) {
+            match get_dem( &bbox, dem_srs, dem_img, ARGS.vrt_file.as_str()) {
                 Ok((file_path, file)) => println!("DEM file at {}", file_path),
                 Err(e) => eprintln!("failed to create DEM file, error: {}", e)
             }
         } else { eprintln!("VRT file not found {}", ARGS.vrt_file) }
     } else { eprintln!("unknown target image type {}", ARGS.img_type) }
-
 }

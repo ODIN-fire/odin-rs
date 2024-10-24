@@ -37,6 +37,7 @@ type Result<T> = std::result::Result<T, OdinDemError>;
 
 //--- supported image and target SRS types
 
+/// the image types that can be returned by odin_dem
 pub enum DemImgType {
     PNG,
     TIF,
@@ -73,6 +74,7 @@ impl DemImgType {
     }
 }
 
+/// the spatial reference systems odin_dem can convert to
 pub enum DemSRS {
     GEO,
     UTM { epsg: u32 },

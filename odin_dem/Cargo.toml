@@ -10,8 +10,8 @@ name = "odin_dem"
 path = "src/bin/odin_dem.rs"
 
 [[bin]]
-name = "getdem"
-path = "src/bin/getdem.rs"
+name = "get_dem"
+path = "src/bin/get_dem.rs"
 
 [dependencies]
 
@@ -29,9 +29,9 @@ tracing-subscriber = { version = "*", features = ["env-filter"] }
 http = "*"
 axum = "*"
 serde_derive = "*"
-gdal = "*"
-gdal-sys = "*"
+
 
 tokio = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+gdal = { workspace = true }

@@ -54,6 +54,8 @@ ron = { version = "0.8.1" }
 uom = { version = "0.36.0", features = ["serde", "f32", "i64"] }
 chrono = { version = "0.4.38", features = ["serde"] }
 thiserror = { version = "1.0.64" }
+gdal = { version = "0.17.1", features = ["array"] }
+gdal-sys = { version = "0.10.0", features = ["bindgen"]}
 
 
 [profile.release]

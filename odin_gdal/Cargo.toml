@@ -21,11 +21,9 @@ path = "src/bin/translate_bbox.rs"
 odin_common = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
+gdal = { workspace = true }
+gdal-sys = { workspace = true }
 
-
-gdal-sys = { version = "0.10.0", features = ["bindgen"]}
-#gdal-sys = { version = "0.10.0" }
-gdal = { version = "0.17.0", features = ["array"] }
 lazy_static = "*"
 libc = "*"
 geo = "*"

@@ -48,13 +48,8 @@ impl UtmZone {
 }
 
 impl <T: Num + Copy + ToPrimitive> BoundingBox<T> {
-    pub fn new() -> BoundingBox<T> {
-        BoundingBox{
-            west: zero::<T>(),
-            south: zero::<T>(),
-            east: zero::<T>(),
-            north: zero::<T>()
-        }
+    pub fn new(west: T, south: T, east: T, north: T)->Self {
+        BoundingBox{ west, south, east, north}
     }
 
     pub fn from_wsen<N> (wsen: &[N;4]) -> BoundingBox<T> where N: Num + Copy + Into<T> {
