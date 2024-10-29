@@ -27,6 +27,18 @@
     #[error("CSV error {0}")]
     CsvError( #[from] csv::Error),
 
+    #[error("Reqwest error {0}")]
+    ReqwestError( #[from] reqwest::Error),
+
+    #[error("SPG4 error {0}")]
+    Spg4Error( #[from] sgp4::Error),
+
+    #[error("SPG4 elements error {0}")]
+    Spg4ElementsError( #[from] sgp4::ElementsError),
+    
+    // #[error("Misc error {0}")]
+    // StringError( #[from] std::string::String),
+
     #[error("Misc error {0}")]
     MiscError( String ),
 
@@ -42,13 +54,16 @@
     #[error("File download error {0}")]
     FileDownloadError( String ),
 
+    #[error("TLE import failed: {0}")]
+    TleError( String ),
+
     #[error("ODIN Actor error {0}")]
     OdinActorError( #[from] odin_actor::errors::OdinActorError),
 
  }
  
  pub fn date_error (msg: impl ToString)->OdinJpssError {
-     OdinJpssError::DateError(msg.to_string())
+    OdinJpssError::DateError(msg.to_string())
  }
 
  pub fn bounds_error (msg: impl ToString)->OdinJpssError {

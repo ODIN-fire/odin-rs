@@ -13,27 +13,36 @@
  */
 
 #![allow(unused)]
-use odin_common::{angle::{Angle, LatAngle, LonAngle}, fs::ensure_writable_dir, geo::LatLon};
-use reqwest;
+#[macro_use]
+extern crate lazy_static;
+
+use structopt::StructOpt;
+use std::{fs::File, io::Write};
 use tokio;
 use anyhow::{Result, Ok};
-use odin_jpss::{get_latest_jpss, get_query_bounds, live_importer::LiveJpssImporterConfig, load_config, read_jpss, RawHotspot};
-use chrono::Utc;
-use http;
-use std::{fs, path::PathBuf};
-use tempfile;
-use std::io::Write as IoWrite;
-use csv::Reader;
-use odin_build;
+use odin_jpss::orekit::{get_tles_celestrak, compute_full_orbits};
+
+ /// structopt command line arguments
+#[derive(StructOpt,Debug)]
+struct CliOpts {
+    /// satellite id 
+    sat_id: u32,
+    /// output filename
+    filename: String,
+
+}
+
+lazy_static! {
+    static ref ARGS: CliOpts = CliOpts::from_args();
+}
+
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let conf: LiveJpssImporterConfig = load_config( "jpss_noaa20.ron")?;
-    let query_bounds = get_query_bounds(&conf.region);
-    let url = format!("{}/usfs/api/area/csv/{}/{}/{}/1", &conf.server, &conf.map_key, &conf.source, &query_bounds);
-    let data_dir = odin_build::cache_dir().join("jpss").join(&conf.source);
-    ensure_writable_dir(&data_dir)?;
-    let filename = get_latest_jpss(&data_dir, &url, &conf.source).await?;
-    let hs = read_jpss(&filename)?;
+    let tle = get_tles_celestrak(ARGS.sat_id).await?;
+    let j = serde_json::to_string(&tle)?;
+    let fname = ARGS.filename;
+    let mut file = File::create(fname).expect("Could not create file!");
+    file.write(j.as_bytes()).expect("Cannot write to the file!");
     Ok(())
 }
