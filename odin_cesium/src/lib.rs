@@ -14,7 +14,7 @@
 #![allow(unused)]
 
 use std::net::SocketAddr;
-use odin_common::datetime::epoch_millis;
+use odin_common::{datetime::epoch_millis, strings::to_string_vec, collections::empty_vec};
 use async_trait::async_trait;
 
 use odin_build::prelude::*;
@@ -103,6 +103,10 @@ impl ImgLayerService {
     pub fn new()->Self { ImgLayerService{} }
 }
 
+// headers to copy from the proxied request for OpenStreetMap tiles - see https://operations.osmfoundation.org/policies/tiles/
+// note that requests will fail if we copy all headers
+const OSM_HDR: &[&str] = &["user-agent","referer","accept","accept-encoding"]; 
+
 impl SpaService for ImgLayerService {
     fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
         spa_builder.add( build_service!( CesiumService::new()))
@@ -114,7 +118,9 @@ impl SpaService for ImgLayerService {
         spa.add_module( asset_uri!("imglayer_config.js"));
         spa.add_module( asset_uri!("imglayer.js"));
 
-        spa.add_proxy("globe-natgeo", "https://services.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer");
+        spa.add_proxy("globe-natgeo", "https://services.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer", empty_vec(), empty_vec(), true, empty_vec());
+        spa.add_proxy("globe-osm", "https://tile.openstreetmap.org", to_string_vec(OSM_HDR), empty_vec(), true, empty_vec());
+        spa.add_proxy("globe-otm", "https://tile.opentopomap.org", to_string_vec(OSM_HDR), empty_vec(), true, empty_vec());
 
         Ok(())
     }

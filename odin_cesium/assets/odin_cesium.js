@@ -14,6 +14,7 @@
 
 // the ecmascript module that is our CesiumJS interface. Not this is an async module
 
+
 import { config } from "./odin_cesium_config.js";
 import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
@@ -24,10 +25,6 @@ const MODULE_PATH = util.asset_path(import.meta.url);
 ws.addWsHandler( MODULE_PATH, handleWsMessages);
 setCesiumContainerVisibility(false); // don't render before everybody is initialized
 
-if (config.accessToken) {
-    console.log("using configured access token");
-    Cesium.Ion.defaultAccessToken = config.accessToken;
-}
 
 const UI_POSITIONS = "race-ui-positions";
 const LOCAL = "local-";  // prefix for local position set names
@@ -109,6 +106,10 @@ const centerOrientation = {
 
 export const ellipsoidTerrainProvider = new Cesium.EllipsoidTerrainProvider();
 var terrainProvider = ellipsoidTerrainProvider; // switched on demand
+
+if (Cesium.Ion.defaultAccessToken) {
+    console.log("using configured Ion access token");
+}
 
 export const viewer = new Cesium.Viewer('cesiumContainer', {
     terrainProvider: terrainProvider,
@@ -1376,6 +1377,9 @@ export function postInitialize() {
             switchToTopoTerrain();
         }
     });
+
+    const credit = new Cesium.Credit('<a href="https://openstreetmap.org/" target="_blank">OpenStreetMap</a>');
+    viewer.creditDisplay.addStaticCredit(credit);
 
     setCesiumContainerVisibility(true);
 

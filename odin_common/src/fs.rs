@@ -20,6 +20,7 @@ use io::ErrorKind::*;
 use std::fs::{File,OpenOptions};
 use std::path::{Path,PathBuf};
 use std::io::{Error as IOError,ErrorKind};
+use globset::{Glob,GlobMatcher};
 
 use crate::macros::io_error;
 
@@ -247,4 +248,21 @@ pub fn remove_old_files<T> (dir: &T, max_age: Duration)->Result<usize> where T: 
 pub struct FileAvailable {
     pub topic: String,
     pub pathname: PathBuf,
+}
+
+
+pub struct GlobList (Vec<GlobMatcher>);
+
+impl GlobList {
+    pub fn from_patterns( ps: &Vec<String>) -> Result<GlobList> {
+        let mut list = Vec::with_capacity( ps.len());
+        for p in ps {
+            list.push( Glob::new(p).map_err(|e| io::Error::new( io::ErrorKind::Other, format!("invalid glob pattern {p}")))?.compile_matcher())
+        }
+        Ok( GlobList(list) )
+    }
+
+    pub fn matches<P: AsRef<Path>> (&self, path: P) -> bool {
+        self.0.iter().find( |glob| glob.is_match( &path)).is_some()
+    }
 }

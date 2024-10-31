@@ -36,3 +36,12 @@ impl<K,V> Snapshot<(K,V)> for HashMap<K,V> where K:Clone, V:Clone {
         })
     }
 }
+
+
+pub fn new_vec<T> ()->Vec<T> {
+    Vec::new()
+}
+
+pub fn empty_vec<T> ()->Vec<T> {
+    Vec::with_capacity(0)
+}

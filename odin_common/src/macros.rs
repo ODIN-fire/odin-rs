@@ -400,4 +400,36 @@ macro_rules! check_cli {
     ($sopt:ident) => { { let _is_initialized = &$sopt._initialized; } }
 }
 
+/// syntactic sugar macro to define thiserror Error enums:
+/// ```
+/// define_error!{ pub OdinNetError = 
+///   IOError( #[from] std::io::Error ) : "IO error: {0}",
+///   OpFailed(String) : "operation failed: {0}"
+/// }
+/// ```
+/// will get expanded into
+/// ```
+/// use thiserror;
+/// pub enum OdinNetError {
+///     #[error("IO error: {0}")]
+///     IOError(#[from] std::io::Error),
+/// 
+///     #[error("operation failed: {0}")]
+///     OpFailed(String),
+/// }
+/// ```
+#[macro_export]
+macro_rules! define_error {
+    ($vis:vis $name:ident = $( $err_variant:ident ( $( $( #[$meta:meta] )? $field_type:ty),* ) : $msg_lit:literal ),*) => {
+        use thiserror;
+        #[derive(thiserror::Error,Debug)]
+        $vis enum $name {
+            $( 
+                #[error($msg_lit)]
+                $err_variant ( $( $(#[$meta])? $field_type ),*  )
+            ),*
+        }
+    }
+}
+
 /* #endregion define_cli */

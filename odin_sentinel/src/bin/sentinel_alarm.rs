@@ -19,14 +19,15 @@ use odin_build::define_load_config;
 use odin_actor::prelude::*;
 use odin_common::{define_cli,check_cli, admin, heap};
 use odin_sentinel::{
-    AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorMsg, 
-    SentinelUpdate, SlackAlarmMessenger, SmtpAlarmMessenger, SignalCmdAlarmMessenger,
-    load_config,
+    load_config, AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorConfig, SentinelAlarmMonitorMsg, SentinelUpdate, SignalCmdAlarmMessenger, SlackAlarmMessenger, SmtpAlarmMessenger
 };
 
 #[cfg(feature="dhat")] heap::use_dhat!{} 
  
 define_cli! { ARGS [about="Delphire Sentinel Alarm Server"] = 
+    fire_prob: f64    [help="override fire probability threshold [0.0..1.0]", long, default_value="-1.0"],
+    smoke_prob: f64   [help="override smoke probability threshold [0.0..1.0]", long, default_value="-1.0"],
+
     slack: bool       [help="enable slack messenger", long],
     smtp: bool        [help="enable smtp messenger", long],
     signal_cli: bool  [help="enable signal-cli messenger (requires signal-cli installation)", long],
@@ -45,9 +46,9 @@ async fn main ()->Result<()> {
     actor_system.request_termination_on_ctrlc(); // don't just exit without notification
 
     let hsentinel = PreActorHandle::new( &actor_system, "sentinel", 8); 
-
+    
     let hmonitor = spawn_actor!( actor_system, "monitor", SentinelAlarmMonitor::new(
-        load_config("sentinel_alarm.ron")?,
+        load_alarm_conf()?,
         load_config("sentinel_info.ron")?,
         hsentinel.to_actor_handle(),
         create_messengers()?
@@ -63,6 +64,14 @@ async fn main ()->Result<()> {
     actor_system.process_requests().await?;
 
     Ok(())
+}
+
+fn load_alarm_conf()->Result<SentinelAlarmMonitorConfig> {
+    let mut alarm_conf: SentinelAlarmMonitorConfig = load_config("sentinel_alarm.ron")?;
+    if ARGS.fire_prob >= 0.0 { alarm_conf.fire_prob = ARGS.fire_prob }
+    if ARGS.smoke_prob >= 0.0 { alarm_conf.smoke_prob = ARGS.smoke_prob }
+
+    Ok(alarm_conf)
 }
 
 fn create_messengers()->Result<Vec<Box<dyn AlarmMessenger>>> {

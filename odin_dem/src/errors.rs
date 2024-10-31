@@ -32,7 +32,8 @@ pub enum OdinDemError {
     #[error("ODIN gdal error {0}")]
     OdinGdalError(#[from] OdinGdalError),
 
-    // pass through for gdal errors
-    #[error("gdal error {0}")]
-    GdalError(#[from] gdal::errors::GdalError),
+}
+
+pub fn op_failed<S: ToString> (msg: S)->OdinDemError {
+    OdinDemError::OpFailedError(msg.to_string())
 }

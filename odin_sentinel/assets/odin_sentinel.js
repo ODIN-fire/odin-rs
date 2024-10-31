@@ -230,6 +230,7 @@ function createWindow() {
     return ui.Window("Sentinels", "sentinel", "./asset/odin_sentinel/sentinel.svg")(
         ui.LayerPanel("sentinel", toggleShowSentinels),
         ui.List("sentinel.list", 10, selectSentinel,null,null,zoomToSentinel),
+
         ui.Text("sentinel.name"),
         ui.Panel("data", true)(
             ui.TabbedContainer()(
@@ -238,12 +239,12 @@ function createWindow() {
                 ui.Tab("gas", false)( ui.List("sentinel.gas.list", maxDataRows)),
                 ui.Tab("temp", false)( ui.List("sentinel.thermo.list", maxDataRows)),
                 ui.Tab("wind", false)( ui.List("sentinel.anemo.list", maxDataRows)),
-                ui.Tab("cld", false)( ui.List("sentinel.cloudcover.list", maxDataRows)),
+                ui.Tab("cloud", false)( ui.List("sentinel.cloudcover.list", maxDataRows)),
                 ui.Tab("voc", false)( ui.List("sentinel.voc.list", maxDataRows)),
                 ui.Tab("accel", false)( ui.List("sentinel.accel.list", maxDataRows)),
                 ui.Tab("gps",false)( ui.List("sentinel.gps.list", maxDataRows)),
                 ui.Tab("att", false)( ui.List("sentinel.orientation.list", maxDataRows)),
-                ui.Tab("pwr", false)( ui.List("sentinel.power.list", maxDataRows))
+                ui.Tab("power", false)( ui.List("sentinel.power.list", maxDataRows))
             )
         )
     );
@@ -353,8 +354,8 @@ function initSentinelGpsView() {
         { name: "alt", tip: "altitude [m]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_0.format(e.gps.altitude) },
         ui.listItemSpacerColumn(),
         { name: "hdop", tip: "horizontal dilution of precision", width: "2rem", attrs: ["fixed", "alignRight"], map: e => util.f_1.format(e.gps.hdop) },
-        { name: "q", tip: "quality", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.gps.quality },
-        { name: "n", tip: "number of satellites", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.gps.numberOfSatellites },
+        //{ name: "q", tip: "quality", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.gps.quality },
+        //{ name: "n", tip: "number of satellites", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.gps.numberOfSatellites },
         ui.listItemSpacerColumn(),
         { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.timeRecorded) }
     ]);  
@@ -383,11 +384,11 @@ function initSentinelCloudCoverView() {
 function initSentinelPowerView() {
     return initListView( "sentinel.power.list", [
         { name: "batV", tip: "battery Voltage [V]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.power.batteryVoltage) },
-        { name: "batA", tip: "battery current [mA]", width: "5rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.power.batteryCurrent/1000) },
+        { name: "batA", tip: "battery current [mA]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.power.batteryCurrent/1000) },
         { name: "solV", tip: "solar Voltage [V]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.power.solarVoltage) },
-        { name: "solA", tip: "solar current [mA]", width: "5rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.power.solarCurrent/1000) },
+        { name: "solA", tip: "solar current [mA]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.power.solarCurrent/1000) },
         { name: "loadV", tip: "load Voltage [V]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.power.loadVoltage) },
-        { name: "loadA", tip: "load current [mA]", width: "5rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.power.loadCurrent/1000) },
+        { name: "loadA", tip: "load current [mA]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.power.loadCurrent/1000) },
         ui.listItemSpacerColumn(),
         { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.timeRecorded) }
     ]); 
@@ -396,7 +397,7 @@ function initSentinelPowerView() {
 function initSentinelImagesView() {
     return initListView( "sentinel.image.list", [
         { name: "show", tip: "show image", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.window, toggleShowImage, null) },
-        { name: "fov", tip: "show fov", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.window, toggleShowFov, null) },
+        { name: "fov", tip: "show fov", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.fovAsset, toggleShowFov, null) },
 
         { name: "sen", tip: "sensor number", width: "2rem", attrs: [], map: e => e.sensorNo },
         { name: "type", tip: "ir: infrared, vis: visible", width: "2rem", attrs: [], map: e => e.image.isInfrared ? "ir" : "vis" },
@@ -833,23 +834,19 @@ function selectSentinel(event) {
     if (event.detail.src && event.detail.src.detail == 2) return; // this is the 2nd of a double click
 
     let e = event.detail.curSelection;
-    if (e) {
+    if (e && e != selectedSentinelEntry) {
         selectedSentinelEntry = e;
         setSelectedSentinelName();
         setDataViews(e);
-    } else {
-        selectedSentinelEntry = undefined;
-        ui.clearTextContent( sentinelNameLabel);
-        clearDataViews();
+        selectedImage = null;
     }
-    selectedImage = null;
 }
 
 function setSelectedSentinelName() {
     if (selectedSentinelEntry) {
         let sentinelInfo = sentinelInfos[selectedSentinelEntry.id];
         if (sentinelInfo) { 
-            ui.setTextContent( sentinelNameLabel, sentinelInfo.name); 
+            ui.setTextContent( sentinelNameLabel, selectedSentinelEntry.id + " : " + sentinelInfo.name); 
             return;
         } 
     }

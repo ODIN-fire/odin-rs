@@ -42,14 +42,14 @@ odin_goesr  = { version = "*", path = "odin_goesr" }
 odin_sentinel = { version = "*", path = "odin_sentinel" }
 
 # external crates for which we have to ensure the same version
-axum = { version = "0.7.5", features = [ "http2", "ws", "macros"] }
-reqwest = { version = "0.12.7", features = ["json", "stream"] }
+axum = { version = "0.7.7", features = [ "http2", "ws", "macros"] }
+reqwest = { version = "0.12.8", features = ["json", "stream"] }
 futures = { version = "0.3.31" }
 async-trait = { version = "0.1.83" }
-tokio = { version = "1.39.3", features = ["full", "tracing"] }
-tokio-tungstenite = { version = "0.23.1", features = ["rustls"] }
-serde = { version = "1.0.209", features = ["derive", "rc"] }
-serde_json = { version = "1.0.127" }
+tokio = { version = "1.41.0", features = ["full", "tracing"] }
+tokio-tungstenite = { version = "0.24.0", features = ["rustls"] }
+serde = { version = "1.0.213", features = ["derive", "rc"] }
+serde_json = { version = "1.0.132" }
 ron = { version = "0.8.1" }
 uom = { version = "0.36.0", features = ["serde", "f32", "i64"] }
 chrono = { version = "0.4.38", features = ["serde"] }

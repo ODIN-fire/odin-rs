@@ -23,9 +23,9 @@ use axum::{
     extract::{
         connect_info::ConnectInfo, 
         ws::{Message, WebSocket, WebSocketUpgrade}, 
-        FromRef, {Path as AxumPath}, Query, RawQuery, Request, State
+        FromRef, Path as AxumPath, Query, RawQuery, Request, State
     }, 
-    http::{StatusCode, Uri}, 
+    http::{HeaderMap, StatusCode, Uri}, 
     middleware::map_request, response::{Html, IntoResponse, Response}, 
     routing::get, 
     Router,ServiceExt
@@ -38,19 +38,19 @@ use http_body_util::{Full, BodyExt, combinators::UnsyncBoxBody};
 use odin_build::OdinBuildError;
 use tower_http::{services::ServeDir,trace::TraceLayer};
 use tracing_subscriber::EnvFilter;
-use reqwest::{header::{self, SET_COOKIE}, Client};
-use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest::{header::{self, SET_COOKIE}, Client, RequestBuilder};
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware, RequestBuilder as MwRequestBuilder};
 use http_cache_reqwest::{Cache, CacheMode, CACacheManager, HttpCache, HttpCacheOptions};
 use serde::{Deserialize,Serialize};
 use async_trait::async_trait;
 
 use odin_build::LoadAssetFp;
-use odin_common::{fs::get_file_basename,strings};
+use odin_common::{fs::get_file_basename,strings::{self, mk_query_string}};
 use odin_macro::define_struct;
 use odin_actor::prelude::*;
 
-use crate::{errors::{connect_error, init_error, OdinServerError}, get_asset_response};
-use crate::errors::{OdinServerResult,op_failed};
+use crate::{spawn_server_task, get_asset_response,ServerConfig};
+use crate::errors::{connect_error, init_error, op_failed, OdinServerError, OdinServerResult};
 
 /// the trait that abstracts a single page application service, which normally represents a visualization
 /// layer with its own data (either dynamic or static) and document assets (such as Javascript modules
@@ -155,19 +155,6 @@ impl SpaConnection {
     }
 }
 
-#[derive(Deserialize,Serialize,Debug)]
-pub struct TlsConfig {
-    pub cert_path: String, // path to PEM encoded certificate
-    pub key_path: String,  // path to PEM encoded key data
-}
-
-#[derive(Deserialize,Serialize,Debug)]
-pub struct SpaServerConfig {
-    pub sock_addr: SocketAddr,
-    pub tls: Option<TlsConfig>, // if set use TLS (https)
-}
-
-
 /// this is the state that can be passed into service specific axum handlers
 /// note this has to clone efficiently and needs to be invariant
 #[derive(Clone)]
@@ -178,7 +165,7 @@ pub struct SpaServerState {
 
 /// the actor state for a single page application server actor
 pub struct SpaServer {
-    config: SpaServerConfig,
+    config: ServerConfig,
     name: String, // this is not from the config so that we can have the same for different apps
     services: Vec<SpaSvc>,
 
@@ -188,7 +175,7 @@ pub struct SpaServer {
 
 impl SpaServer {
 
-    pub fn new (config: SpaServerConfig, name: impl ToString, service_list: SpaServiceList)->Self {
+    pub fn new (config: ServerConfig, name: impl ToString, service_list: SpaServiceList)->Self {
         SpaServer { 
             config, 
             name: name.to_string(), 
@@ -207,7 +194,7 @@ impl SpaServer {
     }
 
     /// called when receiving _Start_ message
-    async fn start_server (&mut self, hself: ActorHandle<SpaServerMsg>)->OdinServerResult<()> {
+    fn start_server (&mut self, hself: ActorHandle<SpaServerMsg>)->OdinServerResult<()> {
         if self.server_task.is_none() {
             if cfg!(feature="trace_server") {
                 // note this only succeeds if there is no global subscriber set yet
@@ -217,25 +204,8 @@ impl SpaServer {
                     .try_init();
             }
 
-            let sock_addr = self.config.sock_addr.clone();
-            let router = self.build_router( &hself)?.into_make_service_with_connect_info::<SocketAddr>();
-
-            self.server_task = if let Some(tls) = &self.config.tls {
-                println!("serving https://{}/{}", self.config.sock_addr, self.name);
-                let cert_path = strings::env_expand( &tls.cert_path);
-                let key_path = strings::env_expand( &tls.key_path);
-                Some( tokio::spawn( async move {
-                    let tls_config = RustlsConfig::from_pem_file(PathBuf::from(cert_path), PathBuf::from(key_path)).await.unwrap();
-                    axum_server::bind_rustls( sock_addr, tls_config).serve( router).await.unwrap();
-                }))
-
-            } else {
-                println!("serving http://{}/{}", sock_addr, self.name);
-                Some( tokio::spawn( async move {
-                    let listener = tokio::net::TcpListener::bind(sock_addr).await.unwrap();
-                    axum::serve( listener, router).await.unwrap();    
-                }))
-            };
+            let router = self.build_router( &hself)?;
+            self.server_task = Some(spawn_server_task( &self.config, &self.name, router));
             Ok(())
 
         } else {
@@ -298,15 +268,15 @@ impl SpaServer {
     }
 
     async fn proxy_handler (path: AxumPath<String>, query: RawQuery, req: Request, 
-                            http_client: ClientWithMiddleware, proxies: HashMap<String,String>) -> Response {
+                            http_client: ClientWithMiddleware, proxies: HashMap<String,ProxySpec>) -> Response {
         if let Some(idx) = path.find('/') {
             let key = &path[0..idx];
 
-            if let Some(base_uri) = proxies.get(key) {
+            if let Some(proxy_spec) = proxies.get(key) {
                 let rel_path = &path[idx+1..];
-                let uri = Self::get_proxy_uri( base_uri, rel_path, query);
+                let proxy_req = proxy_spec.create_request( &http_client, rel_path, &query, req.headers());
         
-                let reqwest_response = match http_client.get( uri).send().await {
+                let reqwest_response = match proxy_req.send().await {
                     Ok(res) => res,
                     Err(err) => {
                         return (StatusCode::BAD_REQUEST, Body::empty()).into_response();
@@ -326,27 +296,6 @@ impl SpaServer {
         }
     }
 
-    fn get_proxy_uri (base_uri: &str, path: &str, query: RawQuery)->String {
-        let qs = if let Some(qs) = &query.0 { qs.as_str() } else { "" };
-
-        let len = base_uri.len() + path.len() + 1 + qs.len() + 1;
-        let mut uri = String::with_capacity(len);
-        uri.push_str( base_uri);
-
-        if path.len() > 0 {
-            if !(path.starts_with('?') || path.starts_with('/')) { 
-                uri.push('/'); 
-            }
-            uri.push_str( path);
-        }
-
-        if qs.len() > 0 {
-            uri.push('?');
-            uri.push_str(qs)
-        }
-
-        uri
-    }
 
     async fn asset_handler (uri_elems: AxumPath<(String,String)>, req: Request,
                             assets: HashMap<&'static str,LoadAssetFp>) -> Response {
@@ -497,7 +446,7 @@ define_actor_msg_set! { pub SpaServerMsg = AddConnection | DataAvailable | Broad
 impl_actor! { match msg for Actor<SpaServer,SpaServerMsg> as
     _Start_ => cont! { 
         let hself = self.hself.clone();
-        if let Err(e) = self.start_server( hself).await {
+        if let Err(e) = self.start_server( hself) {
             error!("failed to start server: {e:?}");
         }
     }
@@ -570,13 +519,85 @@ define_struct! { pub SpaComponents =
     routes: Vec<Box<dyn FnOnce(Router,SpaServerState)->Router + 'static>> = Vec::new(),
 
     // the URIs we proxy. The key is the symbolic name for the proxied server, the value is the remote URI prefix to use
-    proxies: HashMap<String,String> = HashMap::new(), 
+    proxies: HashMap<String,ProxySpec> = HashMap::new(), // symbolic-name -> ProxySpec
 
     // asset data to serve - the key is the crate name and the value is a crate-specific function to
     // get the asset data for a filename. Both crate and filename are extracted from the request URI.
     // Note the filename is symbolic - it is what the respective `load_asset(..)` function of the crate
     // uses for lookup
     assets: HashMap<&'static str, fn(&str)->std::result::Result<Bytes,OdinBuildError>> = HashMap::new()
+}
+
+/// struct to define how we create requests for proxied URIs
+#[derive(Debug,Clone)]
+struct ProxySpec {
+    uri: String,                     // the target URI to get the data from
+    copy_hdrs: Vec<String>,          // header keys to copy from the incoming request
+    add_hdrs: Vec<(String,String)>,  // header key/value strings to add
+    copy_query: bool,                // shall we copy the query string from the incoming request
+    add_query: Option<String>        // query string to add
+}
+
+impl ProxySpec {
+
+    fn create_request (&self, http_client: &ClientWithMiddleware, rel_path: &str, query: &RawQuery, hdr_map: &HeaderMap) -> MwRequestBuilder {
+        let uri = self.get_uri( rel_path, query);
+        let request_builder = http_client.get(uri);
+
+        self.add_headers( request_builder, hdr_map)
+    }
+
+    fn get_uri (&self, rel_path: &str, query: &RawQuery) -> String {
+        let qs = if let Some(qs) = &query.0 { qs.as_str() } else { "" };
+        let add_qs = if let Some(add_qs) = &self.add_query { add_qs.as_str() } else { "" };
+
+        let mut len = self.uri.len() + rel_path.len() + 1 + qs.len() + 1 + add_qs.len() + 1; // just the upper bound
+        let mut uri = String::with_capacity(len);
+        uri.push_str( &self.uri);
+
+        if rel_path.len() > 0 {
+            if !(rel_path.starts_with('?') || rel_path.starts_with('/')) { 
+                uri.push('/'); 
+            }
+            uri.push_str( rel_path);
+        }
+
+        if self.copy_query {
+            if qs.len() > 0 {
+                uri.push('?');
+                uri.push_str(qs)
+            }
+        }
+
+        if add_qs.len() > 0 {
+            if qs.len() == 0 { uri.push('?') } else { uri.push('&') }
+            uri.push_str( add_qs)
+        }
+
+        uri
+    }
+
+    fn add_headers (&self, req_builder: MwRequestBuilder, hdr_map: &HeaderMap) -> MwRequestBuilder {
+        let mut req_builder = req_builder;
+
+        if !self.copy_hdrs.is_empty() {
+            for (k,v) in hdr_map.iter() {
+                let key = k.as_str();
+                for s in &self.copy_hdrs {
+                    if s.eq_ignore_ascii_case(key) {
+                        req_builder = req_builder.header(k, v);
+                        break;
+                    }
+                }
+            }
+        }
+
+        for (k,v) in &self.add_hdrs {
+            req_builder = req_builder.header(k, v);
+        }
+
+        req_builder
+    }
 }
 
 impl SpaComponents {
@@ -620,13 +641,29 @@ impl SpaComponents {
         self.assets.insert( key, load_asset_fn);
     }
 
-    pub fn add_proxy (&mut self, key: impl ToString, uri_base: impl ToString) {
+    pub fn add_proxy (&mut self, 
+        key: impl ToString, 
+        uri_base: impl ToString, 
+        copy_hdrs: Vec<String>, 
+        add_hdrs: Vec<(String,String)>, 
+        copy_query: bool,  
+        add_query: Vec<(String,String)>
+    ) {
         let mut uri = uri_base.to_string();
+
         if uri.ends_with('/') { // canonicalize so that we don't have to check on every use
             uri.pop();
         }
 
-        self.proxies.insert( key.to_string(), uri);
+        // turn tuple vector into properly formatted query string once so that we don't have to do this for every request
+        let add_query: Option<String> = if add_query.is_empty() { 
+            None 
+        } else {
+            Some( mk_query_string(add_query.iter()) )
+        };
+
+        let proxy_spec = ProxySpec{uri,copy_hdrs,add_hdrs,copy_query,add_query};
+        self.proxies.insert( key.to_string(), proxy_spec);
     }
 
     /// render HTML document. We could use a lib such as build_html but our documents are rather simple so there is no

@@ -115,7 +115,7 @@ fn notify_slack (severity: Severity, msg: &str) {
     std::thread::sleep( Duration::from_secs(1)); // make sure we don't run into Slack chat msg rate limits
 
     let txt = format!("{}[{}]: {} {} @ {}\n>{}", severity.icon(), severity.name(), chrono::Local::now().format("%d/%m/%Y %H:%M:%S"), 
-                         bin_name(), gethostname().to_str().unwrap_or("?"), msg);
+                         bin_spec(), gethostname().to_str().unwrap_or("?"), msg);
     blocking_send_msg( &SLACK_CONFIG.token, &SLACK_CONFIG.channel_id, &txt, None);
 }
 
@@ -132,19 +132,29 @@ async fn async_notify_slack (severity: Severity, msg: &str) {
     tokio::time::sleep( Duration::from_secs(1)).await; // make sure we don't run into Slack chat msg rate limits
 
     let txt = format!("{}[{}]: {} {} @ {}\n>{}", severity.icon(), severity.name(), chrono::Local::now().format("%d/%m/%Y %H:%M:%S"), 
-                         bin_name(), gethostname().to_str().unwrap_or("?"), msg);
+                         bin_spec(), gethostname().to_str().unwrap_or("?"), msg);
     send_msg( &SLACK_CONFIG.token, &SLACK_CONFIG.channel_id, &txt, None).await;
 }
 
-fn bin_name()-> String {
+/// this is the bin_name with an optional suffix set from ODIN_BIN_SUFFIX (we might run several instances of this process)
+fn bin_spec()-> String {
     if let Some(ctx) = get_bin_context() {
-        ctx.bin_name.clone()
+        let mut bin_spec = ctx.bin_name.clone();
+        if let Some(bin_suffix) = &ctx.bin_suffix { 
+            bin_spec.push_str( bin_suffix); 
+        }
+        bin_spec
     } else {
-        if let Ok(path) = std::env::current_exe() {
+        let mut bin_spec = if let Ok(path) = std::env::current_exe() {
             filename_of_path(path).unwrap_or( "?".to_string())
-        } else { "?".to_string() }
+        } else { "?".to_string() };
+        if let Ok(bin_suffix) = std::env::var("ODIN_BIN_SUFFIX") {
+            bin_spec.push_str( &bin_suffix);
+        }
+        bin_spec
     }
 }
+
 
 //--- this is the public api for explicitly sent messages
 

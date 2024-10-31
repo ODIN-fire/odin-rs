@@ -1016,6 +1016,7 @@ div.ui_container.row {
 
 div.ui_container.column {
     flex-direction: column;
+    align-items: flex-end;
 }
 
 div.spacer {

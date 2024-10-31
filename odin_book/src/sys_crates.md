@@ -17,6 +17,7 @@ ODIN system crates can be divided into 3 categories:
   the Rust standard libraries and provide some basic capabilities such as admin notification
 - [odin_gdal](odin_gdal/odin_gdal.md) - a crate that wraps and extends the [GDAL](https://gdal.org) library for geo-spatial
   data sets and images
+- [odin_dem](odin_dem/odin_dem.md) - a simple digital elevation model based on [GDAL VRT](https://gdal.org/en/latest/drivers/raster/vrt.html)
 
 ## architectural crates
 

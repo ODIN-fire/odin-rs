@@ -19,12 +19,7 @@ pub mod warp;
 pub mod contour;
 
 use lazy_static::lazy_static;
-use std::collections::HashMap;
-use std::ptr::{null, null_mut};
-use std::ffi::{CString,CStr};
-use std::ops::{Sub,Index,Fn};
-use std::sync::Mutex;
-use std::path::Path;
+use std::{path::Path, fs::File, sync::Mutex, ops::{Sub,Index,Fn}, ffi::{CString,CStr}, ptr::{null, null_mut}, collections::HashMap};
 use libc::{c_void,c_char,c_uint, c_int};
 
 // we re-export these so that other crates don't have to use a direct gdal depedency to import.
@@ -37,7 +32,7 @@ use gdal_sys::{self,CPLErrorReset, OGRErr, OSRExportToWkt, OSRNewSpatialReferenc
 use geo::{Coord, Rect};
 use gdal::cpl::CslStringList;
 
-use odin_common::{fs::*,geo::*,ranges::LinearRange};
+use odin_common::{fs::{existing_non_empty_file_from_path,get_filename_extension},geo::*,ranges::LinearRange};
 use odin_common::macros::if_let;
 use crate::errors::{Result,misc_error, last_gdal_error, OdinGdalError, gdal_error, map_gdal_error};
 
@@ -47,7 +42,10 @@ lazy_static! {
     static ref EXT_MAP: HashMap<&'static str, &'static str> = HashMap::from( [ // file extension -> driver short name
         //-- well known raster drivers
         ("tif", "GTiff"),
+        ("tiff", "GTiff"),
+
         ("png", "PNG"),
+        ("webp", "WEBP"),
         ("nc", "netCDF"),
         ("grib2", "GRIB"),
 
@@ -73,14 +71,21 @@ pub fn initialize_gdal() -> bool {
     EXT_MAP.len() > 0
 }
 
+/// Note that filename extension has to be lower case
 pub fn get_driver_name_from_filename (filename: &str) -> Option<&'static str> {
-    get_filename_extension(filename).and_then( |ext| EXT_MAP.get( ext.to_lowercase().as_str()).map(|v| *v))
+    get_filename_extension(filename).and_then( |ext| EXT_MAP.get( ext)).map(|v| &**v)
 }
 
+/// Note that filename extension has to be lowercase
+pub fn get_driver_name_for_extension (ext: &str) -> Option<&'static str> {
+    EXT_MAP.get( ext).map(|v| &**v)
+}
+
+/// Note that filename extension has to be lowercase
 pub fn get_driver_from_filename (filename: &str) -> Option<gdal::Driver> {
     get_filename_extension(filename)
-        .and_then( |ext| EXT_MAP.get( ext.to_lowercase().as_str()))
-        .and_then( |n| DriverManager::get_driver_by_name(n).ok())
+        .and_then( |ext| EXT_MAP.get( ext))
+        .and_then( |n| DriverManager::get_driver_by_name(&**n).ok())
 }
 
 pub fn pc_char_to_string (pc_char: *const c_char) -> String {
@@ -480,3 +485,34 @@ pub fn get_linear_range<T> (ds: &Dataset, band_index: usize)->Result<LinearRange
 }
 
 /* #endregion generic Dataset/Rasterband access */
+
+/* #region misc high level functions *************************************************************************************************/
+
+pub fn create_file_from_vrt (bbox: &BoundingBox<f64>, tgt_epsg: u32, img_extension: &str, opts: &[&str], output_path: &Path, vrt_path: &Path) -> Result<File> {
+    let src_ds =  Dataset::open(vrt_path)?;
+    let tgt_srs = SpatialRef::from_epsg( tgt_epsg)?;
+    let co_list = create_opts( opts);
+    let driver_name = get_driver_name_for_extension( img_extension).ok_or(misc_error(format!("unsupported image type {}", img_extension)))?;
+
+    warp::SimpleWarpBuilder::new( &src_ds, output_path)?
+        .set_tgt_srs(&tgt_srs)
+        .set_tgt_extent_from_bbox(bbox)
+        .set_tgt_format( driver_name)?
+        .set_create_options(&co_list)
+        .exec()?;
+
+    Ok(existing_non_empty_file_from_path(output_path)?)
+}
+
+pub fn create_opts (opts: &[&str]) -> CslStringList {
+    let mut co_list = CslStringList::new();
+
+    for o in opts {
+        co_list.add_string(*o);
+    }
+
+    co_list
+}
+
+
+/* #endregion misc high level functions */

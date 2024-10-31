@@ -107,7 +107,7 @@ fn main() {
     ...
     let config: MyConfig = load_config("my_config.ron")?;
     ...
-    let asset: &Vec<u8> = load_asset("my_asset.js)?;
+    let asset: &Vec<u8> = load_asset("my_asset.js")?;
 }
 ```
 
@@ -215,8 +215,10 @@ This lookup is performed for each resource separately, i.e. it is not just possi
 
 At runtime, ODIN applications use the following optional environment variables:
 
-- `ODIN_HOME`
-- `ODIN_EMBEDDED_ONLY`
+- `ODIN_HOME` - the ODIN root directory to use
+- `ODIN_EMBEDDED_ONLY` - use only embedded configs, no file system lookup
+- `ODIN_BIN_SUFFIX` - optional suffix for binary name (can be used to differentiate multiple concurrent ODIN_BIN_NAME/CARGO_BIN_NAME processes)
+- `ODIN_RELOAD_ASSETS` - if set asset lookup is not cached (useful for debugging javascript modules)
 
 At build-time, ODIN uses the following environment variables to provide build script input
 
@@ -239,3 +241,22 @@ bob [--embed] [--root ❬dir❭] [❬cargo-opts❭...] ❬bin-name❭
 ```
 
 Using this tool is optional. ODIN applications can be built/run through normal cargo invocation but in this case resources are not embedded without manually setting the above `ODIN_..` build-time environment variables and the `embedded_resources` feature.
+
+Although provided by the `odin_common` crate the `duplicate_dir` command line tool can be used to duplicate nested `ODIN_ROOT` directory trees. Use
+the `--link-files` option to create root dirs that only override some config/asset files and otherwise link to an existing root dir:
+
+```
+duplicate_dir [FLAGS] [OPTIONS] <source-dir> <target-dir>
+
+FLAGS:
+    -h, --help          Prints help information
+    -l, --link-files    only use symbolic (soft) links for files
+    -V, --version       Prints version information
+
+OPTIONS:
+    -e, --exclude <exclude>...    exclude file or directory matching glob
+
+ARGS:
+    <source-dir>    root directory to duplicate
+    <target-dir>    directory to duplicate to (will be created/overwritten)
+```

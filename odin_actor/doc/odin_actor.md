@@ -1,6 +1,6 @@
 # odin_actor
 
-The `odin_actor` crate provides an implementation for a typed [actor model](https://en.wikipedia.org/wiki/Actor_model)
+The `odin_actor` crate provides an implementation of a typed [actor model](https://en.wikipedia.org/wiki/Actor_model)
 that serves as the common basis for ODIN applications.
 
 *Actors* are objects that execute concurrently and only communicate through asynchronous *Messages*. Actors do not share their internal *State* and are only represented to the outside by *ActorHandles*. The only operation supported by ActorHandles is to send messages to the actor, which are then queued in an (actor internal) *Mailbox* and processed by the actor in the order in which they were received. In reaction to received messages actors can send messages or mutate their internal state:

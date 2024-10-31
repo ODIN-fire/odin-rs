@@ -73,13 +73,13 @@ macro_rules! create_messengers {
 #[derive(Deserialize,Serialize,Debug)]
 #[serde(default)]
 pub struct SentinelAlarmMonitorConfig {
-    new_alarm_duration: Duration, // after which we consider this to be a new alarm
-    attach_image: bool,
-    image_timeout: Duration,
-    fire_prob: f64,
-    smoke_prob: f64,
-    old_alarm_duration: Duration, // after which we purge a stored alarm, needs to be > new_alarm_duration
-    device_infos: HashMap<String,String>
+    pub new_alarm_duration: Duration, // after which we consider this to be a new alarm
+    pub attach_image: bool,
+    pub image_timeout: Duration,
+    pub fire_prob: f64,
+    pub smoke_prob: f64,
+    pub old_alarm_duration: Duration, // after which we purge a stored alarm, needs to be > new_alarm_duration
+    pub device_infos: HashMap<String,String>
 }
 
 impl Default for SentinelAlarmMonitorConfig {

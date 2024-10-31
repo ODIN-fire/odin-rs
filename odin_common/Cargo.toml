@@ -3,7 +3,13 @@ name = "odin_common"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "get_files"
+path = "src/bin/get_files.rs"
+
+[[bin]]
+name = "duplicate_dir"
+path = "src/bin/duplicate_dir.rs"
 
 [dependencies]
 chrono = { workspace = true }
@@ -17,8 +23,12 @@ reqwest = { workspace = true, features = ["blocking"] }
 lazy_static = "*"
 ctrlc = { version = "*", features = ["termination"] }
 tokio = { workspace = true }
+structopt = "*"
 gethostname = "*"
 regex = "*"
+num-format = "*"
+anyhow = "*"
+globset = "0.4.15"
 
 aws-config = { version = "*", features = ["behavior-version-latest"], optional = true }
 aws-sdk-s3 = { version = "*", features = ["rt-tokio"], optional = true }

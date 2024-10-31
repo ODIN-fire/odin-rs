@@ -14,8 +14,19 @@
 #![allow(unused)]
 //#![feature(diagnostic_namespace)]
 
-use axum::{body::Body, response::Response};
+use std::{net::SocketAddr, path::PathBuf};
+
+use axum::{body::Body, response::Response, Router};
+use axum_server::{service::MakeService, tls_rustls::RustlsConfig};
+
+use reqwest::StatusCode;
+use bytes::Bytes;
+
+use serde::{Deserialize,Serialize};
+use tokio::task::JoinHandle;
+
 use odin_build::prelude::*;
+use odin_common::strings;
 
 pub mod prelude;
 pub mod spa;
@@ -24,11 +35,23 @@ pub mod ws_service;
 
 pub mod errors;
 use errors::{OdinServerResult,op_failed};
-use reqwest::StatusCode;
-use bytes::Bytes;
 
 define_load_config!{}
 define_load_asset!{}
+
+type Result<T> = OdinServerResult<T>;
+
+#[derive(Deserialize,Serialize,Debug)]
+pub struct ServerConfig {
+    pub sock_addr: SocketAddr,
+    pub tls: Option<TlsConfig>, // if set use TLS (https)
+}
+
+#[derive(Deserialize,Serialize,Debug)]
+pub struct TlsConfig {
+    pub cert_path: String, // path to PEM encoded certificate
+    pub key_path: String,  // path to PEM encoded key data
+}
 
 /// get `Response` for given asset
 /// NOTE - this has to be kept in sync with `odin_build` compression (which happens automatically)
@@ -37,7 +60,7 @@ pub fn get_asset_response (pathname: &str, bytes: Bytes) -> Response<Body> {
     build_ok_response( &content_spec.mime_type, content_spec.encoding, bytes)
 }
 
-fn build_ok_response( content_type: &str, encoding: Option<&str>, bytes: Bytes)->Response<Body> {
+fn build_ok_response (content_type: &str, encoding: Option<&str>, bytes: Bytes)->Response<Body> {
     let mut builder = Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", content_type);
@@ -48,6 +71,28 @@ fn build_ok_response( content_type: &str, encoding: Option<&str>, bytes: Bytes)-
 
     builder.body( Body::from(bytes)).unwrap()
 }
+
+pub fn spawn_server_task (config: &ServerConfig, name: &str, router: Router) -> JoinHandle<()> {
+    let sock_addr = config.sock_addr.clone();
+    let router_svc = router.into_make_service_with_connect_info::<SocketAddr>();
+
+    if let Some(tls) = &config.tls {
+        println!("serving https://{}/{}", sock_addr, name);
+        let cert_path = strings::env_expand( &tls.cert_path);
+        let key_path = strings::env_expand( &tls.key_path);
+        tokio::spawn( async move {
+            let tls_config = RustlsConfig::from_pem_file(PathBuf::from(cert_path), PathBuf::from(key_path)).await.unwrap();
+            axum_server::bind_rustls( sock_addr, tls_config).serve( router_svc).await.unwrap();
+        })
+    } else {
+        println!("serving http://{}/{}", sock_addr, name);
+        tokio::spawn( async move {
+            let listener = tokio::net::TcpListener::bind(sock_addr).await.unwrap();
+            axum::serve( listener, router_svc).await.unwrap();    
+        })
+    }
+}
+
 
 //--- syntactic sugar macros
 

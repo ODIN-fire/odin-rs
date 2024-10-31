@@ -13,6 +13,20 @@
  */
 #![allow(unused)]
 
+//! module to (eventually) implement a minimal [WMS](https://portal.ogc.org/files/?artifact_id=14416) server for
+//! elevation data. The main end point is
+//! 
+//!    GET <host>:<port>/GetMap?<query>
+//! 
+//! with query parameters
+//! 
+//!       crs    : coordinate reference system ("epsg:<number>")
+//!       bbox   : comma separated list of coordinate boundaries in crs dimensions 
+//!                (xmin,ymin,xmax,ymax - corresponds to west,south,east,north in epsg:4326)
+//!       format : response data image type ("tif", "png")
+//!       width  : response data (image) width in pixels - we keep this optional and if not set use source data resolution
+//!       height : response data (image) height in pixels - see 'width'
+
 #[macro_use]
 extern crate lazy_static;
 
@@ -21,8 +35,7 @@ use std::error::Error;
 use std::net::{IpAddr, SocketAddr};
 
 use axum::{
-    extract::MatchedPath,
-    extract::Query,
+    extract::{MatchedPath,Query},
     http::Request,
     response::Html,
     Router,
@@ -37,21 +50,19 @@ use tower_http::{
 };
 use tracing::{info_span, Level, Span};
 use tracing_subscriber::{filter, layer::SubscriberExt, util::SubscriberInitExt};
+use anyhow::Result;
+
+use odin_build::set_bin_context;
 use odin_common::geo::BoundingBox;
-
 use odin_common::strings::deserialize_arr4;
-use odin_dem::*;
+use odin_server::{spawn_server_task,ServerConfig};
+use odin_dem::load_config;
 
-#[derive(StructOpt)]
-struct CliOpts {
-    #[structopt(long,default_value="8081")]
-    port: u16,
 
-    #[structopt(long,default_value="127.0.0.1")]
-    ip_addr: IpAddr,
-
-    #[structopt(short,long)]
-    verbose: bool
+/// DEM configuration data
+#[derive(Deserialize, Debug)]
+pub struct DemConfig {
+    pub vrt_path: String,
 }
 
 // the "default_xx" paths are a serde quirk - no default_value, only functions allowed
@@ -63,10 +74,8 @@ struct GetMapQuery {
     #[serde(default = "default_version")]
     version: String,
 
-    #[serde(default)]
     layers: Option<String>,
 
-    #[serde(default)]
     styles: Option<String>,
 
     #[serde(default = "default_crs")]
@@ -91,47 +100,17 @@ fn default_crs() -> String { "EPSG:4326".into() }
 fn default_format() -> String { "image/tif".into() }
 fn default_transparent() -> bool { false }
 
-lazy_static! {
-    #[derive(Debug)]
-    static ref OPTS: CliOpts = CliOpts::from_args();
+
+#[tokio::main]
+async fn main () -> Result<()> {
+    odin_build::set_bin_context!();
+
+    let config = load_config("dem_server.ron")?;
+    let router = Router::new().route("/odin-dem/GetMap", get(get_map_handler));
+    let server_task = spawn_server_task( &config, "GetMap", router);
+    Ok( server_task.await? )
 }
 
 async fn get_map_handler (Query(q): Query<GetMapQuery>) { // just a '200 Ok' response for now
-    let bbox: BoundingBox<f64> = BoundingBox::from_wsen(&q.bbox);
-
-}
-
-fn init_trace() {
-    let tracing_layer = tracing_subscriber::fmt::layer();
-    let filter = filter::Targets::new()
-        .with_target("tower_http::trace::on_response", Level::TRACE)
-        .with_target("tower_http::trace::on_request", Level::TRACE)
-        .with_target("tower_http::trace::make_span", Level::DEBUG)
-        .with_default(Level::INFO);
-
-    tracing_subscriber::registry()
-        .with(tracing_layer)
-        .with(filter)
-        .init();
-}
-
-#[tokio::main]
-async fn main () -> Result<(),Box<dyn Error>> {
-    let addr = SocketAddr::new(OPTS.ip_addr, OPTS.port);
-    let mut app = Router::new()
-        .route("/odin-dem/GetMap", get(get_map_handler));
-
-    println!("response server running on http://{}/odin-dem", addr);
-    println!("(terminate with ctrl-C)");
-
-    if OPTS.verbose {
-        println!("tracing turned on");
-        init_trace();
-        app = app.layer( TraceLayer::new_for_http());
-    }
-
-    let listener = TcpListener::bind(&addr).await?;
-    axum::serve( listener, app).await?;
-
-    Ok(())
+    println!("@@ query: {q:?}")
 }
