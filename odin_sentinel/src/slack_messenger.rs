@@ -18,20 +18,13 @@ use serde::{Serialize,Deserialize};
 use async_trait::async_trait;
 
 use odin_common::slack::{self,FileAttachment};
-use crate::{op_failed, Alarm, AlarmMessenger, EvidenceInfo, OdinSentinelError};
+use crate::{op_failed, Alarm, AlarmMatcher, AlarmMessenger, EvidenceInfo, OdinSentinelError};
 use crate::errors::Result;
 
 #[derive(Deserialize,Serialize,Debug)]
 pub struct SlackAlarmConfig {
     token: String,
-    device_channel_ids: HashMap<String,Vec<String>>,
-    default_channel_ids: Vec<String>
-}
-
-impl SlackAlarmConfig {
-    fn get_channel_ids (&self, device_id: &str)->&Vec<String> {
-        self.device_channel_ids.get(device_id).unwrap_or( &self.default_channel_ids)
-    }
+    channels: Vec<(AlarmMatcher,String)> // alarm-matcher -> channel-id
 }
 
 /// Slack API based messenger for Sentinel Alarm notifications
@@ -48,19 +41,18 @@ impl AlarmMessenger for SlackAlarmMessenger {
 
     async fn send_alarm (&self, alarm: &Alarm)->Result<()> {
         let config = &self.config;
-
         let files = get_file_attachments(alarm);
         if files.is_empty() {
-            for channel_id in config.get_channel_ids( &alarm.device_id) {
-                slack::send_msg( &config.token, channel_id, &alarm.description, None).await.map_err(|e| 
-                    op_failed(e.to_string())
-                )?;
+            for (matcher,channel_id) in &self.config.channels {
+                if matcher.matches(alarm) {
+                    slack::send_msg( &config.token, channel_id, &alarm.description, None).await?;
+                }
             }
         } else {
-            for channel_id in config.get_channel_ids( &alarm.device_id) {
-                slack::send_msg_with_files( &config.token, channel_id, &alarm.description, &files).await.map_err(|e| 
-                    op_failed(e.to_string())
-                )?;
+            for (matcher,channel_id) in &self.config.channels {
+                if matcher.matches(alarm) {
+                    slack::send_msg_with_files( &config.token, channel_id, &alarm.description, &files).await?;
+                }
             }
         }
 

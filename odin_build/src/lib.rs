@@ -81,6 +81,7 @@ pub struct BinContext {
     pub bin_name: String,
     pub bin_crate: String,
     pub bin_suffix: Option<String>, // optionally set via ODIN_BIN_SUFFIX at runtime (useful if we run simultaneous instances of this bin)
+    pub proc_id: Option<u32>,
 
     pub build: String, // describing how binary was built (showing build-time env settings)
 }
@@ -95,9 +96,10 @@ macro_rules! set_bin_context {
             let bin_crate = env!("CARGO_PKG_NAME").to_string(); // those are only set at compile time hence this needs a macro
             let bin_name = env!("CARGO_BIN_NAME").to_string();
             let bin_suffix = std::env::var("ODIN_BIN_SUFFIX").ok(); // NOTE this is a runtime env var
+            let proc_id = Some(std::process::id());
             let build = odin_build::build_mode!();
 
-            odin_build::BIN_CONTEXT.set( odin_build::BinContext{ bin_name, bin_crate, bin_suffix, build } ).unwrap();
+            odin_build::BIN_CONTEXT.set( odin_build::BinContext{ bin_name, bin_crate, bin_suffix, proc_id, build } ).unwrap();
         }
     }
 }
@@ -130,8 +132,9 @@ pub fn get_env_bin_context()->Option<BinContext> {
     if bin_name.is_ok() && bin_crate.is_ok() {
         let bin_name = bin_name.unwrap();
         let bin_crate = bin_crate.unwrap();
+        let proc_id = None;
         let build = build_mode!();
-        Some( BinContext { bin_name, bin_crate, bin_suffix, build } )
+        Some( BinContext { bin_name, bin_crate, bin_suffix, proc_id, build } )  // this is build-time - we don't have a proc_id yet
     } else { 
         None
     }

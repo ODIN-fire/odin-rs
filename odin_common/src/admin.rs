@@ -136,21 +136,31 @@ async fn async_notify_slack (severity: Severity, msg: &str) {
     send_msg( &SLACK_CONFIG.token, &SLACK_CONFIG.channel_id, &txt, None).await;
 }
 
-/// this is the bin_name with an optional suffix set from ODIN_BIN_SUFFIX (we might run several instances of this process)
+/// this is the bin_name with an optional suffix set from ODIN_BIN_SUFFIX and an optional pid
+/// (we might run several instances of this process so we have to tell them apart)
 fn bin_spec()-> String {
     if let Some(ctx) = get_bin_context() {
-        let mut bin_spec = ctx.bin_name.clone();
-        if let Some(bin_suffix) = &ctx.bin_suffix { 
-            bin_spec.push_str( bin_suffix); 
-        }
-        bin_spec
-    } else {
+        format!( "{}{} ({})",
+            ctx.bin_name,
+            if let Some(s) = &ctx.bin_suffix {s} else {""},
+            if let Some(id) = &ctx.proc_id {id.to_string()} else {std::process::id().to_string()}
+        )
+
+    } else { // process did not set BinContext, assemble it
         let mut bin_spec = if let Ok(path) = std::env::current_exe() {
             filename_of_path(path).unwrap_or( "?".to_string())
-        } else { "?".to_string() };
+        } else { 
+            "?".to_string() 
+        };
+
         if let Ok(bin_suffix) = std::env::var("ODIN_BIN_SUFFIX") {
             bin_spec.push_str( &bin_suffix);
         }
+
+        bin_spec.push_str(" (");
+        bin_spec.push_str( &std::process::id().to_string());
+        bin_spec.push(')');
+
         bin_spec
     }
 }

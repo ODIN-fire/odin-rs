@@ -20,7 +20,7 @@ use serde::{Serialize,Deserialize};
 use serde_json;
 use crate::fs::filename_of_path;
 
-type SlackError = Box<dyn Error>;
+pub type SlackError = Box<dyn Error>;
 type SlackResult<T> = Result<T,SlackError>;
 
 /// send chat text message as async

@@ -22,12 +22,14 @@ use odin_sentinel::{load_config, Alarm, AlarmMessenger, EvidenceInfo,
 use anyhow::Result;
  
 define_cli! { ARGS [about="Delphire Sentinel Slack alarm test"] = 
-    slack: bool            [help="enable slack messenger", long],
-    smtp: bool             [help="enable smtp messenger", long],
-    signal_cli: bool       [help="enable signal-cli messenger (requires signal-cli installation)", long],
+    slack: bool                   [help="enable slack messenger", long],
+    smtp: bool                    [help="enable smtp messenger", long],
+    signal_cli: bool              [help="enable signal-cli messenger (requires signal-cli installation)", long],
 
-    img: Option<String>    [help="optional pathname of image to attach", short, long],
-    text: Option<String>    [help="optional alarm notification text", short, long]
+    alarm_type: String            [help="alarm type", default_value="smoke", short,long],
+    confidence: f64               [help="confidence [0.0 .. 1.0]", default_value="0.70", short,long],
+    img: Option<String>           [help="optional pathname of image to attach", short, long],
+    text: Option<String>          [help="optional alarm notification text", short, long]
 }
 
 /// test application for alarm messengers - this sends artificial alarms to the messenger types
@@ -38,6 +40,8 @@ async fn main()->Result<()> {
     let description = if let Some(descr) = &ARGS.text { descr.clone() } else { "test alarm".into() };
     let now = Utc::now();
     let pos = Some( DatedGeoPos::new(LatAngle::from_degrees(37.1668), LonAngle::from_degrees(-121.9633), 560.0, now));
+    let alarm_type = ARGS.alarm_type.clone();
+    let confidence = ARGS.confidence;
 
     let alarm = if let Some(img) = &ARGS.img {
         let pathname = Path::new(&img).to_path_buf();
@@ -47,6 +51,8 @@ async fn main()->Result<()> {
             description, 
             time_recorded: now,
             pos,
+            alarm_type,
+            confidence,
             evidence_info: vec!( 
                 EvidenceInfo { 
                     sensor_no: 0,
@@ -61,6 +67,8 @@ async fn main()->Result<()> {
             description, 
             time_recorded: Utc::now(),
             pos,
+            alarm_type,
+            confidence,
             evidence_info: Vec::new() 
         }
     };

@@ -81,6 +81,9 @@ pub enum OdinSentinelError {
     #[error("rpc error {0}")]
     RpcError(String),
 
+    #[error("slack error {0}")]
+    SlackError(String),
+
     #[error("timeout error {0}")]
     TimeoutError(String),
 
@@ -103,6 +106,9 @@ map_to_opaque_error!{ odin_job::OdinJobError => OdinSentinelError::JobError }
 map_to_opaque_error!{ ron::error::Error => OdinSentinelError::ConfigError }
 map_to_opaque_error!{ tokio::time::error::Elapsed => OdinSentinelError::TimeoutError }
 map_to_opaque_error!{ std::process::ExitStatusError => OdinSentinelError::CommandError }
+
+#[cfg(feature="slack")]
+map_to_opaque_error!{ odin_common::slack::SlackError => OdinSentinelError::SlackError }
 
 #[cfg(feature="smtp")]
 map_to_opaque_error!{ lettre::transport::smtp::Error => OdinSentinelError::SmtpError }

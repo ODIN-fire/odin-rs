@@ -998,7 +998,7 @@ pub struct DirectUriImage {
 /* #region file requests ******************************************************************************************************/
 
 /// a struct that associates a SensorRecord with a file (pathname)
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,PartialEq)]
 pub struct SentinelFile {
     pub record_id: String,   // the SensorRecord this file is associated with
     pub pathname: PathBuf,   // this is the physical location of the file (once downloaded)
