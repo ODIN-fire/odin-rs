@@ -52,7 +52,7 @@ pub struct EvidenceInfo {
     pub img: Option<SentinelFile>,
 }
 
-// check if two EvidenceInfo Vecs are synonymous (they might differ in order)
+// check if two EvidenceInfo Vecs have the same sensors (we use this to check for reported alarms)
 fn same_evidence_sensors (ev1: &Vec<EvidenceInfo>, ev2: &Vec<EvidenceInfo>)->bool {
     if ev1.len() != ev2.len() { return false }
 
@@ -65,32 +65,6 @@ fn same_evidence_sensors (ev1: &Vec<EvidenceInfo>, ev2: &Vec<EvidenceInfo>)->boo
     n_matches == ev1.len()
 }
 
-/// match spec that can be used in messengers to choose actions to take for a given alarm
-#[derive(Debug,Serialize,Deserialize)]
-#[serde(default)]
-pub struct AlarmMatcher {
-    pub device: String,
-    pub alarm: String,
-    pub min_confidence: f64
-}
-
-impl AlarmMatcher {
-    pub fn matches (&self, alarm: &Alarm) -> bool {
-        (self.device == "*" || alarm.device_id.starts_with( &self.device))
-        && (self.alarm == "*" || alarm.alarm_type.starts_with( &self.alarm))
-        && (alarm.confidence >= self.min_confidence)
-    }
-}
-
-impl Default for AlarmMatcher {
-    fn default() -> Self {
-        Self { 
-            device: "*".into(), 
-            alarm: "*".into(), 
-            min_confidence: 0.0 
-        }
-    }
-}
 
 /// abstract interface for messenger services (SMS< Signal, WhatsApp etc)
 /// since this is a simple interface that is hopefully not called too often we use `async_trait`` to

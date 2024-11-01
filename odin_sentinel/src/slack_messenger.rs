@@ -18,13 +18,42 @@ use serde::{Serialize,Deserialize};
 use async_trait::async_trait;
 
 use odin_common::slack::{self,FileAttachment};
-use crate::{op_failed, Alarm, AlarmMatcher, AlarmMessenger, EvidenceInfo, OdinSentinelError};
+use crate::{op_failed, Alarm, AlarmMessenger, EvidenceInfo, OdinSentinelError};
 use crate::errors::Result;
 
-#[derive(Deserialize,Serialize,Debug)]
+#[derive(Deserialize,Debug)]
 pub struct SlackAlarmConfig {
-    token: String,
-    channels: Vec<(AlarmMatcher,String)> // alarm-matcher -> channel-id
+    pub token: String,
+    pub alarm_channels: Vec<SlackAlarmChannel> 
+}
+
+/// the channel an alarm should be sent to, including optional filter values for device id, alarm type and minimum confidence
+/// we keep this here as a flat struct so that it can be extended with format specifiers and alarm specific actions.
+#[derive(Deserialize,Debug)]
+pub struct SlackAlarmChannel {
+    /// the Slack channel ID
+    pub id: String,
+
+    #[serde(default="default_device")]
+    pub device: String,
+
+    #[serde(default="default_alarm")]
+    pub alarm: String,
+
+    #[serde(default="default_min_confidence")]
+    pub min_confidence: f64
+}
+
+fn default_device()->String { "*".into() } // all devices
+fn default_alarm()->String { "*".into() }  // all alarm types
+fn default_min_confidence()->f64 { 0.0 }   // all confidence values 
+
+impl SlackAlarmChannel {
+    pub fn matches (&self, alarm: &Alarm) -> bool {
+        (self.device == "*" || alarm.device_id.starts_with( &self.device))
+        && (self.alarm == "*" || alarm.alarm_type.starts_with( &self.alarm))
+        && (alarm.confidence >= self.min_confidence)
+    }
 }
 
 /// Slack API based messenger for Sentinel Alarm notifications
@@ -43,15 +72,15 @@ impl AlarmMessenger for SlackAlarmMessenger {
         let config = &self.config;
         let files = get_file_attachments(alarm);
         if files.is_empty() {
-            for (matcher,channel_id) in &self.config.channels {
-                if matcher.matches(alarm) {
-                    slack::send_msg( &config.token, channel_id, &alarm.description, None).await?;
+            for alarm_channel in &self.config.alarm_channels {
+                if alarm_channel.matches(alarm) {
+                    slack::send_msg( &config.token, &alarm_channel.id, &alarm.description, None).await?;
                 }
             }
         } else {
-            for (matcher,channel_id) in &self.config.channels {
-                if matcher.matches(alarm) {
-                    slack::send_msg_with_files( &config.token, channel_id, &alarm.description, &files).await?;
+            for alarm_channel in &self.config.alarm_channels {
+                if alarm_channel.matches(alarm) {
+                    slack::send_msg_with_files( &config.token, &alarm_channel.id, &alarm.description, &files).await?;
                 }
             }
         }
