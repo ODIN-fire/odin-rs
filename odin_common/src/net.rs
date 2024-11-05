@@ -14,10 +14,10 @@
 
 ///! common utility functions for network operations
 
-use std::{fs::File, io::Write, path::Path, collections::HashMap};
+use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc};
 use reqwest::{Client,IntoUrl,header::{HeaderMap,HeaderName,HeaderValue}};
 use regex::Regex;
-use crate::{define_error, if_let, fs::file_length};
+use crate::{define_error, fs::{self, file_length}, if_let};
 use lazy_static::lazy_static;
 
 const SCHEME: usize = 1;
@@ -76,8 +76,7 @@ pub async fn get_differing_size_file (client: &Client, url: &str, opt_headers: &
         let path = Path::new( dir).join(fname);
 
         if_let! {
-            Ok(file) = File::open( &path),
-            Ok(local_len) = file_length(&file),
+            Some(local_len) = file_length(&path),
             Ok(remote_len) = get_content_length( client, url, opt_headers).await => {
                 if local_len == remote_len {
                     return Ok(local_len) // we assume equal length means same content
@@ -145,23 +144,30 @@ pub fn url_file_name<'a> (url: &'a str) -> Option<&'a str> {
     .map( |m| m.as_str())
 }
 
-/// Note - we assume lower case extension without '.'
-pub fn mime_type_for_extension (ext: &str)->Option<&'static str> {
+/// Note - we assume lower case extensions without '.'
+pub fn mime_type_for_extension (ext: &str) -> Option<&'static str> {
     MIME_MAP.get(ext).map(|v| &**v)
+}
+
+// Note - we assume lower case extensions
+pub fn mime_type_for_path<'a,T: AsRef<Path>> (path: &'a T) -> Option<&'static str> {
+    fs::extension(path).and_then(|ext| mime_type_for_extension(ext))
 }
 
 lazy_static! {
     static ref MIME_MAP: HashMap<&'static str, &'static str> = HashMap::from( [ // file extension -> mime type
-        //-- well known raster drivers
         ("tif", "image/tiff"),
         ("tiff", "image/tiff"),
         ("png", "image/png"),
         ("jpg", "image/jpeg"),
         ("jpeg", "image/jpeg"),
+        ("gif", "image/gif"),
         ("svg", "image/svg+xml"),
         ("webp", "image/webp"),
         ("webm", "video/webm"),
+        ("weba", "audio/webm"),
         ("mpeg", "video/mpeg"),
+        ("ts", "video/mp2t/"),
         ("mp3", "audio/mp3"),
         ("mp4", "video/mp4"),
         ("js", "text/javascript"),
@@ -170,6 +176,17 @@ lazy_static! {
         ("jsonld", "application/ld+json"),
         ("pdf", "application/pdf"),
         ("csv", "text/csv"),
+        ("txt", "text/plain"),
+        ("htm", "text/html"),
+        ("html", "text/html"),
+        ("css", "text/css"),
+        ("gz", "application/gzip"),
+        ("bz", "application/x-bzip"),
+        ("bz2", "application/x-bzip2"),
+        ("zip", "application/zip"),
+        ("xml", "application/xml"),
+        ("xhtml", "application/xhtml+xml")
+
         // and many more to follow..
     ]);
 }

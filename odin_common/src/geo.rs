@@ -292,5 +292,3 @@ pub fn utm_to_latlon (utm: &UTM) -> LatLon {
 
     LatLon { lat_deg, lon_deg }
 }
-
-

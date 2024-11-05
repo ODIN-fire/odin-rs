@@ -23,6 +23,9 @@ define_cli! { ARGS [about="get_dem - retrieve DEM file from given GDAL VRT"] =
     east:  f64 [help="east boundary", allow_hyphen_values = true, long, short],
     north: f64 [help="north boundary", allow_hyphen_values = true, long, short],
 
+    width: u32 [help="output width in pixels", long],
+    height: u32 [help="output height in pixels", long],
+
     img_type: String [help="image type to create {png,tif}", short,long,default_value="tif"],
     epsg: u32 [help="target SRS EPSG number for returned DEM (also has to be used for bounding box)", long,default_value="32610"],
     output_dir: String [help="directory where to store extracted file",long,short, default_value="."],
@@ -43,8 +46,8 @@ fn main() {
             let dem_srs = DemSRS::from_epsg( ARGS.epsg).expect("unsupported EPSG");
             let dem_img = DemImgType::for_ext( &ARGS.img_type).expect("unsupported DEM image type");
 
-            match get_dem( &bbox, dem_srs, dem_img, ARGS.vrt_file.as_str(), &out_dir) {
-                Ok((file_path, file)) => println!("DEM file at {}", file_path),
+            match get_wh_dem( &bbox, dem_srs, ARGS.width, ARGS.height, dem_img, &ARGS.vrt_file.as_str(), &out_dir) {
+                Ok(file_path) => println!("DEM file at {:?}", file_path),
                 Err(e) => eprintln!("failed to create DEM file, error: {}", e)
             }
         } else { eprintln!("VRT file not found {}", ARGS.vrt_file) }

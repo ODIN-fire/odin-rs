@@ -20,6 +20,9 @@ pub enum OdinDemError {
     #[error("unsupported target spatial ref system: {0}")]
     UnsupportedTargetSRS(String),
 
+    #[error("invalid filename: {0}")]
+    FilenameError(String),
+
     // generic self-created error
     #[error("DEM operation failed: {0}")]
     OpFailedError(String),
@@ -36,4 +39,8 @@ pub enum OdinDemError {
 
 pub fn op_failed<S: ToString> (msg: S)->OdinDemError {
     OdinDemError::OpFailedError(msg.to_string())
+}
+
+pub fn invalid_filename<S: ToString> (fname: S)->OdinDemError {
+    OdinDemError::FilenameError(fname.to_string())
 }

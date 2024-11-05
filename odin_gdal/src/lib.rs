@@ -24,13 +24,12 @@ use libc::{c_void,c_char,c_uint, c_int};
 
 // we re-export these so that other crates don't have to use a direct gdal depedency to import.
 // this is to ensure we run bindgen for new GDAL versions that don't yet have pre-computed bindings in gdal-sys
-pub use gdal::{self, Driver, DriverManager, Metadata, MetadataEntry, Dataset, errors::GdalError, GeoTransform};
+pub use gdal::{self, Driver, DriverManager, Metadata, MetadataEntry, Dataset, errors::GdalError, GeoTransform, cpl::CslStringList};
 pub use gdal::raster::{GdalType,RasterBand,Buffer};
 pub use gdal::spatial_ref::{CoordTransform, CoordTransformOptions, SpatialRef};
 
 use gdal_sys::{self,CPLErrorReset, OGRErr, OSRExportToWkt, OSRNewSpatialReference, OSRSetFromUserInput, CPLErr};
 use geo::{Coord, Rect};
-use gdal::cpl::CslStringList;
 
 use odin_common::{fs::{existing_non_empty_file_from_path,get_filename_extension},geo::*,ranges::LinearRange};
 use odin_common::macros::if_let;
@@ -488,31 +487,63 @@ pub fn get_linear_range<T> (ds: &Dataset, band_index: usize)->Result<LinearRange
 
 /* #region misc high level functions *************************************************************************************************/
 
-pub fn create_file_from_vrt (bbox: &BoundingBox<f64>, tgt_epsg: u32, img_extension: &str, opts: &[&str], output_path: &Path, vrt_path: &Path) -> Result<File> {
+/// create an image with given width,height from VRT
+pub fn create_wh_image_from_vrt (bbox: &BoundingBox<f64>, tgt_epsg: u32, width: u32, height: u32, img_extension: &str, opts: &Option<CslStringList>, vrt_path: &Path, file_path: &Path) -> Result<()> {
     let src_ds =  Dataset::open(vrt_path)?;
     let tgt_srs = SpatialRef::from_epsg( tgt_epsg)?;
-    let co_list = create_opts( opts);
     let driver_name = get_driver_name_for_extension( img_extension).ok_or(misc_error(format!("unsupported image type {}", img_extension)))?;
 
-    warp::SimpleWarpBuilder::new( &src_ds, output_path)?
-        .set_tgt_srs(&tgt_srs)
-        .set_tgt_extent_from_bbox(bbox)
-        .set_tgt_format( driver_name)?
-        .set_create_options(&co_list)
-        .exec()?;
+    let mut warp = warp::SimpleWarpBuilder::new( &src_ds, file_path)?;
 
-    Ok(existing_non_empty_file_from_path(output_path)?)
-}
+    warp.set_tgt_srs( &tgt_srs);
+    warp.set_tgt_extent_from_bbox( bbox);
+    warp.set_tgt_size( width as i32, height as i32);
+    warp.set_tgt_format( driver_name)?;
 
-pub fn create_opts (opts: &[&str]) -> CslStringList {
-    let mut co_list = CslStringList::new();
-
-    for o in opts {
-        co_list.add_string(*o);
+    if let Some(ref opts) = *opts {
+        warp.set_create_options( opts);
     }
-
-    co_list
+        
+    warp.exec()?;
+    Ok(())
 }
+
+/// create an image with given resolution from VRT (width,height are computed)
+pub fn create_res_image_from_vrt (bbox: &BoundingBox<f64>, tgt_epsg: u32, res_x: f64, res_y: f64, img_extension: &str, opts: &Option<CslStringList>, vrt_path: &Path, file_path: &Path) -> Result<()> {
+    let src_ds =  Dataset::open(vrt_path)?;
+    let tgt_srs = SpatialRef::from_epsg( tgt_epsg)?;
+    let driver_name = get_driver_name_for_extension( img_extension).ok_or(misc_error(format!("unsupported image type {}", img_extension)))?;
+
+    let mut warp = warp::SimpleWarpBuilder::new( &src_ds, file_path)?;
+
+    warp.set_tgt_srs( &tgt_srs);
+    warp.set_tgt_extent_from_bbox( bbox);
+    warp.set_tgt_resolution( res_x, res_y);
+    warp.set_tgt_format( driver_name)?;
+
+    if let Some(ref opts) = *opts {
+        warp.set_create_options( opts);
+    }
+        
+    warp.exec()?;
+    Ok(())
+}
+
+
+/// syntactic sugar for creating CslStringLists. Note this panics if an invalid string (that cannot be translated into
+/// a C string) is provided.
+#[macro_export]
+macro_rules! csl_string_list {
+    ( $( $v:expr ),* ) => {
+        { 
+            use odin_gdal::CslStringList;
+            let mut co_list = CslStringList::new();
+            $( co_list.add_string( $v).unwrap(); )*
+            co_list
+        }
+    }
+}
+
 
 
 /* #endregion misc high level functions */

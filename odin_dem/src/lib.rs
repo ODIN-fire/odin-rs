@@ -13,24 +13,17 @@
  */
 #![allow(unused)]
 
-pub mod errors;
-
-use std::error::Error;
-use std::fs::File;
-use std::path::{Path, PathBuf};
-use axum::http::{header, HeaderMap, HeaderValue};
-use axum::http::header::CONTENT_TYPE;
-use axum::response::IntoResponse;
-use axum::body::Body;
-use errors::op_failed;
+use std::{error::Error, ops::Deref, path::{Path, PathBuf}, fs::File, sync::LazyLock};
+use axum::{http::{header::CONTENT_TYPE, HeaderMap, HeaderValue}, response::IntoResponse, body::Body};
+use errors::{invalid_filename, op_failed};
+use serde::{Deserialize, Serialize};
 use tokio::io;
-use lazy_static::lazy_static;
-use odin_common::fs;
-use odin_gdal::{create_file_from_vrt, get_driver_name_for_extension};
-use odin_common::{geo::BoundingBox,net::mime_type_for_extension};
+use odin_gdal::{create_wh_image_from_vrt, csl_string_list, get_driver_name_for_extension, CslStringList};
+use odin_common::{fs, {geo::BoundingBox,net::mime_type_for_extension}};
 use odin_build::define_load_config;
 
-use crate::errors::OdinDemError;
+pub mod errors;
+use errors::OdinDemError;
 
 type Result<T> = std::result::Result<T, OdinDemError>;
 
@@ -53,10 +46,26 @@ impl DemImgType {
         }
     }
 
+    pub fn for_mime_type (mime_type: &str) -> Option<DemImgType> {
+        match mime_type {
+            "image/tif" => Some(DemImgType::TIF),
+            "image/png" => Some(DemImgType::PNG),
+            _ => None
+        }
+    }
+
     pub fn file_extension(&self) -> &'static str {
         match *self {
             DemImgType::PNG => "png",
             DemImgType::TIF => "tif",
+        }
+    }
+
+    // unfortunately we can't do this as a static ref since CslStringList has mutable fields
+    pub fn gdal_create_options(&self) -> Option<CslStringList> {
+        match *self {
+            DemImgType::PNG => None,
+            DemImgType::TIF => Some( csl_string_list!("COMPRESS=DEFLATE", "PREDICTOR=2") )
         }
     }
 
@@ -76,14 +85,33 @@ pub enum DemSRS {
 }
 
 impl DemSRS {
-    pub fn from_epsg (epsg: u32) -> Result<DemSRS> {
-        if epsg == 4326 {
-            Ok(DemSRS::WGS84)
-        } else if (epsg >= 32601 && epsg <= 32660) || (epsg >= 32701 && epsg <= 32760) {
-            Ok(DemSRS::UTM{epsg})
-        } else {
-            Err(OdinDemError::UnsupportedTargetSRS(format!("{}", epsg)))
+    pub fn from_epsg (epsg: u32) -> Option<DemSRS> {
+        match epsg {
+            4326 => Some(DemSRS::WGS84),
+            32601..32661 => Some(DemSRS::UTM{epsg}),
+            32701..32761 => Some(DemSRS::UTM{epsg}),
+            _ => None
         }
+    }
+
+    pub fn from_srs_spec (srs: &str) -> Option<DemSRS> {
+        if srs.starts_with("epsg:") || srs.starts_with("EPSG:") {
+            if let Ok(epsg) = srs[5..].parse::<u32>() {
+                return Self::from_epsg( epsg)
+            }
+        } else {
+            if let Ok(epsg) = srs.parse::<u32>() {
+                return Self::from_epsg( epsg)
+            } else {
+                if srs.eq_ignore_ascii_case("WGS84") {
+                    return Some(DemSRS::WGS84)
+                }
+            }
+
+            // TODO - support more specs
+        }
+
+        None
     }
 
     pub fn epsg(&self) -> u32 {
@@ -94,12 +122,20 @@ impl DemSRS {
     }
 }
 
-
+#[derive(Debug,Serialize,Deserialize,Clone)]
+pub struct Resolution {
+    pub width: u64,
+    pub height: u64
+}
 
 /* #endregion  supported image types, SRS and data sources **********************************************************/
 
-fn get_dem_filename (src: &str, epsg: u32, bbox: &BoundingBox<f64>, file_ext: &str) -> String {
-    format!("DEM-{src}-{epsg}-{}_{}_{}_{}.{file_ext}", bbox.west, bbox.south, bbox.east, bbox.north)
+fn get_wh_dem_filename (src: &str, epsg: u32, bbox: &BoundingBox<f64>, width: u32, height: u32, file_ext: &str) -> String {
+    format!("{src}_{epsg}_{},{},{},{}_{width}x{height}.{file_ext}",  bbox.west, bbox.south, bbox.east, bbox.north)
+}
+
+fn get_res_dem_filename (src: &str, epsg: u32, bbox: &BoundingBox<f64>, res_x: f64, res_y: f64, file_ext: &str) -> String {
+    format!("{src}_{epsg}_{},{},{},{}_{res_x},{res_y}.{file_ext}",  bbox.west, bbox.south, bbox.east, bbox.north)
 }
 
 /// HTTP response creation
@@ -127,21 +163,42 @@ const DEM_OPTS: &[&'static str] = &[ "COMPRESS=DEFLATE", "PREDICTOR=2"];
 /// for a given bounding box 'bbox' look for a matching file in 'cache_dir'.
 /// If none found yet create a file with the given 'img_type' from the virtual GDAL tileset specified by 'vrt_file'
 /// note that `bbox` has to be in `srs` units (degree for GEO, meters for UTM)
-pub fn get_dem (bbox: &BoundingBox<f64>, srs: DemSRS, img_type: DemImgType, vrt_file: &str, out_dir: &PathBuf) -> Result<(String,File)> {
-    let vrt_path = Path::new(vrt_file);
+pub fn get_wh_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, width: u32, height: u32, img_type: DemImgType, vrt_file: &P, out_dir: &PathBuf) -> Result<PathBuf> 
+    where P: AsRef<Path>
+{
+    let vrt_path = vrt_file.as_ref();
     vrt_path.try_exists()?;
-    // we use the *.vrt filename as the data source
-    let data_src = vrt_path.file_name().and_then(|s| s.to_str()).ok_or( op_failed("invalide VRT filename"))?;
-
+    let data_src = fs::basename(vrt_file).ok_or(invalid_filename( format!("{:?}", vrt_path)))?;
     let ext = img_type.file_extension();
-    let fname = get_dem_filename( data_src, srs.epsg(), bbox, ext);
+    let create_opts = img_type.gdal_create_options();
+    let fname = get_wh_dem_filename( data_src, srs.epsg(), bbox, width, height, ext);
     let file_path: PathBuf = out_dir.join( fname.as_str());
 
-    let file = if !file_path.exists() {
-        odin_gdal::create_file_from_vrt( bbox, srs.epsg(), ext, &DEM_OPTS, &file_path, &vrt_path)?
+    if !file_path.exists() {
+        odin_gdal::create_wh_image_from_vrt( bbox, srs.epsg(), width, height, ext, &create_opts, &file_path, &vrt_path)?;
     } else {
-        File::open(&file_path)?
-    };
+        fs::set_accessed(&file_path)?; // update atime so that we could use it for LRU cache bounds
+    }
 
-    Ok( (fs::path_to_lossy_string(&file_path),file) )
+    Ok( file_path )
+}
+
+pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, img_type: DemImgType, vrt_file: &P, out_dir: &PathBuf) -> Result<PathBuf> 
+    where P: AsRef<Path>
+{
+    let vrt_path = vrt_file.as_ref();
+    vrt_path.try_exists()?;
+    let data_src = fs::basename(vrt_file).ok_or(invalid_filename( format!("{:?}", vrt_path)))?;
+    let ext = img_type.file_extension();
+    let create_opts = img_type.gdal_create_options();
+    let fname = get_res_dem_filename( data_src, srs.epsg(), bbox, res_x, res_y, ext);
+    let file_path: PathBuf = out_dir.join( fname.as_str());
+
+    if !file_path.exists() {
+        odin_gdal::create_res_image_from_vrt( bbox, srs.epsg(), res_x, res_y, ext, &create_opts, &file_path, &vrt_path)?;
+    } else {
+        fs::set_accessed(&file_path)?; // update atime so that we could use it for LRU cache bounds
+    }
+
+    Ok( file_path )
 }

@@ -300,9 +300,9 @@ pub use map_err;
 
 #[macro_export]
 macro_rules! io_error {
-    ( $kind:expr, $fmt:literal, $($arg:expr)* ) =>
+    ( $kind:expr, $fmt:literal $(, $($arg:expr),* )? ) =>
     {
-        io::Error::new( $kind, format!($fmt,$($arg),*).as_str())
+        io::Error::new( $kind, format!($fmt, $( $($arg),* )?).as_str())
     }
 }
 pub use io_error;
@@ -434,3 +434,31 @@ macro_rules! define_error {
 }
 
 /* #endregion define_cli */
+
+
+/// syntactic sugar macro to expand into a struct with serde attribute macros
+/// This mostly expands optional "[ attr,.. ]" groups into respective #[serde(attrs...)] container or field attribute macros
+/// use like this:
+/// 
+/// define_serde_struct! {
+///     pub GetMapQuery : Debug [deny_unknown_fields] = 
+///        service: String [alias = "svc", default="default_service"],
+///        layers: Option<String>
+/// }
+/// 
+/// TODO - we might turn this into q proc macro so that we can also do ad hoc default value spec without the need for additional functions
+#[macro_export]
+macro_rules! define_serde_struct {
+    ( $vis:vis $name:ident $( : $( $dt:ty),* )? $( [ $( $sopt:ident $(= $sx:literal)? ),* ] )? = 
+       $( $( #[$fmeta:meta] )? $fvis:vis $fname:ident: $ftype:ty $( [ $( $fopt:ident $(= $fx:literal)? ),* ] )? ),*  $(,)?) => {
+        #[derive(Serialize,Deserialize $( $( , $dt)* )? )]
+        $( #[serde( $( $sopt $( = $sx)? ),* ) ])?
+        $vis struct $name {
+            $( 
+                $( #[ $fmeta ] )?
+                $( #[serde(  $( $fopt $( =$fx )?),*  )] )?
+                $fvis $fname : $ftype
+            ),*
+        }
+    }
+}

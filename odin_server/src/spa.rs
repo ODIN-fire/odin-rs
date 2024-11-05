@@ -204,8 +204,9 @@ impl SpaServer {
                     .try_init();
             }
 
+            println!("serving SPA on {}/{}", self.config.url(), self.name);
             let router = self.build_router( &hself)?;
-            self.server_task = Some(spawn_server_task( &self.config, &self.name, router));
+            self.server_task = Some(spawn_server_task( &self.config, router));
             Ok(())
 
         } else {

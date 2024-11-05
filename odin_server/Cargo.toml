@@ -18,7 +18,8 @@ futures-util = { version = "*", features = ["sink"] }
 xattr = "*"
 minify-html = "*"
 http-body = "1.0.1"
-http-body-util = "*"
+http-body-util = "0.1.2"
+tokio-util = "0.7.12"
 tower = { version = "*", features = ["full"] }
 tower-http = { version = "*", features = ["full"] }
 tracing-subscriber = "*"
