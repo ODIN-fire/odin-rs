@@ -907,7 +907,8 @@ pub struct SentinelConfig {
     pub reconnect_delay: Option<Duration>, // sleep duration after which we try to re-initializa a broken websocket 
     pub device_filter: Vec<String>, // optional list of device_ids to filter for
 
-    pub inactive_duration: Duration // max duration since last update after which a device is considered to be inactive
+    pub inactive_duration: Duration, // max duration since last update after which a device is considered to be inactive
+    pub inactive_interval: Duration  // how often we check for inactive devices
 }
 
 impl Default for SentinelConfig {
@@ -924,7 +925,8 @@ impl Default for SentinelConfig {
             ping_interval: Some(Duration::from_secs(25)),
             reconnect_delay: None,
             device_filter: Vec::new(), // default is no filter
-            inactive_duration: Duration::from_secs( 60*15)
+            inactive_duration: Duration::from_secs( 7200), // inactive if no update for 2h
+            inactive_interval: Duration::from_secs(300) // check every 5 min
         }
     }
 }
@@ -1056,7 +1058,11 @@ pub trait SentinelConnector {
  
     fn max_history(&self)->usize;
 
+    /// duration since last update after which we consider a device inactive
     fn inactive_duration(&self)->Duration;
+
+    /// duration how often we check for inactive status
+    fn inactive_interval(&self)->Duration;
  }
 
 /* #endregion connectors */

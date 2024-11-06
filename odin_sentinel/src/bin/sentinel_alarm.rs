@@ -57,7 +57,7 @@ async fn main ()->Result<()> {
     let hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
         LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
         no_dataref_action(),
-        data_action!( hmonitor: ActorHandle<SentinelAlarmMonitorMsg> => |data:SentinelUpdate| Ok( hmonitor.try_send_msg(data)? )),
+        data_action!( hmonitor.clone(): ActorHandle<SentinelAlarmMonitorMsg> => |data:SentinelUpdate| Ok( hmonitor.try_send_msg(data)? )),
         data_action!( hmonitor: ActorHandle<SentinelAlarmMonitorMsg> => |data:SentinelInactiveAlert| Ok( hmonitor.try_send_msg(data)? )),
     ))?;
 

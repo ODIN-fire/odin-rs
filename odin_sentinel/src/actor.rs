@@ -166,7 +166,7 @@ impl_actor! { match msg for Actor< SentinelActor<C,I,U,IA>, SentinelActorMsg>
         if let Err(e) = self.connector.start( hself).await {  // this should eventually lead to an InitializeStore
             error!("failed to start connector: {:?}", e)
         }
-        if let Err(e) = self.start_repeat_timer( INACTIVE_TIMER, Duration::from_secs(120)) {
+        if let Err(e) = self.start_repeat_timer( INACTIVE_TIMER, self.connector.inactive_interval()) {
             error!("failed to start inactive timer")
         } 
     }

@@ -110,6 +110,10 @@ impl SentinelConnector for LiveSentinelConnector {
     fn inactive_duration(&self)->Duration {
         self.config.inactive_duration
     }
+
+    fn inactive_interval(&self)->Duration {
+        self.config.inactive_interval
+    }
 }
 
 /* #endregion LiveSentinelConnector */

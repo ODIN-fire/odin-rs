@@ -385,7 +385,9 @@ pub struct ConsoleAlarmMessenger {}
 impl AlarmMessenger for ConsoleAlarmMessenger {
     async fn send_alarm (&self, alarm: &Alarm)->Result<()> {
         //println!("ALARM: {alarm:?}");
-        println!("{} {}", Local::now(), alarm.description);
+        println!("{} :  {} {}", Local::now().format("%Y-%m-%dT%H:%M:%S"), alarm.alarm_type, alarm.device_id);
+        println!("{}", alarm.description);
+        println!();
         Ok(())
     }
 }
