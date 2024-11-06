@@ -19,7 +19,7 @@ use odin_build::define_load_config;
 use odin_actor::prelude::*;
 use odin_common::{define_cli,check_cli, admin, heap};
 use odin_sentinel::{
-    load_config, AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorConfig, SentinelAlarmMonitorMsg, SentinelUpdate, SignalCmdAlarmMessenger, SlackAlarmMessenger, SmtpAlarmMessenger
+    load_config, AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorConfig, SentinelAlarmMonitorMsg, SentinelInactiveAlert, SentinelUpdate, SignalCmdAlarmMessenger, SlackAlarmMessenger, SmtpAlarmMessenger
 };
 
 #[cfg(feature="dhat")] heap::use_dhat!{} 
@@ -58,6 +58,7 @@ async fn main ()->Result<()> {
         LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
         no_dataref_action(),
         data_action!( hmonitor: ActorHandle<SentinelAlarmMonitorMsg> => |data:SentinelUpdate| Ok( hmonitor.try_send_msg(data)? )),
+        data_action!( hmonitor: ActorHandle<SentinelAlarmMonitorMsg> => |data:SentinelInactiveAlert| Ok( hmonitor.try_send_msg(data)? )),
     ))?;
 
     actor_system.timeout_start_all(millis(20)).await?;

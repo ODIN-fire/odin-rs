@@ -179,6 +179,10 @@ impl <S,M> Actor <S,M> where S: Send + 'static, M: MsgTypeConstraints {
         self.hself.id()
     }
 
+    pub fn hself (&self)->ActorHandle<M> {
+        self.hself.clone()
+    }
+
     pub fn hsys (&self)->&ActorSystemHandle {
         self.hself.hsys()
     }

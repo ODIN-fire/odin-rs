@@ -22,7 +22,7 @@ use odin_goesr::{
     GoesrHotspotStore, GoesrHotspotSet, GoesrHotspotActor, GoesrHotspotImportActorMsg, GoesrSat, GoesrService
 };
 
-use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, SentinelActor, web::SentinelService};
+use odin_sentinel::{SentinelStore, SentinelUpdate, SentinelInactiveAlert, LiveSentinelConnector, SentinelActor, web::SentinelService};
 
 
 run_actor_system!( actor_system => {
@@ -55,10 +55,14 @@ run_actor_system!( actor_system => {
         dataref_action!( hserver.clone(): ActorHandle<SpaServerMsg> => |_store: &SentinelStore| {
             Ok( hserver.try_send_msg( DataAvailable{sender_id:"sentinel",data_type: type_name::<SentinelStore>()} )? )
         }),
-        data_action!( hserver: ActorHandle<SpaServerMsg> => |update:SentinelUpdate| {
+        data_action!( hserver.clone(): ActorHandle<SpaServerMsg> => |update:SentinelUpdate| {
             let data = ws_msg!("odin_sentinel/odin_sentinel.js",update).to_json()?;
             Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
         }),
+        data_action!( hserver: ActorHandle<SpaServerMsg> => |alert:SentinelInactiveAlert| {
+            let data = ws_msg!("odin_sentinel/odin_sentinel.js", alert).to_json()?;
+            Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
+        })
     ))?;
 
     Ok(())

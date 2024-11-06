@@ -905,7 +905,9 @@ pub struct SentinelConfig {
     pub max_age: Duration, // maximum age after which additional data (images etc.) are deleted
     pub ping_interval: Option<Duration>, // interval duration for sending Ping messages on the websocket 
     pub reconnect_delay: Option<Duration>, // sleep duration after which we try to re-initializa a broken websocket 
-    pub device_filter: Vec<String>  // optional list of device_ids to filter for
+    pub device_filter: Vec<String>, // optional list of device_ids to filter for
+
+    pub inactive_duration: Duration // max duration since last update after which a device is considered to be inactive
 }
 
 impl Default for SentinelConfig {
@@ -921,7 +923,8 @@ impl Default for SentinelConfig {
             max_age: Duration::from_secs( 60*60*24),
             ping_interval: Some(Duration::from_secs(25)),
             reconnect_delay: None,
-            device_filter: Vec::new() // default is no filter
+            device_filter: Vec::new(), // default is no filter
+            inactive_duration: Duration::from_secs( 60*15)
         }
     }
 }
@@ -1052,6 +1055,8 @@ pub trait SentinelConnector {
     fn terminate (&mut self);
  
     fn max_history(&self)->usize;
+
+    fn inactive_duration(&self)->Duration;
  }
 
 /* #endregion connectors */

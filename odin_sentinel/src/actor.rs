@@ -17,9 +17,19 @@
 
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
-use odin_common::{geo::LatLon};
+use odin_common::{geo::LatLon, datetime::duration_since};
 use crate::*;
 use crate::ws::WsCmd;
+
+/// message object to indicate a device hasn't reported within a configured amount of time
+#[derive(Debug,Clone,Serialize)]
+#[serde(rename_all="camelCase")]
+pub struct SentinelInactiveAlert {
+    pub device_id: String,
+    pub last_time_recorded: Option<DateTime<Utc>>,
+}
+
+const INACTIVE_TIMER: i64 = 1;
 
 //-- external messages (from other actors)
 
@@ -55,21 +65,22 @@ define_actor_msg_set! { pub SentinelActorMsg =
     ConnectorError
 }
 
-pub struct SentinelActor <C,I,U> 
-    where C: SentinelConnector + Send,  I: DataRefAction<SentinelStore>,  U: DataAction<SentinelUpdate>
+pub struct SentinelActor <C,I,U,IA> 
+    where C: SentinelConnector + Send,  I: DataRefAction<SentinelStore>,  U: DataAction<SentinelUpdate>, IA: DataAction<SentinelInactiveAlert>
 {
-    connector: C,             // where we get the external data from
-    sentinels: SentinelStore, // our internal store
+    connector: C,               // where we get the external data from
+    sentinels: SentinelStore,   // our internal store
 
-    init_action: I,           // initialized interaction (triggered by self)
-    update_action: U,         // update interactions (triggered by self)
+    init_action: I,             // initialized interaction (triggered by self)
+    update_action: U,           // update interactions (triggered by self)
+    inactive_action: IA,        // inactive device alert interactions
 }
 
-impl<C,I,U> SentinelActor <C,I,U>
-    where C: SentinelConnector + Send,  I: DataRefAction<SentinelStore>,  U: DataAction<SentinelUpdate>
+impl<C,I,U,IA> SentinelActor <C,I,U,IA>
+    where C: SentinelConnector + Send, I: DataRefAction<SentinelStore>, U: DataAction<SentinelUpdate>, IA: DataAction<SentinelInactiveAlert>
 {
-    pub fn new (connector: C, init_action: I, update_action: U)->Self {
-        SentinelActor { connector, sentinels: SentinelStore::new(), init_action, update_action }
+    pub fn new (connector: C, init_action: I, update_action: U, inactive_action: IA)->Self {
+        SentinelActor { connector, sentinels: SentinelStore::new(), init_action, update_action, inactive_action }
     }
 
     async fn init_store (&mut self, sentinels: SentinelStore)->Result<()> {
@@ -104,10 +115,26 @@ impl<C,I,U> SentinelActor <C,I,U>
         }
     }
 
+    async fn check_inactive (&self)->Result<()> {
+        let now = Utc::now();
+        let inactive_duration = self.connector.inactive_duration();
+        for sentinel in self.sentinels.values_iter() {
+            if sentinel.time_recorded.is_none() || (duration_since( &now, &sentinel.time_recorded.unwrap()) > inactive_duration) {
+                let alert = SentinelInactiveAlert { 
+                    device_id: sentinel.device_id.clone(), 
+                    last_time_recorded: sentinel.time_recorded
+                };
+                self.inactive_action.execute( alert).await.map_err(|e| op_failed(e))?
+            }
+        }
+        Ok(())
+    }
+
 }
 
-impl_actor! { match msg for Actor< SentinelActor<C,I,U>, SentinelActorMsg> 
-    where C: SentinelConnector + Send + Sync,  I: DataRefAction<SentinelStore> + Sync,  U: DataAction<SentinelUpdate> + Sync
+impl_actor! { match msg for Actor< SentinelActor<C,I,U,IA>, SentinelActorMsg> 
+    where C: SentinelConnector + Send + Sync,  I: DataRefAction<SentinelStore> + Sync,  
+          U: DataAction<SentinelUpdate> + Sync, IA: DataAction<SentinelInactiveAlert> + Sync
     as  
     //--- user messages
     ExecSnapshotAction => cont! {
@@ -138,6 +165,14 @@ impl_actor! { match msg for Actor< SentinelActor<C,I,U>, SentinelActorMsg>
         let hself = self.hself.clone();
         if let Err(e) = self.connector.start( hself).await {  // this should eventually lead to an InitializeStore
             error!("failed to start connector: {:?}", e)
+        }
+        if let Err(e) = self.start_repeat_timer( INACTIVE_TIMER, Duration::from_secs(120)) {
+            error!("failed to start inactive timer")
+        } 
+    }
+    _Timer_ => cont! {
+        if msg.id == INACTIVE_TIMER {
+            self.check_inactive().await;
         }
     }
     _Terminate_ => stop! { 

@@ -242,7 +242,7 @@ function createWindow() {
                 ui.Tab("cloud", false)( ui.List("sentinel.cloudcover.list", maxDataRows)),
                 ui.Tab("voc", false)( ui.List("sentinel.voc.list", maxDataRows)),
                 ui.Tab("accel", false)( ui.List("sentinel.accel.list", maxDataRows)),
-                ui.Tab("gps",false)( ui.List("sentinel.gps.list", maxDataRows)),
+                ui.Tab("gps", false)( ui.List("sentinel.gps.list", maxDataRows)),
                 ui.Tab("att", false)( ui.List("sentinel.orientation.list", maxDataRows)),
                 ui.Tab("power", false)( ui.List("sentinel.power.list", maxDataRows))
             )
@@ -270,6 +270,7 @@ function initSentinelView() {
             { name: "smoke", tip: "smoke probability [0..1]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => e.smokeStatus() },
             { name: "img", tip: "number of available images", width: "4rem", attrs: ["fixed", "alignRight"], map: e => e.imageStatus() },
             ui.listItemSpacerColumn(),
+            { name: "", width: "1rem", attrs:[], map: e => e.inactive ? "⚠︎" : "" },
             { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.sentinel.timeRecorded) }
         ]);
     }
@@ -496,6 +497,7 @@ function handleWsMessages(msgType, msg) {
         case "device_infos": handleDeviceInfoMessage(msg); break;
         case "sentinels": handleSentinelsMessage(msg); break;
         case "update": handleSentinelUpdateMessage(msg); break;
+        case "alert": handleSentinelAlertMessage(msg); break;
         case "cmdResponse": logResponse(msg); break;
     }
 }
@@ -531,11 +533,21 @@ function addSentinelEntry(sentinel) {
     checkFireAsset(e);
 }
 
+function handleSentinelAlertMessage(alert) {
+    let id = alert.deviceId;
+    let e = sentinelEntries.get(id);
+    if (e) {
+        e.inactive = true;
+        ui.updateListItem(sentinelView, e);
+    }
+}
+
 function handleSentinelUpdateMessage(update) {
     let id = update.deviceId;
     let e = sentinelEntries.get(id);
 
     if (e) {
+        e.inactive = false;
         let sentinel = e.sentinel;
 
         if (update.fire) {

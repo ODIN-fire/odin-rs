@@ -27,7 +27,7 @@ use odin_actor::prelude::*;
 use odin_macro::{match_algebraic_type, define_struct};
 use uom::si::f32::Time;
 
-use crate::{op_failed, sentinel_cache_dir, ExternalImage, FireData, GetSentinelFile, GetSentinelPosition, RecordDataBounds, RecordRef, SensorRecord, SentinelDeviceInfo, SentinelDeviceInfos, SentinelFile, SentinelStore, SentinelUpdate, SmokeData
+use crate::{op_failed, sentinel_cache_dir, ExternalImage, FireData, GetSentinelFile, GetSentinelPosition, RecordDataBounds, RecordRef, SensorRecord, SentinelDeviceInfo, SentinelDeviceInfos, SentinelFile, SentinelInactiveAlert, SentinelStore, SentinelUpdate, SmokeData
 };
 use crate::actor::{SentinelActorMsg,GetSentinelUpdate};
 use crate::errors::{OdinSentinelError, Result};
@@ -120,7 +120,7 @@ struct ReportedAlarm<T> where T: RecordDataBounds{
 
 const ALARM_HISTORY: usize = 10;
 
-define_actor_msg_set! { pub SentinelAlarmMonitorMsg = SentinelUpdate | Alarm }
+define_actor_msg_set! { pub SentinelAlarmMonitorMsg = SentinelUpdate | SentinelInactiveAlert | Alarm }
 
 /// the Sentinel Alarm Actor state
 define_struct! { pub SentinelAlarmMonitor =
@@ -130,7 +130,8 @@ define_struct! { pub SentinelAlarmMonitor =
     messengers: Vec<Box<dyn AlarmMessenger>>,
 
     reported_fire_alarms: VecDeque<ReportedAlarm<FireData>> = VecDeque::with_capacity( ALARM_HISTORY),
-    reported_smoke_alarms: VecDeque<ReportedAlarm<SmokeData>> = VecDeque::with_capacity( ALARM_HISTORY)
+    reported_smoke_alarms: VecDeque<ReportedAlarm<SmokeData>> = VecDeque::with_capacity( ALARM_HISTORY),
+    inactive_alerts: Vec<SentinelInactiveAlert> = Vec::new()
 }
 
 impl SentinelAlarmMonitor {
@@ -313,6 +314,39 @@ impl SentinelAlarmMonitor {
             Err(e) => { error!("failed to append to alarm.log: {:?}", e) }
         };
     }
+
+    async fn process_inactive_alert (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, alert: SentinelInactiveAlert) {
+        if !self.inactive_alerts.iter().find(|e| e.device_id == alert.device_id).is_some(){
+            let device_id = alert.device_id.clone();
+            let time_recorded = Utc::now();
+            let alarm_type = "status".to_string();
+            let alarm_id = format!("🔴 inactive {}", alert.device_id);
+            let description = if let Some(last_rep) = alert.last_time_recorded {
+                format!("last reported: {}", last_rep.format("%Y-%m-%dT%H:%M:%S%Z"))
+            } else {
+                "never reported".to_string()
+            };
+            let evidences = Vec::with_capacity(0);
+            
+            self.process_alarm( hself, &alarm_id, "", device_id, description, time_recorded, alarm_type, 1.0, evidences).await;
+
+            self.inactive_alerts.push(alert);
+        }
+    }
+
+    async fn check_inactive_alerts (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, device_id: &String, time_recorded: &DateTime<Utc>) {
+        if let Some(idx) = self.inactive_alerts.iter().position(|e| *device_id == e.device_id) {
+            self.inactive_alerts.remove(idx);
+
+            let time_recorded = Utc::now();
+            let alarm_type = "status".to_string();
+            let alarm_id = format!("🟢 active {}", device_id);
+            let description = format!("reported again: {}", time_recorded.format("%Y-%m-%dT%H:%M:%S%Z"));
+            let evidences = Vec::with_capacity(0);
+            
+            self.process_alarm( hself, &alarm_id, "", device_id.clone(), description, time_recorded, alarm_type, 1.0, evidences).await
+        }
+    }
 }
 
 impl_actor! { match msg for Actor<SentinelAlarmMonitor,SentinelAlarmMonitorMsg> as
@@ -321,8 +355,14 @@ impl_actor! { match msg for Actor<SentinelAlarmMonitor,SentinelAlarmMonitorMsg> 
         match_algebraic_type! { msg: SentinelUpdate as 
             Arc<SensorRecord<FireData>> => self.process_fire_alarm( hself, msg).await,
             Arc<SensorRecord<SmokeData>> => self.process_smoke_alarm( hself, msg).await,
-            _ => {} // not a record we are interested in
+            Arc<SensorRecord<ImageData>> => self.check_inactive_alerts( hself, &msg.device_id, &msg.time_recorded).await,
+            // TODO - we should add a couple other SensorRecords here that are frequently updated
+            _ => {} // the rest we ignore
         }
+    }
+    SentinelInactiveAlert => cont! {
+        let hself = self.hself();
+        self.process_inactive_alert( hself, msg).await
     }
     Alarm => cont! { // internal message that we have to send out notifications  
         for msgr in &self.messengers {
@@ -331,6 +371,7 @@ impl_actor! { match msg for Actor<SentinelAlarmMonitor,SentinelAlarmMonitorMsg> 
             }
         }
     }
+    
 }
 
 /* #endregion SentinelAlarm */

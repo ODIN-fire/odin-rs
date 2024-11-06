@@ -39,6 +39,14 @@ pub fn elapsed_minutes_since (dt: &DateTime<Utc>) -> i64 {
     (now - *dt).num_minutes()
 }
 
+pub fn duration_since (dt_later: &DateTime<Utc>, dt_earlier: &DateTime<Utc>)->Duration {
+    if dt_later >= dt_earlier {
+        (*dt_later - *dt_earlier).to_std().unwrap()
+    } else { 
+        Duration::ZERO
+    }
+}
+
 pub fn is_between_inclusive (dt: &DateTime<Utc>, dt_start: &DateTime<Utc>, dt_end: &DateTime<Utc>) -> bool {
     dt >= dt_start && dt <= dt_end
 }
