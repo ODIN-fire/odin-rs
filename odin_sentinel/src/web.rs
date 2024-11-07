@@ -13,7 +13,7 @@
  */
 #![allow(unused)]
 
-use std::{net::SocketAddr,any::type_name,fs};
+use std::{net::SocketAddr,any::type_name,fs, time::Duration};
 use async_trait::async_trait;
 use axum::{
     http::{Uri,StatusCode},
@@ -29,21 +29,23 @@ use odin_server::prelude::*;
 use odin_cesium::ImgLayerService;
 
 use crate::{
-    load_config, load_asset, sentinel_cache_dir, ExecSnapshotAction, SentinelActorMsg, SentinelStore, SentinelDeviceInfo, SentinelDeviceInfos
+    load_config, load_asset, sentinel_cache_dir, ExecSnapshotAction, SentinelConfig, SentinelActorMsg, SentinelStore, SentinelDeviceInfo, SentinelDeviceInfos
 };
 
 pub const JS_MOD_PATH: &'static str = "odin_sentinel/odin_sentinel.js";
 
 /// SpaService to show sentinel infos on a cesium display
 pub struct SentinelService {
+    config: SentinelConfig,
     device_infos: SentinelDeviceInfos,
     hsentinel: ActorHandle<SentinelActorMsg>, // our data source
 }
 
 impl SentinelService {
     pub fn new (hsentinel: ActorHandle<SentinelActorMsg>, )->Self { 
-        let device_infos = load_config("sentinel_info.ron").expect("failed to load sentinel_info.ron config"); // Ok to panic in ctor
-        SentinelService{device_infos,hsentinel}
+        let config = load_config("sentinel.ron").expect("failed to load sentinel.ron config"); // Ok to panic in ctor
+        let device_infos = load_config("sentinel_info.ron").expect("failed to load sentinel_info.ron config"); 
+        SentinelService{config,device_infos,hsentinel}
     }
 
     async fn image_handler (path: AxumPath<String>) -> Response {
@@ -95,8 +97,14 @@ impl SpaService for SentinelService {
     async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
         let remote_addr = conn.remote_addr;
 
+        //--- send device_infos message to browser
         let device_infos = &self.device_infos;
         let data = ws_msg!( JS_MOD_PATH, device_infos).to_json()?;
+        hself.try_send_msg( SendWsMsg{remote_addr,data})?;
+
+        //--- send inactive_duration to browser
+        let inactive_duration = self.config.inactive_duration.as_millis() as u64;
+        let data = ws_msg!( JS_MOD_PATH, inactive_duration).to_json()?;
         hself.try_send_msg( SendWsMsg{remote_addr,data})?;
 
         if is_data_available {

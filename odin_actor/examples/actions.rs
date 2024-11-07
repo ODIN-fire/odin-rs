@@ -78,7 +78,7 @@ define_actor_msg_set! { ProviderMsg = ExecSnapshotAction }
 impl_actor! { match msg for Actor<Provider<A1,A2>,ProviderMsg> 
                     where A1: DataAction<TProviderUpdate>, A2: BiDataRefAction<TProviderSnapshot,TRequest> as
     _Start_ => cont! {
-        self.hself.start_repeat_timer( 1, secs(1));
+        self.hself.start_repeat_timer( 1, secs(1), false);
         println!("{} started", self.id().white());
     }
     _Timer_ => { // simulate async change of data (e.g. through some external I/O)

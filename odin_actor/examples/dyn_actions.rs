@@ -53,7 +53,7 @@ define_actor_msg_set! { UpdaterMsg = AddUpdateAction | ExecuteAction }
 
 impl_actor! { match msg for Actor<Updater,UpdaterMsg> as
     _Start_ => cont! {
-        self.hself.start_repeat_timer( 1, secs(1));
+        self.hself.start_repeat_timer( 1, secs(1), false);
         println!("{} started update timer", self.id().white());
     }
     _Timer_ => {

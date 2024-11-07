@@ -115,6 +115,11 @@ impl<C,I,U,IA> SentinelActor <C,I,U,IA>
         }
     }
 
+    // note this is a server-side inactive check, i.e. new client connections won't see a status change until the
+    // next server check runs. If we want this instantly we should transmit the inactive_duration through the websocket
+    // during the init_action and then perform the check when receiving the sentinels on the client. Alternatively the SentinelService 
+    // could send another ExecSnapshotAction to the sentinel actor that triggers a server side check with the appropriate distribution
+    // (broadcast/send ws msg). This seems too expensive given that we frequently perform the status check anyways
     async fn check_inactive (&self)->Result<()> {
         let now = Utc::now();
         let inactive_duration = self.connector.inactive_duration();
@@ -166,7 +171,7 @@ impl_actor! { match msg for Actor< SentinelActor<C,I,U,IA>, SentinelActorMsg>
         if let Err(e) = self.connector.start( hself).await {  // this should eventually lead to an InitializeStore
             error!("failed to start connector: {:?}", e)
         }
-        if let Err(e) = self.start_repeat_timer( INACTIVE_TIMER, self.connector.inactive_interval()) {
+        if let Err(e) = self.start_repeat_timer( INACTIVE_TIMER, self.connector.inactive_interval(), false) {
             error!("failed to start inactive timer")
         } 
     }

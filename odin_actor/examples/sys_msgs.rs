@@ -31,7 +31,7 @@ define_actor_msg_set! { TickerMsg }
 
 impl_actor! { match msg for Actor<Ticker,TickerMsg> as
     _Start_ => cont! { 
-        if let Ok(timer) = self.start_repeat_timer( 1, self.interval) {
+        if let Ok(timer) = self.start_repeat_timer( 1, self.interval, false) {
             self.timer = Some(timer);
             println!("started timer in '{}' for 10 ticks", self.hself.id());
         }

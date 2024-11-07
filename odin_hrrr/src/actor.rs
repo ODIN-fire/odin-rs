@@ -131,7 +131,7 @@ impl_actor! { match msg for Actor<HrrrActor,HrrrActorMsg> as
         self.add_dataset(msg.0).await;
 
         if self.datasets.len() == 1 { // first request, start timer
-            if let Ok(timer) = self.start_repeat_timer( 1, self.config.check_interval) {
+            if let Ok(timer) = self.start_repeat_timer( 1, self.config.check_interval, false) {
                 self.timer = Some(timer);
             } else { error!("failed to start timer") }
         }

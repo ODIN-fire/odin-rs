@@ -34,6 +34,7 @@ pub mod prelude;
 pub mod spa;
 pub mod ui_service;
 pub mod ws_service;
+pub mod share_service;
 
 pub mod errors;
 use errors::{OdinServerResult,op_failed};

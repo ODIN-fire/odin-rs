@@ -24,6 +24,7 @@ const MODULE_PATH = util.asset_path(import.meta.url);
 
 ws.addWsHandler( MODULE_PATH, handleWsMessages);
 
+var sentinelInactiveDuration = undefined;
 var sentinelDataSource = new Cesium.CustomDataSource("sentinel");
 var sentinelView = undefined;
 var sentinelEntries = new Map();
@@ -495,6 +496,7 @@ function sentinelSelection() {
 function handleWsMessages(msgType, msg) {
     switch (msgType) {
         case "device_infos": handleDeviceInfoMessage(msg); break;
+        case "inactive_duration": handleInactiveDurationMessage(msg); break;
         case "sentinels": handleSentinelsMessage(msg); break;
         case "update": handleSentinelUpdateMessage(msg); break;
         case "alert": handleSentinelAlertMessage(msg); break;
@@ -506,10 +508,20 @@ function handleDeviceInfoMessage(deviceInfos) {
     sentinelInfos = deviceInfos;
 }
 
+// this is for client side inactive checks
+function handleInactiveDurationMessage(millis) {
+    sentinelInactiveDuration = millis;
+}
+
 function handleSentinelsMessage(sentinels) {
     sentinelEntries.clear();
     sentinels.forEach(sentinel => addSentinelEntry(sentinel));
     odinCesium.requestRender();
+    
+    if (sentinelInactiveDuration) {
+        checkInactiveStatus();
+        setTimeout( ()=> checkInactiveStatus(), 60000); // run this every minute
+    }
 }
 
 function addSentinelEntry(sentinel) {
@@ -629,6 +641,25 @@ function setImageHpr (sentinel, image) {
             let qRot = Cesium.Quaternion.inverse(q, new Cesium.Quaternion());    
             image.bodyToEnu = Cesium.Matrix3.fromQuaternion( qRot);
         }
+    }
+}
+
+function checkInactiveStatus() {
+    if (sentinelInactiveDuration) {
+        let now = Date.now();
+        sentinelEntries.values().forEach( e=> {
+            if (now - e.sentinel.timeRecorded >= sentinelInactiveDuration) {
+                if (!e.inactive) {
+                    e.inactive = true;
+                    ui.updateListItem(sentinelView, e);
+                }
+            } else {
+                if (e.inactive) {
+                    e.inactive = false;
+                    ui.updateListItem(sentinelView, e);
+                }
+            }
+        })
     }
 }
 

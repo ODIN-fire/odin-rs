@@ -41,7 +41,7 @@ impl Updater {
 
 impl_actor! { match msg for Actor<Updater,UpdaterMsg> as
     _Start_ => cont! {
-        if let Ok(timer) = self.hself.start_repeat_timer( 1, secs(1)) {
+        if let Ok(timer) = self.hself.start_repeat_timer( 1, secs(1), false) {
             self.timer = Some(timer);
             println!("{} started update timer", self.hself.id);
         }

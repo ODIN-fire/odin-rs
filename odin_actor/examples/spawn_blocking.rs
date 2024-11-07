@@ -46,7 +46,7 @@ impl Spawner {
 
 impl_actor! { match msg for Actor<Spawner,SpawnerMsg> as
     _Start_ => cont! { 
-        if let Ok(timer) = self.hself.start_repeat_timer( 1, millis(1000)) {
+        if let Ok(timer) = self.hself.start_repeat_timer( 1, millis(1000), false) {
             self.timer = Some(timer);
             println!("started timer");
         }

@@ -16,7 +16,7 @@ use std::any::type_name;
 use odin_build;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
-use odin_sentinel::{load_config, web::SentinelService, LiveSentinelConnector, SentinelActor, SentinelInactiveAlert, SentinelStore, SentinelUpdate};
+use odin_sentinel::{load_config, web::SentinelService, LiveSentinelConnector, SentinelActor, SentinelStore, SentinelUpdate};
 
 
 run_actor_system!( actor_system => {
@@ -41,10 +41,7 @@ run_actor_system!( actor_system => {
             let data = ws_msg!("odin_sentinel/odin_sentinel.js",update).to_json()?;
             Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
         }),
-        data_action!( hserver: ActorHandle<SpaServerMsg> => |alert:SentinelInactiveAlert| {
-            let data = ws_msg!("odin_sentinel/odin_sentinel.js", alert).to_json()?;
-            Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
-        })
+        no_data_action() // we do client side inactive checks
     ))?;
     
     Ok(())

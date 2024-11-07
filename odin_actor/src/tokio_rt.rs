@@ -212,9 +212,10 @@ impl <S,M> Actor <S,M> where S: Send + 'static, M: MsgTypeConstraints {
         oneshot_timer_for( self.hself.clone(), id, delay)
     }
 
+    /// each loop first waits for timer_interval to expire and then send a _Timer_ system message
     #[inline(always)]
-    pub fn start_repeat_timer (&self, id: i64, timer_interval: Duration) -> Result<AbortHandle> {
-        repeat_timer_for( self.hself.clone(), id, timer_interval)
+    pub fn start_repeat_timer (&self, id: i64, timer_interval: Duration, instantly: bool) -> Result<AbortHandle> {
+        repeat_timer_for( self.hself.clone(), id, timer_interval, instantly)
     }
 
     #[inline(always)]
@@ -381,8 +382,8 @@ impl <M> ActorHandle <M> where M: MsgTypeConstraints {
         oneshot_timer_for( self.clone(), id, delay)
     }
 
-    pub fn start_repeat_timer (&self, id: i64, timer_interval: Duration) -> Result<AbortHandle> {
-        repeat_timer_for( self.clone(), id, timer_interval)
+    pub fn start_repeat_timer (&self, id: i64, timer_interval: Duration, instantly: bool) -> Result<AbortHandle> {
+        repeat_timer_for( self.clone(), id, timer_interval, instantly)
     }
 
     pub fn exec (&self, f: impl Fn() + Send + 'static)->Result<()> {
@@ -406,16 +407,20 @@ fn oneshot_timer_for<M> (ah: ActorHandle<M>, id: i64, delay: Duration)->Result<A
     Ok(th.abort_handle())
 }
 
-fn repeat_timer_for<M> (ah: ActorHandle<M>, id: i64, timer_interval: Duration)->Result<AbortHandle> where M: MsgTypeConstraints {
+fn repeat_timer_for<M> (ah: ActorHandle<M>, id: i64, timer_interval: Duration, instantly: bool)->Result<AbortHandle> where M: MsgTypeConstraints {
     let timer_name = format!("{}-timer-{}", ah.id(), id);
     let mut interval = interval(timer_interval);
+    let mut send_tick = instantly; 
 
     let th = spawn( &timer_name, async move {
         while ah.is_running() {
-            interval.tick().await;
-            if ah.is_running() {
+            if send_tick {
                 ah.try_send_actor_msg( _Timer_{id}.into() );
+            } else {
+                send_tick = true;
             }
+
+            interval.tick().await;
         }
     })?;
     Ok(th.abort_handle())
