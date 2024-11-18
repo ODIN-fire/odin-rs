@@ -88,7 +88,7 @@ impl SpaService for GoesrService {
                     let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg> => |store: &GoesrHotspotStore| {
                         for hotspots in store.iter_old_to_new(){
                             //let data = ws_msg!( "odin_goesr/odin_goesr.js", hotspots).to_json()?;
-                            let data = WsMsg::json( Self::mod_path(), "hotspots", hotspots)?;
+                            let data = WsMsg::json( GoesrService::mod_path(), "hotspots", hotspots)?;
                             hself.try_send_msg( BroadcastWsMsg{data})?;
                         }
                         Ok(())
@@ -105,7 +105,7 @@ impl SpaService for GoesrService {
     async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
         let satellites: Vec<&GoesrSatelliteInfo> = self.satellites.iter().map( |s| &s.info).collect();
         //let msg = ws_msg!( "odin_goesr/odin_goesr.js", satellites).to_json()?;
-        let msg = WsMsg::json( Self::mod_path(), "satellites", satellites)?;
+        let msg = WsMsg::json( GoesrService::mod_path(), "satellites", satellites)?;
         conn.send(msg).await;
 
         if is_data_available {
@@ -115,7 +115,7 @@ impl SpaService for GoesrService {
                     for hotspots in store.iter_old_to_new(){
                         let remote_addr = remote_addr.clone();
                         //let data = ws_msg!( "odin_goesr/odin_goesr.js", hotspots).to_json()?;
-                        let data = WsMsg::json( Self::mod_path(), "hotspots", hotspots)?;
+                        let data = WsMsg::json( GoesrService::mod_path(), "hotspots", hotspots)?;
                         hself.try_send_msg( SendWsMsg{remote_addr,data})?;
                     }
                     Ok(())

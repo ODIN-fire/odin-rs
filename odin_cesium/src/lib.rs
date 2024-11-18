@@ -86,7 +86,7 @@ impl SpaService for CesiumService {
 
     async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
         let clock = SetClock{time: epoch_millis(), time_scale: 1.0};
-        let msg = WsMsg::json( Self::mod_path(), "clock", clock)?;
+        let msg = WsMsg::json( CesiumService::mod_path(), "clock", clock)?;
         conn.send(msg).await;
         Ok(())
     }
