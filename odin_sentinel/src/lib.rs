@@ -57,7 +57,7 @@ pub use live_connector::*;
 mod errors;
 pub use errors::*;
 
-pub mod web;
+pub mod sentinel_service;
 
 define_load_config!{}
 define_load_asset!{}

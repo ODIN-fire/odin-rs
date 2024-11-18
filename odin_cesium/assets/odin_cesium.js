@@ -20,9 +20,9 @@ import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 
-const MODULE_PATH = util.asset_path(import.meta.url);
+const MOD_PATH = "odin_cesium::CesiumService";
 
-ws.addWsHandler( MODULE_PATH, handleWsMessages);
+ws.addWsHandler( MOD_PATH, handleWsMessages);
 setCesiumContainerVisibility(false); // don't render before everybody is initialized
 
 

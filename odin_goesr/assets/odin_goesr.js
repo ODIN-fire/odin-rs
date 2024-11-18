@@ -18,9 +18,9 @@ import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
 
-const MODULE_PATH = util.asset_path(import.meta.url);
+const MOD_PATH = "odin_goesr::GoesrService";
 
-ws.addWsHandler( MODULE_PATH, handleWsMessages);
+ws.addWsHandler( MOD_PATH, handleWsMessages);
 
 const maskDesc = new Map();
 maskDesc

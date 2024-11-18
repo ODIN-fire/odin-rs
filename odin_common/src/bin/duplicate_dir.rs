@@ -16,8 +16,9 @@
 use std::{path::{Path,PathBuf}, fs::{read_dir,copy}};
 use odin_common:: {
     define_cli, 
-    fs::{self, ensure_writable_dir, existing_non_empty_file_from_path, GlobList}
+    fs::{self, ensure_writable_dir, existing_non_empty_file_from_path}
 };
+use globset::{Glob,GlobSet,GlobSetBuilder};
 use anyhow::{Result,anyhow};
 
 define_cli! { ARGS [about="duplicate_dir - duplicate directory tree"] =
@@ -28,7 +29,7 @@ define_cli! { ARGS [about="duplicate_dir - duplicate directory tree"] =
 }
 
 fn main()->Result<()> {
-    let excludes: GlobList = GlobList::from_patterns( &ARGS.exclude)?;
+    let excludes: GlobSet = get_excludes()?;
     let src_dir = Path::new(&ARGS.source_dir).to_path_buf();
     if !src_dir.is_dir() { Err( anyhow!("source dir does not exist: {:?}", src_dir))? }
 
@@ -40,13 +41,21 @@ fn main()->Result<()> {
     Ok(())
 }
 
-fn duplicate_dir (src_dir: &PathBuf, tgt_dir: &PathBuf, excludes: &GlobList)->Result<()> {
+fn get_excludes()->Result<GlobSet> {
+    let mut builder = GlobSetBuilder::new();
+    for p in &ARGS.exclude {
+        builder.add( Glob::new(p)?);
+    }
+    Ok( builder.build()? )
+}
+
+fn duplicate_dir (src_dir: &PathBuf, tgt_dir: &PathBuf, excludes: &GlobSet)->Result<()> {
     if src_dir.is_dir() {
         for entry in read_dir(src_dir)? {
             let entry = entry?;
             let path = entry.path();
 
-            if !excludes.matches( &path) {
+            if !excludes.is_match( &path) {
                 if let Some(fname) = path.file_name() {
                     let tgt_path = tgt_dir.join(fname);
 

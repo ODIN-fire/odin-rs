@@ -22,7 +22,7 @@ use odin_goesr::{
     GoesrHotspotStore, GoesrHotspotSet, GoesrHotspotActor, GoesrHotspotImportActorMsg, GoesrSat, GoesrService
 };
 
-use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, SentinelActor, web::SentinelService};
+use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, SentinelActor, sentinel_service::SentinelService};
 
 
 run_actor_system!( actor_system => {
@@ -56,7 +56,8 @@ run_actor_system!( actor_system => {
             Ok( hserver.try_send_msg( DataAvailable{sender_id:"sentinel",data_type: type_name::<SentinelStore>()} )? )
         }),
         data_action!( hserver.clone(): ActorHandle<SpaServerMsg> => |update:SentinelUpdate| {
-            let data = ws_msg!("odin_sentinel/odin_sentinel.js",update).to_json()?;
+            //let data = ws_msg!("odin_sentinel/odin_sentinel.js",update).to_json()?;
+            let data = WsMsg::json( SentinelService::mod_path(), "update", update)?;
             Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
         }),
         no_data_action() // we do client side inactive checks
@@ -79,7 +80,8 @@ fn spawn_goesr_updater (
             Ok( hserver.try_send_msg( DataAvailable{ sender_id: name, data_type: type_name::<GoesrHotspotStore>()} )? )
         }),
         data_action!( hserver.clone(): ActorHandle<SpaServerMsg> => |hotspots:GoesrHotspotSet| {
-            let data = ws_msg!("odin_goesr/odin_goesr.js",hotspots).to_json()?;
+            //let data = ws_msg!("odin_goesr/odin_goesr.js",hotspots).to_json()?;
+            let data = WsMsg::json( GoesrService::mod_path(), "hotspots", hotspots)?;
             Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
         }),
     ))

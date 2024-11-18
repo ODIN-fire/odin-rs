@@ -19,7 +19,6 @@ use std::io::{self,Read, Write, Error as IOError,ErrorKind};
 use std::time::{SystemTime,Duration};
 use io::ErrorKind::*;
 use std::path::{Path,PathBuf};
-use globset::{Glob,GlobMatcher};
 
 use crate::if_let;
 use crate::macros::io_error;
@@ -333,21 +332,4 @@ pub fn set_accessed<P: AsRef<Path>> (path: &P)->Result<()> {
 pub struct FileAvailable {
     pub topic: String,
     pub pathname: PathBuf,
-}
-
-
-pub struct GlobList (Vec<GlobMatcher>);
-
-impl GlobList {
-    pub fn from_patterns( ps: &Vec<String>) -> Result<GlobList> {
-        let mut list = Vec::with_capacity( ps.len());
-        for p in ps {
-            list.push( Glob::new(p).map_err(|e| io::Error::new( io::ErrorKind::Other, format!("invalid glob pattern {p}")))?.compile_matcher())
-        }
-        Ok( GlobList(list) )
-    }
-
-    pub fn matches<P: AsRef<Path>> (&self, path: P) -> bool {
-        self.0.iter().find( |glob| glob.is_match( &path)).is_some()
-    }
 }

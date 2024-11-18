@@ -21,8 +21,7 @@ use odin_build;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_goesr::{
-    LiveGoesrHotspotImporter, LiveGoesrHotspotImporterConfig,  
-    load_config, GoesrHotspotStore, GoesrHotspotSet, GoesrHotspotActor, GoesrHotspotImportActorMsg, GoesrSat, GoesrService};
+    load_config, GoesrHotspotActor, GoesrHotspotImportActorMsg, GoesrHotspotSet, GoesrHotspotStore, GoesrSat, GoesrService, LiveGoesrHotspotImporter, LiveGoesrHotspotImporterConfig};
 
  
 #[tokio::main]
@@ -67,7 +66,8 @@ fn spawn_goesr_updater (
             Ok( hserver.try_send_msg( DataAvailable{ sender_id: name, data_type: type_name::<GoesrHotspotStore>()} )? )
         }),
         data_action!( hserver.clone(): ActorHandle<SpaServerMsg> => |hotspots:GoesrHotspotSet| {
-            let data = ws_msg!("odin_goesr/odin_goesr.js",hotspots).to_json()?;
+            //let data = ws_msg!("odin_goesr/odin_goesr.js",hotspots).to_json()?;
+            let data = WsMsg::json( GoesrService::mod_path(), "hotspots", hotspots)?;
             Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
         }),
     ))

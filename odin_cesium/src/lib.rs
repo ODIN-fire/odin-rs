@@ -13,7 +13,7 @@
  */
 #![allow(unused)]
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr,any::type_name};
 use odin_common::{datetime::epoch_millis, strings::to_string_vec, collections::empty_vec};
 use async_trait::async_trait;
 
@@ -38,6 +38,8 @@ pub struct CesiumService {
 
 impl CesiumService {
     pub fn new()->Self { CesiumService{} }
+
+    pub fn mod_path()->&'static str { type_name::<Self>() }
 }
 
 #[async_trait]
@@ -84,7 +86,7 @@ impl SpaService for CesiumService {
 
     async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
         let clock = SetClock{time: epoch_millis(), time_scale: 1.0};
-        let msg = ws_msg!( "odin_cesium/odin_cesium.js", clock).to_json()?;
+        let msg = WsMsg::json( Self::mod_path(), "clock", clock)?;
         conn.send(msg).await;
         Ok(())
     }
@@ -101,6 +103,8 @@ pub struct ImgLayerService {
 
 impl ImgLayerService {
     pub fn new()->Self { ImgLayerService{} }
+
+    pub fn mod_path()->&'static str { type_name::<Self>() }
 }
 
 // headers to copy from the proxied request for OpenStreetMap tiles - see https://operations.osmfoundation.org/policies/tiles/

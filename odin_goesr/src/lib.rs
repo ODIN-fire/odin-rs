@@ -47,8 +47,8 @@ pub use actor::*;
 pub mod live_importer;
 pub use live_importer::*;
 
-pub mod web;
-pub use web::*;
+pub mod goesr_service;
+pub use goesr_service::*;
 
 mod geo;
 use geo::{GoesrBoundingBox,GoesrProjection,get_bounds};

@@ -30,6 +30,8 @@ mime = "*"
 mime_guess = "*"
 rand = "*"
 open = "5"
+regex = "1.11.1"
+glob = "0.3.1"
 
 axum = { workspace = true }
 reqwest = {workspace = true }

@@ -20,9 +20,9 @@ import * as wnd from "../odin_server/ui_windows.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
 
-const MODULE_PATH = util.asset_path(import.meta.url);
+const MOD_PATH = "odin_sentinel::SentinelService";
 
-ws.addWsHandler( MODULE_PATH, handleWsMessages);
+ws.addWsHandler( MOD_PATH, handleWsMessages);
 
 var sentinelInactiveDuration = undefined;
 var sentinelDataSource = new Cesium.CustomDataSource("sentinel");
@@ -271,8 +271,8 @@ function initSentinelView() {
             { name: "smoke", tip: "smoke probability [0..1]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => e.smokeStatus() },
             { name: "img", tip: "number of available images", width: "4rem", attrs: ["fixed", "alignRight"], map: e => e.imageStatus() },
             ui.listItemSpacerColumn(),
-            { name: "", width: "1rem", attrs:[], map: e => e.inactive ? "⚠︎" : "" },
-            { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.sentinel.timeRecorded) }
+            { name: "stat", tip: "inactive alert", width: "2rem", attrs:["alignRight"], map: e => e.inactive ? "⚠︎" : "" },
+            { name: "last report", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.sentinel.timeRecorded) }
         ]);
     }
     return view;

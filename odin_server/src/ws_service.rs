@@ -21,6 +21,7 @@ use axum::{
     extract::connect_info::ConnectInfo
 };
 use futures::{sink::SinkExt, stream::StreamExt};
+use regex::Match;
 
 use crate::{
     asset_uri, load_asset, self_crate, spa::{AddConnection, SpaComponents, SpaServerState, SpaService}, OdinServerResult
@@ -67,22 +68,56 @@ pub extern crate serde;
 
 use serde::{Serialize,ser::{Serializer,SerializeStruct}};
 use serde_json;
-use std::any::type_name;
+use std::{any::type_name, sync::LazyLock};
+use regex::Regex;
 
+// match js_module_path, payload_name and payload value
+static WS_MSG_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\{\s*"mod":\s*"([^"]+)"\s*,\s*"([^"]+)":\s*(.*)\}"#).unwrap());
 
-pub struct WsMsg<T> where T: Serialize {
-    pub js_module_path: &'static str, // this is composed of crate_name/js_module (e.g. "odin_cesium/odin_cesium.js")
-    pub payload_name: &'static str,
+/// wrapper struct for messages sent through the websocket. Each outgoing message is processed by the JS module that
+/// has registered for `module_path` with our ws.js JS service module, and each incoming message is dispatched by the
+/// SpaServer actor (in `dispatch_incoming_ws_msg()`) to SpaService instances that overload `handle_incoming_ws_msg(..)`
+/// Note there is no Deserialize impl for WsMsg since our entry point does not know about T, which is depending on
+/// processing service and msg_type
+pub struct WsMsg<T>  {
+    pub mod_path: &'static str, // this is composed of crate_name/js_module (e.g. "odin_cesium/odin_cesium.js")
+    pub msg_type: &'static str, // the operation on the payload
     pub payload: T
 }
 
+fn match_str<'a> (s: &'a str, capture: &Match<'a>)-> &'a str {
+    &s[capture.start()..capture.len()]
+}
+
+/// extrace substrings for module_path, msg_type and payload from incoming JSON string
+/// This is our entry-point decoder that just extracts substrings so that SpaServices which process the
+/// module_path/msg_type combination can choose respective concrete T types (which have to impl Deserialize)
+pub fn extract_ws_msg_parts<'a> (ws_msg: &'a str) -> Option<(&'a str, &'a str, &'a str)> {
+    if let Some(captures) =  WS_MSG_RE.captures(ws_msg) {
+        if captures.len() == 4 {
+            let m1 = captures.get(1).unwrap();
+            let m2 = captures.get(2).unwrap();
+            let m3 = captures.get(3).unwrap();
+
+            //return Some( (&ws_msg[m1.start()..m1.len()], &ws_msg[m2.start()..m2.len()], &ws_msg[m3.start()..m3.len()]) )
+            return Some( (match_str(ws_msg, &m1), match_str(ws_msg, &m2), match_str(ws_msg, &m3)) )
+        }
+    }
+
+    None
+}
+
 impl <T>  WsMsg<T> where T: Serialize {
-    pub fn new (js_module_path: &'static str, payload_name: &'static str, payload: T)->Self { 
-        WsMsg {js_module_path, payload_name, payload}
+    pub fn new (mod_path: &'static str, msg_type: &'static str, payload: T)->Self { 
+        WsMsg {mod_path, msg_type, payload}
     }
 
     pub fn to_json (&self)->OdinServerResult<String> {
         Ok( serde_json::to_string( &self)? )
+    }
+
+    pub fn json (mod_path: &'static str, msg_type: &'static str, payload: T) -> OdinServerResult<String> {
+        Self::new( mod_path, msg_type, payload).to_json()
     }
 }
 
@@ -93,16 +128,18 @@ impl <T> Serialize for WsMsg<T> where T: Serialize {
         S: Serializer,
     {
         let mut state = serializer.serialize_struct("WsMsg", 2)?;
-        state.serialize_field("mod", &self.js_module_path)?;
-        state.serialize_field( &self.payload_name, &self.payload)?;
+        state.serialize_field("mod", &self.mod_path)?;
+        state.serialize_field( &self.msg_type, &self.payload)?;
         state.end()
     }
 }
 
+/// note this uses the provided variable name as the msg_type
+/// TODO - replace with direct WsMsg::new() calls
 #[macro_export]
 macro_rules! ws_msg {
-    ($js_module_path:expr, $payload_var:ident) => {
-        odin_server::ws_service::WsMsg::new( $js_module_path, stringify!($payload_var), $payload_var)
+    ($mod_path:expr, $payload_var:ident) => {
+         WsMsg::new( $mod_path, stringify!($payload_var), $payload_var)
     };
 }
 

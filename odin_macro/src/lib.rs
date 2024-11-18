@@ -802,7 +802,7 @@ pub fn impl_actor (item: TokenStream) -> TokenStream {
 
     let new_item: TokenStream = quote! {
         impl #typevar_tokens ActorReceiver<#msg_type> for Actor<#state_type,#msg_type> #where_clause {
-            async fn receive (&mut self, msg: #msg_type)->ReceiveAction {
+            async fn receive (&mut self, #msg_name: #msg_type)->ReceiveAction {
                 #[allow(unused_variables)] // some match arms might not use msg_name
                 match #msg_name {
                     #( #msg_type::#variant_names (#is_mut #msg_name) => #match_actions, )*

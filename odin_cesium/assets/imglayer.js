@@ -19,6 +19,8 @@ import * as odinCesium from "./odin_cesium.js";
 
 //--- module initialization
 
+const MOD_NAME = "odin_cesium::ImgLayerService";
+
 var defaultRender = config.render;
 var sources = config.sources;
 var selectedSrc = undefined;

@@ -60,10 +60,13 @@ pub struct GoesrService {
 
 impl GoesrService {
     pub fn new (satellites: Vec<GoesrSat>)-> Self { GoesrService{satellites} }
+
+    pub fn mod_path()->&'static str { "odin_goesr/goesr_service" }
 }
 
 #[async_trait]
 impl SpaService for GoesrService {
+
     fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
         spa_builder.add( build_service!( ImgLayerService::new()))
     }
@@ -84,7 +87,8 @@ impl SpaService for GoesrService {
                 if has_connections {
                     let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg> => |store: &GoesrHotspotStore| {
                         for hotspots in store.iter_old_to_new(){
-                            let data = ws_msg!( "odin_goesr/odin_goesr.js", hotspots).to_json()?;
+                            //let data = ws_msg!( "odin_goesr/odin_goesr.js", hotspots).to_json()?;
+                            let data = WsMsg::json( Self::mod_path(), "hotspots", hotspots)?;
                             hself.try_send_msg( BroadcastWsMsg{data})?;
                         }
                         Ok(())
@@ -100,7 +104,8 @@ impl SpaService for GoesrService {
 
     async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
         let satellites: Vec<&GoesrSatelliteInfo> = self.satellites.iter().map( |s| &s.info).collect();
-        let msg = ws_msg!( "odin_goesr/odin_goesr.js", satellites).to_json()?;
+        //let msg = ws_msg!( "odin_goesr/odin_goesr.js", satellites).to_json()?;
+        let msg = WsMsg::json( Self::mod_path(), "satellites", satellites)?;
         conn.send(msg).await;
 
         if is_data_available {
@@ -109,7 +114,8 @@ impl SpaService for GoesrService {
                 let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg>, remote_addr: SocketAddr  => |store: &GoesrHotspotStore| {
                     for hotspots in store.iter_old_to_new(){
                         let remote_addr = remote_addr.clone();
-                        let data = ws_msg!( "odin_goesr/odin_goesr.js", hotspots).to_json()?;
+                        //let data = ws_msg!( "odin_goesr/odin_goesr.js", hotspots).to_json()?;
+                        let data = WsMsg::json( Self::mod_path(), "hotspots", hotspots)?;
                         hself.try_send_msg( SendWsMsg{remote_addr,data})?;
                     }
                     Ok(())
