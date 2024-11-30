@@ -55,7 +55,7 @@ impl SentinelService {
         }
     }
 
-    pub fn mod_path()->&'static str { "odin_sentinel/sentinel_service" }
+    pub fn mod_path()->&'static str { type_name::<Self>() }
 }
 
 #[async_trait]
@@ -81,7 +81,7 @@ impl SpaService for SentinelService {
 
         if self.hsentinel.id() == sender_id && data_type == type_name::<SentinelStore>() { // is this for us?
             if has_connections {
-                let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg> => |data: &SentinelStore| {
+                let action = dyn_dataref_action!( let hself: ActorHandle<SpaServerMsg> = hself.clone() => |data: &SentinelStore| {
                     let sentinels = data.values();
                     //let data = ws_msg!( MOD_PATH, sentinels).to_json()?;
                     let data = WsMsg::json( SentinelService::mod_path(), "sentinels", sentinels)?;
@@ -111,13 +111,17 @@ impl SpaService for SentinelService {
         hself.try_send_msg( SendWsMsg{remote_addr,data})?;
 
         if is_data_available {
-            let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg>, remote_addr: SocketAddr => |data: &SentinelStore| {
-                let sentinels = data.values();
-                //let data = ws_msg!( MOD_PATH, sentinels).to_json()?;
-                let data = WsMsg::json( SentinelService::mod_path(), "sentinels", sentinels)?;
-                let remote_addr = remote_addr.clone();
-                Ok( hself.try_send_msg( SendWsMsg{remote_addr,data})? )
-            });
+            let action = dyn_dataref_action!{
+                let hself: ActorHandle<SpaServerMsg> = hself.clone(), 
+                let remote_addr: SocketAddr = remote_addr => 
+                |data: &SentinelStore| {
+                    let sentinels = data.values();
+                    //let data = ws_msg!( MOD_PATH, sentinels).to_json()?;
+                    let data = WsMsg::json( SentinelService::mod_path(), "sentinels", sentinels)?;
+                    let remote_addr = remote_addr.clone();
+                    Ok( hself.try_send_msg( SendWsMsg{remote_addr,data})? )
+                }
+            };
             self.hsentinel.send_msg( ExecSnapshotAction(action)).await?;
         }
         Ok(())

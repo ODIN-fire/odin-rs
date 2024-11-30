@@ -28,7 +28,6 @@ pub mod schedule;
 pub mod admin;
 pub mod process;
 pub mod net;
-pub mod shared_store;
 
 #[cfg(feature="s3")]
 pub mod s3;

@@ -49,7 +49,7 @@ use odin_common::{fs::get_file_basename,strings::{self, mk_query_string}};
 use odin_macro::define_struct;
 use odin_actor::prelude::*;
 
-use crate::{get_asset_response, spawn_server_task, ServerConfig, WsMsg, ws_service};
+use crate::{get_asset_response, spawn_server_task, ServerConfig, WsMsg, WsMsgParts, ws_service};
 use crate::errors::{connect_error, init_error, op_failed, OdinServerError, OdinServerResult};
 
 /// the trait that abstracts a single page application service, which normally represents a visualization
@@ -87,9 +87,13 @@ pub trait SpaService: Send + Sync + 'static {
         Ok(true)
     }
 
-    /// called from within the server task. Override if service processes message
-    fn handle_incoming_ws_msg (&mut self, handler_key: &str, payload_name: &str, payload: &str) -> WsMsgReaction {
-        WsMsgReaction::None
+    /// called from within the server task. Override if service processes incomingg websocket message.
+    /// Although we pass in hself and hence services could send SendWsMsg/BroadcastWsMsg messages to respond we also
+    /// use a result type that can bypass additional messages since this is already executing in the SpaServer actor task
+    async fn handle_ws_msg (&mut self, 
+        hself: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr, ws_msg_parts: &WsMsgParts
+    ) -> OdinServerResult<WsMsgReaction> {
+        Ok( WsMsgReaction::None )
     }
 }
 
@@ -390,7 +394,7 @@ impl SpaServer {
 
     /// called when receiving a DispatchIncomingWsMsg actor message
     async fn dispatch_incoming_ws_msg (&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr, msg: String)->OdinServerResult<()> {
-        if let Some( (ws_handler_key, payload_name, payload) ) = ws_service::extract_ws_msg_parts(&msg) {
+        if let Some( ws_msg_parts ) = ws_service::extract_ws_msg_parts(&msg) {
             // this is ugly - we have to sequentialize the service loop and the response processing so that we don't keep the mutable self borrow open, 
             // which would prohibit to call broadcast_/send_ws_msg(&mut self,...). The nested loops are just a way to avoid heap allocating the results
             let mut i = 0;
@@ -400,7 +404,7 @@ impl SpaServer {
                 let mut response: WsMsgReaction = WsMsgReaction::None;
 
                 for svc in &mut self.services[i..] {
-                    response = svc.handle_incoming_ws_msg(ws_handler_key, payload_name, payload);
+                    response = svc.handle_ws_msg( &hself, &remote_addr, &ws_msg_parts).await?;
                     i += 1;
                     if response != WsMsgReaction::None { break }
                 }

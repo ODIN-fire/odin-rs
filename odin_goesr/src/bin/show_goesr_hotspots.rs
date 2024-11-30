@@ -62,13 +62,20 @@ fn spawn_goesr_updater (
     spawn_pre_actor!( actor_system, pre_handle,  GoesrHotspotActor::new(
         load_config( "goesr.ron")?, 
         LiveGoesrHotspotImporter::new( config),
-        dataref_action!( hserver.clone(): ActorHandle<SpaServerMsg>, name: &'static str => |_store:&GoesrHotspotStore| {
-            Ok( hserver.try_send_msg( DataAvailable{ sender_id: name, data_type: type_name::<GoesrHotspotStore>()} )? )
-        }),
-        data_action!( hserver.clone(): ActorHandle<SpaServerMsg> => |hotspots:GoesrHotspotSet| {
-            //let data = ws_msg!("odin_goesr/odin_goesr.js",hotspots).to_json()?;
-            let data = WsMsg::json( GoesrService::mod_path(), "hotspots", hotspots)?;
-            Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
-        }),
+        dataref_action!{ 
+            let hserver: ActorHandle<SpaServerMsg> = hserver.clone(), 
+            let name: &'static str = name => 
+            |_store:&GoesrHotspotStore| {
+                Ok( hserver.try_send_msg( DataAvailable{ sender_id: name, data_type: type_name::<GoesrHotspotStore>()} )? )
+            }
+        },
+        data_action!{ 
+            let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
+            |hotspots:GoesrHotspotSet| {
+                //let data = ws_msg!("odin_goesr/odin_goesr.js",hotspots).to_json()?;
+                let data = WsMsg::json( GoesrService::mod_path(), "hotspots", hotspots)?;
+                Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
+            }
+        },
     ))
 }

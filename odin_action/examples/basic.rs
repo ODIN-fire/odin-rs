@@ -20,9 +20,7 @@ use anyhow::anyhow;
 
 #[tokio::main]
 async fn main() {
-    let x = "gna1".to_string(); // captured context
-
-    let action = data_action!( x: String => |data: String| { 
+    let action = data_action!( let x: String = "gna1".to_string() => |data: String| { 
         println!("DataAction<String> execution started ...");
         fumble()?;
         //fumble().map_err(|e| OdinActionError::from(e))?;

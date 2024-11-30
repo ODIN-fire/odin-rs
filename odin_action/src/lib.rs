@@ -74,13 +74,14 @@ impl std::fmt::Display for OdinActionFailure {
 /// a single data argument.
 pub trait DataAction<T>: Debug + Send {
     fn execute (&self, data: T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send;
+    fn is_empty (&self)->bool { false }
 }
 
 /// macro to define and instantiate ad hoc action types that clone-capture local vars and take a single
 /// `execute(data)`` argument. See [module] doc for general use and expansion.
 #[macro_export]
 macro_rules! data_action {
-    ( $( $v:ident $(. $op:ident ())? : $v_type:ty ),* => |$data:ident : $data_type:ty| $e:expr ) => {
+    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty| $e:expr ) => {
         {            
             struct SomeDataAction { $( $v: $v_type ),* }
 
@@ -96,7 +97,7 @@ macro_rules! data_action {
                 }
             }
 
-            SomeDataAction{ $( $v: $v $(. $op () )? ),* }
+            SomeDataAction{ $( $v: $v_expr ),* }
         }
     }
 }
@@ -106,6 +107,7 @@ pub struct NoDataAction<T> where T: Send { _phantom: PhantomData<T> }
 
 impl<T> DataAction<T> for NoDataAction<T> where T: Send {
     fn execute (&self, _data: T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send { ready(Ok(()) )}
+    fn is_empty (&self)->bool { true }
 }
 impl<T> Debug for NoDataAction<T> where T: Send {
     fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -129,7 +131,7 @@ pub trait BiDataAction<T,A>: Debug + Send {
 /// See [module] doc for general use and expansion.
 #[macro_export]
 macro_rules! bi_data_action {
-    ( $( $v:ident $(. $op:ident ())? : $v_type:ty ),* => |$data:ident : $data_type:ty, $bidata:ident: $bidata_type:ty| $e:expr ) => {
+    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty, $bidata:ident: $bidata_type:ty| $e:expr ) => {
         {
             struct SomeBiDataAction { $( $v: $v_type ),* }
 
@@ -145,7 +147,7 @@ macro_rules! bi_data_action {
                 }
             }
 
-            SomeBiDataAction{ $( $v: $v $(. $op () )? ),* }
+            SomeBiDataAction{ $( v: $v_expr ),* }
         }
     }
 }
@@ -181,7 +183,7 @@ pub type DynDataAction<T> = Box<dyn DynDataActionTrait<T>>;
 /// To be used where actions have to be send and/or stored in homogenous containers (as trait objects) 
 #[macro_export]
 macro_rules! dyn_data_action {
-    ( $( $v:ident $(. $op:ident ())? : $v_type:ty ),* => |$data:ident : $data_type:ty| $e:expr ) => {
+    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty| $e:expr ) => {
         {
             use async_trait::async_trait;
 
@@ -200,7 +202,7 @@ macro_rules! dyn_data_action {
                 }
             }
 
-            Box::new(SomeDynDataAction{ $( $v: $v $(. $op () )? ),* })
+            Box::new(SomeDynDataAction{ $( $v: $v_expr ),* })
         }
     }
 }
@@ -213,13 +215,14 @@ macro_rules! dyn_data_action {
 /// analoguous to [`DataAction<T>`] trait but taking a reference argument 
 pub trait DataRefAction<T>: Debug + Send {
     fn execute (&self, data: &T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send;
+    fn is_empty (&self) -> bool { false }
 }
 
 /// macro to define and instantiate ad hoc actions taking a single reference argument. 
 /// See [module] doc for general use and expansion.
 #[macro_export]
 macro_rules! dataref_action {
-    ( $( $v:ident $(. $op:ident ())? : $v_type:ty ),* => |$data:ident : & $data_type:ty| $e:expr ) => {
+    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty| $e:expr ) => {
         {
             struct SomeDataRefAction { $( $v: $v_type ),* }
 
@@ -235,7 +238,7 @@ macro_rules! dataref_action {
                 }
             }
 
-            SomeDataRefAction{ $( $v: $v $(. $op () )? ),* }
+            SomeDataRefAction{ $( $v: $v_expr ),* }
         }
     }
 }
@@ -246,6 +249,7 @@ pub struct NoDataRefAction<T> where T: Send { _phantom: PhantomData<T> }
 
 impl<T> DataRefAction<T> for NoDataRefAction<T> where T: Send {
     fn execute (&self, _data: &T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send { ready(Ok(()) )}
+    fn is_empty (&self) -> bool { true }
 }
 impl<T> Debug for NoDataRefAction<T> where T: Send {
     fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -267,7 +271,7 @@ pub trait BiDataRefAction<T,A>: Debug + Send {
 /// See [module] doc for general use and expansion.
 #[macro_export]
 macro_rules! bi_dataref_action {
-    ( $( $v:ident $(. $op:ident ())? : $v_type:ty ),* => |$data:ident : & $data_type:ty, $bidata:ident: $bidata_type:ty| $e:expr ) => {
+    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty, $bidata:ident: $bidata_type:ty| $e:expr ) => {
         {
             struct SomeBiDataRefAction { $( $v: $v_type ),* }
 
@@ -283,7 +287,7 @@ macro_rules! bi_dataref_action {
                 }
             }
 
-            SomeBiDataRefAction{ $( $v: $v $(. $op () )? ),* }
+            SomeBiDataRefAction{ $( $v: $v_expr ),* }
         }
     }
 }
@@ -322,7 +326,7 @@ pub type DynDataRefAction<T> = Box<dyn DynDataRefActionTrait<T>>;
 /// See [module] doc for general use and expansion.
 #[macro_export]
 macro_rules! dyn_dataref_action {
-    ( $( $v:ident $(. $op:ident ())? : $v_type:ty ),* => |$data:ident : & $data_type:ty| $e:expr ) => {
+    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty| $e:expr ) => {
         {
             use async_trait::async_trait;
             use odin_action::DynDataRefActionTrait;
@@ -342,11 +346,10 @@ macro_rules! dyn_dataref_action {
                 }
             }
 
-            Box::new( SomeDynDataRefAction{ $( $v: $v $(. $op () )? ),* } )
+            Box::new( SomeDynDataRefAction{ $( $v: $v_expr ),* } )
         }
     }
 }
-
 
 /* #endregion DataRefAction */
 

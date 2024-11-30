@@ -18,7 +18,7 @@ import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
 
-const MOD_PATH = "odin_goesr::GoesrService";
+const MOD_PATH = "odin_goesr::goesr_service::GoesrService";
 
 ws.addWsHandler( MOD_PATH, handleWsMessages);
 
@@ -581,7 +581,8 @@ function zoomToGoesrHotspot(event) {
     if (lv) {
         let hs = ui.getSelectedListItem(lv);
         if (hs) {
-            odinCesium.zoomTo(Cesium.Cartesian3.fromDegrees(hs.lon, hs.lat, config.zoomHeight));
+            let pos = hs.position;
+            odinCesium.zoomTo(Cesium.Cartesian3.fromDegrees( pos.lon_deg, pos.lat_deg, config.zoomHeight));
             if (hs.entity) odinCesium.setSelectedEntity(hs.entity);
         }
     }

@@ -1,0 +1,25 @@
+[package]
+name = "odin_share"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# our ODIN crates
+odin_build = { workspace = true }
+odin_common = { workspace = true }
+odin_action = { workspace = true }
+odin_actor = { workspace = true }
+odin_server = { workspace = true }
+
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true, features = ["rc"] }
+serde_json = { workspace = true }
+ron = { workspace = true }
+thiserror = { workspace = true }
+
+globset = "0.4.15"
+regex = "1.11.1"
+anyhow = "1.0.93"
+
+

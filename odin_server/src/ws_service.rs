@@ -92,19 +92,33 @@ fn match_str<'a> (s: &'a str, capture: &Match<'a>)-> &'a str {
 /// extrace substrings for module_path, msg_type and payload from incoming JSON string
 /// This is our entry-point decoder that just extracts substrings so that SpaServices which process the
 /// module_path/msg_type combination can choose respective concrete T types (which have to impl Deserialize)
-pub fn extract_ws_msg_parts<'a> (ws_msg: &'a str) -> Option<(&'a str, &'a str, &'a str)> {
+pub fn extract_ws_msg_parts<'a> (ws_msg: &'a str) -> Option<WsMsgParts<'a>> {
     if let Some(captures) =  WS_MSG_RE.captures(ws_msg) {
         if captures.len() == 4 {
             let m1 = captures.get(1).unwrap();
-            let m2 = captures.get(2).unwrap();
-            let m3 = captures.get(3).unwrap();
+            let mod_path = match_str( ws_msg, &m1);
 
-            //return Some( (&ws_msg[m1.start()..m1.len()], &ws_msg[m2.start()..m2.len()], &ws_msg[m3.start()..m3.len()]) )
-            return Some( (match_str(ws_msg, &m1), match_str(ws_msg, &m2), match_str(ws_msg, &m3)) )
+            let m2 = captures.get(2).unwrap();
+            let msg_type = match_str( ws_msg, &m2);
+
+            let m3 = captures.get(3).unwrap();
+            let payload = match_str( ws_msg, &m3);
+
+            return Some( WsMsgParts{ ws_msg, mod_path, msg_type, payload } )
         }
     }
 
     None
+}
+
+/// helper struct that provides str references to the str components of a WsMsg.
+/// Used to efficiently dispatch WsMsg sources to the services that process them, without the dispatcher
+/// having to know the payload type T
+pub struct WsMsgParts<'a> {
+    pub ws_msg: &'a str,
+    pub mod_path: &'a str,
+    pub msg_type: &'a str,
+    pub payload: &'a str,
 }
 
 impl <T>  WsMsg<T> where T: Serialize {

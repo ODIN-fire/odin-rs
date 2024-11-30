@@ -20,7 +20,7 @@ import * as wnd from "../odin_server/ui_windows.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
 
-const MOD_PATH = "odin_sentinel::SentinelService";
+const MOD_PATH = "odin_sentinel::sentinel_service::SentinelService";
 
 ws.addWsHandler( MOD_PATH, handleWsMessages);
 

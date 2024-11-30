@@ -35,9 +35,7 @@ pub mod spa;
 pub mod ui_service;
 
 pub mod ws_service;
-pub use ws_service::WsMsg;
-
-pub mod share_service;
+pub use ws_service::{WsMsg,WsMsgParts};
 
 pub mod errors;
 use errors::{OdinServerResult,op_failed};

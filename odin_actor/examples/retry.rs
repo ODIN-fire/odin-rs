@@ -162,7 +162,7 @@ async fn main ()->Result<()> {
     //--- 1: set up the client (WsServer)
     let client = spawn_actor!( actor_system, "client", 
         WsServer::new( 
-            data_action!( provider.to_actor_handle(): ActorHandle<ProviderMsg> => 
+            data_action!( let provider: ActorHandle<ProviderMsg> = provider.to_actor_handle() => 
                               |addr:TAddr| Ok( provider.try_send_msg( ExecSnapshotAction{client_data: addr.clone()})? ))
         ),
         1 // give the actor a really small queue so that we can saturate it
@@ -171,11 +171,11 @@ async fn main ()->Result<()> {
     //--- 2: set up the provider (data source)
     let provider = spawn_pre_actor!( actor_system, provider, 
         Provider::new(
-            data_action!( client.clone(): ActorHandle<WsServerMsg> => |data: TProviderUpdate| {
+            data_action!( let client: ActorHandle<WsServerMsg> = client.clone() => |data: TProviderUpdate| {
                 let msg = PublishUpdate{ws_msg: format!("{{\"update\": \"{data}\"}}")}; // construct client message from provider data
                 Ok( client.try_send_msg( msg)? )
             }),
-            bi_dataref_action!( client.clone(): ActorHandle<WsServerMsg> => |data: &TProviderSnapshot, req:TRequest| {
+            bi_dataref_action!( let client: ActorHandle<WsServerMsg> = client.clone() => |data: &TProviderSnapshot, req:TRequest| {
                 let addr = req.clone();
                 let msg = SendSnapshot{ addr: req, ws_msg: format!("{data:?}") }; // construct client message from label and provider data ref
                 match client.try_send_msg( msg) {

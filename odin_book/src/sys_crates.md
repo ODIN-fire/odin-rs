@@ -27,3 +27,4 @@ ODIN system crates can be divided into 3 categories:
   actors inter-operable)
 - [odin_job](odin_job/odin_job.md) - general system-global scheduling
 - [odin_server](odin_server/odin_server.md) - this crate provides the building blocks to construct web server actors
+- [odin_share](odin_share/odin_share.md) - crate that provides infrastructure to share data between services and users

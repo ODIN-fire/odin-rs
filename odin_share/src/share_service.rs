@@ -21,66 +21,48 @@
 // https://nasarace.github.io/race/design/share.html which supports data distribution of tabular data within
 // network nodes with a tree topology
 
-use crate::{errors::op_failed, prelude::*};
-use crate::{load_asset, load_config, spa::WsMsgReaction};
+use odin_server::{ prelude::*, errors::op_failed,};
 use async_trait::async_trait;
 use odin_actor::prelude::*;
 use odin_build::prelude::*;
-use odin_common::{define_serde_struct, fs, geo::{GeoBoundingBox, GeoPos, LatLon}};
-use ron;
-use serde::{Deserialize, Serialize};
-use serde_json;
-use std::{fmt::Debug, fs::File, io::BufReader, path::{Path, PathBuf},collections::HashMap, any::type_name};
-use glob::Pattern;
+use odin_common::{define_serde_struct, geo::{GeoBoundingBox, GeoPos, LatLon}};
+use std::{sync::Arc,fmt::Debug, fs::File, io::BufReader, path::{Path, PathBuf},collections::HashMap, any::type_name, net::SocketAddr};
+use serde::{Serialize,Deserialize};
+use crate::{load_asset,actor::{SharedStoreActorMsg, SharedStoreValueConstraints}};
 
-
-/// some piece of data that can be shared through this micro service
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Shared {
-    /// id is a path that encodes <crate>/<module>/.../<name> and can be matched against a glob pattern
-    pub key: String,
-
-    /// the serialized value
-    pub data: String,
+/// the generic wrapper type for shared items
+/// TODO - should we add a concept of ownership here? remoteAddr seems too fragile
+#[derive(Serialize,Deserialize,Clone,Debug)]
+pub enum SharedItem {
+    Point2D ( SharedItemValue<LatLon> ),
+    Point3D ( SharedItemValue<GeoPos> )
 }
 
-impl Shared {
-    pub fn is_matching(&self, glob: &Pattern) -> bool {
-        glob.matches(&self.key)
-    }
-    pub fn has_prefix(&self, prefix: &str)-> bool {
-        self.key.starts_with(prefix)
-    }
+#[derive(Serialize,Deserialize,Clone,Debug)]
+#[serde(bound = "T: for<'a> serde::Deserialize<'a>")]
+pub struct SharedItemValue <T> 
+    where T: SharedStoreValueConstraints
+{
+    key: Arc<String>,
+    comment: Option<String>,
+    owner: Option<String>,
+    data: Arc<T>
 }
 
-/// incoming messages we can receive over the web socket
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum IncomingSharedWsMsg {
-    Add(Shared),
-    Update(Shared),
-    Remove{key: String},
-}
 
 /// micro service to share data between users and other micro-services. This is UI-less
 pub struct ShareService {
+    hstore: ActorHandle<SharedStoreActorMsg<SharedItem>>
 }
 
-impl ShareService {
+impl ShareService 
+{
     pub fn mod_path()->&'static str { type_name::<Self>() }
 
-    pub fn new() -> Self {
-        let data_dir = odin_build::data_dir().join("odin_server");
-        ShareService {}
+    pub fn new (hstore: ActorHandle<SharedStoreActorMsg<SharedItem>>) -> Self {
+        //let data_dir = odin_build::data_dir().join("odin_server");
+        ShareService { hstore }
     }
-
-    /*
-    pub fn add_point2d(&mut self, v: &Shared<LatLon>)->bool {
-        if point2d.contains(|p| p.is_matching( &v.name, &v.category, &v.group.as_ref())) { return false }
-        point2d.push( v.clone());
-        true
-    }
-    */
 }
 
 #[async_trait]
@@ -91,7 +73,7 @@ impl SpaService for ShareService {
 
     fn add_components(&self, spa: &mut SpaComponents) -> OdinServerResult<()> {
         spa.add_assets(self_crate!(), load_asset);
-        spa.add_module(asset_uri!("shared.js"));
+        spa.add_module(asset_uri!("share.js"));
 
         Ok(())
     }
@@ -116,8 +98,24 @@ impl SpaService for ShareService {
         Ok(())
     }
 
+    // "setLatLon": { "key": "/incidents/czu/origin", "comment": "blah", "data": {"lat": 37.123, "lon": -122.12} }
+
     /// this is how we get data from clients. Called from ws input task of respective connection
-    fn handle_incoming_ws_msg (&mut self, handler_key: &str, payload_name: &str, payload: &str) -> WsMsgReaction {
-        WsMsgReaction::None
+    async fn handle_ws_msg (&mut self, 
+        hself: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr, ws_msg_parts: &WsMsgParts) -> OdinServerResult<WsMsgReaction> 
+    {
+        if ws_msg_parts.mod_path == ShareService::mod_path() {
+            match ws_msg_parts.msg_type {
+                "setLatLon" => {
+                    if let Ok(shared_item) = serde_json::from_str::<SharedItem>(ws_msg_parts.payload) {
+                    }
+                }
+                _ => {
+                    warn!("ignoring unknown websocket message {}", ws_msg_parts.msg_type)
+                }
+            }
+        }
+
+        Ok( WsMsgReaction::None )
     }
 }

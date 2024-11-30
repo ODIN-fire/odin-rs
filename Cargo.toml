@@ -10,6 +10,7 @@ members = [
   "odin_actor",
   "odin_macro",
   "odin_server",
+  "odin_share",
   "odin_cesium",
   "odin_gdal",
   "odin_dem",
@@ -37,6 +38,7 @@ odin_action = { version = "*", path = "odin_action" }
 odin_actor  = { version = "*", path = "odin_actor" }
 odin_job    = { version = "*", path = "odin_job" }
 odin_server = { version = "*", path = "odin_server" }
+odin_share  = { version = "*", path = "odin_share" }
 odin_cesium = { version = "*", path = "odin_cesium" }
 odin_goesr  = { version = "*", path = "odin_goesr" }
 odin_sentinel = { version = "*", path = "odin_sentinel" }

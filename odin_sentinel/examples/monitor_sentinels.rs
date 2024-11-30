@@ -53,15 +53,15 @@ run_async_main!({
 
     let _hsentinel = spawn_actor!( actor_system, "sentinel", SentinelActor::new(
         LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
-        dataref_action!( hmonitor.clone(): ActorHandle<SentinelMonitorMsg> => |data:&SentinelStore| {
+        dataref_action!( let hmonitor: ActorHandle<SentinelMonitorMsg> = hmonitor.clone() => |data:&SentinelStore| {
             let msg = Snapshot(data.to_json_pretty().unwrap());
             Ok( hmonitor.try_send_msg( msg)? )
         }),
-        data_action!( hmonitor.clone(): ActorHandle<SentinelMonitorMsg> => |update:SentinelUpdate| {
+        data_action!( let hmonitor: ActorHandle<SentinelMonitorMsg> = hmonitor.clone() => |update:SentinelUpdate| {
             let msg = Update(update.description());
             Ok( hmonitor.try_send_msg( msg)? )
         }),
-        data_action!( hmonitor: ActorHandle<SentinelMonitorMsg> => |alert: SentinelInactiveAlert| {
+        data_action!( let hmonitor: ActorHandle<SentinelMonitorMsg> = hmonitor => |alert: SentinelInactiveAlert| {
             let msg = Inactive( serde_json::to_string(&alert)?);
             Ok( hmonitor.try_send_msg( msg)? )
         })

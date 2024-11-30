@@ -130,24 +130,29 @@ async fn main ()->Result<()> {
     let updater = spawn_actor!( sys, "updater", Updater::new())?;
 
     let ws_server = spawn_actor!( sys, "ws_server", WsServer::new(
-        data_action!( updater: ActorHandle<UpdaterMsg> => |cd: ConnectActionData| {
+        data_action!( let updater: ActorHandle<UpdaterMsg> = updater => |cd: ConnectActionData| {
             let ConnectActionData { hself, addr, is_first } = cd;
 
              // if this is the first connection register for updates in a format the WsServer understands
             if cd.is_first {
-                let hself = hself.clone();
-                let action = AddUpdateAction( dyn_data_action!( hself: ActorHandle<WsServerMsg> => |data: TUpdate| { // data is from updater
-                    let msg = PublishUpdate{ ws_msg: format!("{{\"update\": {data}}}") }; // turn data into JSON message
-                    Ok( hself.try_send_msg(msg)? )
-                }));
-                updater.send_msg( action).await?
+                let action_msg = AddUpdateAction( dyn_data_action! {
+                    let hself: ActorHandle<WsServerMsg> = hself.clone() => |data: TUpdate| { // data is from updater
+                        let msg = PublishUpdate{ ws_msg: format!("{{\"update\": {data}}}") }; // turn data into JSON message
+                        Ok( hself.try_send_msg(msg)? )
+                    }
+                });
+                updater.send_msg( action_msg).await?
             }
 
             // now ask for a snapshot of the current Updater data in a format the WsServer understands
-            let action = dyn_dataref_action!( hself: ActorHandle<WsServerMsg>, addr: TAddr => |data: &Vec<TUpdate>| {
-                let msg = SendSnapshot{ addr: addr.clone(), ws_msg: format!("{:?}", data) }; // turn data into JSON message
-                Ok( hself.try_send_msg( msg)? )
-            });
+            let action = dyn_dataref_action!(
+                let hself: ActorHandle<WsServerMsg> = hself, 
+                let addr: TAddr = addr =>
+                |data: &Vec<TUpdate>| {
+                    let msg = SendSnapshot{ addr: addr.clone(), ws_msg: format!("{:?}", data) }; // turn data into JSON message
+                    Ok( hself.try_send_msg( msg)? )
+                }
+            );
             Ok( updater.send_msg( ExecuteAction(action)).await? )
         })
     ))?;
