@@ -36,6 +36,9 @@
     #[error("SPG4 elements error {0}")]
     Spg4ElementsError( #[from] sgp4::ElementsError),
     
+    #[error("SPG4 date time error {0}")]
+    Spg4DatetimeError( #[from] sgp4::DatetimeToMinutesSinceEpochError),
+    
     // #[error("Misc error {0}")]
     // StringError( #[from] std::string::String),
 

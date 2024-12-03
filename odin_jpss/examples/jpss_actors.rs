@@ -15,14 +15,15 @@
  #![allow(unused)]
 
  //! example application of how to create and use a [JpssHotspotImportActor] in a standalone, configured executable.
- 
-use odin_jpss::live_importer::LiveOrbitCalculator;
+
+use std::sync::Arc;
+use odin_jpss::live_importer::{JpssImporterConfig, JpssOrbitCalculatorConfig, LiveJpssConfig, LiveJpssImporter, LiveJpssImporterConfig, LiveJpssOrbitCalculatorConfig, LiveOrbitCalculator};
 use odin_jpss::orekit::OverpassList;
 use tokio;
 use anyhow::Result;
 use odin_actor::prelude::*;
-use odin_jpss::actor::{JpssImportActor, JpssImportActorMsg, OrbitActor};
-use odin_jpss::{live_importer::LiveJpssImporter, ViirsHotspots, load_config};
+use odin_jpss::actor::{JpssConfig, JpssImportActor, JpssImportActorMsg, OrbitActor};
+use odin_jpss::{ViirsHotspots, load_config};
 use odin_build;
 
 #[derive(Debug)] pub struct HotspotUpdate(String);
@@ -44,6 +45,12 @@ impl_actor! { match msg for Actor<JpssMonitor, JpssMonitorMsg> as
 
 #[tokio::main]
 async fn main() -> Result<()>{
+    let config: LiveJpssConfig = load_config("jpss_noaa20.ron")?;
+    let actor_config: JpssConfig = config.make_jpss_config();
+    let arc_config: Arc<LiveJpssConfig> = Arc::new(config);
+    let importer_config: JpssImporterConfig = load_config("jpss_noaa20_importer.ron")?;
+    let orbit_config: JpssOrbitCalculatorConfig = load_config("jpss_noaa20_orbit.ron")?;
+
     odin_build::set_bin_context!();
 
     let mut actor_system = ActorSystem::with_env_tracing("main");
@@ -51,12 +58,12 @@ async fn main() -> Result<()>{
     let hmonitor = spawn_actor!( actor_system, "monitor", JpssMonitor{})?;
 
     let orbit_actor_handle = spawn_actor!( actor_system, "orbit", OrbitActor::new(
-        LiveOrbitCalculator {}
+        LiveOrbitCalculator::new(LiveJpssOrbitCalculatorConfig::new( &arc_config, orbit_config))
     ))?;
 
     let _actor_handle: ActorHandle<JpssImportActorMsg> = spawn_actor!( actor_system, "jpss",  JpssImportActor::new(
-        load_config( "jpss.ron")?, 
-        LiveJpssImporter::new( load_config( "jpss_noaa20.ron")?),
+        actor_config, 
+        LiveJpssImporter::new( LiveJpssImporterConfig::new( &arc_config, importer_config)),
         data_action!( hmonitor.clone(): ActorHandle<JpssMonitorMsg> => |data:ViirsHotspots| {
             let msg = HotspotUpdate(data.to_json_pretty().unwrap());
             Ok(hmonitor.try_send_msg( msg)?)

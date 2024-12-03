@@ -27,9 +27,10 @@ use odin_jpss::orekit::{get_tles_celestrak, compute_full_orbits};
 struct CliOpts {
     /// satellite id 
     sat_id: u32,
+    /// satellite max scan
+    max_scan: f64,
     /// output filename
     filename: String,
-
 }
 
 lazy_static! {
@@ -40,7 +41,7 @@ lazy_static! {
 #[tokio::main]
 async fn main() -> Result<()> {
     let tle = get_tles_celestrak(ARGS.sat_id).await?;
-    let overpass = compute_full_orbits(tle)?;
+    let overpass = compute_full_orbits(tle, ARGS.max_scan)?;
     let j = serde_json::to_string(&overpass)?;
     let fname = ARGS.filename;
     let mut file = File::create(fname).expect("Could not create file!");

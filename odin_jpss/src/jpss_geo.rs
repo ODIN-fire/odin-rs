@@ -41,6 +41,15 @@ impl Cartesian3D {
             z: ecef.z()
         }
     }
+    pub fn from_latlon(latlon: LatLon) -> Self {
+        let wgs84 = WGS84::from_degrees_and_meters(latlon.lat_deg, latlon.lon_deg, 0.0);
+        let ecef = ECEF::from(wgs84);
+        Cartesian3D {
+            x: ecef.x(),
+            y: ecef.y(),
+            z: ecef.z()
+        }
+    }
     fn mul_f64(&mut self, rhs: f64) {
         self.x *= rhs;
         self.y *= rhs;

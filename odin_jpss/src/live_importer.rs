@@ -1,3 +1,4 @@
+use chrono::TimeDelta;
 /*
  * Copyright © 2024, United States Government, as represented by the Administrator of 
  * the National Aeronautics and Space Administration. All rights reserved.
@@ -20,19 +21,95 @@ use odin_actor::prelude::*;
 use crate::*;
 use crate::actor::JpssImportActorMsg;
 
+ /* #region configs *************************************************************************************************/
+
  #[derive(Serialize,Deserialize,Debug,Clone)]
- pub struct LiveJpssImporterConfig {
-     pub server: String,
-     pub map_key: String,
-     pub satellite: u32,
-     pub source: String,
-     pub region: Vec<LatLon>,
-     pub history: Duration,
-     pub request_delay: Vec<Duration>,
-     pub max_scan_angle: f64,
-     pub max_age: Duration,
-     pub cleanup_interval: Duration
+
+ pub struct LiveJpssConfig {
+    // shared values
+    pub satellite: u32,
+    pub source: String,
+    pub history: Duration,
+    pub max_scan_angle: f64,
+    pub max_age: Duration,
+    pub cleanup_interval: Duration,
  }
+ impl LiveJpssConfig {
+    pub fn make_jpss_config(&self) -> JpssConfig {
+        JpssConfig { satellite: self.satellite.clone(), source: self.source.clone(), max_age: self.max_age.clone() }
+    }
+ }
+
+ #[derive(Serialize,Deserialize,Debug,Clone)]
+ pub struct JpssImporterConfig {
+    pub server: String,
+    pub map_key: String,
+    pub region: Vec<LatLon>,
+    pub request_delay: Vec<Duration>,
+ }
+ #[derive(Serialize,Deserialize,Debug,Clone)]
+ pub struct JpssOrbitCalculatorConfig {
+    pub full_region: Vec<LatLon>,
+    pub calculation_interval: Duration,
+ }
+ #[derive(Debug,Clone)]
+ pub struct LiveJpssImporterConfig {
+    pub server: String,
+    pub map_key: String,
+    pub satellite: u32,
+    pub source: String,
+    pub region: Vec<LatLon>,
+    pub history: Duration,
+    pub request_delay: Vec<Duration>,
+    pub max_scan_angle: f64,
+    pub max_age: Duration,
+    pub cleanup_interval: Duration
+ }
+ impl LiveJpssImporterConfig {
+    pub fn new(live_config: &Arc<LiveJpssConfig>, importer_config: JpssImporterConfig) -> Self {
+        LiveJpssImporterConfig {
+            server: importer_config.server,
+            map_key: importer_config.map_key,
+            satellite: live_config.satellite,
+            source: live_config.source.clone(),
+            region: importer_config.region,
+            history: live_config.history,
+            request_delay: importer_config.request_delay,
+            max_scan_angle: live_config.max_scan_angle,
+            max_age: live_config.max_age,
+            cleanup_interval: live_config.cleanup_interval 
+        }
+    } 
+ }
+
+ #[derive(Debug,Clone)]
+pub struct LiveJpssOrbitCalculatorConfig {
+    pub satellite: u32,
+    pub source: String,
+    pub full_region: Vec<LatLon>,
+    pub history: Duration,
+    pub calculation_interval: Duration,
+    pub max_scan_angle: f64,
+    pub max_age: Duration,
+    pub cleanup_interval: Duration
+}
+
+impl LiveJpssOrbitCalculatorConfig {
+    pub fn new(live_config: &Arc<LiveJpssConfig>, orbit_config: JpssOrbitCalculatorConfig) -> Self {
+        LiveJpssOrbitCalculatorConfig {
+            satellite: live_config.satellite,
+            source: live_config.source.clone(),
+            full_region: orbit_config.full_region,
+            history: live_config.history,
+            calculation_interval: orbit_config.calculation_interval,
+            max_scan_angle: live_config.max_scan_angle,
+            max_age: live_config.max_age,
+            cleanup_interval: live_config.cleanup_interval 
+        }
+    } 
+}   
+  /* #endregion configs */
+
 
  #[derive(Debug)]
 pub struct LiveJpssImporter {
@@ -198,12 +275,58 @@ fn get_data_request_schedule (overpass: OrbitalTrajectory, request_delays: Vec<D
     }
     Ok(schedule)
 }
+
 pub struct LiveOrbitCalculator { 
+    config: LiveJpssOrbitCalculatorConfig,
+    cache_dir: Arc<PathBuf>,
+    orbit_calculation_task: Option<AbortHandle>,
+
+}
+
+impl LiveOrbitCalculator {
+    pub fn new(config:  LiveJpssOrbitCalculatorConfig ) -> Self {
+        let cache_dir= Arc::new( odin_build::cache_dir().join("jpss"));
+        ensure_writable_dir(cache_dir.as_ref()).unwrap(); 
+        LiveOrbitCalculator { 
+            config: config,
+            cache_dir: cache_dir,
+            orbit_calculation_task: None
+        }        
+    }
+
+    fn initialize(&mut self,  hself: ActorHandle<OrbitActorMsg>) -> Result<()> {
+        self.orbit_calculation_task = Some( self.spawn_orbit_calculation_task( hself.clone(), self.cache_dir.clone() )? );
+        Ok(())
+    }
+
+    fn spawn_orbit_calculation_task (&mut self, hself: ActorHandle<OrbitActorMsg>, cache_dir: Arc<PathBuf> ) -> Result<AbortHandle> {
+        let config = self.config.clone();
+        Ok( spawn( &format!("jpss-{}-orbit-calculation", self.config.satellite), async move {
+            run_orbit_calculation( hself, config, cache_dir ).await
+        })?.abort_handle()
+        )
+    }
 }
 
  impl OrbitCalculator for LiveOrbitCalculator {
-    // add Johann's orbit calculation here
-    fn calc_overpass_list (&mut self, overpass_request: &OverpassRequest ) -> Result<OverpassList> {
-        Ok(OverpassList::new())
+    fn calc_overpass_list (&self, overpass_request: &OverpassRequest, current_overpasses: &OverpassList ) -> Result<OverpassList> {
+        let overpasses = get_overpasses_for_small_region(&overpass_request.region, current_overpasses, overpass_request.scan_angle);
+        Ok(overpasses)
     }
+
+    fn start(&mut self, hself: ActorHandle<OrbitActorMsg>) -> Result<()> {
+        self.initialize(hself);
+        Ok(())
+    }
+ }
+
+ async fn run_orbit_calculation( hself: ActorHandle<OrbitActorMsg>, config: LiveJpssOrbitCalculatorConfig, cache_dir: Arc<PathBuf>) -> Result<()> {
+    loop {
+        let tle = get_tles_celestrak(config.satellite).await?;
+        let overpass = compute_full_orbits(tle, config.max_scan_angle)?;
+        println!("overpasses");
+        hself.try_send_msg(UpdateOverpassList(overpass))?;
+        sleep(config.calculation_interval).await;
+    }
+    Ok(())
  }

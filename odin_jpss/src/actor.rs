@@ -12,12 +12,14 @@
  * and limitations under the License.
  */
 use serde::{Serialize, Deserialize};
+use std::collections::HashMap;
+use std::iter::Map;
 use std::time::Duration;
 use odin_common::geo::LatLon;
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
 use crate::orekit::OverpassList;
-use crate::{ViirsHotspots, RawHotspots, ViirsHotspotMap};
+use crate::{RawHotspots, ViirsHotspotMap, ViirsHotspots};
 use crate::errors::OdinJpssError;
 use crate::errors::Result;
 use crate::process_hotspots;
@@ -30,9 +32,6 @@ pub struct JpssConfig {
     pub max_age: Duration
 }
 
-pub struct OrbitConfig {
-
-}
  // external messages
 
  #[derive(Debug)]
@@ -88,7 +87,7 @@ pub struct JpssImportActor<T, HotspotUpdateAction, OverpassUpdateAction>
 
  // new, init, update
  // actor impl start, execsnapshot action, initialize, update, import error, terminate
-impl <T, HotspotUpdateAction, OverpassUpdateAction> JpssImportActor<T, HotspotUpdateAction, OverpassUpdateAction> 
+impl <T, HotspotUpdateAction, OverpassUpdateAction> JpssImportActor <T, HotspotUpdateAction, OverpassUpdateAction> 
     where T: JpssImporter + Send, 
           HotspotUpdateAction: DataAction<ViirsHotspots>,
           OverpassUpdateAction: DataAction<OverpassList>
@@ -160,13 +159,14 @@ impl_actor! { match msg for Actor< JpssImportActor<T, HotspotUpdateAction, Overp
  
 #[derive(Debug)] pub struct AskOverpassRequest (pub(crate) OverpassRequest); 
 
- define_actor_msg_set! { pub OrbitActorMsg = AskOverpassRequest | Query<AskOverpassRequest, UpdateOverpassList> }
+ define_actor_msg_set! { pub OrbitActorMsg = AskOverpassRequest | Query<AskOverpassRequest, UpdateOverpassList> |  UpdateOverpassList}
 // add spec - do not redundently recompute orbits for small areas. May have multiple small areas, should not recompute it 
 // large mesoscale region (continental US), keep internal, then get request and filter large orbit to get small portion to return
 // initial older overpasses
 pub struct OrbitActor <T> 
     where T: OrbitCalculator + Send
 { 
+    pub overpasses: OverpassList, // map of satellite ids and overpasses
     pub orbit_calculator: T
 }
 
@@ -174,15 +174,28 @@ impl <T> OrbitActor <T>
     where T: OrbitCalculator + Send
 {
     pub fn new (orbit_calculator:T) -> Self {
-        OrbitActor {orbit_calculator}
+        OrbitActor {orbit_calculator, overpasses: OverpassList::new()}
+    }
+
+    pub fn update_overpass_list(&mut self, new_overpasses: OverpassList) {
+        self.overpasses.update(new_overpasses);
     }
 }
 
 impl_actor! { match msg for Actor< OrbitActor <T>, OrbitActorMsg> 
     where T: OrbitCalculator + Send
     as
+    _Start_ => cont! { 
+        let hself = self.hself.clone();
+        self.orbit_calculator.start( hself ); // move to initialization actor
+    }
+    UpdateOverpassList => cont! {
+        self.update_overpass_list(msg.0);
+        //*self.overpasses.get_mut(sat_id).unwrap() = new_overpasses;
+    }
     AskOverpassRequest => cont! {
-        let overpass_list_res = self.orbit_calculator.calc_overpass_list(&msg.0);
+        println!("asking for overpasses");
+        let overpass_list_res = self.orbit_calculator.calc_overpass_list(&msg.0, &self.overpasses);
         match overpass_list_res {
             Ok(overpass_list) => { msg.0.requester.send_msg(UpdateOverpassList(overpass_list)).await.unwrap(); }
             Err(e) => warn!("failed to calculate orbit: {}", e),
@@ -190,7 +203,8 @@ impl_actor! { match msg for Actor< OrbitActor <T>, OrbitActorMsg>
     }
 
     Query<AskOverpassRequest, UpdateOverpassList> => cont! {
-        let overpass_list_res = self.orbit_calculator.calc_overpass_list(&msg.question.0);
+        println!("asking for overpasses");
+        let overpass_list_res = self.orbit_calculator.calc_overpass_list(&msg.question.0, &self.overpasses);
         match overpass_list_res {
             Ok(overpass_list) => match msg.respond(UpdateOverpassList(overpass_list)).await {
                 Ok(()) => { info!("sent an overpass list") },
@@ -200,10 +214,12 @@ impl_actor! { match msg for Actor< OrbitActor <T>, OrbitActorMsg>
         }
         
     }
+    // add handle for messages from orbit calculator with new overpass lists
 }
 
  pub trait OrbitCalculator {
-    fn calc_overpass_list (&mut self, overpass_request: &OverpassRequest ) -> Result<OverpassList>; // equivalent of JpssActor get_overpasses
+    fn start(&mut self, hself: ActorHandle<OrbitActorMsg>) -> Result<()>; // needs to be a future we wait on
+    fn calc_overpass_list (&self, overpass_request: &OverpassRequest, current_overpasses: &OverpassList ) -> Result<OverpassList>; // equivalent of JpssActor get_overpasses
  }
 
  
