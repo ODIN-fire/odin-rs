@@ -325,7 +325,8 @@ textarea.ui_textarea {
     color: var(--input-data-color);
     white-space: pre;
     overflow-wrap: normal;
-    overflow-x: scroll;  
+    overflow-x: auto;
+    box-sizing: border-box;
 }
 
 textarea.ui_textarea.vresize {
@@ -474,13 +475,15 @@ input.ui_field.input {
 input.ui_field.input.fixed {
     color: var(--input-color);
     font: var(--mono-font);
+}
+
+input.align_right {
     text-align: right;
 }
 
 input.ui_field.fixed {
     color: var(--data-color);
     font: var(--mono-font);
-    text-align: right;
 }
 
 input.ui_field.input:focus {

@@ -254,7 +254,7 @@ pub struct PreActorHandle <M> where M: MsgTypeConstraints {
     hsys: Arc<ActorSystemHandle>,
     id: Arc<String>,
     tx: MpscSender<M>,
-    rx: MpscReceiver<M>
+    rx: Option<MpscReceiver<M>> // this is reset when the actor is spawned from this PreActorHandle
 }
 
 impl <M> PreActorHandle <M>  where M: MsgTypeConstraints {
@@ -262,7 +262,7 @@ impl <M> PreActorHandle <M>  where M: MsgTypeConstraints {
         let hsys = sys.clone_handle();
         let id = Arc::new(id.to_string());
         let (tx, rx) = create_mpsc_sender_receiver::<M>( bound);
-        PreActorHandle { hsys, id, tx, rx }
+        PreActorHandle { hsys, id, tx, rx: Some(rx) }
     }
 
     pub fn to_actor_handle (&self)->ActorHandle<M> {
@@ -271,6 +271,19 @@ impl <M> PreActorHandle <M>  where M: MsgTypeConstraints {
 
     pub fn get_id (&self)->Arc<String> {
         self.id.clone()
+    }
+}
+
+/// we impl Drop for PreActorHandle so that we can check at the drop point if it was moved
+/// into a ActorSystem::new_pre_actor(pre ..) call. If not this most likely is an application bug
+/// that called spawn_actor(..) instead of spawn_pre_actor(..), which then subsequently leads
+/// to disconnected errors in sends from respective PreActorHandle users (there is no receiver)
+impl <M> Drop for PreActorHandle<M> where M: MsgTypeConstraints {
+    fn drop (&mut self) {
+        if self.rx.is_some() {
+            // TODO we might want to panic here
+            error!("pre actor handle {} was not spawned", self.id)
+        }
     }
 }
 
@@ -296,13 +309,17 @@ impl <M> ActorHandle <M> where M: MsgTypeConstraints {
     }
 
     pub fn is_running(&self) -> bool {
-        !self.tx.is_closed()
+        !is_tx_disconnected(&self.tx)
     }
 
     /// this waits indefinitely until the message can be send or the receiver got closed
     pub async fn send_actor_msg (&self, msg: M)->Result<()> {
         debug!("send_actor_msg to '{}': msg: {:?}", self.id, msg);
-        self.tx.send(msg).await.map_err(|_| OdinActorError::ReceiverClosed)
+
+        send( &self.tx, msg).await.map_err(|e| {
+            debug!("send error {e}");
+            OdinActorError::ReceiverClosed
+        })
     }
 
     pub async fn send_msg<T> (&self, msg: T)->Result<()> where T: Into<M> {
@@ -681,10 +698,10 @@ impl ActorSystem {
         actor_tuple( self.hsys.clone(), id, state, bound)
     }
 
-    pub fn new_pre_actor<S,M> (&self, h_pre: PreActorHandle<M>, state: S)->(Actor<S,M>, ActorHandle<M>, MpscReceiver<M>)
+    pub fn new_pre_actor<S,M> (&self, mut h_pre: PreActorHandle<M>, state: S)->(Actor<S,M>, ActorHandle<M>, MpscReceiver<M>)
         where S: Send + 'static, M: MsgTypeConstraints
     {
-        debug!("creating actor '{}'", h_pre.id());
+        debug!("creating pre actor'{}'", h_pre.id());
         pre_actor_tuple( self.hsys.clone(), state, h_pre)
     }
 
@@ -938,12 +955,19 @@ fn actor_tuple<S,M> (hsys: Arc<ActorSystemHandle>, id: impl ToString, state: S, 
     (actor, actor_handle, rx)
 }
 
-fn pre_actor_tuple<S,M> (hsys: Arc<ActorSystemHandle>, state: S, pre_h: PreActorHandle<M>)->ActorTuple<S,M>
+fn pre_actor_tuple<S,M> (hsys: Arc<ActorSystemHandle>, state: S, mut pre_h: PreActorHandle<M>)->ActorTuple<S,M>
     where S: Send + 'static, M: MsgTypeConstraints
 {
     let actor_id = pre_h.id.clone();
-    let rx = pre_h.rx;
-    let actor_handle = ActorHandle{ id: actor_id, hsys, tx: pre_h.tx };
+
+    if pre_h.rx.is_none() { 
+        error!("pre actor already spawned: {}", actor_id);
+    }    
+
+    let rx = pre_h.rx.take().unwrap(); // there should always be just one receiver or we compromise actor integrity
+    let tx = pre_h.tx.clone();
+
+    let actor_handle = ActorHandle{ id: actor_id, hsys, tx };
     let hself = actor_handle.clone();
     let actor = Actor{ state, hself };
 
@@ -962,9 +986,12 @@ async fn run_actor<M,R> (mut rx: MpscReceiver<M>, mut receiver: R)
             Ok(msg) => {
                 debug!("actor '{}' processing msg: {:?}", receiver.id(), msg);
                 match receiver.receive(msg).await {
-                    ReceiveAction::Continue => {} // just go on
+                    ReceiveAction::Continue => {
+                        debug!("msg processed");
+                    } 
                     ReceiveAction::Stop => {
-                        rx.close();
+                        debug!("actor '{}' closed", receiver.id());
+                        close_rx( &rx);
                         break;
                     }
                     ReceiveAction::RequestTermination => {
@@ -1003,7 +1030,7 @@ impl <Q,A> Query<Q,A> where Q: Send + Debug, A: Send + Debug + 'static {
     /// several responses for the same query to a receiver that only processes one, we would get
     /// an error result. This is similar to the case where the receiver does not await our response.
     pub async fn respond (&self, answer: A) -> Result<()> {
-        self.tx.send(answer).await.map_err(|_| OdinActorError::ReceiverClosed)
+        send( &self.tx, answer).await.map_err(|_| OdinActorError::ReceiverClosed)
     }
 }
 
@@ -1137,7 +1164,7 @@ pub trait RequestProcessor<R,T>
     }
 }
 
-async fn process_requests<P,R,T> (proc: P, rx: AsyncReceiver<R>) -> Result<()> 
+async fn process_requests<P,R,T> (proc: P, rx: MpscReceiver<R>) -> Result<()> 
     where R: Send + Sync + Debug + 'static, // request type
           T: Clone + Send + Debug + 'static, // result type
           P: RequestProcessor<R,T> + Sized + 'static
@@ -1179,7 +1206,8 @@ async fn process_requests<P,R,T> (proc: P, rx: AsyncReceiver<R>) -> Result<()>
                 } // ignore if response_fut output was None
             }
 
-            res = rx.recv() => {
+            res = recv( &rx) => {
+            //res = rx.recv() => {
                 match res {
                     Ok(new_request) => { // got new request
                         if !response_pending { // we need a new resolve future

@@ -365,6 +365,18 @@ export class ExpandableTreeNode extends TreeNode {
     expandedDescendants() {
         return this.depthFirstDescendants( n=> n.isExpanded);
     }
+
+    collectNamesUp (sep) {
+        let path = this.name;
+        let n = this.parent;
+        while (n) {
+            if (n.parent) { // skip artificial <ROOT> node
+                path = n.name + sep + path;
+            }
+            n = n.parent;
+        }
+        return path;
+    }
 }
 
 

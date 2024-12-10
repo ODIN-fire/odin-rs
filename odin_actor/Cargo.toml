@@ -1,5 +1,3 @@
-cargo-features = ["edition2024"]
-
 [package]
 name = "odin_actor"
 version = "0.4.0"
@@ -46,5 +44,6 @@ default = ["tokio_kanal"]
 tokio_kanal = ["dep:tokio", "dep:kanal"]
 tokio_flume = ["dep:tokio", "dep:flume"]
 tui = ["dep:ratatui", "dep:crossterm"]
+embedded_resources = []
 
 

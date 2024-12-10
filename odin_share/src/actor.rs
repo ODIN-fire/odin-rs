@@ -23,38 +23,38 @@ use serde::{Serialize,Deserialize};
 use serde_json;
 use odin_common::fs;
 
-use crate::{SharedStore,SharedStoreActionTrait,DynSharedStoreAction,SharedStoreValueConstraints};
+use crate::errors::op_failed;
+use crate::errors::OdinShareError;
+use crate::{SharedStore,SharedStoreAction,DynSharedStoreAction,SharedStoreValueConstraints};
 
+/// message type to announce changes to clients of a SharedStore. Note this does not include the
+/// changed value, which might be expensive to clone
 #[derive(Debug,Clone)]
 pub enum SharedStoreChange<T> where T: SharedStoreValueConstraints {
     Set { hstore: ActorHandle<SharedStoreActorMsg<T>>, key: String },
-    Remove { hstore: ActorHandle<SharedStoreActorMsg<T>>, key: String }
+    Remove { hstore: ActorHandle<SharedStoreActorMsg<T>>, key: String },
+    // TODO - add more ops, like Rename
 }
 
 /// the state of an actor that encapsulates a SharedStore impl
-pub struct SharedStoreActor<T,S,A> where T: SharedStoreValueConstraints, S: SharedStore<T>, A: DataAction<SharedStoreChange<T>> {
+pub struct SharedStoreActor<T,S,I,C> where T: SharedStoreValueConstraints, S: SharedStore<T>, I: SharedStoreAction<T> + Send, C: DataAction<SharedStoreChange<T>> {
     store: S,
-    change_action: A,
+    init_action: I,
+    change_action: C,
 
     phantom_t: PhantomData<T>
 }
 
-/*
-    pub fn from_path<P: AsRef<Path>> (path: &P, change_action: A) -> OdinActorResult<Self> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);    
-        let map: HashMap<String,T> = serde_json::from_reader(reader).map_err(|_| errors::op_failed("reading shared store data failed"))?;
-
-        Ok( SharedStoreActor{ map, change_action } )
-    }
- */
-
-
-impl <T,S,A> SharedStoreActor<T,S,A> 
-    where T: SharedStoreValueConstraints, S: SharedStore<T>, A: DataAction<SharedStoreChange<T>> 
+impl <T,S,I,C> SharedStoreActor<T,S,I,C> 
+    where T: SharedStoreValueConstraints, S: SharedStore<T>, I: SharedStoreAction<T> + Send, C: DataAction<SharedStoreChange<T>>
 {
-    pub fn new (store: S, change_action: A)->Self {
-        SharedStoreActor { store, change_action, phantom_t: PhantomData }
+    pub fn new (store: S, init_action: I, change_action: C)->Self {
+        SharedStoreActor { store, init_action, change_action, phantom_t: PhantomData }
+    }
+
+    async fn initialize (&mut self)->Result<(),OdinShareError> {
+        self.store.initialize().await?;
+        self.init_action.execute( &self.store as &dyn SharedStore<T>).await.map_err(|e| op_failed("init action failed {e}"))
     }
 
     async fn set (&mut self, hself: ActorHandle<SharedStoreActorMsg<T>>, key: String, value: T) {
@@ -99,16 +99,21 @@ define_actor_msg_set! { pub SharedStoreActorMsg<T> where T: SharedStoreValueCons
 }
 
 
-impl_actor! { match msg for Actor<SharedStoreActor<T,S,A>,SharedStoreActorMsg<T>> 
-        where T: SharedStoreValueConstraints, S: SharedStore<T>, A: DataAction<SharedStoreChange<T>> as
+impl_actor! { match msg for Actor<SharedStoreActor<T,S,I,C>,SharedStoreActorMsg<T>> 
+        where T: SharedStoreValueConstraints, S: SharedStore<T>, I: SharedStoreAction<T> + Send, C: DataAction<SharedStoreChange<T>> as
+    _Start_ => cont! {
+        if let Err(e) = self.state.initialize().await {
+            error!("store failed to initialize {e}");
+        }
+    }
 
     SetSharedStoreValue<T> => cont! {
         let hself = self.hself.clone();
-        self.set( hself, msg.key, msg.value).await;
+        self.state.set( hself, msg.key, msg.value).await;
     }
     RemoveSharedStoreValue => cont! {
         let hself = self.hself.clone();
-        self.remove( hself, msg.key).await;
+        self.state.remove( hself, msg.key).await;
     }
     Query<String,Option<T>> => cont! {
         msg.respond( self.state.store.get(&msg.question).map(|vr| vr.clone())).await;

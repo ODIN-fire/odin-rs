@@ -28,4 +28,12 @@
 
     #[error("JSON error {0}")]
     JsonError( #[from] serde_json::Error),
- }
+
+    // generic error
+    #[error("operation failed: {0}")]
+    OpFailed( String ),
+}
+
+pub fn op_failed (msg: impl ToString)->OdinShareError {
+    OdinShareError::OpFailed(msg.to_string())
+}

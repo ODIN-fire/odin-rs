@@ -165,23 +165,28 @@ macro_rules! self_crate {
     () => { env!("CARGO_PKG_NAME") }
 }
 
-#[macro_export]
-macro_rules! js_module_path {
-    ($mod_name:literal) => {
-        concat!( self_crate!(), "/", $mod_name)
-    }
-}
-
+/// macro to create closure that instantiate a SpaService.
+/// since this closure does not have call arguments and only gets its input from captures we adopt the same syntax as
+/// for the `odin_action` macros (the `=>` denoting that the right hand side is the body of a move closure expression):
+/// ```
+///    build_service!( $( let V_NAME = V_EXPR ),* => MOVE_CLOSURE_EXPR )
+/// ```
+/// example:
+/// ```rust
+///    build_service( let hactor = some_actor_handle.clone() => MyService::new( hactor));
+/// ```
+/// which gets expanded into
+/// ```rust
+///    { let hactor = some_actor_handle.clone();
+///      move || { MyService::new( hactor) }
+///    }
+/// ```
 #[macro_export]
 macro_rules! build_service {
-    ( $($v:ident $(. $op:ident ())?),* => $e:expr) => {
+    ( $( let $v:ident $( : $v_type:ty )? = $v_expr:expr ),* => $e:expr) => {
         {
-            $( let $v = $v $( .$op() )?; )*
+            $( let $v  $( : $v_type )? = $v_expr; )*
             move || { $e }
         }
-    };
-
-    ( $e:expr) => {
-        move || { $e }
     }
 }

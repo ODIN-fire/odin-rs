@@ -61,7 +61,7 @@ impl SentinelService {
 #[async_trait]
 impl SpaService for SentinelService {
     fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
-        spa_builder.add( build_service!( ImgLayerService::new()))
+        spa_builder.add( build_service!( => ImgLayerService::new()))
     }
 
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {

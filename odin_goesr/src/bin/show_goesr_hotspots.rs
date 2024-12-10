@@ -40,7 +40,7 @@ async fn main()->Result<()> {
         odin_server::load_config("spa_server.ron")?,
         "goesr",
         SpaServiceList::new()
-            .add( build_service!( GoesrService::new( vec![goes18,goes16])) )
+            .add( build_service!( => GoesrService::new( vec![goes18,goes16])) )
     ))?;
 
     let _hgoes18 = spawn_goesr_updater( &mut actor_system, "goes18", hgoes18, load_config( "goes_18_fdcc.ron")?, &hserver)?;

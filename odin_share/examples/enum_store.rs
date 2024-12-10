@@ -17,10 +17,7 @@ use odin_actor::prelude::*;
 use odin_actor::errors::Result;
 use serde::{Serialize,Deserialize};
 use std::{sync::Arc, collections::HashMap};
-use odin_share::{
-    SharedStoreValueConstraints, dyn_shared_store_action,
-    actor::{ExecSnapshotAction, SetSharedStoreValue, SharedStoreActor, SharedStoreActorMsg, SharedStoreChange}
-};
+use odin_share::prelude::*;
 
 //--- the data to be stored
 
@@ -122,6 +119,7 @@ run_actor_system!( asys => {
 
     let hstore = spawn_actor!( asys, "store", SharedStoreActor::new(
         HashMap::new(),
+        no_shared_store_action(),
         data_action!( let client: ActorHandle<ClientMsg> = client.to_actor_handle() => 
             |update: SharedStoreChange<StoreItem>| Ok( client.try_send_msg( update)? )
         )

@@ -49,12 +49,13 @@ What do we want to build on that basis?
 
 ## ODIN Application Types
 
-While ODIN contains all sort of command line tools, the primary targets are two types of servers:
+While ODIN contains all sort of command line tools, the primary targets are three types of applications:
 
 - user servers - providing data visualization for end users
 - edge servers - factoring out network-, compute- and data volume-intense tasks to dedicated machinery 
+- monitors - listening on sensor data and potentially sending out alarm notifications
 
-Both are built from the same ODIN components and follow the same architectural design outlined above.
+All are built from the same ODIN components and follow the same architectural design outlined above.
 
 
 ### User Servers
@@ -89,9 +90,18 @@ ODIN edge servers are the means to make ODIN applications scalable - they provid
 
 Assume for instance micro-grid (location/terrain- aware) wind forecast for a given incident area, such as provided by [WindNinja](https://weather.firelab.org/windninja/). This not only requires high speed machinery to execute the simulation but also needs significant bandwidth/connectivity to periodically obtain the required input data such as weather forecasts and station reports, high resolution digital elevation models, vegetation/fuel models and more. The user-facing results of the simulation can be compiled into relatively simple text (CSV) files containing a wind vector grid in the area of interest. 
 
-
 As a general rule we want to be able to run functions where the data is most easily accessible. For information that is obtained from sensors in the field (such as local tracking data) that can be a local incident command server. For functions that use large amounts of input such as NOAA weather forecasts this can be a high speed data center. For functions that are computationally expensive this should be a super computer.
 
+
+### Monitors
+
+<img class="mono right" src="./img/odin-monitor-mono.svg" width="45%"/>
+
+This class of applications mostly automates alarm notifications by monitoring sensor input to detect critical conditions, vetting them by sensor data post-processsing or retrieval of supporting evidence, eliminating duplicates, and then sending out notifications via 3rd party notification channels such as text messages or [Slack](https://slack.com/) channels.
+
+Sensor input can be obtained from directly connected devices or from own or external edge servers. 
+
+Monitors can combine/correlate different sensor systems (e.g. ground based and satellite sensors). 
 
 ## Examples
 

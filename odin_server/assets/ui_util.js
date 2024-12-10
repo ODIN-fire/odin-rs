@@ -48,14 +48,7 @@ export function glob2regexp(globPattern) {
 
         switch (c) {
             // special regex chars that have no glob meaning and need to be escaped
-            case "!":
-            case "$":
-            case "(":
-            case ")":
-            case "+":
-            case ".":
-            case "^":
-            case "/":
+            case "!": case "$": case "(": case ")": case "+": case ".": case "^": case "/":
                 buf += "\\";
                 buf += c;
                 break;
@@ -83,19 +76,12 @@ export function glob2regexp(globPattern) {
 
                 // the complex case - substring wildcards (both '*' and '**')
             case "*":
-                var i0 = i;
-                var prev = (i > 0) ? globPattern[i - 1] : "/";
+                buf += "(?:[^/]*/?)"; // needs to be non-greedy
                 i++;
-                while (i < len && globPattern[i] === "*") i++; // consume consecutive '*'
-                var next = (i < len) ? globPattern[i] : "/";
-                var isMultiElement = ((i - i0 > 1) && prev === "/" && next === "/");
-                i--;
-
-                if (isMultiElement) { // a "**" pattern - match any number of path elements
-                    buf += "((?:[^/]*(?:\/|$))*)";
-                    i++; // consume the trailing path element separator (it's part of our regexp pattern)
-                } else { // a single "*", only match within a single path element
-                    buf += "([^/]*)";
+                if (i < len && globPattern[i] == "*") {
+                    buf += "*";
+                } else {
+                    i--;
                 }
                 break;
 

@@ -20,6 +20,8 @@ interface of a standard `HashMap`:
         fn glob_clone_iter(&self, glob_pattern: &str)->Result<Box<dyn Iterator<Item=(String,T)> + '_>, OdinShareError>;
         ...
     }
+
+    pub trait SharedStoreValueConstraints = Clone + Send + Sync + Debug + 'static + for<'a> Deserialize<'a> + Serialize;
 ```
 
 This resemblance is intentional - our general use case is a in-memory database of relatively few (<1000>) items, for which a
@@ -32,6 +34,8 @@ stored to a JSON file.
 The abstraction should also support larger data sets that require disk storage, caches and query mechanisms. Since our data model
 is simple we constrain queries to [glob pattern searches](https://en.wikipedia.org/wiki/Glob_(programming)) which are supported by the specialized `glob_.._iter()` iterators.
 
+`SharedStoreValueConstraints` reflects the need to serialize/deserialize store content, send items as messages and to use store trait objects
+from async code.
 
 ## Server-side `SharedStore` sharing via `SharedStoreActor`
 

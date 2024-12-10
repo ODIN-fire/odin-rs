@@ -1,5 +1,3 @@
-cargo-features = ["edition2024"]
-
 [package]
 name = "odin_server"
 version = "0.1.0"
@@ -72,3 +70,4 @@ settings_icon_svg = { file = "settings_icon.svg"}
 
 [features]
 trace_server = []
+embedded_resources = []

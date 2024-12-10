@@ -25,7 +25,7 @@ use crate::datetime;
 use num::{Num, ToPrimitive, traits, zero};
 
 #[repr(C)]
-#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
+#[derive(Debug,Copy,Clone,Serialize,Deserialize,PartialEq)]
 pub struct BoundingBox <T: Num> {
     pub west: T,
     pub south: T,
@@ -36,10 +36,10 @@ pub struct BoundingBox <T: Num> {
 // no 'I' or 'O' bands
 const LAT_BAND: [char;22] = ['A','B','C','D','E','F','G','H','J','K','L','M','N','P','Q','R','S','T','U','V','W','X'];
 
-#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
+#[derive(Debug,Copy,Clone,Serialize,Deserialize,PartialEq)]
 pub struct UtmZone {
-    zone: u32,
-    band: char,
+    pub zone: u32,
+    pub band: char,
 }
 
 impl UtmZone {
@@ -114,20 +114,32 @@ impl UtmBoundingBox {
     }
 }
 
-#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
+#[derive(Debug,Copy,Clone,Serialize,Deserialize,PartialEq)]
 pub struct LatLon {
     pub lat_deg: f64,
     pub lon_deg: f64,
 }
 
-#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
+impl LatLon {
+    pub fn from_degrees (lat_deg: f64, lon_deg: f64)->Self {
+        LatLon{ lat_deg, lon_deg }
+    }
+}
+
+#[derive(Debug,Copy,Clone,Serialize,Deserialize,PartialEq)]
 pub struct GeoPos {
     pub lat: LatAngle,
     pub lon: LonAngle,
     pub alt: f64,
 }
 
-#[derive(Debug,Copy,Clone)] // TODO - add serde
+impl GeoPos {
+    pub fn new( lat: LatAngle, lon: LonAngle, alt: f64)->Self {
+        GeoPos{ lat, lon, alt }
+    }
+}
+
+#[derive(Debug,Copy,Clone,Serialize,Deserialize,PartialEq)] // TODO - add serde
 pub struct DatedGeoPos {
     pub pos: GeoPos,
     //#[serde(serialize_with = "odin_common::datetime::ser_epoch_millis")]
@@ -150,7 +162,7 @@ impl DatedGeoPos {
 }
 
 
-#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
+#[derive(Debug,Copy,Clone,Serialize,Deserialize,PartialEq)]
 pub struct UTM {
     pub easting: f64,
     pub northing: f64,

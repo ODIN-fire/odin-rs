@@ -17,24 +17,28 @@
 use errors::OdinShareError;
 use odin_build::prelude::*;
 use odin_action::OdinActionFailure;
-use std::{fmt::Debug, collections::HashMap, hash::Hash, borrow::Borrow, path::{Path,PathBuf}, fs::File, io::{Read,BufReader}};
+use std::{borrow::Borrow, collections::HashMap, fmt::{Debug, Write}, fs::File, hash::Hash, io::{BufReader, Read, Write as IOWrite}, marker::PhantomData, ops::Deref, path::{Path,PathBuf}};
 use serde::{Serialize,Deserialize};
 use serde_json;
 use async_trait::async_trait;
 
+pub mod prelude;
 pub mod actor;
-//pub mod share_service;
+pub mod share_service;
 
 pub mod errors;
 
-
 define_load_asset!{}
 
-pub trait SharedStoreValueConstraints = Clone + Send + Sync + Debug + 'static + for<'a> Deserialize<'a> + Serialize;
+pub trait SharedStoreValueConstraints = Clone + Send + Sync + Debug + 'static + Serialize + for<'a> Deserialize<'a> ;
 
 /// abstraction for a general key-value store we can use as a storage mechanism for shared values
-/// the main purpose is to create trait objects that provide iterator methods
-pub trait SharedStore<T> : Send + Sync 
+/// the main purpose is to create trait objects that provide iterator methods.
+/// Unfortunately this also means we cannot have Serialize or Deserialize as super-traits, which means we either have
+/// to use the iterators to create a vector of store items or we have to use to_json() and assemble messages that transmit
+/// the store contents explicitly
+#[async_trait]
+pub trait SharedStore<T> : Send + Sync
     where T: SharedStoreValueConstraints
 {
     fn ref_iter<'a>(&'a self)->Box<dyn Iterator<Item=(&'a String,&'a T)> + 'a>;
@@ -53,29 +57,33 @@ pub trait SharedStore<T> : Send + Sync
     fn remove (&mut self, k: &str)->Option<T>;
     fn get (&self, k: &str)->Option<&T>;
 
+    fn to_json (&self)->Result<String,OdinShareError>;
     fn save (&self)->Result<(),OdinShareError>;
+
+    // override if store isn't initialized upon construction
+    async fn initialize (&self)->Result<(),OdinShareError> { 
+        Ok(()) // initialized upon construction
+    }
+
     //... possibly more to follow
 }
 
-/// an action with a KvStore trait object as execute parameter
+/// an action with a SharedStore trait object as execute argument
 #[async_trait]
-trait SharedStoreActionTrait<T> {
+pub trait SharedStoreAction<T> {
     async fn execute (&self, store: &dyn SharedStore<T>) -> Result<(),OdinActionFailure>;
+    fn is_empty (&self)->bool { false }
 }
 
 #[macro_export]
 macro_rules! shared_store_action {
     ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$store:ident as & dyn SharedStore <$data_type:ty>| $e:expr ) => {
         {
-            use async_trait::async_trait;
-            use odin_share::{SharedStore,SharedStoreActionTrait};
-            use odin_action::OdinActionFailure;
-
             struct SomeSharedStoreAction { $( $v: $v_type ),* }
 
-            #[async_trait]
-            impl SharedStoreActionTrait<$data_type> for SomeSharedStoreAction {
-                async fn execute (&self, $store: &dyn SharedStore<$data_type>) -> std::result::Result<(),OdinActionFailure> {
+            #[async_trait::async_trait]
+            impl $crate::SharedStoreAction<$data_type> for SomeSharedStoreAction {
+                async fn execute (&self, $store: &dyn $crate::SharedStore<$data_type>) -> std::result::Result<(),odin_action::OdinActionFailure> {
                     $( let $v = &self. $v;)*
                     $e
                 }
@@ -91,6 +99,21 @@ macro_rules! shared_store_action {
     }
 }
 
+/// helper for empty action
+pub struct NoSharedStoreAction<T> where T: Send { _phantom: PhantomData<T> }
+#[async_trait]
+impl<T> SharedStoreAction<T> for NoSharedStoreAction<T> where T: Send + Sync {
+    async fn execute (&self, _store: &dyn SharedStore<T>) -> Result<(),OdinActionFailure> { Ok(()) }
+    fn is_empty (&self) -> bool { true }
+}
+impl<T> Debug for NoSharedStoreAction<T> where T: Send {
+    fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NoSharedStoreAction<{}>", std::any::type_name::<T>())
+    }
+}
+pub fn no_shared_store_action<T>()->NoSharedStoreAction<T> where T: Send { NoSharedStoreAction { _phantom: PhantomData } }
+
+
 #[async_trait]
 pub trait DynSharedStoreActionTrait<T>: Debug + Send + Sync {
     async fn execute (&self, store: &dyn SharedStore<T>) -> Result<(),OdinActionFailure>;
@@ -102,15 +125,11 @@ pub type DynSharedStoreAction<T> = Box<dyn DynSharedStoreActionTrait<T>>;
 macro_rules! dyn_shared_store_action {
     ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$store:ident as & dyn SharedStore <$data_type:ty>| $e:expr ) => {
         {
-            use async_trait::async_trait;
-            use odin_share::{SharedStore,DynSharedStoreActionTrait};
-            use odin_action::OdinActionFailure;
-
             struct SomeDynSharedStoreAction { $( $v: $v_type ),* }
 
-            #[async_trait]
-            impl DynSharedStoreActionTrait<$data_type> for SomeDynSharedStoreAction {
-                async fn execute (&self, $store: &dyn SharedStore<$data_type>) -> std::result::Result<(),OdinActionFailure> {
+            #[async_trait::async_trait]
+            impl $crate::DynSharedStoreActionTrait<$data_type> for SomeDynSharedStoreAction {
+                async fn execute (&self, $store: &dyn $crate::SharedStore<$data_type>) -> std::result::Result<(),odin_action::OdinActionFailure> {
                     $( let $v = &self. $v;)*
                     $e
                 }
@@ -165,6 +184,10 @@ impl<T> SharedStore<T> for HashMap<String,T>
         HashMap::get(self,k)
     }
 
+    fn to_json (&self)->Result<String,OdinShareError> {
+        Ok( serde_json::to_string( &self)? )
+    }
+
      // this is an in-memory only map - we don't save anything
     fn save (&self)->Result<(),OdinShareError> { Ok(()) }
 }
@@ -179,9 +202,15 @@ pub fn hashmap_store_from<P,T> (path: &P)->Result<HashMap<String,T>, OdinShareEr
 }
 
 /// a HashMap-based SharedStore that is both initialized from and saved to given JSON path
+#[derive(Serialize)]
 pub struct PersistentHashMapStore<T>{
+    #[serde(skip,default="default_store_path")]
     path: PathBuf,
     map: HashMap<String,T>
+}
+
+fn default_store_path()->PathBuf {
+    Path::new("shared_store.json").to_path_buf()
 }
 
 impl<T> PersistentHashMapStore<T> where T: SharedStoreValueConstraints {
@@ -190,6 +219,11 @@ impl<T> PersistentHashMapStore<T> where T: SharedStoreValueConstraints {
         let path = path.as_ref().to_path_buf();
         Ok( PersistentHashMapStore { path, map } )
     }
+}
+
+impl<T> Deref for PersistentHashMapStore<T> {
+    type Target = HashMap<String,T>;
+    fn deref(&self) -> &Self::Target { &self.map }
 }
 
 impl<T> SharedStore<T> for PersistentHashMapStore<T>
@@ -227,6 +261,10 @@ impl<T> SharedStore<T> for PersistentHashMapStore<T>
 
     fn get (&self, k: &str)->Option<&T> {
         self.map.get(k)
+    }
+
+    fn to_json (&self)->Result<String,OdinShareError> {
+        Ok( serde_json::to_string( &self.map)? )
     }
 
     fn save (&self)->Result<(),OdinShareError> {

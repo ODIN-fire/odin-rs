@@ -60,7 +60,7 @@ function createWindow() {
         ui.Panel("theme vars", false)(
             ui.ColumnContainer("align_right")(
                 ui.List("settings.themeVars", 20, selectThemeVar),
-                ui.TextInput("value", "settings.value", themeVarChange, false, "", "15rem")
+                ui.TextInput( "value", "settings.value", "15rem", {changeAction: themeVarChange})
             ),
             ui.RowContainer()(
                 ui.Button("Save", saveLocalTheme)

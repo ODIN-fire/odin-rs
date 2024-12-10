@@ -21,16 +21,16 @@ use odin_sentinel::{load_config, sentinel_service::SentinelService, LiveSentinel
 
 run_actor_system!( actor_system => {
 
-    let hsentinel = PreActorHandle::new( &actor_system, "updater", 8);
+    let pre_sentinel = PreActorHandle::new( &actor_system, "updater", 8);
 
     let hserver = spawn_actor!( actor_system, "server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
         "sentinels",
         SpaServiceList::new()
-            .add( build_service!( hsentinel.to_actor_handle() => SentinelService::new( hsentinel)))
+            .add( build_service!( let hsentinel = pre_sentinel.to_actor_handle() => SentinelService::new( hsentinel)))
     ))?;
 
-    let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
+    let _hsentinel = spawn_pre_actor!( actor_system, pre_sentinel, SentinelActor::new(
         LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
         dataref_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |_store: &SentinelStore| {
             // we could directly send a BroadcastWsMsg here but if there are no connections yet that would 

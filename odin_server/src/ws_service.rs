@@ -148,6 +148,12 @@ impl <T> Serialize for WsMsg<T> where T: Serialize {
     }
 }
 
+/// this is a fallback method to create WsMsg JSON representations if the payload type cannot be Serialized
+/// (e.g. SharedStore<T> trait objects) 
+pub fn ws_msg_from_json (mod_path: &'static str, msg_type: &'static str, payload: &str)->String {
+    format!(r#"{{"mod":{mod_path:?},{msg_type:?}:{payload}}}"#)
+}
+
 /// note this uses the provided variable name as the msg_type
 /// TODO - replace with direct WsMsg::new() calls
 #[macro_export]

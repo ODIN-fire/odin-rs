@@ -211,7 +211,13 @@ pub fn process_asset (filename: &str, data: Vec<u8>) -> Result<Vec<u8>> {
                     process_js(data)
                 }
             }
-            "json" => process_json(data),
+            "json" => {
+                if filename.ends_with(".uncompressed.json") {
+                    process_json_x(data)
+                } else {
+                    process_json(data)
+                }
+            }
             "xml"  => process_xml(data),
             "csv"  => process_csv(data),
             "txt"  => process_txt(data),
@@ -253,6 +259,13 @@ fn process_json (data: Vec<u8>)->Result<Vec<u8>> {
     let content = str::from_utf8(&data)?;
     let mini = json::minify(content).to_string();
     compress_vec( &mini.into_bytes())
+}
+
+// don't compress
+fn process_json_x (data: Vec<u8>)->Result<Vec<u8>> {
+    let content = str::from_utf8(&data)?;
+    let mini = json::minify(content).to_string();
+    Ok(mini.into_bytes())
 }
 
 fn process_xml (data: Vec<u8>) -> Result<Vec<u8>> {

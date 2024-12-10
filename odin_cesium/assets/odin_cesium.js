@@ -98,6 +98,8 @@ var selectedPositionSet = undefined;
 var positions = undefined;
 var positionsView = undefined;
 
+var isSelectedView = false;
+
 const centerOrientation = {
     heading: Cesium.Math.toRadians(0.0),
     pitch: Cesium.Math.toRadians(-90.0),
@@ -294,6 +296,8 @@ function initViewWindow() {
 }
 
 function createViewWindow() {
+    let fieldOpts = {isFixed: true, isDisabled: true};
+
     return ui.Window("View", "view", "./asset/odin_cesium/camera.svg")(
         ui.RowContainer()(
             ui.CheckBox("fullscreen", toggleFullScreen),
@@ -304,21 +308,21 @@ function createViewWindow() {
             ui.Button("⌂", setHomeView, 2.5) // ⌂ ⟐ ⨁
           ),
           ui.RowContainer()(
-            ui.TextInput("pointer [φ,λ,m]", "view.pointer.latitude", null, true, null, "5rem"),
-            ui.TextInput("", "view.pointer.longitude", null, true, null, "6rem"),
-            ui.TextInput("", "view.pointer.elevation", null, true, null, "5.5rem"),
+            ui.TextInput("pointer [φ,λ,m]", "view.pointer.latitude", "5rem", fieldOpts),
+            ui.TextInput("", "view.pointer.longitude", "6rem", fieldOpts),
+            ui.TextInput("", "view.pointer.elevation", "5.5rem", fieldOpts),
             ui.HorizontalSpacer(0.4)
           ),
           ui.RowContainer()(
-            ui.TextInput("UTM [N,E,z]", "view.pointer.utmN", null, true, null, "5rem"),
-            ui.TextInput("", "view.pointer.utmE", null, true, null, "6rem"),
-            ui.TextInput("", "view.pointer.utmZ", null, true, null, "5.5rem"),
+            ui.TextInput("UTM [N,E,z]", "view.pointer.utmN", "5rem", fieldOpts),
+            ui.TextInput("", "view.pointer.utmE", "6rem", fieldOpts),
+            ui.TextInput("", "view.pointer.utmZ", "5.5rem", fieldOpts),
             ui.HorizontalSpacer(0.4)
           ),
           ui.RowContainer()(
-            ui.TextInput("camera", "view.camera.latitude", setViewFromFields, true, null, "5rem"),
-            ui.TextInput("", "view.camera.longitude", setViewFromFields, true, null, "6rem"),
-            ui.TextInput("", "view.camera.altitude", setViewFromFields, true, null, "5.5rem"),
+            ui.TextInput("camera", "view.camera.latitude", "5rem", {changeAction: setViewFromFields, isFixed: true}),
+            ui.TextInput("", "view.camera.longitude", "6rem", {changeAction: setViewFromFields, isFixed: true}),
+            ui.TextInput("", "view.camera.altitude", "5.5rem", {changeAction: setViewFromFields, isFixed: true}),
             ui.HorizontalSpacer(0.4)
           ),
           ui.RowContainer()(
@@ -866,6 +870,12 @@ function updateCamera() {
     ui.setField(cameraLon, longitudeString);
     ui.setField(cameraAlt, Math.round(pos.height).toString());
 
+    if (isSelectedView) {
+        isSelectedView = false;
+    } else {
+        ui.clearSelectedListItem(positionsView); // we moved away from it
+    }
+
     /*
     if (useEllipsoidTerrain()) {
         switchToEllipsoidTerrain(); // this checks if we already use it
@@ -1045,6 +1055,7 @@ function setCameraFromSelection(event){
         let cp = ui.getSelectedListItem(places);
         if (cp) {
             setCamera(cp);
+            isSelectedView = true;
         }
     }
 }

@@ -744,7 +744,7 @@ export function setButtonDisabled(o, isDisabled) {
 
 //--- passive text (no user input, only programmatic)
 
-// dialog element label
+// dialog element label to be set explicitly (hence we require an eid)
 export function Label (eid, isPermanent=false, maxWidthInRem=0, minWidthInRem=0) {
     let e = createElement("DIV", "ui_label");
     e.setAttribute("id", eid);
@@ -766,6 +766,9 @@ export function Text (eid, maxWidthInRem=0, minWidthInRem=0, text=null) {
     return e;
 }
 
+//--- text area
+
+
 //--- fields 
 
 function genField (inputType, extraCls, label, eid, changeAction) {
@@ -782,22 +785,27 @@ function genField (inputType, extraCls, label, eid, changeAction) {
     return e;
 }
 
-export function TextInput (label, eid, changeAction, isFixed=false, placeHolder=null, width=null) {
-    let extraCls = changeAction ? ["input"] : [];
-    if (isFixed) extraCls.push("fixed");
-    let e = genField("text", extraCls, label, eid, changeAction);
-    if (placeHolder) e.setAttribute("data-placeholder", placeHolder);
+export function noChangeAction(event){}
+
+/** width is in CSS units (rem etc), opts = {isFixed: false, alignRight: false, isDisabled: false, placeHolder: null, changeAction: null} */
+export function TextInput (label, eid, width, opts = {}) {
+    let extraCls = !opts.isDisabled ? ["input"] : [];
+    if (opts.isFixed) extraCls.push("fixed");
+    if (opts.alignRight) extraCls.push("align_right");
+    let e = genField("text", extraCls, label, eid, opts.changeAction);
+    if (opts.placeHolder) e.setAttribute("data-placeholder", opts.placeHolder);
     if (width) e.setAttribute("data-width", width);
     return e;
 }
 
+///////////////////  FIXME - those should use opt object
 export function TextField (label, eid, isInput, changeAction) {
     let extraCls = isInput ? ["input"] : [];
     return genField("text", extraCls, label, eid, changeAction);
 }
 
 export function NumField (label, eid, isInput, changeAction) {
-    let extraCls = isInput ? ["fixed","input"] : ["fixed"];
+    let extraCls = isInput ? ["fixed","input","alignRight"] : ["fixed","alignRight"];
     return genField("text", extraCls, label, eid, changeAction);
 }
 
@@ -805,6 +813,8 @@ export function ColorField (label, eid, isInput, changeAction){
     let extraCls = isInput ? ["input"] : [];
     return genField("color", extraCls, label, eid, changeAction);
 }
+//////////////////
+
 
 function initializeField (e) {
     if (e.tagName == "DIV" && e.children.length == 0) {
@@ -866,6 +876,7 @@ export function setFieldDisabled(o, isDisabled) {
 export function setField(o, newContent) {
     let e = getField(o);
     if (e) {
+        //console.log("## ", newContent, new Error().stack);
         e.value = newContent ? newContent : "";
     }
 }
@@ -876,6 +887,18 @@ export function getFieldValue(o) {
         return e.value;
     }
     return undefined;
+}
+
+export function focusField (o) {
+    let e = getField(o);
+    if (e) e.focus();
+}
+
+export function selectFieldRange(o, i0, i1) {
+    let e = getField(o);
+    if (e) {
+        e.setSelectionRange(i0, i1);
+    }
 }
 
 export function getField(o) {
@@ -914,20 +937,23 @@ export function setLabelText(o, text) {
     }
 }
 
-//--- general text
+//--- TextArea
 
-export function TextArea (eid, visCols=0, visRows=0, maxLines=0, isFixed=false, isReadOnly=false, isVResizable=false){
+// TODO - this should also support labels, like TextInput (which would also require a wrqpping DIV plus init)
+export function TextArea (eid, width, height, opts) {
     let e = createElement("TEXTAREA", "ui_textarea");
     if (eid) e.id = eid;
-    if (isReadOnly) {
+    if (opts.isDisabled) {
         e.classList.add("readonly");
-        e.readOnly = true;
+        e.disabled = true;
     }
-    if (isVResizable) e.classList.add("vresize");
-    if (isFixed) e.classList.add("fixed");
-    if (visCols) e.cols = visCols;
-    if (visRows) e.rows = visRows;
-    if (maxLines) e.setAttribute("data-maxlines", maxLines);
+    if (opts.isVResizable) e.classList.add("vresize");
+    if (opts.isFixed) e.classList.add("fixed");
+    
+    e.style.minWidth = width;
+    e.style.minHeight = height;
+
+    if (opts.maxLines) e.setAttribute("data-maxlines", maxLines);
 
     return e;
 }
@@ -2283,7 +2309,7 @@ function _createNodeElement(e, node) {
         _addClass(nName, "no_data");
     }
 
-    nName.addEventListener("click", selectNode);
+    //nName.addEventListener("click", selectNode);  // ??   1x if clicked on name, 2x if outside
     ne.addEventListener("click", selectNode);
 
     return ne;
@@ -2291,7 +2317,7 @@ function _createNodeElement(e, node) {
 
 function selectNode (event) {
     let ne = _nearestElementWithClass(event.target,"ui_node");
-    if (ne && !_containsClass(ne,"selected")) {
+    if (ne) {
         let list = nearestParentWithClass(ne, "ui_list");
         if (list._uiSelectedNodeElement) _removeClass(list._uiSelectedNodeElement, "selected");
         list._uiSelectedNodeElement = ne;
@@ -2337,6 +2363,11 @@ function clickNodePrefix(event) {
             nPrefix.innerText = node.nodePrefix();
         }
     }
+}
+
+export function getSelectedTreeNode (o) {
+    let e = getList(o);
+    return (e && e._uiSelectedNodeElement) ? e._uiSelectedNodeElement._uiNode : null;
 }
 
 export function getTreeList (o) {
@@ -2525,7 +2556,7 @@ function _setSelectedItemElement(listBox, itemElement, srcEvent) {
 
     let prevItemElem = listBox._uiSelectedItemElement;
 
-    if (prevItemElem !== itemElement) {
+    if (!Object.is( prevItemElem,itemElement)) {
         if (prevItemElem) {
             prevItem = prevItemElem._uiItem;
             _removeClass(prevItemElem, "selected");
@@ -2541,20 +2572,23 @@ function _setSelectedItemElement(listBox, itemElement, srcEvent) {
         } else {
             listBox._uiSelectedItemElement = null;
         }
+
+        if (listBox._uiSelectAction) {
+            let event = new CustomEvent("selectionChanged", {
+                bubbles: true,
+                detail: {
+                    curSelection: nextItem,
+                    prevSelection: prevItem,
+                    src: srcEvent
+                }
+            });
+    
+            listBox.dispatchEvent(event);
+        }
     }
 
     // always perform the select action since it might have side effects outside the UI view (e.g. panning camera)
-    if (listBox._uiSelectAction) {
-        let event = new CustomEvent("selectionChanged", {
-            bubbles: true,
-            detail: {
-                curSelection: nextItem,
-                prevSelection: prevItem,
-                src: srcEvent
-            }
-        });
-        listBox.dispatchEvent(event);
-    }
+
 }
 
 function _selectListItem(event) {
