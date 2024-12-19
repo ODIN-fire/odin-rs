@@ -35,23 +35,24 @@ run_actor_system!( actor_system => {
             .add( build_service!( let hstore = pre_store.to_actor_handle() => ShareService::new( hstore)) )
     ))?;
 
+    let hstore = spawn_pre_actor!( actor_system, pre_store, new_shared_store_actor( create_store(), "store", &hserver))?;
+
+    /* this would be the explicit way to create the SharedStoreActor, in case there are other actions than to just notify the server
     let hstore = spawn_pre_actor!( actor_system, pre_store, SharedStoreActor::new(
         create_store(),
         shared_store_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
-            |store as &dyn SharedStore<SharedItem>| {
-                Ok( hserver.try_send_msg( DataAvailable{sender_id:"store",data_type: type_name::<SharedItem>()} )? )
-            }
+            |store as &dyn SharedStore<SharedItem>| announce_data_availability( &hserver, "store")
         ),
         data_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
-            |update: SharedStoreChange<SharedItem>| {
-                Ok(())
-            }
+            |change: SharedStoreChange<'_,SharedItem>| broadcast_store_change( &hserver, change).await
         )
     ))?;
+    */
 
     Ok(())
 });
 
+// this is artificial - normally we would initialize the store from a <odin-root>/data file
 fn create_store()->HashMap<String,SharedItem> {
     HashMap::from([
         ("view/bay_area".to_string(), SharedItem::Point3D( 

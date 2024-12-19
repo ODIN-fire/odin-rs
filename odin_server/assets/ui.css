@@ -587,6 +587,7 @@ div.ui_choice_value {
     background: var(--data-background);
     width: var(--choice-value-width);
     height: var(--field-height);
+    vertical-align: middle;
 }
 
 div.ui_choice_value::before {

@@ -888,3 +888,15 @@ export function filterMapValues (map,func) {
     }
     return list;
 }
+
+export function haveEqualKeys (a,b) {
+    let ka = Object.keys(a).sort();
+    let kb = Object.keys(b).sort();
+
+    if (ka.length != kb.length) return false;
+    for (var i=0; i<ka.length; i++) {
+      if (ka[i] != kb[i]) return false; 
+    }
+    
+    return true;
+}

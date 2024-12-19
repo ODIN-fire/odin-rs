@@ -16,6 +16,7 @@
 
 
 import { config } from "./odin_cesium_config.js";
+import * as main from "../odin_server/main.js";
 import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
@@ -24,7 +25,6 @@ const MOD_PATH = "odin_cesium::CesiumService";
 
 ws.addWsHandler( MOD_PATH, handleWsMessages);
 setCesiumContainerVisibility(false); // don't render before everybody is initialized
-
 
 const UI_POSITIONS = "race-ui-positions";
 const LOCAL = "local-";  // prefix for local position set names
@@ -865,10 +865,11 @@ function updateCamera() {
     let pos = viewer.camera.positionCartographic;
     let longitudeString = Cesium.Math.toDegrees(pos.longitude).toFixed(4);
     let latitudeString = Cesium.Math.toDegrees(pos.latitude).toFixed(4);
+    let altitudeString = Math.round(pos.height).toString();
 
     ui.setField(cameraLat, latitudeString);
     ui.setField(cameraLon, longitudeString);
-    ui.setField(cameraAlt, Math.round(pos.height).toString());
+    ui.setField(cameraAlt, altitudeString);
 
     if (isSelectedView) {
         isSelectedView = false;
@@ -1373,6 +1374,20 @@ function setCesiumContainerVisibility (isVisible) {
     document.getElementById("cesiumContainer").style.visibility = isVisible;
 }
 
+function handleShareMessage (msg) {
+    console.log("@@ odin_cesium received shareMessage", msg);
+}
+
+// return object suitable to set a Point3D from the current camera position
+function shareViewEditor () {
+    let pos = viewer.camera.positionCartographic;
+    return { 
+        lon: Math.round( Cesium.Math.toDegrees(pos.longitude) * 10000) / 10000, // round to 4 decimals
+        lat: Math.round( Cesium.Math.toDegrees(pos.latitude) * 10000) / 10000,
+        alt: Math.round(pos.height)
+    }
+}
+
 // executed after all modules have been loaded and initialized
 export function postInitialize() {
     initModuleLayerViewData();    
@@ -1393,6 +1408,9 @@ export function postInitialize() {
     viewer.creditDisplay.addStaticCredit(credit);
 
     setCesiumContainerVisibility(true);
+
+    main.addShareHandler( handleShareMessage);
+    main.addShareEditor( "Point3D", "current view", shareViewEditor);
 
     console.log("odin_cesium.postInitialize complete.");
 }

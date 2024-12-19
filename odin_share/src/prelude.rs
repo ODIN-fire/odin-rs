@@ -13,9 +13,9 @@
  */
 
 pub use crate::{
-    SharedStore, SharedStoreValueConstraints, SharedStoreAction, DynSharedStoreAction, PersistentHashMapStore,
-    actor::{SharedStoreActor,SharedStoreActorMsg,SharedStoreChange,SetSharedStoreValue,ExecSnapshotAction},
+    SharedStore, SharedStoreReadAccess, SharedStoreValueConstraints, SharedStoreAction, DynSharedStoreAction, PersistentHashMapStore,
+    actor::{SharedStoreActor,SharedStoreActorMsg,SharedStoreChange,SharedStoreUpdate,SetSharedStoreEntry,RemoveSharedStoreEntry,ExecSnapshotAction},
     shared_store_action, dyn_shared_store_action, no_shared_store_action,
-    share_service::{ShareService, SharedItem, SharedItemValue},
+    share_service::{ShareService, SharedItem, SharedItemValue, new_shared_store_actor, broadcast_store_change, announce_data_availability, SetShared},
     errors::OdinShareError
 };

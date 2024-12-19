@@ -11,16 +11,10 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
+import * as main from "./main.js";
 import * as util from "./ui_util.js";
 import { ExpandableTreeNode } from "./ui_data.js";
 
-if (window) {
-    if (!window.main) window.main = {}; // used as an anchor for global properties available from document
-}
-
-export function exportToMain(func) {
-    window.main[func.name] = func;
-}
 
 //--- module initialization
 // (note that the moduleInitializers are executed on window.onload - after all modules and elements have been loaded and pre-initialized)
@@ -342,7 +336,7 @@ export function toggleWindow(event, o) {
         }
     }
 }
-exportToMain(toggleWindow);
+main.exportFuncToMain(toggleWindow);
 
 export function setWindowLocation(o, x, y) {
     let e = getWindow(o);
@@ -889,6 +883,11 @@ export function getFieldValue(o) {
     return undefined;
 }
 
+export function getNonEmptyFieldValue(o) {
+    let e = getField(o);
+    return (e && e.value && e.value.length > 0) ? e.value : null;
+}
+
 export function focusField (o) {
     let e = getField(o);
     if (e) e.focus();
@@ -949,6 +948,10 @@ export function TextArea (eid, width, height, opts) {
     }
     if (opts.isVResizable) e.classList.add("vresize");
     if (opts.isFixed) e.classList.add("fixed");
+
+    if (opts.changeAction) {
+        e.addEventListener("change", opts.changeAction);
+    }
     
     e.style.minWidth = width;
     e.style.minHeight = height;
@@ -2277,10 +2280,76 @@ export function setTree(o,root) {
         _removeChildrenOf(e);
 
         if (root && root.constructor && root.constructor.name === 'ExpandableTreeNode') {
+            e._uiRoot = root;
+
             root.expandedDescendants().forEach( node=>e.appendChild(_createNodeElement(e, node)));
             _resetPanelMaxHeight(e);
         }
     }
+}
+
+// this returns a EpandableTreeNode
+export function getRootNode(o) {
+    let e = getList(o);
+    return e ? e._uiRoot : null;
+}
+
+function getNodeElement (e, node) {
+    for (let ce = e.firstChild; ce; ce = ce.nextSibling) {
+        if (Object.is(ce._uiNode,node)) return ce;
+    }
+    return null;
+}
+
+export function sortInTreeItem(o,item,pathName) {
+    let e = getList(o);
+    if (e && e._uiRoot) {
+        let root = e._uiRoot;
+        let node = root.sortInPathName( pathName, item);
+
+        if (node.isVisible()){
+            let i = -1;
+            for (let n of root.expandedDescendants()) {
+                i++;
+                if (Object.is(n, node)) break;
+            }
+            if (i>= 0) {
+                let newElement = _createNodeElement(e, node);
+                let nextElement = _nthChildOf(e,i);
+                if (nextElement) {
+                    e.insertBefore( newElement, nextElement);
+                } else {
+                    e.appendChild( newElement);
+                }
+                _resetPanelMaxHeight(e);
+            }
+        }
+
+        return node;
+    }
+    return null;
+}
+
+export function removeTreeItemPath(o,pathName) {
+    let e = getList(o);
+    if (e && e._uiRoot) {
+        let root = e._uiRoot;
+        let node = root.removePathName(pathName);
+        if (node) {
+            let ce = getNodeElement(e, node);
+            console.log("@@ removeTreeItemPath", pathName, ce);
+
+            if (ce) { // otherwise node isn't visible and we don't have to update elements
+                if (e._uiSelectedNodeElement == node) {
+                    _setSelectedItemElement(e, null);
+                }
+                e.removeChild(ce);
+                _resetPanelMaxHeight(e);
+            }
+            return node;
+        }
+    }
+    return null; // wasn't there
 }
 
 function _createNodeElement(e, node) {
@@ -2824,7 +2893,7 @@ export function popupMenu(event, o) {
         _uiActivePopupMenus.push(popup);
     }
 }
-exportToMain(popupMenu);
+main.exportFuncToMain(popupMenu);
 
 
 export function getPopupMenu(o) {
@@ -3174,6 +3243,8 @@ function _firstChildWithClass(element, cls) {
 }
 
 function _nthChildOf(element, n) {
+    if (n >= element.childNodes.length) return null;
+
     var i = 0;
     var c = element.firstChild;
     while (c) {
@@ -3183,7 +3254,7 @@ function _nthChildOf(element, n) {
         }
         c = c.nextElementSibling;
     }
-    return undefined;
+    return null;
 }
 
 function indexOfElement (e) {

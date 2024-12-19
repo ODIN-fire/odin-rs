@@ -5,21 +5,21 @@ export const config = {
     // keys are path-like strings composed of static prefix/suffix elements (e.g. "view") and one variable element (e.g. "CZU")
     // var elements can have both static prefixes and suffixes (e.g. "incidents/CZU/view")
     categories: [
-        { key: "bbox",     },
-        { key: "incident"  }, // suffix implies !sealed
-        { key: "point",    },
-        { key: "view",     },
+        { key: "bbox" ,    type: "/ ⟨BoundingBox⟩" }, // the Rust variant name of data under this category 
+        { key: "incident", type: "/ *"},
+        { key: "point",    type: "/ ⟨Point2D⟩" },
+        { key: "view",     type: "/ ⟨Point3D⟩" }
     ],
 
     completions: [
         { pattern: "incident",
-            completion: ["/●/view", "/●/origin", "/●/bbox"]
+            completion: ["/◻︎/view", "/◻︎/origin", "/◻︎/bbox"]
         },
         { pattern: "incident/*",
             completion: ["/view", "/origin", "/bbox"]
         },
         { pattern: "{bbox,point,view}",
-            completion: ["/●"]
+            completion: ["/◻︎"]
         }
     ],
 
@@ -28,15 +28,15 @@ export const config = {
     // template objects are used to generate JSON templates and check user input 
     typeInfos: [
         { pattern: "{view/**,**/view/**,**/view}",    
-            tag: "odin_common::geo::GeoPos", 
+            type: "Point3D", 
             template: {lat: 0.0, lon: 0.0, alt: 0.0} 
         },
         { pattern: "{point/**,**/point/**,**/point}", 
-            tag: "odin_common::geo::LatLon", 
+            type: "Point2D", 
             template: {lat: 0.0, lon: 0.0} 
         },
         { pattern: "{bbox/**,**/bbox/**,**/bbox}",    
-            tag: "odin_common::geo::GeoBoundingBox", 
+            type: "BoundingBox", 
             template: {west: 0.0, south: 0.0, east: 0.0, north: 0.0} 
         }
     ]

@@ -30,8 +30,9 @@ use core::str;
 use std::{sync::Arc,fmt::Debug, fs::File, io::BufReader, path::{Path, PathBuf},collections::HashMap, any::type_name, net::SocketAddr};
 use serde::{Serialize,Deserialize};
 use bytes::Bytes;
-use crate::{dyn_shared_store_action, SharedStore, SharedStoreValueConstraints, load_asset,
-    actor::{ExecSnapshotAction, SharedStoreActorMsg}
+use crate::{
+    actor::{ExecSnapshotAction, SetSharedStoreEntry, RemoveSharedStoreEntry, SharedStoreActor, SharedStoreActorMsg, SharedStoreChange, SharedStoreUpdate}, 
+    dyn_shared_store_action, load_asset, SharedStore, SharedStoreValueConstraints, shared_store_action, SharedStoreAction,
 };
 
 /// the generic wrapper type for shared items. This is what we keep in a SharedStore
@@ -43,6 +44,8 @@ pub enum SharedItem {
     Point2D ( SharedItemValue<LatLon> ),
     Point3D ( SharedItemValue<GeoPos> ),
     Polyline ( SharedItemValue<Vec<LatLon>> ),
+
+    BoundingBox ( SharedItemValue<GeoBoundingBox> ),
 
     // primitive types
     U64 ( SharedItemValue<u64> ),
@@ -126,10 +129,10 @@ impl SpaService for ShareService {
     // store types that are remote or have to be synced externally (which implies network latency)
     async fn data_available (&mut self, hself: &ActorHandle<SpaServerMsg>, has_connections: bool,
                              sender_id: &str, data_type: &str) -> OdinServerResult<bool> {
-        Ok(true)
+        Ok(true) // TODO
     }
 
-    // "setLatLon": { "key": "/incidents/czu/origin", "comment": "blah", "data": {"lat": 37.123, "lon": -122.12} }
+    // "setShared": { "key": "/incidents/czu/origin", "comment": "blah", "data": {"lat": 37.123, "lon": -122.12} }
 
     /// this is how we get data from clients. Called from ws input task of respective connection
     async fn handle_ws_msg (&mut self, 
@@ -137,8 +140,14 @@ impl SpaService for ShareService {
     {
         if ws_msg_parts.mod_path == ShareService::mod_path() {
             match ws_msg_parts.msg_type {
-                "setLatLon" => {
-                    if let Ok(shared_item) = serde_json::from_str::<SharedItem>(ws_msg_parts.payload) {
+                "setShared" => {
+                    if let Ok(set_shared) = serde_json::from_str::<SetShared>(ws_msg_parts.payload) {
+                        self.hstore.send_msg( SetSharedStoreEntry::from(set_shared)).await;
+                    }
+                }
+                "removeShared" => {
+                    if let Ok(remove_shared) = serde_json::from_str::<RemoveShared>( ws_msg_parts.payload) {
+                        self.hstore.send_msg( RemoveSharedStoreEntry::from(remove_shared)).await;
                     }
                 }
                 _ => {
@@ -150,3 +159,82 @@ impl SpaService for ShareService {
         Ok( WsMsgReaction::None )
     }
 }
+
+//--- the serde types that correspond to the websocket messages we receive (together with their SharedStoreActor message mapping)
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SetShared {
+    pub key: String,
+    pub value: SharedItem
+}
+
+impl From<SetShared> for SetSharedStoreEntry<SharedItem> {
+    fn from(ss: SetShared) -> Self {
+        SetSharedStoreEntry{ key: ss.key, value: ss.value }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RemoveShared {
+    pub key: String
+}
+
+impl From<RemoveShared> for RemoveSharedStoreEntry {
+    fn from(rs: RemoveShared) -> Self {
+        RemoveSharedStoreEntry{ key: rs.key }
+    }
+}
+
+
+//--- syntactic sugar for creating SharedStoreActors that work with SpaServer actors
+
+/// a specialized SharedStoreActor ctor used in conjunction with ShareService and SpaServer
+/// This only sets up init/change actions to send messages to the provided SpaServer actor
+/// Use the generic SharedStoreActor::new(..) if you need to set up other init/change actions than to just notify a SpaServer
+pub fn new_shared_store_actor<S> (store: S, store_actor_name: &'static str, hserver: &ActorHandle<SpaServerMsg>)
+         -> SharedStoreActor<SharedItem,S,impl SharedStoreAction<SharedItem> + Send,impl for<'a> DataAction<SharedStoreChange<'a, SharedItem>>> 
+    where S: SharedStore<SharedItem>
+{
+    SharedStoreActor::new( 
+        store, 
+        shared_store_action!( 
+            let hserver: ActorHandle<SpaServerMsg> = hserver.clone(),
+            let store_actor_name: &'static str = store_actor_name => 
+            |store as &dyn SharedStore<SharedItem>| announce_data_availability( &hserver, store_actor_name).await
+        ),
+        data_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
+            |update: SharedStoreChange<'_,SharedItem>| broadcast_store_change( &hserver, update).await
+        )
+    )
+}
+
+/// helper function for the body of a SharedStore init action
+/// This just announces data avaiability by sending a message to the provided SpaServer actor handle
+pub async fn announce_data_availability<'a> (hserver: &'a ActorHandle<SpaServerMsg>, store_actor_name: &'static str)->Result<(),OdinActionFailure> {
+    hserver.send_msg( DataAvailable{ sender_id: store_actor_name, data_type: type_name::<SharedItem>()} ).await.map_err(|e| e.into())
+}
+
+/// helper function for the body of a SharedStoreActor change action
+/// This sends change-specific websocket messages to all connected clients of the provided SpaServer actor  
+pub async fn broadcast_store_change<'a> (hserver: &'a ActorHandle<SpaServerMsg>, change: SharedStoreChange<'a,SharedItem>)->Result<(),OdinActionFailure> {
+    match change.update {
+        SharedStoreUpdate::Set { hstore, key } => {
+            if let Some(stored_val) = change.store.get( &key) {
+                let msg = SetShared{key: key, value: stored_val.clone()};
+                if let Ok(data) = WsMsg::json( ShareService::mod_path(), "setShared", msg) {
+                    hserver.send_msg( BroadcastWsMsg{data}).await?;
+                }
+            }
+        }
+        SharedStoreUpdate::Remove { hstore, key } => {
+            let msg = RemoveShared{key};
+            if let Ok(data) = WsMsg::json( ShareService::mod_path(), "removeShared", msg) {
+                hserver.send_msg( BroadcastWsMsg{data}).await?;
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+

@@ -49,7 +49,7 @@ use odin_common::{fs::get_file_basename,strings::{self, mk_query_string}};
 use odin_macro::define_struct;
 use odin_actor::prelude::*;
 
-use crate::{get_asset_response, spawn_server_task, ServerConfig, WsMsg, WsMsgParts, ws_service};
+use crate::{load_asset, asset_uri, self_crate, get_asset_response, spawn_server_task, ServerConfig, WsMsg, WsMsgParts, ws_service};
 use crate::errors::{connect_error, init_error, op_failed, OdinServerError, OdinServerResult};
 
 /// the trait that abstracts a single page application service, which normally represents a visualization
@@ -349,7 +349,6 @@ impl SpaServer {
                     match msg.into_text() {
                         Ok(msg) => {
                             if !msg.is_empty() {
-                                //println!("@@ received ws: {}", msg);
                                 hself.send_msg( DispatchIncomingWsMsg{remote_addr,ws_msg: msg}).await;
                             }
                         }
@@ -377,7 +376,7 @@ impl SpaServer {
         Ok(())
     }
 
-    // TODO - these should use timeouts (we can't have a connection block the server)
+    // FIXME - these should use timeouts (we can't have a connection block the server)
 
     async fn data_available (&mut self, hself: ActorHandle<SpaServerMsg>, sender_id: &'static str, data_type: &'static str)->OdinServerResult<()> {
         let has_connections = self.has_connections();
@@ -660,6 +659,8 @@ impl SpaComponents {
 
     fn from_svcs (services: &Vec<SpaSvc>)->OdinServerResult<SpaComponents> {
         let mut comps = SpaComponents::new();
+        comps.add_intrinsics();
+
         for svc in services {
             svc.add_components( &mut comps).map_err(|e| init_error(e))?;
         }
@@ -667,11 +668,12 @@ impl SpaComponents {
     }
 
     pub fn from (svc_list: &SpaServiceList)->OdinServerResult<SpaComponents> {
-        let mut comps = SpaComponents::new();
-        for svc in &svc_list.services {
-            svc.add_components( &mut comps).map_err(|e| init_error(e))?;
-        }
-        Ok(comps)
+        Self::from_svcs(  &svc_list.services)
+    }
+
+    fn add_intrinsics (&mut self) {
+        self.add_assets( self_crate!(), load_asset); // we always serve odin_server assets
+        self.add_module( asset_uri!("main.js")); // we always load main.js
     }
 
     //--- the functions used to add SpaService components (normally by the `SpaService::add_components()` impl)

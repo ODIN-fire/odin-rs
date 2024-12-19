@@ -49,7 +49,7 @@ impl_actor! { match msg for Actor<Updater,UpdaterMsg> as
         let value = StoreItem::Point2D(
             Arc::new( Point2D{ x: 42.0, y: -121.0, comment: "this is the middle of nowhere".into() } )
         );
-        let update = SetSharedStoreValue { key: "/location/p1".into(), value };
+        let update = SetSharedStoreEntry { key: "/location/p1".into(), value };
         println!("updater sending message to store: {update:?}");
         self.hstore.send_msg( update).await;
         self.hself.send_msg( Ping{} ).await;
@@ -58,7 +58,7 @@ impl_actor! { match msg for Actor<Updater,UpdaterMsg> as
         let value = StoreItem::Point3D(
             Arc::new( Point3D{ x: 37.0, y: -122.0, z: 100000.0, comment: "somewhere above the Bay Area".into() } )
         );
-        let update = SetSharedStoreValue { key: "/view/bay_area".into(), value };
+        let update = SetSharedStoreEntry { key: "/view/bay_area".into(), value };
         println!("updater sending message to store: {update:?}");
         self.hstore.send_msg( update).await;
     }
@@ -70,12 +70,12 @@ struct Client {}
 
 #[derive(Debug)] struct CheckStore (ActorHandle<SharedStoreActorMsg<StoreItem>>);
 
-define_actor_msg_set! { ClientMsg = SharedStoreChange<StoreItem> | CheckStore }
+define_actor_msg_set! { ClientMsg = SharedStoreUpdate<StoreItem> | CheckStore }
 
 impl_actor! { match msg for Actor<Client,ClientMsg> as
-    SharedStoreChange<StoreItem> => cont! {
+    SharedStoreUpdate<StoreItem> => cont! {
         match msg {
-            SharedStoreChange::Set{ hstore, key } => {
+            SharedStoreUpdate::Set{ hstore, key } => {
                 println!("client received update for key: {:?}, now querying value..", key);
                 match timeout_query_ref( &hstore, key, secs(1)).await {
                     Ok(response) => match response {
@@ -121,7 +121,7 @@ run_actor_system!( asys => {
         HashMap::new(),
         no_shared_store_action(),
         data_action!( let client: ActorHandle<ClientMsg> = client.to_actor_handle() => 
-            |update: SharedStoreChange<StoreItem>| Ok( client.try_send_msg( update)? )
+            |change: SharedStoreChange<'_,StoreItem>| Ok( client.try_send_msg( change.update)? )
         )
     ))?;
 

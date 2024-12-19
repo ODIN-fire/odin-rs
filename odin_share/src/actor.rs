@@ -25,19 +25,34 @@ use odin_common::fs;
 
 use crate::errors::op_failed;
 use crate::errors::OdinShareError;
-use crate::{SharedStore,SharedStoreAction,DynSharedStoreAction,SharedStoreValueConstraints};
+use crate::{
+    SharedStore,SharedStoreReadAccess,SharedStoreAction,DynSharedStoreAction,SharedStoreValueConstraints,
+};
 
-/// message type to announce changes to clients of a SharedStore. Note this does not include the
-/// changed value, which might be expensive to clone
+/// action argument type to announce changes to clients of a SharedStore. Note this does not include the changed value, 
+/// which might be expensive to clone.
 #[derive(Debug,Clone)]
-pub enum SharedStoreChange<T> where T: SharedStoreValueConstraints {
+pub struct SharedStoreChange<'a,T> where T: SharedStoreValueConstraints {
+    pub update: SharedStoreUpdate<T>, // the sendable part
+    pub store: &'a dyn SharedStoreReadAccess<T> // the non-sendable store reference that can be used to retrieve store values from action bodies
+}
+
+/// a sendable part for a SharedStore change, in case we need an actor message. This specifies the nature of the change
+/// but does not include changed values (they have to be queried by recipients)
+#[derive(Debug,Clone)]
+pub enum SharedStoreUpdate<T> where T: SharedStoreValueConstraints {
     Set { hstore: ActorHandle<SharedStoreActorMsg<T>>, key: String },
     Remove { hstore: ActorHandle<SharedStoreActorMsg<T>>, key: String },
-    // TODO - add more ops, like Rename
 }
 
 /// the state of an actor that encapsulates a SharedStore impl
-pub struct SharedStoreActor<T,S,I,C> where T: SharedStoreValueConstraints, S: SharedStore<T>, I: SharedStoreAction<T> + Send, C: DataAction<SharedStoreChange<T>> {
+pub struct SharedStoreActor<T,S,I,C> 
+    where 
+        T: SharedStoreValueConstraints, 
+        S: SharedStore<T>, 
+        I: SharedStoreAction<T> + Send, 
+        C: for<'a> DataAction<SharedStoreChange<'a, T>>
+{
     store: S,
     init_action: I,
     change_action: C,
@@ -46,7 +61,11 @@ pub struct SharedStoreActor<T,S,I,C> where T: SharedStoreValueConstraints, S: Sh
 }
 
 impl <T,S,I,C> SharedStoreActor<T,S,I,C> 
-    where T: SharedStoreValueConstraints, S: SharedStore<T>, I: SharedStoreAction<T> + Send, C: DataAction<SharedStoreChange<T>>
+    where 
+        T: SharedStoreValueConstraints, 
+        S: SharedStore<T>, 
+        I: SharedStoreAction<T> + Send, 
+        C: for<'a> DataAction<SharedStoreChange<'a, T>>
 {
     pub fn new (store: S, init_action: I, change_action: C)->Self {
         SharedStoreActor { store, init_action, change_action, phantom_t: PhantomData }
@@ -61,9 +80,9 @@ impl <T,S,I,C> SharedStoreActor<T,S,I,C>
         if self.change_action.is_empty() {
             self.store.insert( key, value);
         } else {
-            let change = SharedStoreChange::Set{ hstore: hself, key: key.clone() };
-            self.store.insert( key, value);
-            self.change_action.execute(change).await;
+            self.store.insert( key.clone(), value);
+            let update = SharedStoreUpdate::Set{ hstore: hself, key: key };
+            self.change_action.execute( SharedStoreChange{update,store: &self.store}).await;
         }
     }
 
@@ -71,9 +90,9 @@ impl <T,S,I,C> SharedStoreActor<T,S,I,C>
         if self.change_action.is_empty() {
             self.store.remove( &key);
         } else {
-            let change = SharedStoreChange::Remove{ hstore: hself, key: key.clone() };
+            let update = SharedStoreUpdate::Remove{ hstore: hself, key: key.clone() };
             self.store.remove( &key);
-            self.change_action.execute(change).await;
+            self.change_action.execute( SharedStoreChange{update,store: &self.store}).await;
         }
     }
 }
@@ -81,13 +100,13 @@ impl <T,S,I,C> SharedStoreActor<T,S,I,C>
 //--- messages
 
 #[derive(Debug)] 
-pub struct SetSharedStoreValue<T> {
+pub struct SetSharedStoreEntry<T> {
     pub key: String,
     pub value: T
 }
 
 #[derive(Debug)] 
-pub struct RemoveSharedStoreValue {
+pub struct RemoveSharedStoreEntry {
     pub key: String
 }
 
@@ -95,23 +114,28 @@ pub struct RemoveSharedStoreValue {
 pub struct ExecSnapshotAction<T>( pub DynSharedStoreAction<T> );
 
 define_actor_msg_set! { pub SharedStoreActorMsg<T> where T: SharedStoreValueConstraints = 
-    SetSharedStoreValue<T> | RemoveSharedStoreValue | Query<String,Option<T>> | ExecSnapshotAction<T>
+    SetSharedStoreEntry<T> | RemoveSharedStoreEntry | Query<String,Option<T>> | ExecSnapshotAction<T>
 }
 
 
 impl_actor! { match msg for Actor<SharedStoreActor<T,S,I,C>,SharedStoreActorMsg<T>> 
-        where T: SharedStoreValueConstraints, S: SharedStore<T>, I: SharedStoreAction<T> + Send, C: DataAction<SharedStoreChange<T>> as
+    where 
+        T: SharedStoreValueConstraints, 
+        S: SharedStore<T>, 
+        I: SharedStoreAction<T> + Send, 
+        C: for<'a> DataAction<SharedStoreChange<'a, T>>
+    as
     _Start_ => cont! {
         if let Err(e) = self.state.initialize().await {
             error!("store failed to initialize {e}");
         }
     }
 
-    SetSharedStoreValue<T> => cont! {
+    SetSharedStoreEntry<T> => cont! {
         let hself = self.hself.clone();
         self.state.set( hself, msg.key, msg.value).await;
     }
-    RemoveSharedStoreValue => cont! {
+    RemoveSharedStoreEntry => cont! {
         let hself = self.hself.clone();
         self.state.remove( hself, msg.key).await;
     }

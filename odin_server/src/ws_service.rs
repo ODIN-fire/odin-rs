@@ -86,7 +86,7 @@ pub struct WsMsg<T>  {
 }
 
 fn match_str<'a> (s: &'a str, capture: &Match<'a>)-> &'a str {
-    &s[capture.start()..capture.len()]
+    &s[capture.start()..capture.start() + capture.len()]
 }
 
 /// extrace substrings for module_path, msg_type and payload from incoming JSON string
