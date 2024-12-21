@@ -27,6 +27,7 @@ use nav_types::{WGS84, ECEF};
 use serde_json::Value;
 use core::f64;
 use std::collections::HashMap;
+use std::f64::consts::PI;
 use std::vec::Vec;
 use serde::{Deserialize,Serialize};
 use uom::si::molar_radioactivity::disintegrations_per_minute_per_mole;
@@ -178,6 +179,16 @@ impl OrbitalTrajectory{
         gp.scale_to_earth_radius(); // scale to earth radius
         gp
     }
+
+    pub fn find_closest_orbit_point(&self, p: &Cartesian3D) -> Cartesian3D {
+        let i = self.find_closest_index(p);
+        let p1 = Cartesian3D{x: self.x[i-1], y: self.y[i-1], z: self.z[i-1]};
+        let p2 = Cartesian3D{x: self.x[i+1], y: self.y[i+1], z: self.z[i+1]};
+        let mut gp = Cartesian3D::new();
+        gp.set_to_intersection_with_plane(&p1, &p2, p); // set pt to intersection w/ plane
+        gp
+    }
+
     pub fn dist2(&self, i:usize, p: &Cartesian3D) -> f64 {
         ((self.x[i]-p.x).powf(2.0)) + ((self.y[i]-p.y).powf(2.0)) +((self.z[i]-p.z).powf(2.0))
     }
@@ -376,6 +387,28 @@ pub fn compute_full_orbits(mut tle: TLE, max_scan: f64) -> Result<OverpassList> 
     Ok(overpass)
 }
 
+pub fn get_init_times_vector(history: Duration) -> Vec<DateTime<Utc>> {
+    let now = Utc::now();
+    // start = now - history
+    let start = now - TimeDelta::seconds(history.num_seconds());
+    let total_steps = history.num_seconds() + TimeDelta::hours(24).num_seconds();
+    let mut times:Vec<DateTime<Utc>> = vec![];
+    let mut now_mut = start.round_subsecs(0).clone();
+    for i in 1..total_steps {
+        now_mut = now_mut + TimeDelta::seconds(1);
+        times.push(now_mut);
+    }
+    times
+}
+
+pub fn compute_initial_orbits(mut tle: TLE, max_scan: f64, history: Duration) -> Result<OverpassList> {
+    let times = get_init_times_vector(history); 
+    let ats: Vec<AstroTime> = times.iter().map(|x| utc_to_astrotime(x)).collect();
+    let (pred_teme, _, _) = satkit::sgp4::sgp4(&mut tle, &ats[..]);
+    let overpass = format_prediction(pred_teme, times, tle, max_scan)?;
+    Ok(overpass)
+}
+
 fn compute_approximate_swath_width(altitude: Length, max_scan: f64) -> Length {
     let earth = Length::new::<meter>(6371000.0);
     let d = earth + altitude;
@@ -450,10 +483,15 @@ pub fn filter_orbits(overpass_list: &OverpassList,  region: &Vec<LatLon>, max_sc
     let coverable_region = coverable_region(region, max_scan);
     for overpass in overpass_list.overpasses.clone().into_iter(){
         if (coverable_region) {
+            //println!("region covarable");
             if covers_region(&overpass, region, max_scan) {
                 filtered_orbits.push(overpass);
             }
+            // else {
+            //     println!("region not covered");
+            // }
         } else {
+            //println!("region not covered");
             if covers_region_partial(&overpass, region, max_scan) {
                 filtered_orbits.push(overpass);
             }
@@ -467,11 +505,17 @@ pub fn covers_region(overpass: &OrbitalTrajectory, region: &Vec<LatLon>, max_sca
     let mut covers = true;
     for vertex in region.iter(){
         let point = Cartesian3D::from_latlon(vertex.clone());
-        let ground_track = overpass.find_closest_ground_track_point(&point);
-        let distance = ground_track.to_wgs84().distance(&point.to_wgs84()); // uses great circle distance
-        if (distance <= max_scan) {
+        let mut orbit_point = overpass.find_closest_orbit_point(&point);
+        let dist_to_earth = orbit_point.z;
+        let max_scan_m = scan_angle_to_meters(max_scan, dist_to_earth);
+        orbit_point.scale_to_earth_radius();
+        // let ground_track = overpass.find_closest_ground_track_point(&point);
+        let distance = orbit_point.to_wgs84().distance(&point.to_wgs84()); // uses great circle distance
+        if (distance <= (max_scan_m/2.0)) {
             covers = true;
+            //ln!("covers distance:{}, max scan:{}", distance, max_scan_m/2.0);
         } else {
+            //println!("distance:{}, max scan:{}", distance, max_scan_m/2.0);
             covers = false;
             break
         }
@@ -479,13 +523,21 @@ pub fn covers_region(overpass: &OrbitalTrajectory, region: &Vec<LatLon>, max_sca
     covers
 }
 
+pub fn scan_angle_to_meters(max_scan: f64, dist_to_earth: f64) -> f64{
+    dist_to_earth * (f64::tan((max_scan/ 2.0)*PI/180.0) * 2.0)
+}
+
 pub fn covers_region_partial(overpass: &OrbitalTrajectory, region: &Vec<LatLon>, max_scan: f64) -> bool { // for cases when the region is too large to fully fit in a single overpass
     let mut covers = true; // update with interpolation
     for vertex in region.iter(){
         let point = Cartesian3D::from_latlon(vertex.clone());
-        let ground_track = overpass.find_closest_ground_track_point(&point);
-        let distance = ground_track.to_wgs84().distance(&point.to_wgs84()); // uses great circle distance
-        if (distance <= max_scan) {
+        let mut orbit_point = overpass.find_closest_orbit_point(&point);
+        let dist_to_earth = orbit_point.z;
+        let max_scan_m = scan_angle_to_meters(max_scan, dist_to_earth);
+        orbit_point.scale_to_earth_radius();
+        // let ground_track = overpass.find_closest_ground_track_point(&point);
+        let distance = orbit_point.to_wgs84().distance(&point.to_wgs84()); // uses great circle distance
+        if (distance <= (max_scan_m/2.0)) {
             covers = true;
             break
         } else {

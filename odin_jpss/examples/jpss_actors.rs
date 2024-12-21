@@ -22,7 +22,7 @@ use odin_jpss::orekit::OverpassList;
 use tokio;
 use anyhow::Result;
 use odin_actor::prelude::*;
-use odin_jpss::actor::{JpssConfig, JpssImportActor, JpssImportActorMsg, OrbitActor};
+use odin_jpss::actor::{JpssConfig, JpssImportActor, JpssImportActorMsg, OrbitActor, OrbitActorMsg, OrbitsReady};
 use odin_jpss::{ViirsHotspots, load_config};
 use odin_build;
 
@@ -38,10 +38,21 @@ impl_actor! { match msg for Actor<JpssMonitor, JpssMonitorMsg> as
         println!("{}", msg.0) 
     }
     OverpassUpdate => cont! { 
-        println!("------------------------------ overpass update");
+        println!("------------------------------ overpass update from jpss importer");
         println!("{}", msg.0) 
     }
 }
+
+define_actor_msg_set! { OrbitMonitorMsg = OverpassUpdate}
+struct OrbitMonitor {}
+
+impl_actor! { match msg for Actor<OrbitMonitor, OrbitMonitorMsg> as
+    OverpassUpdate => cont! { 
+        println!("------------------------------ overpass update from orbit calculator");
+        println!("{}", msg.0) 
+    }
+}
+
 
 #[tokio::main]
 async fn main() -> Result<()>{
@@ -56,12 +67,22 @@ async fn main() -> Result<()>{
     let mut actor_system = ActorSystem::with_env_tracing("main");
 
     let hmonitor = spawn_actor!( actor_system, "monitor", JpssMonitor{})?;
+    let orbit_hmonitor = spawn_actor!( actor_system, "orbit_monitor", OrbitMonitor{})?;
 
-    let orbit_actor_handle = spawn_actor!( actor_system, "orbit", OrbitActor::new(
-        LiveOrbitCalculator::new(LiveJpssOrbitCalculatorConfig::new( &arc_config, orbit_config))
+    let jpss_importer_handle = PreActorHandle::new(&actor_system, "noaa20", 8);
+;
+    let orbit_actor_handle: ActorHandle<OrbitActorMsg> = spawn_actor!( actor_system, "orbit", OrbitActor::new(
+        LiveOrbitCalculator::new(LiveJpssOrbitCalculatorConfig::new( &arc_config, orbit_config)),
+        data_action!( jpss_importer_handle.to_actor_handle() : ActorHandle<JpssImportActorMsg> => |data: OrbitsReady| {
+            println!("in init action");
+            Ok(jpss_importer_handle.try_send_msg(data)?)
+        }),
+        data_action!( orbit_hmonitor.clone(): ActorHandle<OrbitMonitorMsg> => |data: OverpassList| {
+            let msg = OverpassUpdate(data.to_json_pretty().unwrap());
+            Ok(orbit_hmonitor.try_send_msg( msg)?)
+        }),
     ))?;
-
-    let _actor_handle: ActorHandle<JpssImportActorMsg> = spawn_actor!( actor_system, "jpss",  JpssImportActor::new(
+    let _actor_handle: ActorHandle<JpssImportActorMsg> = spawn_pre_actor!( actor_system, jpss_importer_handle,  JpssImportActor::new(
         actor_config, 
         LiveJpssImporter::new( LiveJpssImporterConfig::new( &arc_config, importer_config)),
         data_action!( hmonitor.clone(): ActorHandle<JpssMonitorMsg> => |data:ViirsHotspots| {

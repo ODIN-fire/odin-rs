@@ -13,6 +13,7 @@
  */
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
+use std::future::Future;
 use std::iter::Map;
 use std::time::Duration;
 use odin_common::geo::LatLon;
@@ -50,22 +51,16 @@ pub struct JpssConfig {
 
  /* #region JPSS import actor *************************************************************************************************/
 
- // internal message
- // update - new viirshotspots
- // update - new overpasses
- // initialize - viirshotspots - same behavior as update, just gives a new list
- // import error - error downloading 
+ // internal message 
 #[derive(Debug)] pub struct UpdateHotspots(pub(crate) ViirsHotspots);
 
 #[derive(Debug)] pub struct UpdateRawHotspots(pub(crate) RawHotspots);
 
 #[derive(Debug, Clone)] pub struct UpdateOverpassList(pub(crate) OverpassList);
- // #[derive(Debug)] pub struct Initialize(pub(crate) ViirsHotspots); // same behavior as update?
+
 #[derive(Debug)] pub struct ImportError(pub(crate) OdinJpssError);
 
-define_actor_msg_set! { pub JpssImportActorMsg = ExecSnapshotAction | UpdateHotspots | UpdateOverpassList | ImportError | UpdateRawHotspots }
-
- // user part
+define_actor_msg_set! { pub JpssImportActorMsg = OrbitsReady | ExecSnapshotAction | UpdateHotspots | UpdateOverpassList | ImportError | UpdateRawHotspots }
 
  // actor struct
  #[derive(Debug)]
@@ -120,10 +115,11 @@ impl_actor! { match msg for Actor< JpssImportActor<T, HotspotUpdateAction, Overp
           HotspotUpdateAction: DataAction<ViirsHotspots> + Sync,
           OverpassUpdateAction: DataAction<OverpassList>
     as
-    _Start_ => cont! { 
+    OrbitsReady => cont! { 
+        println!("starting importer");
         let hself = self.hself.clone();
         let orbit_calculator =  self.orbit_calculator.clone() ;
-        self.jpss_importer.start( hself, orbit_calculator ); // move to initialization actor
+        self.jpss_importer.start( hself, orbit_calculator ); //
     }
 
     ExecSnapshotAction => cont! { msg.0.execute( &self.hotspots.to_hotspots()).await; }
@@ -156,25 +152,31 @@ impl_actor! { match msg for Actor< JpssImportActor<T, HotspotUpdateAction, Overp
 
  /* #region orbit calculator actor *************************************************************************************************/
  
- 
-#[derive(Debug)] pub struct AskOverpassRequest (pub(crate) OverpassRequest); 
 
- define_actor_msg_set! { pub OrbitActorMsg = AskOverpassRequest | Query<AskOverpassRequest, UpdateOverpassList> |  UpdateOverpassList}
-// add spec - do not redundently recompute orbits for small areas. May have multiple small areas, should not recompute it 
-// large mesoscale region (continental US), keep internal, then get request and filter large orbit to get small portion to return
-// initial older overpasses
-pub struct OrbitActor <T> 
-    where T: OrbitCalculator + Send
+ #[derive(Debug)]pub struct OrbitsReady;
+#[derive(Debug)] pub struct AskOverpassRequest (pub(crate) OverpassRequest); 
+#[derive(Debug)] pub struct InitOverpassList (pub(crate) OverpassList); 
+
+ define_actor_msg_set! { pub OrbitActorMsg = InitOverpassList | AskOverpassRequest | Query<AskOverpassRequest, UpdateOverpassList> |  UpdateOverpassList}
+
+pub struct OrbitActor <T, InitDataAction, UpdateAction> 
+    where T: OrbitCalculator + Send, 
+        InitDataAction: DataAction<OrbitsReady>,
+        UpdateAction: DataAction<OverpassList>
 { 
     pub overpasses: OverpassList, // map of satellite ids and overpasses
-    pub orbit_calculator: T
+    pub orbit_calculator: T,
+    init_action: InitDataAction,
+    update_action: UpdateAction
 }
 
-impl <T> OrbitActor <T> 
-    where T: OrbitCalculator + Send
+impl <T, InitDataAction, UpdateAction> OrbitActor <T, InitDataAction, UpdateAction> 
+    where T: OrbitCalculator + Send,
+        InitDataAction: DataAction<OrbitsReady>,
+        UpdateAction: DataAction<OverpassList>
 {
-    pub fn new (orbit_calculator:T) -> Self {
-        OrbitActor {orbit_calculator, overpasses: OverpassList::new()}
+    pub fn new (orbit_calculator:T, init_action: InitDataAction, update_action:UpdateAction) -> Self {
+        OrbitActor {orbit_calculator, overpasses: OverpassList::new(), init_action, update_action}
     }
 
     pub fn update_overpass_list(&mut self, new_overpasses: OverpassList) {
@@ -182,17 +184,30 @@ impl <T> OrbitActor <T>
     }
 }
 
-impl_actor! { match msg for Actor< OrbitActor <T>, OrbitActorMsg> 
-    where T: OrbitCalculator + Send
+impl_actor! { match msg for Actor< OrbitActor <T,InitDataAction, UpdateAction>, OrbitActorMsg> 
+    where T: OrbitCalculator + Send, 
+        InitDataAction: DataAction<OrbitsReady>,
+        UpdateAction: DataAction<OverpassList>
     as
     _Start_ => cont! { 
         let hself = self.hself.clone();
-        self.orbit_calculator.start( hself ); // move to initialization actor
+        self.orbit_calculator.init( hself ).await; // calculates first overpass list and sends to self
     }
+
+    InitOverpassList => cont! {
+        println!("got init orbits");
+        let hself = self.hself.clone();
+        self.update_overpass_list(msg.0); // updates overpass list
+        self.orbit_calculator.start( hself ); // starts task that continuously calculates orbits
+        println!("started orbit calculator");
+        self.init_action.execute(OrbitsReady{}).await; // sends message to JpssImportActor to start
+    }
+
     UpdateOverpassList => cont! {
-        self.update_overpass_list(msg.0);
-        //*self.overpasses.get_mut(sat_id).unwrap() = new_overpasses;
+        self.update_overpass_list(msg.0.clone());
+        self.update_action.execute(msg.0);
     }
+
     AskOverpassRequest => cont! {
         println!("asking for overpasses");
         let overpass_list_res = self.orbit_calculator.calc_overpass_list(&msg.0, &self.overpasses);
@@ -214,11 +229,11 @@ impl_actor! { match msg for Actor< OrbitActor <T>, OrbitActorMsg>
         }
         
     }
-    // add handle for messages from orbit calculator with new overpass lists
 }
 
  pub trait OrbitCalculator {
-    fn start(&mut self, hself: ActorHandle<OrbitActorMsg>) -> Result<()>; // needs to be a future we wait on
+    fn init(&mut self, hself: ActorHandle<OrbitActorMsg>) -> impl Future< Output = Result<()>> + Send; // completes first orbit calculation to kick off jpss importer and orbit calculation task
+    fn start(&mut self, hself: ActorHandle<OrbitActorMsg>) -> Result<()>; // starts task to calculate orbits every so often
     fn calc_overpass_list (&self, overpass_request: &OverpassRequest, current_overpasses: &OverpassList ) -> Result<OverpassList>; // equivalent of JpssActor get_overpasses
  }
 

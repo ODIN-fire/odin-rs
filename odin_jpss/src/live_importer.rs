@@ -13,6 +13,7 @@ use chrono::TimeDelta;
  * and limitations under the License.
  */
 use serde::{Serialize, Deserialize};
+use std::result;
 use std::time::Duration;
 use std::sync::Arc;
 use odin_common::geo::LatLon;
@@ -306,27 +307,39 @@ impl LiveOrbitCalculator {
         })?.abort_handle()
         )
     }
+
+    async fn calc_init_overpasses(&mut self, hself: ActorHandle<OrbitActorMsg>) -> Result<()> {
+        let tle = get_tles_celestrak(self.config.satellite).await?;
+        let overpass = compute_initial_orbits(tle, self.config.max_scan_angle, chrono::Duration::from_std(self.config.history)?)?;
+        hself.try_send_msg(InitOverpassList(overpass))?;
+        Ok(())
+    }
 }
 
  impl OrbitCalculator for LiveOrbitCalculator {
     fn calc_overpass_list (&self, overpass_request: &OverpassRequest, current_overpasses: &OverpassList ) -> Result<OverpassList> {
         let overpasses = get_overpasses_for_small_region(&overpass_request.region, current_overpasses, overpass_request.scan_angle);
+        println!("overpass: {:?}", overpasses);
         Ok(overpasses)
     }
 
     fn start(&mut self, hself: ActorHandle<OrbitActorMsg>) -> Result<()> {
-        self.initialize(hself);
+        self.initialize(hself)?;
+        Ok(())
+    }
+
+    async fn init(&mut self, hself: ActorHandle<OrbitActorMsg>) -> Result<()> {
+        self.calc_init_overpasses(hself).await;
         Ok(())
     }
  }
 
  async fn run_orbit_calculation( hself: ActorHandle<OrbitActorMsg>, config: LiveJpssOrbitCalculatorConfig, cache_dir: Arc<PathBuf>) -> Result<()> {
     loop {
+        sleep(config.calculation_interval).await;
         let tle = get_tles_celestrak(config.satellite).await?;
         let overpass = compute_full_orbits(tle, config.max_scan_angle)?;
-        println!("overpasses");
         hself.try_send_msg(UpdateOverpassList(overpass))?;
-        sleep(config.calculation_interval).await;
     }
     Ok(())
  }
