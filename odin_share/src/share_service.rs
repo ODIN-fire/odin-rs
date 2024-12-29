@@ -21,14 +21,15 @@
 // https://nasarace.github.io/race/design/share.html which supports data distribution of tabular data within
 // network nodes with a tree topology
 
-use odin_server::{ prelude::*, errors::op_failed,};
+use odin_server::{ errors::op_failed, prelude::*};
 use async_trait::async_trait;
 use odin_actor::prelude::*;
 use odin_build::prelude::*;
 use odin_common::{define_serde_struct, geo::{GeoBoundingBox, GeoPos, LatLon}};
 use core::str;
-use std::{sync::Arc,fmt::Debug, fs::File, io::BufReader, path::{Path, PathBuf},collections::HashMap, any::type_name, net::SocketAddr};
+use std::{any::type_name, collections::HashMap, fmt::Debug, fs::File, io::BufReader, net::SocketAddr, ops::Index, path::{Path, PathBuf}, sync::Arc};
 use serde::{Serialize,Deserialize};
+use serde_json::{Value as JsonValue, json};
 use bytes::Bytes;
 use crate::{
     actor::{ExecSnapshotAction, SetSharedStoreEntry, RemoveSharedStoreEntry, SharedStoreActor, SharedStoreActorMsg, SharedStoreChange, SharedStoreUpdate}, 
@@ -73,10 +74,39 @@ pub struct SharedItemValue <T>
     pub data: Arc<T>
 }
 
+/// keep track of publisher/subscribers for user roles
+struct RoleEntry {
+    remote_addr: SocketAddr,
+    is_publishing: bool,
+    subscribers: Vec<SocketAddr>, // conceptually this is a HashSet but the main use is iteration and cloning
+}
+
+impl RoleEntry {
+    fn new (remote_addr: SocketAddr) -> Self {
+        RoleEntry { remote_addr, is_publishing: false, subscribers: Vec::new() }
+    }
+    fn add_subscriber (&mut self, remote_addr: SocketAddr) {
+        if !self.subscribers.contains( &remote_addr) {
+            self.subscribers.push(remote_addr);
+        }
+    }
+    fn remove_subscriber (&mut self, remote_addr: SocketAddr) {
+        self.subscribers.retain( |ar| *ar != remote_addr);
+    }
+
+    fn json_value (&self, role: &str) -> JsonValue {
+        json!({
+            "role": role,
+            "isPublishing": self.is_publishing,
+            "nSubscribers": self.subscribers.len()
+        })
+    }
+}
 
 /// micro service to share data between users and other micro-services. This is UI-less
 pub struct ShareService {
-    hstore: ActorHandle<SharedStoreActorMsg<SharedItem>>
+    hstore: ActorHandle<SharedStoreActorMsg<SharedItem>>,
+    user_roles: HashMap<String,RoleEntry>,
 }
 
 impl ShareService 
@@ -85,7 +115,14 @@ impl ShareService
 
     pub fn new (hstore: ActorHandle<SharedStoreActorMsg<SharedItem>>) -> Self {
         //let data_dir = odin_build::data_dir().join("odin_server");
-        ShareService { hstore }
+        let user_roles = HashMap::new();
+
+        ShareService { hstore, user_roles }
+    }
+
+    fn get_user_roles_json (&self)->String {
+        let a = JsonValue::Array( self.user_roles.iter().map(|e| e.1.json_value(&e.0)).collect());
+        serde_json::to_string(&a).unwrap() // save to unwrap as we are explicitly constructing the JsonValue
     }
 }
 
@@ -110,6 +147,7 @@ impl SpaService for ShareService {
         if is_data_available {
             let action = dyn_shared_store_action!( 
                 let hself: ActorHandle<SpaServerMsg> = hself.clone(),
+                // TODO - send current user_roles
                 let remote_addr: SocketAddr = conn.remote_addr => 
                 |store as &dyn SharedStore<SharedItem>| {
                     let json = store.to_json()?;
@@ -120,6 +158,34 @@ impl SpaService for ShareService {
             );
 
             self.hstore.send_msg( ExecSnapshotAction(action)).await?
+        }
+
+        let msg = ws_msg_from_json( ShareService::mod_path(), "initExtRoles", &self.get_user_roles_json());
+        hself.send_msg( SendWsMsg{remote_addr: conn.remote_addr, data: msg}).await;
+
+        Ok(())
+    }
+
+    async fn remove_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr) -> OdinServerResult<()> {
+        let mut dropped_roles: Vec<String> = self.user_roles.iter().filter(|e| e.1.remote_addr == *remote_addr).map( |e| e.0.clone()).collect();
+        self.user_roles.retain( |kr,vr| vr.remote_addr != *remote_addr);
+
+        if !dropped_roles.is_empty() {
+            let msg = WsMsg::json( ShareService::mod_path(), "rolesDropped", dropped_roles)?;
+            hself.send_msg( BroadcastWsMsg{ data: msg}).await; // we can broadcast here since remote_addr is already removed from connections
+        }
+
+        // update the remaining roles that had remote_addr as a subscriber
+        // TODO - this is potentially sending lots of messages if the lost connections had many subscriptions
+        for e in self.user_roles.iter_mut() {
+            let role = e.0;
+            let mut role_entry = e.1;
+            if let Some(idx) = role_entry.subscribers.iter_mut().position( |a| *a == *remote_addr){
+                role_entry.subscribers.remove(idx);
+
+                let msg = WsMsg::json( ShareService::mod_path(), "updateRole", role_entry.json_value(role))?;
+                hself.send_msg( SendWsMsg{ remote_addr: role_entry.remote_addr, data: msg}).await;
+            }
         }
 
         Ok(())
@@ -150,6 +216,97 @@ impl SpaService for ShareService {
                         self.hstore.send_msg( RemoveSharedStoreEntry::from(remove_shared)).await;
                     }
                 }
+                "requestRole" => { // { "requestRole": "<new_role>" }
+                    if let Ok(new_role) = serde_json::from_str::<String>( ws_msg_parts.payload) {
+                        if !self.user_roles.contains_key(&new_role) {  // TODO - this could check authorization here
+                            let role_entry = RoleEntry::new( *remote_addr);
+                            let jv = role_entry.json_value( &new_role);
+
+                            self.user_roles.insert( new_role.clone(), role_entry);
+
+                            // notify owner of new role
+                            let msg = WsMsg::json(ShareService::mod_path(), "roleAccepted", jv.clone())?;
+                            hself.send_msg( SendWsMsg{ remote_addr: *remote_addr, data: msg}).await;
+
+                            // notify all others
+                            let msg = WsMsg::json( ShareService::mod_path(), "extRoleAdded", jv)?;
+                            hself.send_msg( SendAllOthersWsMsg{ except_addr: *remote_addr, data: msg}).await;
+                            
+                        } else {
+                            // TODO - should we give a reason here?
+                            let msg = WsMsg::json(ShareService::mod_path(), "roleRejected", new_role)?;
+                            hself.send_msg( SendWsMsg{ remote_addr: *remote_addr, data: msg}).await;
+                        }
+                    }
+                }
+                "releaseRoles" => {
+                    if let Ok(roles) = serde_json::from_str::<Vec<String>>( ws_msg_parts.payload) {
+                        let released_roles: Vec<String> = roles.iter().filter(|r| self.user_roles.contains_key(*r)).map(|r| r.clone()).collect();
+                        if !released_roles.is_empty() {
+                            for role in &released_roles {
+                                self.user_roles.remove(role);
+                            }
+
+                            let msg = WsMsg::json( ShareService::mod_path(), "rolesDropped", released_roles)?;
+                            hself.send_msg( BroadcastWsMsg{ data: msg}).await;
+                        }
+                    }
+                }
+                "startPublishRole" => {
+                    if let Ok(role) = serde_json::from_str::<String>( ws_msg_parts.payload) {
+                        if let Some(e) = self.user_roles.get_mut(&role) {
+                            e.is_publishing = true;
+                            let msg = WsMsg::json( ShareService::mod_path(), "startPublish", role)?;
+                            hself.send_msg( SendAllOthersWsMsg{except_addr: *remote_addr, data: msg}).await;
+                        }
+                    }
+                }
+                "stopPublishRole" => {
+                    if let Ok(role) = serde_json::from_str::<String>( ws_msg_parts.payload) {
+                        if let Some(e) = self.user_roles.get_mut(&role) {
+                            e.is_publishing = false;
+                            let msg = WsMsg::json( ShareService::mod_path(), "stopPublish", role)?;
+                            hself.send_msg( SendAllOthersWsMsg{except_addr: *remote_addr, data: msg}).await;
+                        }
+                    }
+                }
+                "publishCmd" => { // pass msg verbatim to all subscribers of the publishing role
+                    if let Ok(publish_cmd) = serde_json::from_str::<PublishCmd>( ws_msg_parts.payload) {
+                        if let Some(e) = self.user_roles.get(&publish_cmd.role) {
+                            hself.send_msg( SendGroupWsMsg{ addr_group: e.subscribers.clone(), data: ws_msg_parts.ws_msg.to_string() }).await;
+                        }
+                    }
+                }
+                "publishMsg" => { // pass to all subscribers
+                    if let Ok(publish_msg) = serde_json::from_str::<PublishMsg>( ws_msg_parts.payload) {
+                        if let Some(e) = self.user_roles.get(&publish_msg.role) {
+                            // TODO - we could log messages here
+                            hself.send_msg( SendGroupWsMsg{ addr_group: e.subscribers.clone(), data: ws_msg_parts.ws_msg.to_string() }).await;
+                        }     
+                    }
+                }
+                "subscribeRole" => {
+                    if let Ok(role) = serde_json::from_str::<String>( ws_msg_parts.payload) {
+                        if let Some(e) = self.user_roles.get_mut(&role) {
+                            if !e.subscribers.contains( remote_addr) {
+                                e.subscribers.push( *remote_addr);
+                                let msg = WsMsg::json( ShareService::mod_path(), "updateRole", e.json_value(&role))?;
+                                hself.send_msg( BroadcastWsMsg{data: msg}).await;
+                            }
+                        }
+                    }
+                }
+                "unsubscribeRole" => {
+                    if let Ok(role) = serde_json::from_str::<String>( ws_msg_parts.payload) {
+                        if let Some(e) = self.user_roles.get_mut(&role) {
+                            if let Some(idx) = e.subscribers.iter().position(|rar| *rar == *remote_addr) {
+                                e.subscribers.remove( idx);
+                                let msg = WsMsg::json( ShareService::mod_path(), "updateRole", e.json_value(&role))?;
+                                hself.send_msg( BroadcastWsMsg{data: msg}).await;
+                            }
+                        }
+                    }
+                }
                 _ => {
                     warn!("ignoring unknown websocket message {}", ws_msg_parts.msg_type)
                 }
@@ -160,7 +317,7 @@ impl SpaService for ShareService {
     }
 }
 
-//--- the serde types that correspond to the websocket messages we receive (together with their SharedStoreActor message mapping)
+//--- the serde types that correspond to the websocket messages we receive (together with their SharedStoreActor message mapping) or send
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SetShared {
@@ -185,6 +342,17 @@ impl From<RemoveShared> for RemoveSharedStoreEntry {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PublishCmd {
+    pub role: String,
+    pub cmd: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PublishMsg {
+    pub role: String,
+    pub msg: String,
+}
 
 //--- syntactic sugar for creating SharedStoreActors that work with SpaServer actors
 

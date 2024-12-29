@@ -95,6 +95,18 @@ pub trait SpaService: Send + Sync + 'static {
     ) -> OdinServerResult<WsMsgReaction> {
         Ok( WsMsgReaction::None )
     }
+
+    /// called when a connection is dropped by the client. Use to clean up SpaService instances that have to keep track of connections
+    /// This is async so that it can send messages (e.g. to Broadcase WsMsgs to other connections)
+    async fn remove_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr) -> OdinServerResult<()> {
+       Ok(())
+    }
+
+    /// called when the SpaServer is terminated. Use to store persistent data of a SpaService.
+    /// Note this is sync and does not provide a server handle since that server wouldn't process any more messages
+    fn terminate_service (&mut self) {
+        // no default action
+    }
 }
 
 /// Service response to incoming websocket messages
@@ -371,8 +383,13 @@ impl SpaServer {
         Ok(())
     }
 
-    fn remove_connection (&mut self, remote_addr: SocketAddr)->OdinServerResult<()> {
+    async fn remove_connection (&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr)->OdinServerResult<()> {
         self.connections.remove(&remote_addr);
+
+        for svc in self.services.iter_mut() { 
+            svc.service.remove_connection( &hself, &remote_addr).await?;
+        }
+
         Ok(())
     }
 
@@ -431,10 +448,39 @@ impl SpaServer {
         Ok(())
     }
 
-    /// send a ws message to the connection of the provided client address
+    /// send ws message to all but `except_addr`. Use this for messages that originate from `except_addr`
+    /// and should only be distributed to other connections
+    async fn send_all_others_ws_msg (&mut self, except_addr: SocketAddr, m: String)->OdinServerResult<()> {
+        let ws_msg = Message::Text(m);
+        for conn in self.connections.values_mut() {
+            if conn.remote_addr != except_addr {
+                if let Err(e) = conn.ws_sender.send(ws_msg.clone()).await {
+                    error!("failed to distribute ws message to {:?}: {}", conn.remote_addr, e);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// send ws message to the provided group of remote addresses
+    async fn send_group_ws_msg (&mut self, addr_group: Vec<SocketAddr>, m: String)->OdinServerResult<()> {
+        let ws_msg = Message::Text(m);
+        for remote_addr in &addr_group {
+            if let Some(conn) = self.connections.get_mut(remote_addr) {
+                if let Err(e) = conn.ws_sender.send(ws_msg.clone()).await {
+                    error!("failed to distribute ws message to {:?}: {}", conn.remote_addr, e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// send a ws message to `remote_addr`
     async fn send_ws_msg (&mut self, remote_addr: SocketAddr, m: String)->OdinServerResult<()> {
+        let ws_msg = Message::Text(m);
         if let Some(conn) = self.connections.get_mut( &remote_addr) {
-            if let Err(e) = conn.send( m).await {
+            if let Err(e) = conn.ws_sender.send( ws_msg).await {
                 error!("failed to send ws message to {:?}: {}", conn.remote_addr, e);
             }
         }
@@ -444,6 +490,10 @@ impl SpaServer {
     /// called when receiving _Terminate_ message
     fn stop_server (&mut self)->OdinServerResult<()> {
         if let Some(jh) = &self.server_task {
+            for svc in self.services.iter_mut() { 
+                svc.service.terminate_service();
+            }
+
             jh.abort();
             self.server_task = None;
             Ok(())
@@ -479,18 +529,35 @@ pub struct DispatchIncomingWsMsg {
     pub ws_msg: String
 }
 
+/// send websocket msg to all connections
 #[derive(Debug)]
 pub struct BroadcastWsMsg {
     pub data: String
 }
 
+/// send websocket msg to all other connections than `except_addr`
+#[derive(Debug)]
+pub struct SendAllOthersWsMsg {
+    pub except_addr: SocketAddr,
+    pub data: String,
+}
+
+#[derive(Debug)]
+pub struct SendGroupWsMsg {
+    pub addr_group: Vec<SocketAddr>,
+    pub data: String,
+}
+
+/// send websocket msg to `remote_addr``
 #[derive(Debug)]
 pub struct SendWsMsg {
     pub remote_addr: SocketAddr,
     pub data: String
 }
 
-define_actor_msg_set! { pub SpaServerMsg = AddConnection | DataAvailable | DispatchIncomingWsMsg | BroadcastWsMsg | SendWsMsg | RemoveConnection }
+define_actor_msg_set! { pub SpaServerMsg =
+     AddConnection | DataAvailable | DispatchIncomingWsMsg | BroadcastWsMsg | SendAllOthersWsMsg | SendGroupWsMsg | SendWsMsg | RemoveConnection 
+}
 
 impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
     _Start_ => cont! {
@@ -522,13 +589,24 @@ impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
             error!("failed to broadcast ws message: {e:?}");
         }
     }
+    SendAllOthersWsMsg => cont! {
+        if let Err(e) = self.send_all_others_ws_msg( actor_msg.except_addr, actor_msg.data).await {
+            error!("failed to broadcast ws message: {e:?}");
+        }
+    }
+    SendGroupWsMsg => cont! {
+        if let Err(e) = self.send_group_ws_msg( actor_msg.addr_group, actor_msg.data).await {
+            error!("failed to send ws message: {e:?}");
+        }
+    }
     SendWsMsg => cont! {
         if let Err(e) = self.send_ws_msg( actor_msg.remote_addr, actor_msg.data).await {
             error!("failed to send ws message: {e:?}");
         }
     }
     RemoveConnection => cont! {
-        if let Err(e) = self.remove_connection( actor_msg.remote_addr) {
+        let hself = self.hself.clone();
+        if let Err(e) = self.remove_connection( hself, actor_msg.remote_addr).await {
             error!("failed to remove connection to {:?}: {:?}", actor_msg.remote_addr, e);
         }
     }

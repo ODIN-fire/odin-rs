@@ -747,16 +747,17 @@ export function Label (eid, isPermanent=false, maxWidthInRem=0, minWidthInRem=0)
     return e;
 }
 
-// un-labeled text data
-export function Text (eid, maxWidthInRem=0, minWidthInRem=0, text=null) {
+// un-labeled static text data (not an input - can only be set programatically)
+export function Text (eid, width=null, opts={}, text=null) {
     let e = createElement("DIV", "ui_text");
     e.setAttribute("id", eid);
-    if (maxWidthInRem) { 
-        setWidthStyle(e,maxWidthInRem,minWidthInRem);
-    }
-    if (text) {
-        e.innerText = text;
-    }
+    e.style.width = width;
+
+    if (opts.isFixed) e.classList.add("fixed");
+    if (opts.alignRight) e.classList.add("align_right");
+
+    if (text) e.innerText = text;
+    
     return e;
 }
 
@@ -769,7 +770,7 @@ function genField (inputType, extraCls, label, eid, changeAction) {
     let e = createElement("DIV", "ui_field");
     extraCls.forEach( cls=> e.classList.add(cls));
 
-    e.setAttribute("data-label", label);
+    if (label && label.length > 0) e.setAttribute("data-label", label);
     e.setAttribute("data-type", inputType);
     if (eid) e.setAttribute("data-id", eid);
     if (changeAction) {
@@ -788,7 +789,10 @@ export function TextInput (label, eid, width, opts = {}) {
     if (opts.alignRight) extraCls.push("align_right");
     let e = genField("text", extraCls, label, eid, opts.changeAction);
     if (opts.placeHolder) e.setAttribute("data-placeholder", opts.placeHolder);
+
     if (width) e.setAttribute("data-width", width);
+    if (!label || label.length == 0) e.style.width = width;
+
     return e;
 }
 
@@ -956,7 +960,7 @@ export function TextArea (eid, width, height, opts) {
     e.style.minWidth = width;
     e.style.minHeight = height;
 
-    if (opts.maxLines) e.setAttribute("data-maxlines", maxLines);
+    if (opts.readonly) e.setAttribute("readonly", true);
 
     return e;
 }

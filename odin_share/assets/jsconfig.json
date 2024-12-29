@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "module": "CommonJS",
+    "target": "ES6",
+    "paths": {
+      "../odin_server/*": ["../../odin_server/assets/*"]
+    }
+  },
+}

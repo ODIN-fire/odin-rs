@@ -54,11 +54,11 @@ function createWindow() {
         ui.LayerPanel("imglayer", toggleShowImgLayer),
         ui.Panel("sources", true)(
           ui.TreeList("imglayer.source.list", 15, 25, selectImgLayerSrc),
-          ui.Text("imglayer.source.info", 25)
+          ui.Text("imglayer.source.info", "25rem")
         ),
         ui.Panel("color map", false)(
           ui.List("imglayer.cm.list", 15, selectImgCmapEntry),
-          ui.Text("imglayer.cm.info", 25)
+          ui.Text("imglayer.cm.info", "25rem")
         ),
         ui.Panel("layer parameters", false)(
           ui.ColumnContainer("align_right")(

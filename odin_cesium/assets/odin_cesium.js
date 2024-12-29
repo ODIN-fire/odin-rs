@@ -24,6 +24,12 @@ import * as ws from "../odin_server/ws.js";
 const MOD_PATH = "odin_cesium::CesiumService";
 
 ws.addWsHandler( MOD_PATH, handleWsMessages);
+
+// initialize share interface of this module
+main.addShareHandler( handleShareMessage);
+main.addShareEditor( "Point3D", "current view", shareViewEditor);
+main.addSyncHandler( handleSyncMessage);
+
 setCesiumContainerVisibility(false); // don't render before everybody is initialized
 
 const UI_POSITIONS = "race-ui-positions";
@@ -99,6 +105,7 @@ var positions = undefined;
 var positionsView = undefined;
 
 var isSelectedView = false;
+var utcClock;
 
 const centerOrientation = {
     heading: Cesium.Math.toRadians(0.0),
@@ -376,10 +383,14 @@ function initTimeWindow() {
 
 function createTimeWindow() {
     return ui.Window("clock", "time", "./asset/odin_cesium/time.svg")(
-        ui.Clock("time UTC", "time.utc", "UTC"),
+        (utcClock = ui.Clock("time UTC", "time.utc", "UTC")),
         ui.Clock("time loc", "time.loc",  config.localTimeZone),
         ui.Timer("elapsed", "time.elapsed")
     );
+}
+
+function getCurrentTime() {
+    return ui.getClockEpochMillis( utcClock);
 }
 
 function createTimeIcon() {
@@ -522,7 +533,8 @@ function getPositionSets() {
     return sets;
 }
 
-// TODO - we should support multiple gobal position sets
+// TODO - this should use main.getAllMatchingSharedItems( util.glob2regexp("view/**"))
+// { key: "view/bay_area", value: { type: "Point3D", comment: "...", data: {lon: 42, lat: 42, alt: 42}}}
 function getGlobalPositionSet() { // from config
     let positions = config.cameraPositions.map( p=> new Position(p.name, p.lat, p.lon, p.alt));
     let pset = new PositionSet("default", positions);
@@ -863,19 +875,21 @@ function handleSetClock(setClock) {
 
 function updateCamera() {
     let pos = viewer.camera.positionCartographic;
-    let longitudeString = Cesium.Math.toDegrees(pos.longitude).toFixed(4);
-    let latitudeString = Cesium.Math.toDegrees(pos.latitude).toFixed(4);
-    let altitudeString = Math.round(pos.height).toString();
+    let lat = Cesium.Math.toDegrees(pos.latitude);
+    let lon = Cesium.Math.toDegrees(pos.longitude);
+    let alt = Math.round(pos.height);
 
-    ui.setField(cameraLat, latitudeString);
-    ui.setField(cameraLon, longitudeString);
-    ui.setField(cameraAlt, altitudeString);
+    ui.setField(cameraLat, lat.toFixed(4));
+    ui.setField(cameraLon, lon.toFixed(4));
+    ui.setField(cameraAlt, alt.toString());
 
     if (isSelectedView) {
         isSelectedView = false;
     } else {
         ui.clearSelectedListItem(positionsView); // we moved away from it
     }
+
+    main.publishCmd( { updateCamera: {lon, lat, alt} });
 
     /*
     if (useEllipsoidTerrain()) {
@@ -1378,6 +1392,13 @@ function handleShareMessage (msg) {
     console.log("@@ odin_cesium received shareMessage", msg);
 }
 
+function handleSyncMessage (msg) {
+    if (msg.updateCamera) {
+        setCamera( msg.updateCamera);
+    }
+    //... and more to follow
+}
+
 // return object suitable to set a Point3D from the current camera position
 function shareViewEditor () {
     let pos = viewer.camera.positionCartographic;
@@ -1408,9 +1429,6 @@ export function postInitialize() {
     viewer.creditDisplay.addStaticCredit(credit);
 
     setCesiumContainerVisibility(true);
-
-    main.addShareHandler( handleShareMessage);
-    main.addShareEditor( "Point3D", "current view", shareViewEditor);
 
     console.log("odin_cesium.postInitialize complete.");
 }

@@ -79,14 +79,9 @@ export function postInitialize() {
             };
 
             ws.onmessage = function(evt) {
-                try {
-                    let data = evt.data.toString();
-                    let msg = JSON.parse(data);
-                    handleServerMessage(msg);
-                } catch (error) {
-                    console.log(error);
-                    console.log("msg-data: ", evt.data.toString());
-                }
+                let data = evt.data.toString();
+                let msg = JSON.parse(data);
+                handleServerMessage(msg);
             };
 
             ws.onerror = function(evt) {

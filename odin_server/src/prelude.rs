@@ -13,7 +13,9 @@
  */
 pub use crate::{
     self_crate, asset_uri, proxy_uri, build_service,
-    spa::{SpaServer, SpaServerMsg, SpaServerState, SpaComponents, SpaService, SpaConnection, SpaServiceList, DataAvailable, SendWsMsg, BroadcastWsMsg, WsMsgReaction}, 
+    spa::{SpaServer, SpaServerMsg, SpaServerState, SpaComponents, SpaService, SpaConnection, SpaServiceList, DataAvailable, 
+        SendWsMsg, SendGroupWsMsg, SendAllOthersWsMsg, BroadcastWsMsg, WsMsgReaction
+    }, 
     ui_service::UiService,
     errors::{OdinServerError,OdinServerResult},
     ws_service::{WsService, WsMsg, WsMsgParts, ws_msg_from_json}, define_ws_payload, ws_msg,

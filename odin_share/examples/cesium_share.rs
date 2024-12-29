@@ -58,7 +58,7 @@ fn create_store()->HashMap<String,SharedItem> {
         ("view/bay_area".to_string(), SharedItem::Point3D( 
             SharedItemValue {
                 comment: None,
-                owner: None,
+                owner: Some("🔒".to_string()),
                 data: Arc::new(GeoPos::new( LatAngle::from_degrees(38.15910), LonAngle::from_degrees(-122.67800), 800000.0))
             }
         )),

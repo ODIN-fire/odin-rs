@@ -39,5 +39,7 @@ export const config = {
             type: "BoundingBox", 
             template: {west: 0.0, south: 0.0, east: 0.0, north: 0.0} 
         }
-    ]
+    ],
+
+    maxMessages: 50
 }
