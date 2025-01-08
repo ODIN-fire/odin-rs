@@ -303,11 +303,11 @@ pub fn process_hotspots(raw_hotspots: RawHotspots, overpass_list: &OverpassList,
     let hotspot_res: Vec<Result<ViirsHotspot>> = raw_hotspots.hotspots.iter().map(|x| process_hotspot(x, overpass_list)).collect();
     let hs_res: Result<Vec<ViirsHotspot>> = hotspot_res.into_iter().collect();
     let hs = hs_res?;
-    let sorted_hs = parition_hotspots(hs, overpass_list)?;
+    let sorted_hs = partition_hotspots(hs, overpass_list)?;
     Ok(ViirsHotspots {satellite, source, hotspots: sorted_hs})
 }
 
-pub fn parition_hotspots(hotspots: Vec<ViirsHotspot>, overpass_list: &OverpassList) -> Result<Vec<ViirsHotspot>>{
+pub fn partition_hotspots(hotspots: Vec<ViirsHotspot>, overpass_list: &OverpassList) -> Result<Vec<ViirsHotspot>>{
     let mut parts: BTreeMap<DateTime<Utc>, Vec<ViirsHotspot>> = BTreeMap::new();
     let start = overpass_list.get_start()?;
     let end = overpass_list.get_end()?;

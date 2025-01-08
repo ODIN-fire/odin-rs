@@ -181,7 +181,7 @@ pub fn get_overpass_request(config: LiveJpssImporterConfig, hself: ActorHandle<J
 
 async fn run_init_data_acquisition (hself: ActorHandle<JpssImportActorMsg>, config: LiveJpssImporterConfig, cache_dir:Arc<PathBuf>) -> Result<()> {
     let query_bounds = get_query_bounds(&config.region);
-    let url = format!("{}/usfs/api/area/csv/{}/{}/{}/3", &config.server, &config.map_key, &config.source, &query_bounds);
+    let url = format!("{}/usfs/api/area/csv/{}/{}/{}/3", &config.server, &config.map_key, &config.source, &query_bounds); // update date to match history
     let filename = get_latest_jpss( &cache_dir, &url, &config.source).await?;
     let hs = read_jpss(&filename)?;
     hself.try_send_msg(UpdateRawHotspots(hs))?;
@@ -311,6 +311,7 @@ impl LiveOrbitCalculator {
     async fn calc_init_overpasses(&mut self, hself: ActorHandle<OrbitActorMsg>) -> Result<()> {
         let tle = get_tles_celestrak(self.config.satellite).await?;
         let overpass = compute_initial_orbits(tle, self.config.max_scan_angle, chrono::Duration::from_std(self.config.history)?)?;
+        // println!("init overpass: {:?}; {:?}", overpass.get_start_dates(), overpass.get_end_dates());
         hself.try_send_msg(InitOverpassList(overpass))?;
         Ok(())
     }
@@ -319,7 +320,7 @@ impl LiveOrbitCalculator {
  impl OrbitCalculator for LiveOrbitCalculator {
     fn calc_overpass_list (&self, overpass_request: &OverpassRequest, current_overpasses: &OverpassList ) -> Result<OverpassList> {
         let overpasses = get_overpasses_for_small_region(&overpass_request.region, current_overpasses, overpass_request.scan_angle);
-        println!("overpass: {:?}", overpasses);
+        // println!("overpass: {:?}; {:?}", overpasses.get_start_dates(), overpasses.get_end_dates());
         Ok(overpasses)
     }
 

@@ -229,8 +229,7 @@ pub fn get_trajectory_point(point: &Cartesian3D, date:&DateTime<Utc>, overpass_l
     for overpass in overpass_list.overpasses.iter() {
         if (overpass.t_end >= date) & (overpass.t_start <= date) {
             tp = Some(overpass.find_closest_ground_track_point(point));
-        } else {
-            println!("hs date: {:?}; overpass dates: {:?}, {:?}", date, overpass.t_end, overpass.t_start )
+            break
         }
     }
     tp
@@ -403,6 +402,7 @@ pub fn get_init_times_vector(history: Duration) -> Vec<DateTime<Utc>> {
 
 pub fn compute_initial_orbits(mut tle: TLE, max_scan: f64, history: Duration) -> Result<OverpassList> {
     let times = get_init_times_vector(history); 
+    // println!("init times: {:?}, {:?}", times[0], times[times.len()-1]);
     let ats: Vec<AstroTime> = times.iter().map(|x| utc_to_astrotime(x)).collect();
     let (pred_teme, _, _) = satkit::sgp4::sgp4(&mut tle, &ats[..]);
     let overpass = format_prediction(pred_teme, times, tle, max_scan)?;
@@ -464,18 +464,19 @@ pub fn convert_pred(pred: [f64;3] , time: &DateTime<Utc>) -> ECEFCoordinates {
     ECEFCoordinates {x:itrf_coord.itrf[0], y:itrf_coord.itrf[1], z:itrf_coord.itrf[2]}
 }
 
-// pub fn get_orbits_from_trajectories(trajectories: Vec<Trajectory>) -> Vec<Vec<Trajectory>> {
-//     // split long trajectory into multiple orbits
-//     // define orbit end points as 85, -85 degrees
-//     let max_z = Cartesian3D::from_latlon(LatLon { lat_deg: 85.0, lon_deg: 0.0 }).to_ecef().z();
-//     let min_z = Cartesian3D::from_latlon(LatLon { lat_deg: -85.0, lon_deg: 0.0 }).to_ecef().z();
-    
-// }
-
 fn coverable_region(region: &Vec<LatLon>, max_scan: f64) -> bool {
     // if distance between edges are within max_scan, then reurn true
-    // sort by lat, then check the distance between the points if on the same lat
-    true
+    let widths = vec![(region[0].lon_deg - region[1].lon_deg).abs(), 
+                                (region[0].lon_deg - region[2].lon_deg).abs(),
+                                (region[0].lon_deg - region[3].lon_deg).abs()];
+    let max_width = widths.iter().fold(f64::NEG_INFINITY, |prev, curr| prev.max(*curr)); 
+    //let max_width_rad = max_width*PI/180.0;
+    println!("coverable: max width {}, max scan {}", max_width, max_scan);
+    if max_width > max_scan {
+        false
+    } else {
+        true
+    }
 }
 
 pub fn filter_orbits(overpass_list: &OverpassList,  region: &Vec<LatLon>, max_scan: f64) -> OverpassList{
@@ -483,15 +484,10 @@ pub fn filter_orbits(overpass_list: &OverpassList,  region: &Vec<LatLon>, max_sc
     let coverable_region = coverable_region(region, max_scan);
     for overpass in overpass_list.overpasses.clone().into_iter(){
         if (coverable_region) {
-            //println!("region covarable");
             if covers_region(&overpass, region, max_scan) {
                 filtered_orbits.push(overpass);
             }
-            // else {
-            //     println!("region not covered");
-            // }
         } else {
-            //println!("region not covered");
             if covers_region_partial(&overpass, region, max_scan) {
                 filtered_orbits.push(overpass);
             }
@@ -501,7 +497,7 @@ pub fn filter_orbits(overpass_list: &OverpassList,  region: &Vec<LatLon>, max_sc
     OverpassList { overpasses: filtered_orbits }
 }
 
-pub fn covers_region(overpass: &OrbitalTrajectory, region: &Vec<LatLon>, max_scan: f64) -> bool {
+pub fn covers_region(overpass: &OrbitalTrajectory, region: &Vec<LatLon>, max_scan: f64) -> bool { // must cover entire region to be considered an overpass
     let mut covers = true;
     for vertex in region.iter(){
         let point = Cartesian3D::from_latlon(vertex.clone());
@@ -509,13 +505,10 @@ pub fn covers_region(overpass: &OrbitalTrajectory, region: &Vec<LatLon>, max_sca
         let dist_to_earth = orbit_point.z;
         let max_scan_m = scan_angle_to_meters(max_scan, dist_to_earth);
         orbit_point.scale_to_earth_radius();
-        // let ground_track = overpass.find_closest_ground_track_point(&point);
         let distance = orbit_point.to_wgs84().distance(&point.to_wgs84()); // uses great circle distance
         if (distance <= (max_scan_m/2.0)) {
             covers = true;
-            //ln!("covers distance:{}, max scan:{}", distance, max_scan_m/2.0);
         } else {
-            //println!("distance:{}, max scan:{}", distance, max_scan_m/2.0);
             covers = false;
             break
         }
@@ -528,6 +521,7 @@ pub fn scan_angle_to_meters(max_scan: f64, dist_to_earth: f64) -> f64{
 }
 
 pub fn covers_region_partial(overpass: &OrbitalTrajectory, region: &Vec<LatLon>, max_scan: f64) -> bool { // for cases when the region is too large to fully fit in a single overpass
+    // must cover one vertex - issue for overpass enirely in one region 
     let mut covers = true; // update with interpolation
     for vertex in region.iter(){
         let point = Cartesian3D::from_latlon(vertex.clone());
@@ -535,14 +529,30 @@ pub fn covers_region_partial(overpass: &OrbitalTrajectory, region: &Vec<LatLon>,
         let dist_to_earth = orbit_point.z;
         let max_scan_m = scan_angle_to_meters(max_scan, dist_to_earth);
         orbit_point.scale_to_earth_radius();
-        // let ground_track = overpass.find_closest_ground_track_point(&point);
         let distance = orbit_point.to_wgs84().distance(&point.to_wgs84()); // uses great circle distance
         if (distance <= (max_scan_m/2.0)) {
             covers = true;
             break
         } else {
             covers = false;
-            break
+        }
+    }
+    if (covers == false) { // check if it is entirely contained in the region 
+        // get mid point of orbit between the region lats
+        let lats: Vec<f64> = region.iter().map(|latlon| latlon.lat_deg).collect();
+        let lat_max = lats.iter().fold(f64::NEG_INFINITY, |prev, curr| prev.max(*curr));
+        let lats_min =  lats.iter().fold( f64::INFINITY, |prev, curr| prev.min(*curr)); 
+        let lats_mid = lats_min + ((lat_max-lats_min)/2.0);
+        // get mid point of orbit between the region lons
+        let lons: Vec<f64> = region.iter().map(|latlon| latlon.lon_deg).collect();
+        let lon_max = lons.iter().fold(f64::NEG_INFINITY, |prev, curr| prev.max(*curr));
+        let lon_min =  lons.iter().fold( f64::INFINITY, |prev, curr| prev.min(*curr)); 
+        let lon_mid = lon_min + ((lon_max-lon_min)/2.0);
+        // check if lat lon is contained in the region bounds
+        let orbit_pt = overpass.find_closest_ground_track_point(&Cartesian3D::from_latlon(LatLon{lat_deg:lats_mid, lon_deg:lon_mid})).to_wgs84();
+        let orbit_lon = orbit_pt.longitude_degrees();
+        if (orbit_lon <= lon_max) & (orbit_lon >= lon_min) {
+            covers = true; // orbit goes between the region lon bounds, do not need to worry about lat 
         }
     }
     covers
@@ -593,19 +603,24 @@ pub fn format_prediction_sgp4(preds: Vec<[f64;3]>, times: Vec<DateTime<Utc>>, tl
     Ok(overpasses)
 }
 
+// TODO: optimize this, it is far too slow 
 pub fn format_prediction(preds: Matrix<f64, Const<3>, Dyn, VecStorage<f64, Const<3>, Dyn>>, times: Vec<DateTime<Utc>>, tle: TLE, max_scan: f64) -> Result<OverpassList> {
-    let times = get_time_vector();
+    //let times = get_time_vector();
     let max_z = Cartesian3D::from_latlon(LatLon { lat_deg: 85.0, lon_deg: 0.0 }).to_ecef().z();
     let min_z = Cartesian3D::from_latlon(LatLon { lat_deg: -85.0, lon_deg: 0.0 }).to_ecef().z(); 
     let mut trajectories = vec![];
     let mut orbital_trajectories:Vec<OrbitalTrajectory> = vec![];
     let mut in_current_trajectory = false;
+    let mut first_time = times[0].clone();
+    let mut last_time = times[times.len()-1].clone();
     for (pred, time) in preds.column_iter().zip(times.iter()) {
         let temp_pred =[pred[0], pred[1], pred[2]];
         let ecef = convert_pred(temp_pred, time);
-        if (ecef.z < max_z) & (ecef.z > min_z) {
-            in_current_trajectory = true;
-            // check if it is in region, if in region then save
+        if (ecef.z < max_z) & (ecef.z > min_z) { // check if it is in region, if in region then save
+            if (in_current_trajectory == false) { // first point in new trajectory
+                in_current_trajectory = true;
+                first_time = time.clone();
+            }
             let traj = Trajectory{
                 time: time.timestamp_millis(), 
                 x: ecef.x,
@@ -613,13 +628,14 @@ pub fn format_prediction(preds: Matrix<f64, Const<3>, Dyn, VecStorage<f64, Const
                 z: ecef.z
             };
             trajectories.push(traj);
+            //last_time = time.clone();
         } else {
-            if in_current_trajectory { // first point outside of trajectory
+            if in_current_trajectory { // first point outside of trajectory - save completed trajectory
                 // convert to overpass
                 let overpass = Overpass {
                     sat_id: tle.sat_num,
-                    first_date:  times[0].timestamp_millis(),
-                    last_date: times[times.len()-1].timestamp_millis(),
+                    first_date:  first_time.timestamp_millis(),
+                    last_date: time.timestamp_millis(),
                     coverage: 0.0,
                     trajectory: trajectories, 
                     max_scan: max_scan

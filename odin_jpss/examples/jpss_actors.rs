@@ -39,7 +39,7 @@ impl_actor! { match msg for Actor<JpssMonitor, JpssMonitorMsg> as
     }
     OverpassUpdate => cont! { 
         println!("------------------------------ overpass update from jpss importer");
-        println!("{}", msg.0) 
+        //println!("{}", msg.0) 
     }
 }
 
@@ -49,7 +49,7 @@ struct OrbitMonitor {}
 impl_actor! { match msg for Actor<OrbitMonitor, OrbitMonitorMsg> as
     OverpassUpdate => cont! { 
         println!("------------------------------ overpass update from orbit calculator");
-        println!("{}", msg.0) 
+        //println!("{}", msg.0) 
     }
 }
 

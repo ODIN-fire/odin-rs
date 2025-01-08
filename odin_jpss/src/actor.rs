@@ -13,13 +13,16 @@
  */
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
+use std::fs;
 use std::future::Future;
 use std::iter::Map;
+use std::path::PathBuf;
+use std::io::Write;
 use std::time::Duration;
 use odin_common::geo::LatLon;
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
-use crate::orekit::OverpassList;
+use crate::orekit::{OrbitalTrajectory, OverpassList};
 use crate::{RawHotspots, ViirsHotspotMap, ViirsHotspots};
 use crate::errors::OdinJpssError;
 use crate::errors::Result;
@@ -96,16 +99,26 @@ impl <T, HotspotUpdateAction, OverpassUpdateAction> JpssImportActor <T, HotspotU
 
     pub async fn update_hotspots (&mut self, new_hotspots: ViirsHotspots) {
         self.hotspots.update(new_hotspots.clone(), self.max_age);
+        let data_dir = PathBuf::from("C:\\Users\\srandrad\\odin\\odin_rs\\odin_jpss\\");
+        let filename = data_dir.join(format!("hotspots_{}.json", self.source));
+        let mut file = fs::File::create(filename).unwrap(); // don't use path yet as that would expose partial downloads to the world
+        file.write(serde_json::to_string_pretty(&new_hotspots).unwrap().as_bytes());
         self.hs_update_action.execute(new_hotspots).await;
     }
 
     pub async fn update_overpass_list (&mut self, overpass_list: OverpassList) {
         self.overpass_list.update(overpass_list.clone());
+        let data_dir = PathBuf::from("C:\\Users\\srandrad\\odin\\odin_rs\\odin_jpss\\");
+        let ot = overpass_list.overpasses[0].clone();
+        let filename = data_dir.join(format!("{}_{}.json", self.source, ot.t_start.format("%Y-%m-%d_H-%M-%S")));
+        let mut file = fs::File::create(filename).unwrap(); // don't use path yet as that would expose partial downloads to the world
+        file.write(serde_json::to_string_pretty(&ot).unwrap().as_bytes());
         self.op_update_action.execute(overpass_list).await;
     }
 
     pub fn process_raw_hotspots (&mut self, raw_hotspots:RawHotspots ) -> Result<ViirsHotspots> {
         let hotspots = process_hotspots( raw_hotspots, &self.overpass_list, self.satellite.clone(), self.source.clone())?;
+        println!("hotspots: {:?}", hotspots);
         Ok(hotspots)
     }
 }
@@ -125,6 +138,7 @@ impl_actor! { match msg for Actor< JpssImportActor<T, HotspotUpdateAction, Overp
     ExecSnapshotAction => cont! { msg.0.execute( &self.hotspots.to_hotspots()).await; }
 
     UpdateRawHotspots => cont! { 
+        println!("got raw hotspots");
         match self.process_raw_hotspots(msg.0) {
             Ok(hs) => { self.hself.try_send_msg(UpdateHotspots(hs)); },
             Err(e) => warn!("failed to process hotspots: {:?}", e)
@@ -196,6 +210,11 @@ impl_actor! { match msg for Actor< OrbitActor <T,InitDataAction, UpdateAction>, 
 
     InitOverpassList => cont! {
         println!("got init orbits");
+        let data_dir = PathBuf::from("C:\\Users\\srandrad\\odin\\odin_rs\\odin_jpss\\");
+        let ot = msg.0.overpasses[0].clone();
+        let filename = data_dir.join(format!("init_{}_{}.json", String::from("NOAA20"), ot.t_start.format("%Y-%m-%d_H-%M-%S")));
+        let mut file = fs::File::create(filename).unwrap(); // don't use path yet as that would expose partial downloads to the world
+        file.write(serde_json::to_string_pretty(&ot).unwrap().as_bytes());
         let hself = self.hself.clone();
         self.update_overpass_list(msg.0); // updates overpass list
         self.orbit_calculator.start( hself ); // starts task that continuously calculates orbits
