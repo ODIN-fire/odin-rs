@@ -28,17 +28,16 @@ use ron::{self, to_string};
 use chrono::{DateTime,Utc};
 use strum::IntoStaticStr;
 use tokio_util::bytes::Buf;
-use uom::si::f64::{Velocity,ThermodynamicTemperature,ElectricCurrent,ElectricPotential};
+use uom::si::{length::meter};
+use uom::si::f64::{Angle,Length,Velocity,ThermodynamicTemperature,ElectricCurrent,ElectricPotential};
 use reqwest::{Client,Response};
 use async_trait::async_trait;
 use paste::paste;
 use lazy_static::lazy_static;
 
 use odin_build::{define_load_asset, define_load_config};
-use odin_common::{angle::{LatAngle, LonAngle, Angle},
-    datetime::{Dated,deserialize_duration,to_epoch_millis},
-    geo::DatedGeoPos,
-    fs::{ensure_writable_dir, get_filename_extension}
+use odin_common::{
+    angle::{Latitude,Longitude}, datetime::{deserialize_duration, to_epoch_millis, Dated, EpochMillis}, fs::{ensure_writable_dir, get_filename_extension}, geo::{GeoPoint3,GeoPoint4}
 };
 use odin_actor::{MsgReceiver, Query, ActorHandle};
 use odin_macro::{define_algebraic_type, match_algebraic_type, define_struct};
@@ -291,9 +290,9 @@ define_sensor_data! { Gas =
 }
 
 define_sensor_data! { Gps =
-    pub latitude: LatAngle, //f64,
-    pub longitude: LonAngle,//f64
-    pub altitude: Option<f64>, // update to uom
+    pub latitude: Latitude,
+    pub longitude: Longitude,
+    pub altitude: Option<Length>,
     pub quality: Option<f64>,
     pub number_of_satellites: Option<i32>,
     #[serde(alias = "HDOP")] pub hdop: Option<f32>
@@ -744,15 +743,20 @@ impl Sentinel {
         }
     }
 
-    pub fn get_position_at (&self, dt: DateTime<Utc>)->Option<DatedGeoPos> {
+    pub fn get_position_at (&self, dt: DateTime<Utc>)->Option<GeoPoint4> {
         if let Some(i_gps) = get_closest_record_idx( dt, &self.gps) {
             let gps = &self.gps[i_gps].data;
-            if let Some(i_gas) = get_closest_record_idx( dt, &self.gas) {
-                let gas = &self.gas[i_gas].data;
-                Some( DatedGeoPos::new( gps.latitude, gps.longitude, gas.altitude, dt) )
+            let alt = if let Some(i_gas) = get_closest_record_idx( dt, &self.gas) { // use gas altitude since it is more precise
+                Length::new::<meter>(self.gas[i_gas].data.altitude) // fixme
             } else {
-                Some( DatedGeoPos::new( gps.latitude, gps.longitude, gps.altitude.unwrap_or(0.0), dt) )
-            }
+                gps.altitude.unwrap_or( Length::new::<meter>(0.0))
+            };
+
+            Some( GeoPoint4::from_geo3_epoch( 
+                GeoPoint3::from_lon_lat_alt( gps.longitude, gps.latitude, alt),
+                dt.into()
+            ))
+
         } else {
             None
         }
@@ -962,8 +966,8 @@ pub struct SensorInfo {
     pub sensor_no: u32,
     pub smoke_prob: f32,
     pub fire_prob: f32,
-    pub fov_left: Angle,
-    pub fov_right: Angle,
+    pub fov_left: f32,
+    pub fov_right: f32,
     pub fov_dist: f64,
 }
 

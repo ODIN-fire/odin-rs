@@ -13,10 +13,10 @@
  */
 #![allow(unused)]
 
-use std::{ops,cmp,fmt,hash::{Hash,Hasher}};
-use serde::{Serialize,Deserialize};
+use std::{fmt,marker::PhantomData, ops, cmp};
 
-pub fn canonicalize_90 (d:f64) -> f64 {
+#[inline]
+pub fn normalize_90 (d:f64) -> f64 {
     let mut x = d % 360.0;
     if x < 0.0 { x = 360.0 + x } // normalize to 0..360
 
@@ -25,286 +25,184 @@ pub fn canonicalize_90 (d:f64) -> f64 {
     else { x }
 }
 
-pub fn canonicalize_180 (d: f64) -> f64 {
+#[inline]
+pub fn normalize_180 (d: f64) -> f64 {
     let mut x = d % 360.0;
     if x < 0.0 { x = 360.0 + x } // normalize to 0..360
 
     if x > 180.0 { x - 360.0 } else { x }
 }
 
-pub fn canonicalize_360 (d: f64) -> f64 {
+#[inline]
+pub fn normalize_360 (d: f64) -> f64 {
     let x = d % 360.0;
     if x < 0.0 { 360.0 + x } else { x }
 }
 
-//--- Angle
-
-/// abstraction for angles [0..360]
-#[derive(Debug,Clone,Copy,Serialize,Deserialize)]
-pub struct Angle(f64);
-
-impl Angle {
-    pub fn from_degrees(deg: f64) -> Angle { Angle(canonicalize_360(deg)) }
-    pub fn from_radians(rad: f64) -> Angle { Angle::from_degrees(rad.to_degrees()) }
-
-    pub fn sin(&self) ->f64 { self.0.to_radians().sin() }
-    pub fn sinh(&self) ->f64 { self.0.to_radians().sinh() }
-    pub fn asin(&self) ->f64 { self.0.to_radians().asin() }
-    pub fn cos(&self) ->f64 { self.0.to_radians().cos() }
-    pub fn cosh(&self) ->f64 { self.0.to_radians().cosh() }
-    pub fn acos(&self) ->f64 { self.0.to_radians().acos() }
-    pub fn tan(&self) ->f64 { self.0.to_radians().tan() }
-    pub fn tanh(&self) ->f64 { self.0.to_radians().tanh() }
-    pub fn atan(&self) ->f64 { self.0.to_radians().atan() }
-
-    //... and many more
-
-    pub fn degrees(&self) -> f64 { self.0 }
-    pub fn radians(&self) -> f64 { self.0.to_radians() }
-
-    pub fn canonicalize(&self) -> f64 { canonicalize_360(self.0) }
+pub trait AngleKind {
+    fn normalize(v: f64)->f64;
+    fn fmt_display(value: f64, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}deg", value) }
+    fn fmt_debug(value: f64, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
-impl fmt::Display for Angle {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}°", self.0)
+#[derive(Debug,Clone,Copy)]
+pub struct LatitudeKind {}
+impl AngleKind for LatitudeKind {
+    fn normalize(v: f64) -> f64 { normalize_90(v) }
+    fn fmt_debug(value: f64, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "Latitude({})", value) }
+}
+
+#[derive(Debug,Clone,Copy)]
+pub struct LongitudeKind {}
+impl AngleKind for LongitudeKind {
+    fn normalize(v: f64) -> f64 { normalize_180(v) }
+    fn fmt_debug(value: f64, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "Longitude({})", value) }
+}
+
+#[derive(Copy, Clone)]
+pub struct NormalizedAngle<K> where K: AngleKind {
+    value: f64,
+    kind: PhantomData<K>,
+}
+
+impl<K> NormalizedAngle<K> where K: AngleKind {
+    #[inline]
+    pub fn from_degrees(deg: f64) -> Self {
+        NormalizedAngle {
+            value: K::normalize(deg),
+            kind: PhantomData,
+        }
     }
+
+    #[inline] pub fn radians(self)->f64 { self.value.to_radians() }
+    #[inline] pub fn degrees(self)->f64 { self.value }
+
+    // the functions that require conversion to radians
+    #[inline] pub fn sin(self)->f64 { self.value.to_radians().sin() }
+    #[inline] pub fn cos(self)->f64 { self.value.to_radians().cos() }
+    #[inline] pub fn tan(self)->f64 { self.value.to_radians().tan() }
+
+    #[inline] pub fn sin2(self)->f64 { self.value.to_radians().sin().powi(2) }
+    #[inline] pub fn cos2(self)->f64 { self.value.to_radians().cos().powi(2) }
+    #[inline] pub fn tan2(self)->f64 { self.value.to_radians().tan().powi(2) }
+
+    #[inline] pub fn asin(self)->f64 { self.value.to_radians().sin() }
+    #[inline] pub fn acos(self)->f64 { self.value.to_radians().cos() }
+    #[inline] pub fn atan(self)->f64 { self.value.to_radians().atan() }
+    //... and more to follow
 }
 
-impl ops::Add<Angle> for Angle {
-    type Output = Self;
+//--- formatting
 
-    fn add (self,rhs:Angle) -> Angle {
-        Angle(canonicalize_360(self.0 + rhs.0))
-    }
+impl<K> fmt::Display for NormalizedAngle<K> where K: AngleKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { K::fmt_display( self.value, f) }
 }
 
-impl ops::Sub<Angle> for Angle {
-    type Output = Self;
-
-    fn sub (self,rhs:Angle) -> Angle {
-        Angle(canonicalize_360((self.0 - rhs.0)))
-    }
+impl<K> fmt::Debug for NormalizedAngle<K> where K: AngleKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { K::fmt_debug( self.value, f) }
 }
 
-impl ops::Mul<f64> for Angle {
-    type Output = Self;
-
-    fn mul (self,rhs:f64) -> Angle {
-        Angle(canonicalize_360(self.0 * rhs))
-    }
-}
-
-impl ops::Div<f64> for Angle {
-    type Output = Self;
-
-    fn div (self,rhs:f64) -> Angle {
-        Angle(canonicalize_360(self.0 / rhs))
-    }
-}
-
-impl cmp::Ord for Angle {
+impl<K> cmp::Ord for NormalizedAngle<K> where K: AngleKind {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        if self.0 < other.0 { cmp::Ordering::Less }
-        else if self.0 == other.0 { cmp::Ordering::Equal }
+        if self.value < other.value { cmp::Ordering::Less }
+        else if self.value == other.value { cmp::Ordering::Equal }
         else { cmp::Ordering::Greater }
     }
 }
 
-impl cmp::PartialOrd for Angle {
-    fn partial_cmp(&self,other:&Self) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
+impl<K> cmp::PartialOrd for NormalizedAngle<K> where K: AngleKind {
+    fn partial_cmp(&self,other:&Self) -> Option<cmp::Ordering> { Some(self.cmp(other)) }
 }
 
-impl cmp::Eq for Angle {}
+impl<K> cmp::Eq for NormalizedAngle<K> where K: AngleKind { }
 
-impl cmp::PartialEq for Angle {
-    fn eq(&self, other: &Self) -> bool { self.0 == other.0 }
+impl<K> cmp::PartialEq for NormalizedAngle<K> where K: AngleKind {
+    fn eq(&self, other: &Self) -> bool { self.value == other.value }
 }
 
-//--- LatAngle
+//--- allowed num ops
 
-/// Angle with value bounds [-90..90]
-#[derive(Debug,Clone,Copy,Serialize,Deserialize)]
-pub struct LatAngle(f64);
-
-impl LatAngle {
-    pub fn from_degrees(deg: f64) -> LatAngle {
-        LatAngle(canonicalize_90(deg))
-    }
-    pub fn from_radians(rad: f64) -> LatAngle { LatAngle::from_degrees(rad.to_degrees()) }
-
-    pub fn sin(&self) ->f64 { self.0.to_radians().sin() }
-    pub fn sinh(&self) ->f64 { self.0.to_radians().sinh() }
-    pub fn asin(&self) ->f64 { self.0.to_radians().asin() }
-    pub fn cos(&self) ->f64 { self.0.to_radians().cos() }
-    pub fn cosh(&self) ->f64 { self.0.to_radians().cosh() }
-    pub fn acos(&self) ->f64 { self.0.to_radians().acos() }
-    pub fn tan(&self) ->f64 { self.0.to_radians().tan() }
-    pub fn tanh(&self) ->f64 { self.0.to_radians().tanh() }
-    pub fn atan(&self) ->f64 { self.0.to_radians().atan() }
-    //... and many more
-
-    pub fn degrees(&self) -> f64 { self.0 }
-    pub fn radians(&self) -> f64 { self.0.to_radians() }
-
-    pub fn to_angle(&self) -> Angle { Angle(canonicalize_360(self.0)) }
-    pub fn canonicalize(&self) -> f64 { canonicalize_90(self.0) }
-}
-
-impl Hash for LatAngle {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.to_bits().hash(state);
-    }
-}
-
-impl fmt::Display for LatAngle {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}°", self.0)
-    }
-}
-
-impl ops::Add<LatAngle> for LatAngle {
+// addition and subtraction is only allowed with same kind of angle
+impl<K> ops::Add<NormalizedAngle<K>> for NormalizedAngle<K> where K: AngleKind {
     type Output = Self;
-
-    fn add (self,rhs:LatAngle) -> LatAngle {
-        LatAngle(canonicalize_90(self.0 + rhs.0))
-    }
+    fn add (self,rhs:NormalizedAngle<K>) -> Self::Output { NormalizedAngle::from_degrees( self.value + rhs.value) }
 }
-
-impl ops::Sub<LatAngle> for LatAngle {
+impl<K> ops::Sub<NormalizedAngle<K>> for NormalizedAngle<K> where K: AngleKind {
     type Output = Self;
-
-    fn sub (self,rhs:LatAngle) -> LatAngle {
-        LatAngle(canonicalize_90((self.0 - rhs.0)))
-    }
+    fn sub (self,rhs:NormalizedAngle<K>) -> Self::Output { NormalizedAngle::from_degrees( self.value - rhs.value) }
 }
 
-impl ops::Mul<f64> for LatAngle {
+// multiplication and division is only allowed with floats
+impl<K> ops::Mul<f64> for NormalizedAngle<K> where K: AngleKind {
     type Output = Self;
-
-    fn mul (self,rhs:f64) -> LatAngle {
-        LatAngle(canonicalize_90(self.0 * rhs))
-    }
+    fn mul (self,rhs:f64) -> Self::Output { NormalizedAngle::from_degrees( self.value * rhs) }
 }
-
-impl ops::Div<f64> for LatAngle {
+impl<K> ops::Div<f64> for NormalizedAngle<K> where K: AngleKind {
     type Output = Self;
+    fn div (self,rhs:f64) -> Self::Output { NormalizedAngle::from_degrees( self.value / rhs) }
+}
 
-    fn div (self,rhs:f64) -> LatAngle {
-        LatAngle(canonicalize_90(self.0 / rhs))
+pub type Longitude = NormalizedAngle<LongitudeKind>;
+pub type Latitude = NormalizedAngle<LatitudeKind>;
+
+//--- serde support
+
+use serde::ser::{Serialize as SerializeTrait, Serializer, SerializeStruct};
+use serde::de::{self, Deserialize as DeserializeTrait, Deserializer, Visitor, SeqAccess, MapAccess};
+
+impl<'de> DeserializeTrait<'de> for Longitude {
+    fn deserialize<D>(deserializer: D) -> Result<Longitude, D::Error> where D: Deserializer<'de> {
+        struct LonVisitor;
+
+        impl<'de> Visitor<'de> for LonVisitor {
+            type Value = Longitude;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("expecting floating point degrees between [-180.0..180.0] ")
+            }
+
+            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E> where E: de::Error {
+                use std::f64;
+                if value >= -180.0 && value <= 180.0 {
+                    Ok(Longitude::from_degrees(value))
+                } else {
+                    Err(E::custom(format!("longitude out of range: {}", value)))
+                }
+            }
+        }
+
+        deserializer.deserialize_f64( LonVisitor)
     }
 }
 
-impl cmp::Ord for LatAngle {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        if self.0 < other.0 { cmp::Ordering::Less }
-        else if self.0 == other.0 { cmp::Ordering::Equal }
-        else { cmp::Ordering::Greater }
+impl<'de> DeserializeTrait<'de> for Latitude {
+    fn deserialize<D>(deserializer: D) -> Result<Latitude, D::Error> where D: Deserializer<'de> {
+        struct LatVisitor;
+
+        impl<'de> Visitor<'de> for LatVisitor {
+            type Value = Latitude;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("expecting floating point degrees between [-90.0..90.0] ")
+            }
+
+            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E> where E: de::Error {
+                use std::f64;
+                if value >= -90.0 && value <= 90.0 {
+                    Ok(Latitude::from_degrees(value))
+                } else {
+                    Err(E::custom(format!("latitude out of range: {}", value)))
+                }
+            }
+        }
+
+        deserializer.deserialize_f64( LatVisitor)
     }
 }
 
-impl cmp::PartialOrd for LatAngle {
-    fn partial_cmp(&self,other:&Self) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
+impl<K> SerializeTrait for NormalizedAngle<K> where K: AngleKind {
+
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        serializer.serialize_f64(self.value)
     }
-}
-
-impl cmp::Eq for LatAngle {}
-
-impl cmp::PartialEq for LatAngle {
-    fn eq(&self, other: &Self) -> bool { self.0 == other.0 }
-}
-
-//--- LonAngle
-
-/// abstraction for angles [-180..180]
-#[derive(Debug,Clone,Copy,Serialize,Deserialize)]
-pub struct LonAngle(f64);
-
-impl LonAngle {
-    pub fn from_degrees(deg: f64) -> LonAngle { LonAngle(canonicalize_180(deg)) }
-    pub fn from_radians(rad: f64) -> LonAngle { LonAngle::from_degrees(rad.to_degrees()) }
-
-    pub fn sin(&self) ->f64 { self.0.to_radians().sin() }
-    pub fn sinh(&self) ->f64 { self.0.to_radians().sinh() }
-    pub fn asin(&self) ->f64 { self.0.to_radians().asin() }
-    pub fn cos(&self) ->f64 { self.0.to_radians().cos() }
-    pub fn cosh(&self) ->f64 { self.0.to_radians().cosh() }
-    pub fn acos(&self) ->f64 { self.0.to_radians().acos() }
-    pub fn tan(&self) ->f64 { self.0.to_radians().tan() }
-    pub fn tanh(&self) ->f64 { self.0.to_radians().tanh() }
-    pub fn atan(&self) ->f64 { self.0.to_radians().atan() }
-    //... and many more
-
-    pub fn degrees(&self) -> f64 { self.0 }
-    pub fn radians(&self) -> f64 { self.0.to_radians() }
-
-    pub fn to_angle(&self) -> Angle { Angle(canonicalize_360(self.0)) }
-    pub fn canonicalize(&self) -> f64 { canonicalize_180(self.0) }
-}
-
-impl Hash for LonAngle {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.to_bits().hash(state);
-    }
-}
-
-impl fmt::Display for LonAngle {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}°", self.0)
-    }
-}
-
-impl ops::Add<LonAngle> for LonAngle {
-    type Output = Self;
-
-    fn add (self,rhs:LonAngle) -> LonAngle {
-        LonAngle(canonicalize_180(self.0 + rhs.0))
-    }
-}
-
-impl ops::Sub<LonAngle> for LonAngle {
-    type Output = Self;
-
-    fn sub (self,rhs:LonAngle) -> LonAngle {
-        LonAngle(canonicalize_180((self.0 - rhs.0)))
-    }
-}
-
-impl ops::Mul<f64> for LonAngle {
-    type Output = Self;
-
-    fn mul (self,rhs:f64) -> LonAngle {
-        LonAngle(canonicalize_180(self.0 * rhs))
-    }
-}
-
-impl ops::Div<f64> for LonAngle {
-    type Output = Self;
-
-    fn div (self,rhs:f64) -> LonAngle {
-        LonAngle(canonicalize_180(self.0 / rhs))
-    }
-}
-
-impl cmp::Ord for LonAngle {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        if self.0 < other.0 { cmp::Ordering::Less }
-        else if self.0 == other.0 { cmp::Ordering::Equal }
-        else { cmp::Ordering::Greater }
-    }
-}
-
-impl cmp::PartialOrd for LonAngle {
-    fn partial_cmp(&self,other:&Self) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl cmp::Eq for LonAngle {}
-
-impl cmp::PartialEq for LonAngle {
-    fn eq(&self, other: &Self) -> bool { self.0 == other.0 }
 }

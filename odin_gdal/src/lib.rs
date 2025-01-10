@@ -31,8 +31,14 @@ pub use gdal::spatial_ref::{CoordTransform, CoordTransformOptions, SpatialRef};
 use gdal_sys::{self,CPLErrorReset, OGRErr, OSRExportToWkt, OSRNewSpatialReference, OSRSetFromUserInput, CPLErr};
 use geo::{Coord, Rect};
 
-use odin_common::{fs::{existing_non_empty_file_from_path,get_filename_extension},geo::*,ranges::LinearRange};
-use odin_common::macros::if_let;
+use odin_common::{
+    BoundingBox,
+    geo::{GeoRect,GeoPoint}, 
+    utm::{UtmZone,naive_utm_zone, geo_to_utm_zone, utm_zone}, 
+    fs::{existing_non_empty_file_from_path,get_filename_extension},
+    macros::if_let,
+    ranges::LinearRange
+};
 use crate::errors::{Result,misc_error, last_gdal_error, OdinGdalError, gdal_error, map_gdal_error};
 
 lazy_static! {
@@ -202,20 +208,23 @@ pub fn transform_point_2d (transform: &CoordTransform, x: f64, y: f64) -> Result
     Ok((ax[0],ay[0]))
 }
 
-pub fn latlon_to_utm_bounds (bbox: &BoundingBox<f64>, interior:  bool) -> (BoundingBox<f64>,UtmZone) {
-    let ll_geo = LatLon {lat_deg: bbox.south, lon_deg: bbox.west };
-    let lr_geo = LatLon {lat_deg: bbox.south, lon_deg: bbox.east };
-    let ul_geo = LatLon {lat_deg: bbox.north, lon_deg: bbox.west };
-    let ur_geo = LatLon {lat_deg: bbox.north, lon_deg: bbox.west };
+pub fn geo_bbox_to_utm (bbox: &BoundingBox<f64>, interior:  bool) -> (BoundingBox<f64>,UtmZone) {
+    let ll_geo = GeoPoint::from_lon_lat_degrees( bbox.west, bbox.south);
+    let lr_geo = GeoPoint::from_lon_lat_degrees( bbox.east, bbox.south);
+    let ul_geo = GeoPoint::from_lon_lat_degrees( bbox.west, bbox.north);
+    let ur_geo = GeoPoint::from_lon_lat_degrees( bbox.east, bbox.north);
 
-    let center_geo = LatLon {lat_deg: (ll_geo.lat_deg + ul_geo.lat_deg) / 2.0,
-                             lon_deg: (ll_geo.lon_deg + lr_geo.lon_deg) / 2.0 };
+    let center_geo = GeoPoint::from_lon_lat( 
+        (ll_geo.longitude() + lr_geo.longitude()) / 2.0, 
+        (ll_geo.latitude() + ul_geo.latitude()) / 2.0
+    );
+    
     let zone = naive_utm_zone( &center_geo);
 
-    let ll_utm = latlon_to_utm_zone(&ll_geo, zone).unwrap();
-    let ul_utm = latlon_to_utm_zone(&ul_geo, zone).unwrap();
-    let lr_utm = latlon_to_utm_zone(&lr_geo, zone).unwrap();
-    let ur_utm = latlon_to_utm_zone(&ur_geo, zone).unwrap();
+    let ll_utm = geo_to_utm_zone(&ll_geo, zone).unwrap();
+    let ul_utm = geo_to_utm_zone(&ul_geo, zone).unwrap();
+    let lr_utm = geo_to_utm_zone(&lr_geo, zone).unwrap();
+    let ur_utm = geo_to_utm_zone(&ur_geo, zone).unwrap();
 
     let (west, east) = if interior {
         ( ll_utm.easting.max( ul_utm.easting), lr_utm.easting.min( ur_utm.easting) )
@@ -225,7 +234,7 @@ pub fn latlon_to_utm_bounds (bbox: &BoundingBox<f64>, interior:  bool) -> (Bound
     (BoundingBox {west, south: ll_utm.northing, east, north: ul_utm.northing}, zone)
 }
 
-pub fn transform_latlon_to_utm_bounds (west_deg: f64, south_deg: f64, east_deg: f64, north_deg: f64,
+pub fn transform_geo_to_utm_bounds (west_deg: f64, south_deg: f64, east_deg: f64, north_deg: f64,
                                        interior:  bool, utm_zone: Option<u32>, is_south: bool) -> Result<(f64,f64,f64,f64,u32)> {
     let s_srs = srs_epsg_4326(); // axis order is lat,lon, uom: degrees
 
@@ -255,7 +264,7 @@ pub fn transform_latlon_to_utm_bounds (west_deg: f64, south_deg: f64, east_deg: 
     }
 }
 
-pub fn transform_utm_to_latlon_bounds (west_m: f64, south_m: f64, east_m: f64, north_m: f64, interior: bool, utm_zone: u32, is_south: bool) -> Result<(f64,f64,f64,f64)> {
+pub fn transform_utm_to_geo_bounds (west_m: f64, south_m: f64, east_m: f64, north_m: f64, interior: bool, utm_zone: u32, is_south: bool) -> Result<(f64,f64,f64,f64)> {
     let zone_base = if is_south { 32700 } else { 32600 };
     let s_srs = srs_epsg( zone_base + utm_zone)?;
     let t_srs = srs_epsg_4326();
@@ -328,14 +337,14 @@ pub fn srs_utm_s (zone: u32) -> Result<SpatialRef> {
     Ok(SpatialRef::from_epsg(32700 + zone)?)
 }
 
-pub fn srs_utm_from_lon_lat (lon_deg: f64, lat_deg: f64, opt_zone: Option<u32>) -> Result<(SpatialRef,u32)> {
+pub fn srs_utm_from_lon_lat (lon_deg: f64, lat_deg: f64, opt_zone: Option<u32>) -> Result<(SpatialRef,u32)> { // TODO - use Longitude,Latitude
     let utm_zone = if let Some(zone) = opt_zone {
         if zone <= 60 { zone } else {
             return Err(misc_error(format!("invalide UTM zone: {}", zone)));
         }
     } else {
-		let lat_lon = LatLon { lat_deg, lon_deg };
-        utm_zone( &lat_lon)
+		let geo_point = GeoPoint::from_lon_lat_degrees(lon_deg, lat_deg);
+        utm_zone( &geo_point)
     };
 
     let epsg_base = if lat_deg < 0.0 { 32700 } else { 32600 };

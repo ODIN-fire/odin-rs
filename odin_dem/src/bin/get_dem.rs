@@ -14,7 +14,7 @@
 #![allow(unused)]
 
 use odin_dem::*;
-use odin_common:: {define_cli, fs::{self, ensure_writable_dir}, geo::BoundingBox};
+use odin_common:: {define_cli, fs::{self, ensure_writable_dir}, BoundingBox};
 use std::path::{Path,PathBuf};
 
 define_cli! { ARGS [about="get_dem - retrieve DEM file from given GDAL VRT"] =
@@ -38,7 +38,7 @@ fn main() {
     let out_dir = Path::new( &ARGS.output_dir).to_path_buf();
     ensure_writable_dir(&out_dir).expect("output dir does not exist or is not writable");
 
-    // we use the generic BoundingBox instead of GeoBoundingBox since the values depend on the target SRS 
+    // we use the generic BoundingBox instead of GeoRect since the values depend on the target SRS 
     let bbox = BoundingBox::<f64>::new( ARGS.west, ARGS.south, ARGS.east, ARGS.north);
 
     if let Some(img_type) = DemImgType::for_ext(ARGS.img_type.as_str()) {

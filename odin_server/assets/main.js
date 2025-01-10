@@ -14,6 +14,7 @@
 
 /** 
  * JS module for global functions and objects - this is an intrinsic module and always included
+ * it is not allowed to depend on any other imports/modules
  */
 
 //--- setting up the window.main interface object
@@ -49,7 +50,7 @@ export function withMainObj (objName, f) {
 export function postInitialize() {
     if (!main.share) {
         console.log("using default main.share object");
-        main.share = new DefaultShare();
+        main.share = new Share();
     } else {
         console.log("using module provided main.share object");
     }
@@ -76,6 +77,9 @@ export function notifyShareHandlers (msg) {
     }
 }
 
+// shareEditors are functions that take a single callback function as argument, which is
+// called with the entered value when the editor is finished. This needs to use a callback
+// since most editors work async (e.g. for interactively entering of picking data)
 export function addShareEditor (dataType, label, editorFunc) {
     let editorEntry = {label: label, editor: editorFunc};
     
@@ -136,13 +140,94 @@ export function publishCmd (cmd) {
     if (main.share) { main.share.publishCmd(cmd) } else throw "no main.share set";
 }
 
+//--- basic share types
+
+export function radToDeg (rad) { return (rad * 180.0)/Math.PI; }
+export function ftToMeters (ft) { return (ft * 0.3048); }
+
+// the basic share-able data value types (note these should *not* depend on any other module)
+// it is up to client modules to provide conversion functions (e.g. to/from CesiumJS types)
+// The GeoX types have to match the serialization format of odin_common::geo types
+
+export class GeoPoint {
+    constructor (lon,lat) {
+        this.lon = lon;
+        this.lat = lat;
+    }
+    static fromLonLatDegrees (lon, lat) { return new GeoPoint(lon,lat); }
+    static fromLonLatRadians (lonRad, latRad) { return new GeoPoint(radToDeg(lonRad),radToDeg(latRad)); }
+}
+
+// this is not in GeoJSON but required to represent camera positions etc.
+export class GeoPoint3 {
+    constructor (lon,lat, alt) {
+        this.lon = lon;
+        this.lat = lat;
+        this.alt = alt;
+    }
+    static fromLonLatDegreesMeters (lon, lat, alt) { return new GeoPoint3(lon,lat, alt); }
+    static fromLonLatRadiansMeters (lonRad, latRad, altMeters) { return new GeoPoint3(radToDeg(lonRad),radToDeg(latRad), altMeters); }
+    static fromGeoPoint (point) { return new GeoPoint3( point.lon, point.lat, 0.0); }
+}
+
+export class GeoLine {
+    constructor (start,end) {
+        this.start = start;
+        this.end = end;
+    }
+}
+
+export class GeoLineString {
+    constructor (points) {
+        this.points = points;
+    }
+}
+
+export class GeoPolygon {
+    constructor (vertices) {
+        this.vertices = vertices;
+    }
+}
+
+export class GeoRect {
+    constructor (west,south,east,north) {
+        this.west = west;
+        this.south = south;
+        this.east = east;
+        this.north = north;
+    }
+    static fromWSENdeg (west,south,east,north) { return GeoRect(west,south,east,north); }
+}
+
+//... and eventually all of GeoJSON
+
+
+// a shared value (of the above types) with addition instance meta data
+export class SharedValue {
+    constructor (type, comment, data) {
+        this.type = type;
+        this.comment = comment;
+        this.data = data;
+    }
+}
+
+// a named SharedValue that is either local (on client browser - to share between modules) or global (shared with all other users)
+export class SharedItem {
+    constructor (key, isLocal, value) {
+        this.key = key;
+        this.isLocal = isLocal;
+        this.value = value;
+    }
+}
+
+
 //--- default share object
 
 /// a default share implementation that only shares data between JS modules within the same client.
 /// Note this is not backed by an interactive UI and can only be used programmatically through above interface
 export class Share {
     //--- shared data
-    _sharedItems = new Map();
+    _sharedItems = new Map(); // key -> SharedItem
 
     //--- ownership / sync
     _ownRoles = new Map(); // roles of this user: Map ( role -> { role, isPublishing, nSubscribers } )
@@ -152,8 +237,8 @@ export class Share {
 
     //--- protected members not supposed to be overridden by share modules
 
-    _set (key,value) {
-        this._sharedItems.set(key,value);
+    _set (key,sharedItem) {
+        this._sharedItems.set(key,sharedItem);
     }
 
     _delete (key) {
@@ -254,21 +339,22 @@ export class Share {
         return this._sharedItems.get( key);
     }
     
+    // this returns a list of SharedItem objects
     getAllMatchingSharedItems (regex) {
         let matching = [];
-        for (e of this._sharedItems.entries) {
-            if (e[0].match(regex)) matching.push(e);
+        for (let sharedItem of this._sharedItems.values) {
+            if (sharedItem.key.match(regex)) matching.push(sharedItem);
         }
-        matching.sort( (a,b) => a.localeCompare(b)); 
+        matching.sort( (a,b) => a.key.localeCompare(b.key)); 
         return matching;
     }
     
     findAllSharedItems (pred) {
         let matching = [];
-        for (e of this._sharedItems.entries) {
+        for (let sharedItem of this._sharedItems.values) {
             if (pred(e)) matching.push(e);
         }
-        matching.sort( (a,b) => a.localeCompare(b)); 
+        matching.sort( (a,b) => a.key.localeCompare(b.key)); 
         return matching;
     }
 

@@ -27,7 +27,9 @@ ws.addWsHandler( MOD_PATH, handleWsMessages);
 
 // initialize share interface of this module
 main.addShareHandler( handleShareMessage);
-main.addShareEditor( "Point3D", "current view", shareViewEditor);
+main.addShareEditor( "GeoPoint3", "current view", withCurrentCameraPosition);
+main.addShareEditor( "GeoPoint", "pick point", pickSurfacePoint);
+main.addShareEditor( "GeoRect", "pick bbox", pickSurfaceRectangle);
 main.addSyncHandler( handleSyncMessage);
 
 setCesiumContainerVisibility(false); // don't render before everybody is initialized
@@ -69,10 +71,10 @@ class PositionSet {
 }
 
 class Position {
-    constructor (name, latDeg, lonDeg, altM) {
+    constructor (name, lonDeg, latDeg, altM) {
         this.name = name;
-        this.lat = latDeg;
         this.lon = lonDeg;
+        this.lat = latDeg;
         this.alt = altM;
 
         this.asset = undefined; // on-demand point entity
@@ -536,7 +538,7 @@ function getPositionSets() {
 // TODO - this should use main.getAllMatchingSharedItems( util.glob2regexp("view/**"))
 // { key: "view/bay_area", value: { type: "Point3D", comment: "...", data: {lon: 42, lat: 42, alt: 42}}}
 function getGlobalPositionSet() { // from config
-    let positions = config.cameraPositions.map( p=> new Position(p.name, p.lat, p.lon, p.alt));
+    let positions = config.cameraPositions.map( p=> new Position(p.name, p.lon, p.lat, p.alt));
     let pset = new PositionSet("default", positions);
 
     let initPos = getInitialPosition();
@@ -570,7 +572,7 @@ function getInitialPosition() {
                             elems[2] = elems[2] * 1000;
                         }
                     }
-                    return new Position( "<initial>", elems[0], elems[1], elems[2]); // name,lat,lon,alt
+                    return new Position( "<initial>", elems[0], elems[1], elems[2]); // name,lon,lat,alt
 
                 } catch (e) {
                     console.log("ignoring invalid initial position spec: ", view);
@@ -1400,13 +1402,13 @@ function handleSyncMessage (msg) {
 }
 
 // return object suitable to set a Point3D from the current camera position
-function shareViewEditor () {
+function withCurrentCameraPosition (callback) {
     let pos = viewer.camera.positionCartographic;
-    return { 
+    callback({
         lon: Math.round( Cesium.Math.toDegrees(pos.longitude) * 10000) / 10000, // round to 4 decimals
         lat: Math.round( Cesium.Math.toDegrees(pos.latitude) * 10000) / 10000,
         alt: Math.round(pos.height)
-    }
+    });
 }
 
 // executed after all modules have been loaded and initialized

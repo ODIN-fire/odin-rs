@@ -13,28 +13,28 @@
  */
 
 use std::{collections::HashMap, sync::Arc};
-use odin_common::{geo::{GeoPos,LatLon},angle::{LatAngle,LonAngle}};
+use odin_common::{geo::{GeoPoint,GeoPoint3},angle::{Longitude,Latitude}};
 use odin_share::{errors::op_failed, prelude::*};
 use odin_server::prelude::*;
 use serde_json;
 
-fn create_store()->HashMap<String,SharedItem> {
+fn create_store()->HashMap<String,SharedItemType> {
     HashMap::from([
-        ("/views/bay_area".to_string(), SharedItem::Point3D( 
+        ("/views/bay_area".to_string(), SharedItemType::GeoPoint3( 
             SharedItemValue {
                 comment: None,
                 owner: None,
-                data: Arc::new(GeoPos::new( LatAngle::from_degrees(38.15910), LonAngle::from_degrees(-122.67800), 800000.0))
+                data: Arc::new( GeoPoint3::from_lon_lat_degrees_alt_meters( -122.67800, 38.15910, 800000.0))
             }
         )),
-        ("/incidents/czu/ignition".to_string(), SharedItem::Point2D(
+        ("/incidents/czu/ignition".to_string(), SharedItemType::GeoPoint(
             SharedItemValue {
                 comment: Some("origin of fire at blabla".to_string()),
                 owner: None,
-                data: Arc::new(LatLon::from_degrees( 37.137, -122.2854))
+                data: Arc::new( GeoPoint::from_lon_lat_degrees( -122.2854, 37.137))
             }
         )),
-        ("/incidents/czu/cause".to_string(), SharedItem::String(
+        ("/incidents/czu/cause".to_string(), SharedItemType::String(
             SharedItemValue {
                 comment: Some("preliminary".to_string()),
                 owner: None,
@@ -47,12 +47,12 @@ fn create_store()->HashMap<String,SharedItem> {
 // run with "cargo test test_store_ser -- --nocapture"
 #[test]
 fn test_store_serde()->Result<(),OdinShareError> {
-   let map: HashMap<String,SharedItem> = create_store();
+   let map: HashMap<String,SharedItemType> = create_store();
 
    let json = serde_json::to_string_pretty(&map)?;
    println!("### test serialization:\n{map:?}\n------->\n{json}\n");
 
-   let map1: HashMap<String,SharedItem> = serde_json::from_str( &json)?;
+   let map1: HashMap<String,SharedItemType> = serde_json::from_str( &json)?;
    println!("### test deserialization:\n{map1:#?}");
 
    assert_eq!( map, map1, "testing serialization input and deserialization output equality");
@@ -62,7 +62,7 @@ fn test_store_serde()->Result<(),OdinShareError> {
 
 #[test]
 fn test_init_msg()->Result<(),OdinShareError> {
-    let map: HashMap<String,SharedItem> = create_store();
+    let map: HashMap<String,SharedItemType> = create_store();
     let ws_msg = WsMsg::json( ShareService::mod_path(), "initShare", map).map_err(|e| op_failed(e))?;
 
     println!("### creating initShare WsMsg:\n{ws_msg}");

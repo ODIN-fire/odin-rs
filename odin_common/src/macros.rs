@@ -462,3 +462,142 @@ macro_rules! define_serde_struct {
         }
     }
 }
+
+/* #region impl_virt_deserialize *********************************************************************************/
+
+/// implement serde Deserialize trait not backed by structure fields
+/// This macro uses arguments to define structure name, a constructor fn name and virtual deserialization field names to 
+/// generate a Deserializer impl. It also suppors optional aliases for each field name.
+/// The constructor has to accept the deserialized values in the order specified. The constructor argument types define
+/// the respective argument deserialization
+/// 
+/// Use like so:
+/// ```
+/// struct GeoPoint {...}
+/// impl GeoPoint {
+///   fn from_lon_lat_degrees (lon: .., lat: ..)->Self {...}
+/// }
+/// 
+/// impl_deserialize_struct!{ GeoPoint::from_lon_lat_degrees( lon, ["longitude", "x"], lat, ["latitude", "y"]) }
+/// ```
+#[macro_export]
+macro_rules! impl_deserialize_struct {
+    ( $type_name:ident :: $ctor_name:ident ( $( $field_name:ident $( | $alt_name:ident )*  $( = $def_val:expr )? ),+ )) => {
+        impl<'de> DeserializeTrait<'de> for $type_name {
+            fn deserialize<D>(deserializer: D) -> Result<$type_name, D::Error> where D: Deserializer<'de> {
+                const FIELDS: &[&str] = &[ $( stringify!($field_name) ),+ ];
+
+                #[allow(non_camel_case_types)]
+                enum Field { $( $field_name ),+ }
+
+                impl<'de> DeserializeTrait<'de> for Field {
+                    fn deserialize<D>(deserializer: D) -> Result<Field, D::Error> where D: Deserializer<'de> {
+                        struct FieldVisitor;
+
+                        impl<'de> Visitor<'de> for FieldVisitor {
+                            type Value = Field;
+
+                            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                                formatter.write_str( stringify!( $($field_name),+) )
+                            }
+
+                            fn visit_str<E>(self, value: &str) -> Result<Field, E> where E: de::Error {
+                                match value {
+                                    $( stringify!($field_name) $( | stringify!($alt_name) )* => Ok(Field::$field_name), )+
+                                    _ => Err(de::Error::unknown_field(value, FIELDS)),
+                                }
+                            }
+                        }
+                        deserializer.deserialize_identifier(FieldVisitor)
+                    }
+                }
+
+                struct TypeVisitor;
+
+                impl<'de> Visitor<'de> for TypeVisitor {
+                    type Value = $type_name;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str( stringify!( struct $type_name) )
+                    }
+
+                    fn visit_seq<V>(self, mut seq: V) -> Result< $type_name, V::Error> where V: SeqAccess<'de> {
+                        $( let $field_name = seq.next_element()?.ok_or_else(|| de::Error::invalid_length( Field::$field_name as usize, &self))?; )+
+                        Ok( $type_name::$ctor_name( $( $field_name ),+ ) )
+                    }
+
+                    fn visit_map<V>(self, mut map: V) -> Result< $type_name, V::Error> where V: MapAccess<'de> {
+                        $( let mut $field_name = None; )+
+
+                        while let Some(key) = map.next_key()? {
+                            match key {
+                                $(
+                                    Field::$field_name => {
+                                        if $field_name .is_some() { {return Err(de::Error::duplicate_field( stringify!($field_name)));} }
+                                        $field_name = Some(map.next_value()?);
+                                    }
+                                )+
+                            }
+                        }
+
+                        $( 
+                            $( let $field_name = $field_name.or( Some($def_val) ); )?
+                            let $field_name = $field_name .ok_or_else(|| de::Error::missing_field(stringify!($field_name)))?; 
+                        )+
+                        Ok( $type_name::$ctor_name( $( $field_name ),+ ) )
+                    }
+                }
+
+                deserializer.deserialize_struct( stringify!($type_name), FIELDS, TypeVisitor)
+            }
+        }
+    }
+}
+
+/// implement serde Deserialize trait for a type from a given constructor name that takes a single Vec<ElementType> argument.
+/// The element type has to have a Deserialize impl
+/// 
+/// Use like so:
+/// ```
+/// struct GeoPoint {...} 
+/// impl <'de> Deserialize for GeoPoint { ... }
+/// 
+/// struct GeoLineString {...}
+/// impl GeoLineString {
+///     fn from_geo_points (points: Vec<GeoPoint>)->Self {...}
+/// }
+/// 
+/// impl_deserialize_seq!{  GeoLineString::from_geo_points(Vec<GeoPoint>) }
+/// ```
+#[macro_export]
+macro_rules! impl_deserialize_seq {
+    ( $type_name:ident :: $ctor_name:ident ( Vec < $elem_type:ident > ) ) => {
+        impl<'de> DeserializeTrait<'de> for $type_name {
+            fn deserialize<D>(deserializer: D) -> Result<$type_name, D::Error> where D: Deserializer<'de> {
+                struct TypeVisitor;
+        
+                impl<'de> Visitor<'de> for TypeVisitor {
+                    type Value = GeoLineString;
+        
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str( stringify!($type_name as seq of $elem_type elements))
+                    }
+        
+                    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error> where A: SeqAccess<'de> {
+                        let mut elems: Vec<$elem_type> = Vec::new();
+        
+                        while let Some(p) = seq.next_element::<$elem_type>()? {
+                            elems.push( p);
+                        }
+        
+                        Ok( $type_name::$ctor_name( elems) )
+                    }
+                }
+        
+                deserializer.deserialize_seq( TypeVisitor)
+            }
+        }
+    }
+}
+
+/* #endregion impl_deserialize_struct */

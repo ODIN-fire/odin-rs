@@ -3,6 +3,7 @@
 - [Installation](install.md)
 
 - [1. Introduction](intro.md)
+  - [Design Principles](design_principles.md)
 
 - [2. System Crates](sys_crates.md)
 

@@ -15,13 +15,17 @@
 #![feature(trait_alias)]
 #![feature(io_error_more)]
 
+use serde::{Serialize,Deserialize};
+use num::{Num,ToPrimitive};
+
 pub mod strings;
 pub mod collections;
 pub mod macros;
 pub mod fs;
 pub mod datetime;
 pub mod angle;
-pub mod geo;
+pub mod geo; 
+pub mod utm;
 pub mod sim_clock;
 pub mod ranges;
 pub mod schedule;
@@ -55,3 +59,42 @@ odin_build::define_load_config!();
 
 // a global fn that can be used with serde(skip_serializing_if="odin_common::is_none")
 #[inline] pub fn is_none<T> (opt: &Option<T>)->bool { opt.is_none() }
+
+
+/// a generic bounding box without semantics for the coordinate type
+#[repr(C)]
+#[derive(Debug,Copy,Clone,Serialize,Deserialize,PartialEq)]
+pub struct BoundingBox <T: Num> {
+    pub west: T,
+    pub south: T,
+    pub east: T,
+    pub north: T
+}
+
+impl <T: Num + Copy + ToPrimitive> BoundingBox<T> {
+    pub fn new(west: T, south: T, east: T, north: T)->Self {
+        BoundingBox{ west, south, east, north}
+    }
+
+    pub fn from_wsen<N> (wsen: &[N;4]) -> BoundingBox<T> where N: Num + Copy + Into<T> {
+        BoundingBox::<T>{
+            west: wsen[0].into(),
+            south: wsen[1].into(),
+            east: wsen[2].into(),
+            north: wsen[3].into()
+        }
+    }
+
+    pub fn to_minmax_array (&self) -> [T;4] {
+        [self.west,self.south,self.east,self.north]
+    }
+
+    pub fn as_mimax_array_ref (&self) -> &[T;4] {
+        unsafe { std::mem::transmute(self) }
+    }
+
+    // FIXME - should stay as (T,T) but how can we divide/round
+    pub fn center (&self) -> (f64,f64) {
+        ( (self.west + self.east).to_f64().unwrap() / 2.0, (self.south + self.north).to_f64().unwrap() / 2.0 )
+    }
+}

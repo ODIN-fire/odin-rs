@@ -1577,38 +1577,42 @@ export function setChoiceItems(o, items, selIndex = -1) {
     if (e) {
         let prevChoices = _firstChildWithClass(e.parentElement, "ui_popup_menu");
         if (prevChoices) e.parentElement.removeChild(prevChoices);
-        e._uiSelIndex = Math.min(selIndex, items.length-1);
         e._uiItems = items;
+        e._uiSelIndex = -1;
 
-        let choice = e.parentElement;
-        var i = 0;
-        let menu = createElement("DIV", "ui_popup_menu");
-        for (let item of items) {
-            let itemLabel = getItemLabel(item);
-            let idx = i;
-            let mi = createElement("DIV", "ui_menuitem", itemLabel);
-            mi.addEventListener("click", (event) => {
-                event.preventDefault();
-                e.innerText = mi.innerText;
-                if (e._uiSelIndex >= 0) { menu.children[e._uiSelIndex].classList.remove('checked'); }
-                e._uiSelIndex = idx;
-                mi.classList.add('checked');
-                choice.dispatchEvent(new Event('change'));
-            });
-            if (selIndex == i) {
-                mi.classList.add('checked');
-                e.innerText = itemLabel;
+        if (items && items.length > 0){
+            let choice = e.parentElement;
+            e._uiSelIndex = Math.min(selIndex, items.length-1);
+
+            var i = 0;
+            let menu = createElement("DIV", "ui_popup_menu");
+            for (let item of items) {
+                let itemLabel = getItemLabel(item);
+                let idx = i;
+                let mi = createElement("DIV", "ui_menuitem", itemLabel);
+                mi.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    e.innerText = mi.innerText;
+                    if (e._uiSelIndex >= 0) { menu.children[e._uiSelIndex].classList.remove('checked'); }
+                    e._uiSelIndex = idx;
+                    mi.classList.add('checked');
+                    choice.dispatchEvent(new Event('change'));
+                });
+                if (selIndex == i) {
+                    mi.classList.add('checked');
+                    e.innerText = itemLabel;
+                }
+                menu.appendChild(mi);
+                i += 1;
             }
-            menu.appendChild(mi);
-            i += 1;
-        }
 
-        choice.appendChild(menu);
-        e.addEventListener("click", (event) => {
-            event.stopPropagation();
-            popupMenu(event, menu);
-            event.preventDefault();
-        });
+            choice.appendChild(menu);
+            e.addEventListener("click", (event) => {
+                event.stopPropagation();
+                popupMenu(event, menu);
+                event.preventDefault();
+            });
+        }
     }
 }
 

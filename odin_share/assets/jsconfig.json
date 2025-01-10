@@ -1,9 +1,11 @@
 {
   "compilerOptions": {
-    "module": "CommonJS",
+    "module": "ES6",
     "target": "ES6",
+    "allowJs": true,
+    "checkJs": false,
     "paths": {
-      "../odin_server/*": ["../../odin_server/assets/*"]
+      "../odin_server/*": ["../../odin_server/assets/*"],
     }
-  },
+  }
 }

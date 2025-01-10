@@ -1,6 +1,6 @@
 {
     "view/bay_area": {
-        "type": "Point3D",
+        "type": "GeoPoint3",
         "owner": "🔒",
         "data": {
             "lat": 38.15910,

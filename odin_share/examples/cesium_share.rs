@@ -19,13 +19,13 @@ use odin_server::prelude::*;
 use odin_share::prelude::*;
 use odin_cesium::ImgLayerService;
 use odin_action::{data_action,DataAction};
-use odin_common::{angle::{LatAngle,LonAngle},geo::{LatLon,GeoPos}};
+use odin_common::{angle::{Latitude,Longitude},geo::{GeoPoint,GeoPoint3}};
 
 use std::{collections::HashMap, sync::Arc, any::type_name};
 
 /// Cesium app using a ShareService
 run_actor_system!( actor_system => {
-    let pre_store = PreActorHandle::<SharedStoreActorMsg<SharedItem>>::new( &actor_system, "store", 8);
+    let pre_store = PreActorHandle::<SharedStoreActorMsg<SharedItemType>>::new( &actor_system, "store", 8);
 
     let hserver = spawn_actor!( actor_system, "server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
@@ -53,23 +53,23 @@ run_actor_system!( actor_system => {
 });
 
 // this is artificial - normally we would initialize the store from a <odin-root>/data file
-fn create_store()->HashMap<String,SharedItem> {
+fn create_store()->HashMap<String,SharedItemType> {
     HashMap::from([
-        ("view/bay_area".to_string(), SharedItem::Point3D( 
+        ("view/bay_area".to_string(), SharedItemType::GeoPoint3( 
             SharedItemValue {
                 comment: None,
                 owner: Some("🔒".to_string()),
-                data: Arc::new(GeoPos::new( LatAngle::from_degrees(38.15910), LonAngle::from_degrees(-122.67800), 800000.0))
+                data: Arc::new( GeoPoint3::from_lon_lat_degrees_alt_meters(-122.67800, 38.15910, 800000.0))
             }
         )),
-        ("incident/czu/ignition".to_string(), SharedItem::Point2D(
+        ("incident/czu/ignition".to_string(), SharedItemType::GeoPoint(
             SharedItemValue {
                 comment: Some("origin of fire at blabla".to_string()),
                 owner: None,
-                data: Arc::new(LatLon::from_degrees( 37.137, -122.2854))
+                data: Arc::new(GeoPoint::from_lon_lat_degrees( -122.2854, 37.137 ))
             }
         )),
-        ("incident/czu/cause".to_string(), SharedItem::String(
+        ("incident/czu/cause".to_string(), SharedItemType::String(
             SharedItemValue {
                 comment: Some("preliminary".to_string()),
                 owner: None,

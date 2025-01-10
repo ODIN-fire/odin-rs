@@ -117,7 +117,7 @@ macro_rules! define_load_config {
                 static ref EMBEDDED_CONFIGS: HashMap<&'static str, odin_build::EmbeddedConfigEntry> = {
                     let mut map: HashMap<&'static str, odin_build::EmbeddedConfigEntry> = HashMap::new();
                     
-                    #[cfg(feature="embedded_resources")]
+                    #[cfg(feature="embedded_resources")] // watch out - this means the using module has to define the feature
                     include!(concat!(env!("OUT_DIR"), "/config_data")) (&mut map);
                     
                     map

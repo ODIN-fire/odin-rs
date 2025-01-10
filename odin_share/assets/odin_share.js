@@ -64,8 +64,8 @@ class OdinShare extends main.Share {
     }
 
     setSharedItem (key, type, data, isLocal=false, comment=null) {
-        let value = { type, comment, data };
-        let sharedItem = { key, value };
+        let value = new SharedValue( type, comment, data);
+        let sharedItem = new main.SharedItem( key, value);
 
         if (isLocal) { // notify shareHandlers right away
             handleSetShared( {setShared: sharedItem}, true);
@@ -535,7 +535,7 @@ function saveItem(event) {
 // this is how we get data and/or sync operations from the server
 function handleWsMessages(msgType, msg) {
     switch (msgType) {
-        case "initSharedItems": initSharedItems(msg); break;
+        case "initSharedItems": handleInitSharedItems(msg); break;
         case "setShared": handleSetShared(msg, false); break;
         case "removeShared": handleRemoveShared(msg); break;
 
@@ -561,7 +561,7 @@ function handleWsMessages(msgType, msg) {
 }
 
 function handleSetShared (msg, isLocal) {
-    let sharedItem = { key: msg.key, isLocal, value: msg.value };
+    let sharedItem = new SharedItem( msg.key, isLocal, msg.value);
     share._set( sharedItem.key, sharedItem);
 
     ui.sortInTreeItem( dirView, sharedItem, sharedItem.key);
@@ -648,14 +648,15 @@ function handlePublishMsg (publishedMsg){
     ui.selectLastListItem( msgList);
 }
 
-function initSharedItems(o) {
+function handleInitSharedItems(o) { 
     let items = config.categories.slice(); // add the category entries
 
+    // we get this as a map (JS object with keys as properties)
     for (var e of Object.entries(o)) { // add the values from the server
-        let item = { key: e[0], isLocal: false, value: e[1] };
+        let item = new main.SharedItem( e[0], false, e[1]);
         items.push(item);
 
-        share._set( item.key, item);
+        share._set( item.key, item); // store the item in our share object
     }
 
     let tree = ExpandableTreeNode.from( items, e=>e.key );
@@ -664,17 +665,20 @@ function initSharedItems(o) {
 
 
 function runSelectedEditor(event) {
+    function valueCallback (data) {
+        console.log("@@ data=", data);
+        let src = JSON.stringify(data, 0, 2);
+
+        setDataEntry( src);
+        setObjButtonsDisabled(false);
+        hasDataEntryChanged = true;
+    }
+
     let e = ui.getSelectedChoiceValue(editorChoice);
     if (e) {
         let key = ui.getNonEmptyFieldValue(keyEntry);
         if (isValidItemKey(key)) {
-            let data = e.editor();
-            let src = JSON.stringify(data, 0, 2);
-
-            setDataEntry( src);
-            setObjButtonsDisabled(false);
-            hasDataEntryChanged = true;
-
+            e.editor( valueCallback);
         } else {
             window.alert("no valid item key to edit");
         }

@@ -14,9 +14,12 @@ path = "src/bin/duplicate_dir.rs"
 [dependencies]
 chrono = { workspace = true }
 serde = { workspace = true }
-serde_json = "*"
+serde_json = { workspace = true }
 ron = { workspace = true }
-num = "*"
+num = { workspace = true }
+nalgebra = { workspace = true }
+geo = { workspace = true }
+uom = { workspace = true }
 thiserror = { workspace = true }
 parse_duration = "*"
 reqwest = { workspace = true, features = ["blocking"] }
@@ -29,6 +32,7 @@ regex = "*"
 num-format = "*"
 anyhow = "*"
 globset = "0.4.15"
+nav-types = "0.5.2"
 
 aws-config = { version = "*", features = ["behavior-version-latest"], optional = true }
 aws-sdk-s3 = { version = "*", features = ["rt-tokio"], optional = true }

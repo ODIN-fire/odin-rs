@@ -29,7 +29,7 @@ use tempfile;
 use tokio::{time::{Duration,Sleep}};
 
 use odin_common::{
-    angle::{LatAngle,LonAngle}, datetime::{elapsed_minutes_since,full_hour}, fs::{ensure_writable_dir, remove_old_files}, geo::GeoBoundingBox, strings::{mk_string,to_sorted_string_vec}
+    angle::{Longitude,Latitude}, datetime::{elapsed_minutes_since,full_hour}, fs::{ensure_writable_dir, remove_old_files}, geo::GeoRect, strings::{mk_string,to_sorted_string_vec}
 };
 use odin_actor::prelude::*;
 use odin_actor::AbortHandle;
@@ -118,13 +118,13 @@ impl Default for HrrrConfig {
 #[derive(Clone,Serialize,Deserialize,Debug)]
 pub struct HrrrDataSetConfig {
     pub name: String,
-    pub bbox: GeoBoundingBox,
+    pub bbox: GeoRect,
     fields: Vec<String>,
     levels: Vec<String>,
 }
 
 impl HrrrDataSetConfig {
-    pub fn new (name: String, bbox: GeoBoundingBox, fields: &[&str], levels: &[&str])->Self {
+    pub fn new (name: String, bbox: GeoRect, fields: &[&str], levels: &[&str])->Self {
         let fields: Vec<String> = to_sorted_string_vec(fields);
         let levels: Vec<String> = to_sorted_string_vec(levels);
 
@@ -149,7 +149,7 @@ impl HrrrDataSetRequest {
 
         let bbox = &ds_cfg.bbox;
         let mut query = format!("subregion=&toplat={}&leftlon={}&rightlon={}&bottomlat={}", 
-                                bbox.north.degrees(), bbox.west.degrees(), bbox.east.degrees(), bbox.south.degrees());
+                                bbox.north().degrees(), bbox.west().degrees(), bbox.east().degrees(), bbox.south().degrees());
         for v in &ds_cfg.fields {
             query.push('&');
             query.push_str("var_");

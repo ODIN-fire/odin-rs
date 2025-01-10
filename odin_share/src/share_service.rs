@@ -25,7 +25,7 @@ use odin_server::{ errors::op_failed, prelude::*};
 use async_trait::async_trait;
 use odin_actor::prelude::*;
 use odin_build::prelude::*;
-use odin_common::{define_serde_struct, geo::{GeoBoundingBox, GeoPos, LatLon}};
+use odin_common::{define_serde_struct, geo::{GeoPoint, GeoPoint3, GeoLine, GeoLineString, GeoRect, GeoPolygon}};
 use core::str;
 use std::{any::type_name, collections::HashMap, fmt::Debug, fs::File, io::BufReader, net::SocketAddr, ops::Index, path::{Path, PathBuf}, sync::Arc};
 use serde::{Serialize,Deserialize};
@@ -37,16 +37,18 @@ use crate::{
 };
 
 /// the generic wrapper type for shared items. This is what we keep in a SharedStore
-/// TODO - should we add a concept of ownership here? if so it has to refer to users, not remote_addr (which might be transient)
-#[derive(Serialize,Deserialize,Clone,Debug,PartialEq)]
+/// the variants should eventually cover the GeoJSON types (the geo_types geometries), 3d points, the basic primitive types (String, f64 etc),
+/// and a generic Json type that just stores the value as a JSON string
+#[derive(Serialize,Deserialize,Clone,Debug)]
 #[serde(tag = "type")]
-pub enum SharedItem {
+pub enum SharedItemType {
     // geospatial types
-    Point2D ( SharedItemValue<LatLon> ),
-    Point3D ( SharedItemValue<GeoPos> ),
-    Polyline ( SharedItemValue<Vec<LatLon>> ),
-
-    BoundingBox ( SharedItemValue<GeoBoundingBox> ),
+    GeoPoint ( SharedItemValue<GeoPoint> ),
+    GeoPoint3 ( SharedItemValue<GeoPoint3> ),
+    GeoLine ( SharedItemValue<GeoLine> ),
+    GeoLineString ( SharedItemValue<GeoLineString> ),
+    GeoRect ( SharedItemValue<GeoRect> ),
+    GeoPolygon (SharedItemValue<GeoPolygon> ),
 
     // primitive types
     U64 ( SharedItemValue<u64> ),
@@ -54,17 +56,17 @@ pub enum SharedItem {
     String ( SharedItemValue<String> ),
 
     /// a generic catch-all for structured data we only store as JSON source
-    Json ( SharedItemValue<String>) 
+    Json ( SharedItemValue<String>) // TODO - should we store this as a serde_json::Value ? This would make it harder to clone
 
     //... and more to follow
 }
 
-/// this is the wrapper type that adds the meta information to the payload, hence it is generic in the payload type
+/// this is the wrapper type that adds the common meta information to the payload, hence it is generic in the payload type
 /// Note that we don't store the key - SharedItemValues are always accessed through their containing store, i.e.
 /// storing the key would be redundant.
 /// Note also that we keep the data in an Arc so that values can be efficiently cloned and we don't suffer from potential
 /// enum variant size disparity
-#[derive(Serialize,Deserialize,Clone,Debug,PartialEq)]
+#[derive(Serialize,Deserialize,Clone,Debug)]
 #[serde(bound = "T: for<'a> serde::Deserialize<'a>")]
 pub struct SharedItemValue <T> 
     where T: SharedStoreValueConstraints
@@ -105,7 +107,7 @@ impl RoleEntry {
 
 /// micro service to share data between users and other micro-services. This is UI-less
 pub struct ShareService {
-    hstore: ActorHandle<SharedStoreActorMsg<SharedItem>>,
+    hstore: ActorHandle<SharedStoreActorMsg<SharedItemType>>,
     user_roles: HashMap<String,RoleEntry>,
 }
 
@@ -113,7 +115,7 @@ impl ShareService
 {
     pub fn mod_path()->&'static str { type_name::<Self>() }
 
-    pub fn new (hstore: ActorHandle<SharedStoreActorMsg<SharedItem>>) -> Self {
+    pub fn new (hstore: ActorHandle<SharedStoreActorMsg<SharedItemType>>) -> Self {
         //let data_dir = odin_build::data_dir().join("odin_server");
         let user_roles = HashMap::new();
 
@@ -149,7 +151,7 @@ impl SpaService for ShareService {
                 let hself: ActorHandle<SpaServerMsg> = hself.clone(),
                 // TODO - send current user_roles
                 let remote_addr: SocketAddr = conn.remote_addr => 
-                |store as &dyn SharedStore<SharedItem>| {
+                |store as &dyn SharedStore<SharedItemType>| {
                     let json = store.to_json()?;
                     let msg = ws_msg_from_json(ShareService::mod_path(), "initSharedItems", &json);
                     hself.try_send_msg( SendWsMsg{ remote_addr: *remote_addr, data: msg});
@@ -322,10 +324,10 @@ impl SpaService for ShareService {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SetShared {
     pub key: String,
-    pub value: SharedItem
+    pub value: SharedItemType
 }
 
-impl From<SetShared> for SetSharedStoreEntry<SharedItem> {
+impl From<SetShared> for SetSharedStoreEntry<SharedItemType> {
     fn from(ss: SetShared) -> Self {
         SetSharedStoreEntry{ key: ss.key, value: ss.value }
     }
@@ -360,18 +362,18 @@ pub struct PublishMsg {
 /// This only sets up init/change actions to send messages to the provided SpaServer actor
 /// Use the generic SharedStoreActor::new(..) if you need to set up other init/change actions than to just notify a SpaServer
 pub fn new_shared_store_actor<S> (store: S, store_actor_name: &'static str, hserver: &ActorHandle<SpaServerMsg>)
-         -> SharedStoreActor<SharedItem,S,impl SharedStoreAction<SharedItem> + Send,impl for<'a> DataAction<SharedStoreChange<'a, SharedItem>>> 
-    where S: SharedStore<SharedItem>
+         -> SharedStoreActor<SharedItemType,S,impl SharedStoreAction<SharedItemType> + Send,impl for<'a> DataAction<SharedStoreChange<'a, SharedItemType>>> 
+    where S: SharedStore<SharedItemType>
 {
     SharedStoreActor::new( 
         store, 
         shared_store_action!( 
             let hserver: ActorHandle<SpaServerMsg> = hserver.clone(),
             let store_actor_name: &'static str = store_actor_name => 
-            |store as &dyn SharedStore<SharedItem>| announce_data_availability( &hserver, store_actor_name).await
+            |store as &dyn SharedStore<SharedItemType>| announce_data_availability( &hserver, store_actor_name).await
         ),
         data_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
-            |update: SharedStoreChange<'_,SharedItem>| broadcast_store_change( &hserver, update).await
+            |update: SharedStoreChange<'_,SharedItemType>| broadcast_store_change( &hserver, update).await
         )
     )
 }
@@ -379,16 +381,16 @@ pub fn new_shared_store_actor<S> (store: S, store_actor_name: &'static str, hser
 /// helper function for the body of a SharedStore init action
 /// This just announces data avaiability by sending a message to the provided SpaServer actor handle
 pub async fn announce_data_availability<'a> (hserver: &'a ActorHandle<SpaServerMsg>, store_actor_name: &'static str)->Result<(),OdinActionFailure> {
-    hserver.send_msg( DataAvailable{ sender_id: store_actor_name, data_type: type_name::<SharedItem>()} ).await.map_err(|e| e.into())
+    hserver.send_msg( DataAvailable{ sender_id: store_actor_name, data_type: type_name::<SharedItemType>()} ).await.map_err(|e| e.into())
 }
 
 /// helper function for the body of a SharedStoreActor change action
 /// This sends change-specific websocket messages to all connected clients of the provided SpaServer actor  
-pub async fn broadcast_store_change<'a> (hserver: &'a ActorHandle<SpaServerMsg>, change: SharedStoreChange<'a,SharedItem>)->Result<(),OdinActionFailure> {
+pub async fn broadcast_store_change<'a> (hserver: &'a ActorHandle<SpaServerMsg>, change: SharedStoreChange<'a,SharedItemType>)->Result<(),OdinActionFailure> {
     match change.update {
         SharedStoreUpdate::Set { hstore, key } => {
             if let Some(stored_val) = change.store.get( &key) {
-                let msg = SetShared{key: key, value: stored_val.clone()};
+                let msg = SetShared{key, value: stored_val.clone()};
                 if let Ok(data) = WsMsg::json( ShareService::mod_path(), "setShared", msg) {
                     hserver.send_msg( BroadcastWsMsg{data}).await?;
                 }

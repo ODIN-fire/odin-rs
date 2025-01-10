@@ -32,3 +32,7 @@ thiserror = { workspace = true }
 
 [build-dependencies]
 odin_build = { workspace = true }
+
+[features]
+## inline crate-specific resources (configs and assets) into the executable (see odin_build)
+embedded_resources = []

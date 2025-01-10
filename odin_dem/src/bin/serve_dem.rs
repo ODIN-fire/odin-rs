@@ -50,7 +50,7 @@ use tracing_subscriber::{filter, layer::SubscriberExt, util::SubscriberInitExt};
 use anyhow::Result;
 
 use odin_build::set_bin_context;
-use odin_common::{define_serde_struct, fs::ensure_writable_dir, geo::BoundingBox, strings::{deserialize_arr4,parse_array}, if_let};
+use odin_common::{define_serde_struct, fs::ensure_writable_dir, BoundingBox, strings::{deserialize_arr4,parse_array}, if_let};
 use odin_server::{spawn_server_task,ServerConfig, server_error};
 use odin_dem::{load_config, DemSRS, DemImgType, get_wh_dem, get_res_dem};
 

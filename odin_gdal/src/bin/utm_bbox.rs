@@ -14,7 +14,7 @@
 use lazy_static::lazy_static;
 use structopt::StructOpt;
 
-use odin_gdal::{transform_latlon_to_utm_bounds, transform_utm_to_latlon_bounds};
+use odin_gdal::{transform_geo_to_utm_bounds, transform_utm_to_geo_bounds};
 
 #[derive(StructOpt)]
 struct CliOpts {
@@ -58,7 +58,7 @@ lazy_static! {
 fn main() {
      if ARGS.utm_to_latlon {
          if let Some(utm_zone) = ARGS.zone {
-             let res = transform_utm_to_latlon_bounds(ARGS.west, ARGS.south, ARGS.east, ARGS.north, ARGS.interior, utm_zone, ARGS.is_south);
+             let res = transform_utm_to_geo_bounds(ARGS.west, ARGS.south, ARGS.east, ARGS.north, ARGS.interior, utm_zone, ARGS.is_south);
              match res {
                  Ok((x_min, y_min, x_max, y_max)) => {
                      println!("{} lat/lon bounding box for UTM zone {}{}",
@@ -75,7 +75,7 @@ fn main() {
          }
 
      } else {
-         let res = transform_latlon_to_utm_bounds(ARGS.west, ARGS.south, ARGS.east, ARGS.north, ARGS.interior, ARGS.zone, ARGS.is_south);
+         let res = transform_geo_to_utm_bounds(ARGS.west, ARGS.south, ARGS.east, ARGS.north, ARGS.interior, ARGS.zone, ARGS.is_south);
 
          match res {
              Ok((x_min,y_min,x_max,y_max, utm_zone)) => {

@@ -16,7 +16,7 @@ use std::collections::{VecDeque,HashMap};
 use std::{time::Duration,sync::Arc,future::Future, path::PathBuf, io::Write as IoWrite, fmt::Write as FmtWrite};
 use futures::SinkExt;
 use odin_common::fs::get_filename_extension;
-use odin_common::geo::DatedGeoPos;
+use odin_common::geo::GeoPoint4;
 use odin_common::sim_clock;
 use odin_common::{datetime::Dated,sim_clock::now,fs::{append_open,append_to_file,append_line_to_file}};
 use serde::{Deserialize,Serialize,Serializer};
@@ -38,7 +38,7 @@ pub struct Alarm {
     pub device_id: String,
     pub description: String,
     pub time_recorded: DateTime<Utc>,
-    pub pos: Option<DatedGeoPos>,
+    pub pos: Option<GeoPoint4>,
     pub alarm_type: String,
     pub confidence: f64,
     pub evidence_info: Vec<EvidenceInfo>,
@@ -215,8 +215,9 @@ impl SentinelAlarmMonitor {
         let hupdater = &self.hupdater;
         let pos = self.retrieve_pos( hupdater, &device_id, time_recorded).await;
         if let Some(p) = pos {
-            let alt = 180000.0; // [m] - we could use p.alt + x here
-            write!( description, "\nhttps://wildfireai.com/odin-fire/live?view={:.4},{:.4},{:.0}", p.lat.degrees(), p.lon.degrees(), alt);
+            let alt_m = 180000.0; // [m] - we could use p.alt + x here
+            write!( description, "\nhttps://wildfireai.com/odin-fire/live?view={:.4},{:.4},{:.0}", 
+                    p.longitude().degrees(), p.latitude().degrees(), alt_m);
         }
 
         if !self.config.attach_image {  // we don't want images - send right away
@@ -233,7 +234,7 @@ impl SentinelAlarmMonitor {
         }
     }
 
-    async fn retrieve_pos (&self, hupdater: &ActorHandle<SentinelActorMsg>, device_id: &String, date: DateTime<Utc>) -> Option<DatedGeoPos> {
+    async fn retrieve_pos (&self, hupdater: &ActorHandle<SentinelActorMsg>, device_id: &String, date: DateTime<Utc>) -> Option<GeoPoint4> {
         match timeout_query_ref( hupdater, GetSentinelPosition{device_id: device_id.clone(),date}, secs(2)).await {
             Ok(res) => res,
             _ => {

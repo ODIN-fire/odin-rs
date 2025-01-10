@@ -19,7 +19,7 @@ use errors::{invalid_filename, op_failed};
 use serde::{Deserialize, Serialize};
 use tokio::io;
 use odin_gdal::{create_wh_image_from_vrt, csl_string_list, get_driver_name_for_extension, CslStringList};
-use odin_common::{fs, {geo::BoundingBox,net::mime_type_for_extension}};
+use odin_common::{fs, BoundingBox,net::mime_type_for_extension};
 use odin_build::define_load_config;
 
 pub mod errors;

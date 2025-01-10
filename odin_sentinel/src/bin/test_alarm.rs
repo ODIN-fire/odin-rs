@@ -11,11 +11,12 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
+#![allow(unused)]
 
 use std::path::Path;
 use tokio;
 use chrono::Utc;
-use odin_common::{angle::{LatAngle, LonAngle}, define_cli, geo::DatedGeoPos};
+use odin_common::{define_cli, geo::{GeoPoint3, GeoPoint4},datetime::EpochMillis};
 use odin_sentinel::{load_config, Alarm, AlarmMessenger, EvidenceInfo, 
     ConsoleAlarmMessenger, SmtpAlarmMessenger, SignalCmdAlarmMessenger, SlackAlarmMessenger, SentinelFile
 };
@@ -41,13 +42,16 @@ async fn main()->Result<()> {
     let device_id = ARGS.device.clone();
     let description = if let Some(descr) = &ARGS.text { descr.clone() } else { "test alarm".into() };
     let time_recorded = Utc::now();
-    let pos = Some( DatedGeoPos::new(LatAngle::from_degrees(37.1668), LonAngle::from_degrees(-121.9633), 560.0, time_recorded));
+    let pos = Some( GeoPoint4::from_geo3_epoch( 
+        GeoPoint3::from_lon_lat_degrees_alt_meters(-121.9633, 37.1668, 560.0), 
+        time_recorded.into()
+    ));
     let alarm_type = ARGS.alarm_type.clone();
     let confidence = ARGS.confidence;
     let mut evidence_info: Vec<EvidenceInfo> = Vec::new();
 
     if let Some(img) = &ARGS.img {
-        let pathname = Path::new(&img).to_path_buf();
+        let pathname = Path::new(img).to_path_buf();
         if !pathname.is_file() { panic!("image file does not exist: {img}") }
 
         let ei = EvidenceInfo { 

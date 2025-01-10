@@ -19,7 +19,7 @@
 use std::{f32::NAN, fmt::{Debug,Display}, fs::File, io::Write, ops::Deref, path::{Path,PathBuf}, sync::Arc, time::Duration};
 use std::collections::VecDeque;
 use serde::{Deserialize,Serialize};
-use odin_common::{datetime::Dated, geo::LatLon};
+use odin_common::{datetime::Dated, geo::GeoPoint};
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Timelike, Utc};
 use uom::si::{area::square_meter, f32::Time, length::meter, power::milliwatt, thermodynamic_temperature::kelvin};
 use uom::si::f32::{Power,ThermodynamicTemperature, Area, Length};
@@ -97,7 +97,7 @@ pub struct GoesrHotspot {
     pub sat_id: u32,
     #[serde(serialize_with = "odin_common::datetime::ser_epoch_millis")]
     pub date: DateTime<Utc>,
-    pub position: LatLon,
+    pub position: GeoPoint,
     pub bounds: GoesrBoundingBox,
     pub bright: ThermodynamicTemperature, 
     pub frp: Power, 
@@ -109,7 +109,7 @@ pub struct GoesrHotspot {
 }
 
 impl GoesrHotspot {
-    pub fn new (data: &GoesrData, mask: u16, bright:u16, frp:f32, dqf:u8, area:u16, bounds: GoesrBoundingBox, center:LatLon)->Self {
+    pub fn new (data: &GoesrData, mask: u16, bright:u16, frp:f32, dqf:u8, area:u16, bounds: GoesrBoundingBox, center:GeoPoint)->Self {
         GoesrHotspot {
             sat_id: data.sat_id,
             date: data.date,
@@ -423,7 +423,7 @@ pub fn read_goesr_data (data: &GoesrData) -> Result<GoesrHotspotSet> {
 
     let mut hotspots: Vec<GoesrHotspot> = Vec::with_capacity(hs.len());
     for (i,p) in hs.iter().enumerate() {
-        let center = proj.lat_lon_from_instrument_angles(x_range.at(p.i0), y_range.at(p.i1));
+        let center = proj.geo_from_instrument_angles(x_range.at(p.i0), y_range.at(p.i1));
         let bounds = get_bounds( &proj, &x_range, &y_range, &p);
 
         if !temp[i].is_nan() {

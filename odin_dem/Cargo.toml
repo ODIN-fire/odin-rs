@@ -38,3 +38,8 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 reqwest = { workspace = true }
 axum = { workspace = true }
+
+[features]
+
+## inline crate-specific resources (configs and assets) into the executable (see odin_build)
+embedded_resources = []
