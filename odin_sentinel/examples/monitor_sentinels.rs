@@ -14,15 +14,16 @@
 
 use odin_build;
 use odin_actor::prelude::*;
-use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor,load_config};
+use odin_sentinel::{load_config, LiveSentinelConnector, SentinelActor, SentinelInactiveAlert, SentinelStore, SentinelUpdate};
 
 
 /* #region monitor actor *****************************************************************/
 
 #[derive(Debug)] pub struct Snapshot(String);
 #[derive(Debug)] pub struct Update(String);
+#[derive(Debug)] pub struct Inactive(String);
 
-define_actor_msg_set! { SentinelMonitorMsg = Snapshot | Update }
+define_actor_msg_set! { SentinelMonitorMsg = Snapshot | Update | Inactive }
 
 struct SentinelMonitor {}
 
@@ -34,6 +35,10 @@ impl_actor! { match msg for Actor<SentinelMonitor,SentinelMonitorMsg> as
     Update => cont! { 
         println!("------------------------------ update");
         println!("{}", msg.0) 
+    }
+    Inactive => cont! {
+        println!("------------------------------ inactive");
+        println!("{}", msg.0)  
     }
 }
 
@@ -48,15 +53,18 @@ run_async_main!({
 
     let _hsentinel = spawn_actor!( actor_system, "sentinel", SentinelActor::new(
         LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
-        dataref_action!( hmonitor.clone(): ActorHandle<SentinelMonitorMsg> => |data:&SentinelStore| {
+        dataref_action!( let hmonitor: ActorHandle<SentinelMonitorMsg> = hmonitor.clone() => |data:&SentinelStore| {
             let msg = Snapshot(data.to_json_pretty().unwrap());
             Ok( hmonitor.try_send_msg( msg)? )
         }),
-        data_action!( hmonitor: ActorHandle<SentinelMonitorMsg> => |update:SentinelUpdate| {
-            //let msg = Update( odin_server::ws_msg!( "odin_sentinel.js", update).to_json()? );
+        data_action!( let hmonitor: ActorHandle<SentinelMonitorMsg> = hmonitor.clone() => |update:SentinelUpdate| {
             let msg = Update(update.description());
             Ok( hmonitor.try_send_msg( msg)? )
         }),
+        data_action!( let hmonitor: ActorHandle<SentinelMonitorMsg> = hmonitor => |alert: SentinelInactiveAlert| {
+            let msg = Inactive( serde_json::to_string(&alert)?);
+            Ok( hmonitor.try_send_msg( msg)? )
+        })
     ))?;
 
     actor_system.timeout_start_all(secs(2)).await?;

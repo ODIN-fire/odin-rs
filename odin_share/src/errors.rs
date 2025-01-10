@@ -12,6 +12,28 @@
  * and limitations under the License.
  */
 
- /// module to obtain weather forecasts
+ use thiserror::Error;
+ use globset;
+ use serde_json;
 
-fn hrrr_filename ()
+ pub type Result<T> = std::result::Result<T, OdinShareError>;
+ 
+ #[derive(Error,Debug)]
+ pub enum OdinShareError {
+    #[error("Glob error {0}")]
+    GlobError( #[from] globset::Error),
+
+    #[error("I/O error {0}")]
+    IOError( #[from] std::io::Error),
+
+    #[error("JSON error {0}")]
+    JsonError( #[from] serde_json::Error),
+
+    // generic error
+    #[error("operation failed: {0}")]
+    OpFailed( String ),
+}
+
+pub fn op_failed (msg: impl ToString)->OdinShareError {
+    OdinShareError::OpFailed(msg.to_string())
+}

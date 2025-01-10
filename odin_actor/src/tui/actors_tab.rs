@@ -76,13 +76,15 @@ impl PingStatus {
 pub struct ActorsTab {
     actors: Vec<ActorData>,
     row_index: usize,
+    theme: ActorsTabTheme,
 }
 
 impl ActorsTab {
-    pub fn new()-> Self {
+    pub fn new(theme: ActorsTabTheme)-> Self {
         Self {
             actors: Vec::new(), 
             row_index: 0,
+            theme,
         }
     }
 
@@ -132,112 +134,114 @@ impl Widget for &ActorsTab {
         );
         let [table_area, chart_area] = vertical.areas(area);
 
-        render_actors_table(table_area, buf, self.row_index, &self.actors);
-        render_scrollbar(table_area, buf, self.row_index, self.actors.len());
+        self.render_actors_table(table_area, buf);
+        self.render_scrollbar(table_area, buf);
 
-        render_bar_chart(chart_area, buf, &self.actors);
+        self.render_bar_chart(chart_area, buf);
     }
 }
 
-fn render_actors_table(area: Rect, buf: &mut Buffer, selected: usize, actors: &Vec<ActorData>) {
-    let header = [ "cycle", "id", "type", "response", "ave", "min", "max", "outlier"]
-    .into_iter()
-    .map(Cell::from)
-    .collect::<Row>()
-    .style(THEME.actor_table.header)
-    .height(1);
- 
-    let mut rows = Vec::new();
-    for actor in actors {
-       let row = Row::new(vec![
-          actor.status.last_cycle.to_string(), 
-          (*actor.id).to_owned(), 
-          actor.type_name.to_string(),
-          actor.status.last_ns.to_string(), 
-          actor.status.avg_ns.to_string(), 
-          actor.status.min_ns.to_string(), 
-          actor.status.max_ns.to_string(), 
-          actor.status.outlier.to_string(),
-       ]);
-       rows.push(row.clone());
+impl ActorsTab {
+    fn render_actors_table(&self, area: Rect, buf: &mut Buffer) {
+        let header = [ "cycle", "id", "type", "response", "ave", "min", "max", "outlier"]
+        .into_iter()
+        .map(Cell::from)
+        .collect::<Row>()
+        .style(self.theme.actor_table.header)
+        .height(1);
+    
+        let mut rows = Vec::new();
+        for actor in &self.actors {
+        let row = Row::new(vec![
+            actor.status.last_cycle.to_string(), 
+            (*actor.id).to_owned(), 
+            actor.type_name.to_string(),
+            actor.status.last_ns.to_string(), 
+            actor.status.avg_ns.to_string(), 
+            actor.status.min_ns.to_string(), 
+            actor.status.max_ns.to_string(), 
+            actor.status.outlier.to_string(),
+        ]);
+        rows.push(row.clone());
+        }
+
+        let t = Table::new(
+        rows,
+        [
+            Constraint::Length(6),
+            Constraint::Length(6),
+            Constraint::Length(47),
+            Constraint::Length(8),
+            Constraint::Length(6),
+            Constraint::Length(6),
+            Constraint::Length(6),
+            Constraint::Length(7),
+        ],
+        )
+        .header(header)
+        .highlight_style(self.theme.actor_table.selected)
+        .highlight_symbol(">> ")
+        .highlight_spacing(HighlightSpacing::Always);
+
+        let mut state = TableState::default().with_selected(self.row_index);
+        StatefulWidget::render(t, area, buf, &mut state);
     }
 
-    let t = Table::new(
-       rows,
-       [
-          Constraint::Length(6),
-          Constraint::Length(6),
-          Constraint::Length(47),
-          Constraint::Length(8),
-          Constraint::Length(6),
-          Constraint::Length(6),
-          Constraint::Length(6),
-          Constraint::Length(7),
-       ],
-    )
-    .header(header)
-    .highlight_style(THEME.actor_table.selected)
-    .highlight_symbol(">> ")
-    .highlight_spacing(HighlightSpacing::Always);
-
-    let mut state = TableState::default().with_selected(selected);
-    StatefulWidget::render(t, area, buf, &mut state);
- }
-
- fn render_scrollbar(area: Rect, buf: &mut Buffer, selected: usize, length: usize) {
-    let sb = Scrollbar::default()
-        .orientation(ScrollbarOrientation::VerticalLeft)
-        .begin_symbol(None)
-        .end_symbol(None)
-        .track_symbol(None)
-        .thumb_symbol("");
-    let mut state = ScrollbarState::default()
-       .content_length(length)
-       .position(selected);
-    let area = area.inner( Margin {
-        vertical: 1,
-        horizontal: 0,
-    });
-    StatefulWidget::render(sb, area, buf, &mut state);
-}
-
-fn render_bar_chart(area: Rect, buf: &mut Buffer, actors: &Vec<ActorData>) {
-    let mut groups = vec!();
-    for actor in actors {
-        groups.push(BarGroup::default()
-        .bars(&[
-            Bar::default()
-                .value(actor.status.avg_ns)
-                .style(THEME.chart.ave_bar)
-                .value_style(THEME.chart.ave_val)
-                .label("ave".into()),
-            Bar::default().value(actor.status.min_ns)
-                .style(THEME.chart.min_bar)
-                .value_style(THEME.chart.min_val)
-                .label("min".into()),
-            Bar::default().value(actor.status.max_ns)
-                .style(THEME.chart.max_bar)
-                .value_style(THEME.chart.max_val)
-                .label("max".into()),
-        ])
-        .label(Line::from((*actor.id).to_owned()).centered()));
+    fn render_scrollbar(&self, area: Rect, buf: &mut Buffer) {
+        let sb = Scrollbar::default()
+            .orientation(ScrollbarOrientation::VerticalLeft)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(None)
+            .thumb_symbol("");
+        let mut state = ScrollbarState::default()
+        .content_length(self.actors.len())
+        .position(self.row_index);
+        let area = area.inner( Margin {
+            vertical: 1,
+            horizontal: 0,
+        });
+        StatefulWidget::render(sb, area, buf, &mut state);
     }
 
-    Block::new().borders(Borders::TOP)
-            .title(Title::from(" Hearbeat Results ")
-            .alignment(Alignment::Left))
-            .render(area, buf);
-    let mut chart = BarChart::default()
-        .bar_width(THEME.chart.bar_width)
-        .group_gap(THEME.chart.group_gap);
+    fn render_bar_chart(&self, area: Rect, buf: &mut Buffer) {
+        let mut groups = vec!();
+        for actor in &self.actors {
+            groups.push(BarGroup::default()
+            .bars(&[
+                Bar::default()
+                    .value(actor.status.avg_ns)
+                    .style(self.theme.chart.ave_bar)
+                    .value_style(self.theme.chart.ave_val)
+                    .label("ave".into()),
+                Bar::default().value(actor.status.min_ns)
+                    .style(self.theme.chart.min_bar)
+                    .value_style(self.theme.chart.min_val)
+                    .label("min".into()),
+                Bar::default().value(actor.status.max_ns)
+                    .style(self.theme.chart.max_bar)
+                    .value_style(self.theme.chart.max_val)
+                    .label("max".into()),
+            ])
+            .label(Line::from((*actor.id).to_owned()).centered()));
+        }
 
-    for group in groups {
-        chart = chart.data(group);
+        Block::new().borders(Borders::TOP)
+                .title(Title::from(" Hearbeat Results ")
+                .alignment(Alignment::Left))
+                .render(area, buf);
+        let mut chart = BarChart::default()
+            .bar_width(self.theme.chart.bar_width)
+            .group_gap(self.theme.chart.group_gap);
+
+        for group in groups {
+            chart = chart.data(group);
+        }
+
+        let area = area.inner( Margin {
+            vertical: 2,
+            horizontal: 2,
+        });
+        chart.render(area, buf);
     }
-
-    let area = area.inner( Margin {
-        vertical: 2,
-        horizontal: 2,
-    });
-    chart.render(area, buf);
 }

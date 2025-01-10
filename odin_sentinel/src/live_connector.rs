@@ -106,6 +106,14 @@ impl SentinelConnector for LiveSentinelConnector {
     fn max_history(&self)->usize {
         self.config.max_history_len
     }
+
+    fn inactive_duration(&self)->Duration {
+        self.config.inactive_duration
+    }
+
+    fn inactive_interval(&self)->Duration {
+        self.config.inactive_interval
+    }
 }
 
 /* #endregion LiveSentinelConnector */

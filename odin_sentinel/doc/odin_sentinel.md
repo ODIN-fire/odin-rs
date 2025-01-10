@@ -39,7 +39,7 @@ informs client actors about the update.
                                             [sentinel.ron]╶╶╶╶╶╶╶╶╶╶╶┘                 │  └──────╎──────┘│ │                  
                                               config           │                       └─────────╎───────┘ │                  
                                                                └─────────────────────────────────╎─────────┘ 
-                                                                                          [odin_sentine.json] asset                 
+                                                                                          [odin_sentinel.json] asset                 
 ```
 
 Although `SentinelActor` can be connected to any client actor using `odin_action` for message interactions the `odin_sentinel` crate

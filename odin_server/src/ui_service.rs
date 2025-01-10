@@ -13,7 +13,10 @@
  */
 #![allow(unused)]
 
-use crate::{asset_uri, errors::OdinServerResult, load_asset, self_crate, spa::{SpaComponents, SpaService}};
+use crate::{asset_uri, load_asset, self_crate, build_service, 
+    errors::OdinServerResult, 
+    spa::{SpaComponents, SpaService,SpaServiceList}, 
+};
 
 /// this is a resource-only SpaService that provides ODINs UI framework including the
 /// window that is used to modify and store local themes. The initial theme can be
@@ -27,7 +30,6 @@ impl UiService {
 }
 
 impl SpaService for UiService {
-
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {
         spa.add_assets( self_crate!(), load_asset);
         
@@ -44,6 +46,7 @@ impl SpaService for UiService {
         spa.add_module( asset_uri!("ui_data.js"));
         spa.add_module( asset_uri!("ui_util.js"));
         spa.add_module( asset_uri!("ui.js"));
+        spa.add_module( asset_uri!("ui_windows.js"));
         spa.add_module( asset_uri!("ui_settings_config.js"));
         spa.add_module( asset_uri!("ui_settings.js"));
 

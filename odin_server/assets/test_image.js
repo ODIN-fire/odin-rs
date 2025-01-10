@@ -13,19 +13,17 @@
  */
 
 import * as ui from "../odin_server/ui.js";
+import * as uiw from "../odin_server/ui_windows.js";
 
 //ImageWindow (title, id, closeAction, icon, imgUri, caption, minScale, maxScale, initScale, w, h)
-let w = ui.ImageWindow( 
+let w = uiw.ImageWindow( 
     "Image Viewer",
-    "img1",
+    null, // "img1",
     ()=>{console.log("closed image viewer")},
-    "./asset/odin_server/settings.svg", 
     "./asset/odin_server/fire.webp",
+    //"https://upload.wikimedia.org/wikipedia/commons/0/05/Burnout_ops_on_Mangum_Fire_McCall_Smokejumpers.jpg",
     "test fire",
-    0.5, 2.0, 0.1, 1.0
+    800, 600,
+    100,100
 );
-
-ui.addWindow(w);
-ui.setWindowLocation(w, 100,100);
-ui.showWindow(w);
 

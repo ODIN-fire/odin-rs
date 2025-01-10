@@ -128,7 +128,7 @@ async fn main()->Result<()> {
     let cli = spawn_actor!( actor_system, "client", Client::new(max_rounds, pre_prov.to_actor_handle()))?;
 
     let prov = spawn_pre_actor!( actor_system, pre_prov, Provider::new( 
-        data_action!( cli: ActorHandle<ClientMsg> => |data: u64| Ok( cli.try_send_msg( Update(data))? ))
+        data_action!( let cli: ActorHandle<ClientMsg> = cli => |data: u64| Ok( cli.try_send_msg( Update(data))? ))
     ))?;
 
     actor_system.timeout_start_all(millis(20)).await?;

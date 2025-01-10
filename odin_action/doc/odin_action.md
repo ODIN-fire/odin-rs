@@ -77,10 +77,14 @@ and return an instance of this type. Those macros all follow the same pattern:
 //--- system construction site:
 let v1: String = ...
 let v2: u64 = ...
-let action = data_action!( v1.clone() : String, v2 => |data: Foo| {
-   println!("action executed with arg {:?} and captures v1={}, v2={}", data, v1, v2);
-   Ok(())
-});
+let action = data_action!{ 
+    let v1: String = v1.clone(), 
+    let v2: u64 = v2 => 
+    |data: Foo| {
+        println!("action executed with arg {:?} and captures v1={}, v2={}", data, v1, v2);
+    Ok(())
+    }
+};
 let actor = MyActor::new(..action..);
 ...
 //--- generic MyActor implementation:

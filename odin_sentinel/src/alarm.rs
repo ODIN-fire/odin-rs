@@ -13,9 +13,10 @@
  */
 
 use std::collections::{VecDeque,HashMap};
-use std::{time::Duration,sync::Arc,future::Future, path::PathBuf, io::Write};
+use std::{time::Duration,sync::Arc,future::Future, path::PathBuf, io::Write as IoWrite, fmt::Write as FmtWrite};
 use futures::SinkExt;
 use odin_common::fs::get_filename_extension;
+use odin_common::geo::GeoPoint4;
 use odin_common::sim_clock;
 use odin_common::{datetime::Dated,sim_clock::now,fs::{append_open,append_to_file,append_line_to_file}};
 use serde::{Deserialize,Serialize,Serializer};
@@ -26,9 +27,7 @@ use odin_actor::prelude::*;
 use odin_macro::{match_algebraic_type, define_struct};
 use uom::si::f32::Time;
 
-use crate::{op_failed, sentinel_cache_dir, 
-    ExternalImage, FireData, GetSentinelFile, RecordDataBounds, RecordRef, SensorRecord, 
-    SentinelDeviceInfo, SentinelDeviceInfos, SentinelFile, SentinelStore, SentinelUpdate, SmokeData
+use crate::{op_failed, sentinel_cache_dir, ExternalImage, FireData, GetSentinelFile, GetSentinelPosition, RecordDataBounds, RecordRef, SensorRecord, SentinelDeviceInfo, SentinelDeviceInfos, SentinelFile, SentinelInactiveAlert, SentinelStore, SentinelUpdate, SmokeData
 };
 use crate::actor::{SentinelActorMsg,GetSentinelUpdate};
 use crate::errors::{OdinSentinelError, Result};
@@ -39,16 +38,33 @@ pub struct Alarm {
     pub device_id: String,
     pub description: String,
     pub time_recorded: DateTime<Utc>,
+    pub pos: Option<GeoPoint4>,
+    pub alarm_type: String,
+    pub confidence: f64,
     pub evidence_info: Vec<EvidenceInfo>,
 }
 
 /// abstract data to describe an evidence record
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct EvidenceInfo {
     pub sensor_no: u32, // sensor this evidence was associated with
     pub description: String,
     pub img: Option<SentinelFile>,
 }
+
+// check if two EvidenceInfo Vecs have the same sensors (we use this to check for reported alarms)
+fn same_evidence_sensors (ev1: &Vec<EvidenceInfo>, ev2: &Vec<EvidenceInfo>)->bool {
+    if ev1.len() != ev2.len() { return false }
+
+    let mut n_matches = 0;
+    for a in ev1 {
+        for b in ev2 {
+           if a.sensor_no == b.sensor_no { n_matches += 1 }
+        }
+    }
+    n_matches == ev1.len()
+}
+
 
 /// abstract interface for messenger services (SMS< Signal, WhatsApp etc)
 /// since this is a simple interface that is hopefully not called too often we use `async_trait`` to
@@ -73,32 +89,38 @@ macro_rules! create_messengers {
 #[derive(Deserialize,Serialize,Debug)]
 #[serde(default)]
 pub struct SentinelAlarmMonitorConfig {
-    new_alarm_duration: Duration, // after which we consider this to be a new alarm
-    attach_image: bool,
-    image_timeout: Duration,
-    fire_prob: f64,
-    smoke_prob: f64,
-    old_alarm_duration: Duration, // after which we purge a stored alarm, needs to be > new_alarm_duration
-    device_infos: HashMap<String,String>
+    pub new_alarm_duration: Duration, // after which we consider this to be a new alarm. Zero means every alarm is reported
+    pub old_alarm_duration: Duration, // after which we purge a stored alarm, needs to be > new_alarm_duration
+
+    pub attach_image: bool,
+    pub image_timeout: Duration,
+    pub fire_prob: f64,
+    pub smoke_prob: f64,
 }
 
 impl Default for SentinelAlarmMonitorConfig {
     fn default()->Self {
         SentinelAlarmMonitorConfig {
             new_alarm_duration: minutes(10),
+            old_alarm_duration: Duration::from_mins(60),
             attach_image: true,
             image_timeout: Duration::from_secs(20),
             fire_prob: 0.7,
             smoke_prob: 0.7,
-            old_alarm_duration: Duration::from_mins(60),
-            device_infos: HashMap::new()
         }
     }
 }
 
+/// for now this is just a cache so that we don't have to retrieve EvidenceInfos on each check
+/// but we could add more context info here
+struct ReportedAlarm<T> where T: RecordDataBounds{
+    rec: Arc<SensorRecord<T>>,
+    evidence_info: Vec<EvidenceInfo>
+}
+
 const ALARM_HISTORY: usize = 10;
 
-define_actor_msg_set! { pub SentinelAlarmMonitorMsg = SentinelUpdate | Alarm }
+define_actor_msg_set! { pub SentinelAlarmMonitorMsg = SentinelUpdate | SentinelInactiveAlert | Alarm }
 
 /// the Sentinel Alarm Actor state
 define_struct! { pub SentinelAlarmMonitor =
@@ -107,90 +129,118 @@ define_struct! { pub SentinelAlarmMonitor =
     hupdater: ActorHandle<SentinelActorMsg>,
     messengers: Vec<Box<dyn AlarmMessenger>>,
 
-    reported_fire_alarms: VecDeque<Arc<SensorRecord<FireData>>> = VecDeque::with_capacity( ALARM_HISTORY),
-    reported_smoke_alarms: VecDeque<Arc<SensorRecord<SmokeData>>> = VecDeque::with_capacity( ALARM_HISTORY)
+    reported_fire_alarms: VecDeque<ReportedAlarm<FireData>> = VecDeque::with_capacity( ALARM_HISTORY),
+    reported_smoke_alarms: VecDeque<ReportedAlarm<SmokeData>> = VecDeque::with_capacity( ALARM_HISTORY),
+    inactive_alerts: Vec<SentinelInactiveAlert> = Vec::new()
 }
 
 impl SentinelAlarmMonitor {
 
-    fn check_new_alarm<T> (rec: &Arc<SensorRecord<T>>, reported_alarms: &mut VecDeque<Arc<SensorRecord<T>>>, config: &SentinelAlarmMonitorConfig) -> Option<String> 
-        where T: RecordDataBounds 
-    {
-        // Ok to panic if there is no sim_clock or the config is inconsistent (but should happen sooner?)
-        let now = Utc::now(); //sim_clock::now().unwrap(); 
-
-        //--- clean up first
-        let max_age = TimeDelta::from_std(config.old_alarm_duration).unwrap();
-        while let Some(back) = reported_alarms.back() {
-            if now - back.date() > max_age {
-                reported_alarms.pop_back();
-            } else {
-                break
-            }
-        }
-
-        //--- add it if new
-        if !Self::is_reported_alarm(rec, reported_alarms, config.new_alarm_duration) {
-            reported_alarms.push_front( rec.clone());
-            Some(format!("{}({},{})", rec.capability().property_name(), rec.device_id, rec.time_recorded.format("%Y-%m-%dT%H:%M:%S%Z")))
-        } else {
-            None
-        }
-    }
-
-    fn is_reported_alarm<T> (rec: &SensorRecord<T>, reported_alarms: &VecDeque<Arc<SensorRecord<T>>>, new_alarm_dur: Duration) -> bool where T: RecordDataBounds {
-        for ref alarm in reported_alarms {
-            if (alarm.device_id == rec.device_id) && (alarm.sensor_no == rec.sensor_no) {
-                // shall we base this on last (not first) reported time? Maybe we should keep a list here
-                let td = rec.time_recorded.signed_duration_since( alarm.time_recorded);
-                return (td < TimeDelta::zero()) || (td.to_std().unwrap() < new_alarm_dur)
-            } 
-        }
-        false
-    }
-
     async fn process_fire_alarm (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, rec: Arc<SensorRecord<FireData>>) {
         if rec.data.fire_prob >= self.config.fire_prob {
+            let mut evidence_info = self.retrieve_evidence( &self.hupdater, &rec.evidences, self.config.image_timeout).await;
+
             let reported_alarms = &mut self.reported_fire_alarms;
-            if let Some(alarm_id) = Self::check_new_alarm( &rec, reported_alarms, &self.config) {
+            if let Some(alarm_id) = Self::check_new_alarm( &rec, &evidence_info, reported_alarms, &self.config) {
                 let info: &str = self.device_infos.get(&rec.device_id).map(|s|s.name.as_str()).unwrap_or("");
                 let descr = format!("🔥 {}\ndevice: {} {}\nfire probability: {}", 
                     rec.time_recorded.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %Z"), rec.device_id, info, rec.data.fire_prob);
-                self.process_alarm( hself, &alarm_id, &rec.id, rec.device_id.clone(), descr, rec.time_recorded, &rec.evidences).await;
+                let alarm_type = rec.capability().property_name().to_string();
+                let confidence = rec.data.fire_prob;
+                self.process_alarm( hself, &alarm_id, &rec.id, rec.device_id.clone(), descr, rec.time_recorded, alarm_type, confidence, evidence_info).await;
             }
         }
     }
 
     async fn process_smoke_alarm (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, rec: Arc<SensorRecord<SmokeData>>) {
         if rec.data.smoke_prob >= self.config.smoke_prob {
+            let mut evidence_info = self.retrieve_evidence( &self.hupdater, &rec.evidences, self.config.image_timeout).await;
+
             let reported_alarms = &mut self.reported_smoke_alarms;
-            if let Some(alarm_id) = Self::check_new_alarm( &rec, reported_alarms, &self.config) { // could use 💨 here but most fires cause smoke alarms
+            if let Some(alarm_id) = Self::check_new_alarm( &rec, &evidence_info, reported_alarms, &self.config) { // could use 💨 here but most fires cause smoke alarms
                 let info: &str = self.device_infos.get(&rec.device_id).map(|s|s.name.as_str()).unwrap_or("");
                 let descr = format!("🔥 {}\ndevice: {} {}\nsmoke probability: {}", 
                     rec.time_recorded.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %Z"), rec.device_id, info, rec.data.smoke_prob);
-                self.process_alarm( hself, &alarm_id, &rec.id, rec.device_id.clone(), descr, rec.time_recorded, &rec.evidences).await;
+                let alarm_type = rec.capability().property_name().to_string();
+                let confidence = rec.data.smoke_prob;
+                self.process_alarm( hself, &alarm_id, &rec.id, rec.device_id.clone(), descr, rec.time_recorded, alarm_type, confidence, evidence_info).await;
             }
         }   
     }
 
-    async fn process_alarm (&self, hself: ActorHandle<SentinelAlarmMonitorMsg>, alarm_id: &str, record_id: &str, device_id: String, description: String, 
-                            time_recorded: DateTime<Utc>, evidence_recs: &Vec<RecordRef>) {
-        self.log_alarm( alarm_id, &description, evidence_recs);
+    fn check_new_alarm<T> (rec: &Arc<SensorRecord<T>>, evidence: &Vec<EvidenceInfo>, reported_alarms: &mut VecDeque<ReportedAlarm<T>>, config: &SentinelAlarmMonitorConfig) -> Option<String> 
+        where T: RecordDataBounds 
+    {
+        if config.new_alarm_duration.is_zero() { // every alarm is treated as a new one - no need to store ReportedAlarms
+            Some(format!("{}({},{})", rec.capability().property_name(), rec.device_id, rec.time_recorded.format("%Y-%m-%dT%H:%M:%S%Z")))
 
-        if !self.config.attach_image {  // send right away
-            hself.send_msg( Alarm { device_id, description, time_recorded, evidence_info: Vec::with_capacity(0) }).await;
+        } else {
+            // Ok to panic if there is no sim_clock or the config is inconsistent (but should happen sooner?)
+            let now = Utc::now(); //sim_clock::now().unwrap(); 
+
+            //--- clean up old alarms first
+            let max_age = TimeDelta::from_std(config.old_alarm_duration).unwrap();
+            reported_alarms.retain_mut( |alarm| now - alarm.rec.date() < max_age);
+
+            //--- add it if new
+            if !Self::is_reported_alarm(rec, evidence, reported_alarms, config.new_alarm_duration) {
+                let new_alarm = ReportedAlarm { rec: rec.clone(), evidence_info: evidence.clone() };
+                reported_alarms.push_front( new_alarm);
+                Some(format!("{}({},{})", rec.capability().property_name(), rec.device_id, rec.time_recorded.format("%Y-%m-%dT%H:%M:%S%Z")))
+            } else {
+                None
+            }
+        }
+    }
+
+    fn is_reported_alarm<T> (rec: &SensorRecord<T>, evidence: &Vec<EvidenceInfo>, reported_alarms: &VecDeque<ReportedAlarm<T>>, new_alarm_dur: Duration) -> bool where T: RecordDataBounds {
+        for ref alarm in reported_alarms {
+            // we count a differing evidence as a new alarm, no matter of how old. This is essential so that we don't
+            // treat alarms by different cameras of the same device as the same alarm
+            if (alarm.rec.device_id == rec.device_id) && (alarm.rec.sensor_no == rec.sensor_no) && same_evidence_sensors(evidence, &alarm.evidence_info){
+                // shall we base this on last (not first) reported time? Maybe we should keep a list here
+                let td = rec.time_recorded.signed_duration_since( alarm.rec.time_recorded);
+                return (td < TimeDelta::zero()) || (td.to_std().unwrap() < new_alarm_dur)
+            } 
+        }
+        false
+    }
+
+    async fn process_alarm (&self, hself: ActorHandle<SentinelAlarmMonitorMsg>, 
+        alarm_id: &str, record_id: &str, device_id: String, 
+        mut description: String, time_recorded: DateTime<Utc>, alarm_type: String, confidence: f64, mut evidence_info: Vec<EvidenceInfo>
+    ) 
+    {
+        self.log_alarm( alarm_id, &description, &evidence_info);
+        let hupdater = &self.hupdater;
+        let pos = self.retrieve_pos( hupdater, &device_id, time_recorded).await;
+        if let Some(p) = pos {
+            let alt_m = 180000.0; // [m] - we could use p.alt + x here
+            write!( description, "\nhttps://wildfireai.com/odin-fire/live?view={:.4},{:.4},{:.0}", 
+                    p.longitude().degrees(), p.latitude().degrees(), alt_m);
+        }
+
+        if !self.config.attach_image {  // we don't want images - send right away
+            hself.send_msg( Alarm { device_id, description, time_recorded, pos, alarm_type, confidence, evidence_info: Vec::with_capacity(0) }).await;
 
         } else { // we have to dig up the evidence image(s)
-            let hupdater = &self.hupdater;
             let timeout = self.config.image_timeout;
-
-            let mut evidence_info: Vec<EvidenceInfo> = self.retrieve_evidence( hupdater, evidence_recs, timeout).await;
 
             if let Some(device_info) = self.device_infos.get(&device_id) {
                 self.add_external_evidence( &mut evidence_info, device_info, hupdater, record_id, time_recorded, timeout).await;
             }
 
-            hself.send_msg( Alarm { device_id, description, time_recorded, evidence_info }).await;
+            hself.send_msg( Alarm { device_id, description, time_recorded, pos, alarm_type, confidence, evidence_info }).await;
+        }
+    }
+
+    async fn retrieve_pos (&self, hupdater: &ActorHandle<SentinelActorMsg>, device_id: &String, date: DateTime<Utc>) -> Option<GeoPoint4> {
+        match timeout_query_ref( hupdater, GetSentinelPosition{device_id: device_id.clone(),date}, secs(2)).await {
+            Ok(res) => res,
+            _ => {
+                warn!("failed to retrieve position for device {} at {}", device_id, date);
+                None
+            }
         }
     }
 
@@ -258,12 +308,45 @@ impl SentinelAlarmMonitor {
         }
     }
 
-    fn log_alarm (&self, alarm_descr: &str, description: &str, evidences: &Vec<RecordRef>) {
+    fn log_alarm (&self, alarm_descr: &str, description: &str, evidences: &Vec<EvidenceInfo>) {
         let path = sentinel_cache_dir().join("alarm.log");
         match append_open(path) {
             Ok(mut file) => { writeln!(file, "{}: {}", Local::now(), alarm_descr); }
             Err(e) => { error!("failed to append to alarm.log: {:?}", e) }
         };
+    }
+
+    async fn process_inactive_alert (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, alert: SentinelInactiveAlert) {
+        if !self.inactive_alerts.iter().find(|e| e.device_id == alert.device_id).is_some(){
+            let device_id = alert.device_id.clone();
+            let time_recorded = Utc::now();
+            let alarm_type = "status".to_string();
+            let alarm_id = format!("🔴 inactive {}", alert.device_id);
+            let description = if let Some(last_rep) = alert.last_time_recorded {
+                format!("last reported: {}", last_rep.format("%Y-%m-%dT%H:%M:%S%Z"))
+            } else {
+                "never reported".to_string()
+            };
+            let evidences = Vec::with_capacity(0);
+            
+            self.process_alarm( hself, &alarm_id, "", device_id, description, time_recorded, alarm_type, 1.0, evidences).await;
+
+            self.inactive_alerts.push(alert);
+        }
+    }
+
+    async fn check_inactive_alerts (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, device_id: &String, time_recorded: &DateTime<Utc>) {
+        if let Some(idx) = self.inactive_alerts.iter().position(|e| *device_id == e.device_id) {
+            self.inactive_alerts.remove(idx);
+
+            let time_recorded = Utc::now();
+            let alarm_type = "status".to_string();
+            let alarm_id = format!("🟢 active {}", device_id);
+            let description = format!("reported again: {}", time_recorded.format("%Y-%m-%dT%H:%M:%S%Z"));
+            let evidences = Vec::with_capacity(0);
+            
+            self.process_alarm( hself, &alarm_id, "", device_id.clone(), description, time_recorded, alarm_type, 1.0, evidences).await
+        }
     }
 }
 
@@ -273,8 +356,14 @@ impl_actor! { match msg for Actor<SentinelAlarmMonitor,SentinelAlarmMonitorMsg> 
         match_algebraic_type! { msg: SentinelUpdate as 
             Arc<SensorRecord<FireData>> => self.process_fire_alarm( hself, msg).await,
             Arc<SensorRecord<SmokeData>> => self.process_smoke_alarm( hself, msg).await,
-            _ => {} // not a record we are interested in
+            Arc<SensorRecord<ImageData>> => self.check_inactive_alerts( hself, &msg.device_id, &msg.time_recorded).await,
+            // TODO - we should add a couple other SensorRecords here that are frequently updated
+            _ => {} // the rest we ignore
         }
+    }
+    SentinelInactiveAlert => cont! {
+        let hself = self.hself();
+        self.process_inactive_alert( hself, msg).await
     }
     Alarm => cont! { // internal message that we have to send out notifications  
         for msgr in &self.messengers {
@@ -283,6 +372,7 @@ impl_actor! { match msg for Actor<SentinelAlarmMonitor,SentinelAlarmMonitorMsg> 
             }
         }
     }
+    
 }
 
 /* #endregion SentinelAlarm */
@@ -296,7 +386,9 @@ pub struct ConsoleAlarmMessenger {}
 impl AlarmMessenger for ConsoleAlarmMessenger {
     async fn send_alarm (&self, alarm: &Alarm)->Result<()> {
         //println!("ALARM: {alarm:?}");
-        println!("{} {}", Local::now(), alarm.description);
+        println!("{} :  {} {}", Local::now().format("%Y-%m-%dT%H:%M:%S"), alarm.alarm_type, alarm.device_id);
+        println!("{}", alarm.description);
+        println!();
         Ok(())
     }
 }

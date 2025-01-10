@@ -16,20 +16,50 @@ use chrono::{DateTime, TimeDelta, Local, NaiveDate, NaiveDateTime, NaiveTime, Ti
 use serde::{Serialize,Deserialize,Serializer,Deserializer};
 use std::time::{Duration, UNIX_EPOCH, SystemTime};
 use std::ffi::OsStr;
+use std::fmt;
 use parse_duration::parse;
 use crate::if_let;
 
+#[derive(Serialize,Deserialize,Debug,Clone,Copy,PartialEq)]
+pub struct EpochMillis(i64);
+
+impl EpochMillis {
+    pub fn now ()->Self { EpochMillis( Utc::now().timestamp_millis()) }
+
+    pub fn new(millis:i64)->Self { EpochMillis(millis) }
+    
+    pub fn millis(&self)->i64 { self.0 }
+}
+
+impl fmt::Display for EpochMillis {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", DateTime::<Utc>::from(*self))
+    }
+}
+
+impl<Tz> From<DateTime<Tz>> for EpochMillis where Tz: TimeZone {
+    fn from (date: DateTime<Tz>)->Self { EpochMillis(to_epoch_millis(date)) }
+}
+
+impl<Tz> From<EpochMillis> for DateTime<Tz> where Tz: TimeZone, DateTime<Tz>: From<DateTime<Utc>> {
+    fn from (millis: EpochMillis)->Self {
+        DateTime::<Utc>::from_timestamp_millis(millis.0).unwrap().into()
+    }
+}
+
+#[inline]
 pub fn epoch_millis ()->i64 {
     let now = Utc::now();
     now.timestamp_millis()
 }
 
+#[inline]
 pub fn to_epoch_millis<Tz> (date: DateTime<Tz>)->i64 where Tz: TimeZone {
     date.timestamp_millis()
 }
 
 /// return the full hour for given DateTime (minutes, seconds and nanos all zeroed)
-pub fn full_hour<Tz:TimeZone> ( dt: DateTime<Tz>)->DateTime<Tz> {
+pub fn full_hour<Tz:TimeZone> ( dt: &DateTime<Tz>)->DateTime<Tz> {
     dt.with_minute(0).unwrap().with_second(0).unwrap().with_nanosecond(0).unwrap()
 }
 
@@ -37,6 +67,14 @@ pub fn full_hour<Tz:TimeZone> ( dt: DateTime<Tz>)->DateTime<Tz> {
 pub fn elapsed_minutes_since (dt: &DateTime<Utc>) -> i64 {
     let now = chrono::offset::Utc::now();
     (now - *dt).num_minutes()
+}
+
+pub fn duration_since (dt_later: &DateTime<Utc>, dt_earlier: &DateTime<Utc>)->Duration {
+    if dt_later >= dt_earlier {
+        (*dt_later - *dt_earlier).to_std().unwrap()
+    } else { 
+        Duration::ZERO
+    }
 }
 
 pub fn is_between_inclusive (dt: &DateTime<Utc>, dt_start: &DateTime<Utc>, dt_end: &DateTime<Utc>) -> bool {

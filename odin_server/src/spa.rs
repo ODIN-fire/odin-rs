@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -13,21 +13,21 @@
  */
 #![allow(unused)]
 
-use std::{boxed, collections::HashMap, sync::{Arc,Mutex}, ops::{Deref,DerefMut},
-    net::SocketAddr, future::{Future,ready}, time::SystemTime, 
+use std::{boxed, collections::HashMap, sync::Arc, ops::{Deref,DerefMut}, 
+    net::SocketAddr, future::{Future,ready}, time::SystemTime,
     path::{PathBuf}, any::type_name, fmt::Write,
     result::Result, error::Error
 };
 use axum::{
-    body::Body, 
+    body::Body,
     extract::{
-        connect_info::ConnectInfo, 
-        ws::{Message, WebSocket, WebSocketUpgrade}, 
-        FromRef, {Path as AxumPath}, Query, RawQuery, Request, State
-    }, 
-    http::{StatusCode, Uri}, 
-    middleware::map_request, response::{Html, IntoResponse, Response}, 
-    routing::get, 
+        connect_info::ConnectInfo,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        FromRef, Path as AxumPath, Query, RawQuery, Request, State
+    },
+    http::{HeaderMap, StatusCode, Uri},
+    middleware::map_request, response::{Html, IntoResponse, Response},
+    routing::get,
     Router,ServiceExt
 };
 use axum_server::{service::MakeService, tls_rustls::RustlsConfig};
@@ -38,19 +38,19 @@ use http_body_util::{Full, BodyExt, combinators::UnsyncBoxBody};
 use odin_build::OdinBuildError;
 use tower_http::{services::ServeDir,trace::TraceLayer};
 use tracing_subscriber::EnvFilter;
-use reqwest::{header::{self, SET_COOKIE}, Client};
-use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest::{header::{self, SET_COOKIE}, Client, RequestBuilder};
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware, RequestBuilder as MwRequestBuilder};
 use http_cache_reqwest::{Cache, CacheMode, CACacheManager, HttpCache, HttpCacheOptions};
 use serde::{Deserialize,Serialize};
 use async_trait::async_trait;
 
 use odin_build::LoadAssetFp;
-use odin_common::{fs::get_file_basename,strings};
+use odin_common::{fs::get_file_basename,strings::{self, mk_query_string}};
 use odin_macro::define_struct;
 use odin_actor::prelude::*;
 
-use crate::{errors::{connect_error, init_error, OdinServerError}, get_asset_response};
-use crate::errors::{OdinServerResult,op_failed};
+use crate::{load_asset, asset_uri, self_crate, get_asset_response, spawn_server_task, ServerConfig, WsMsg, WsMsgParts, ws_service};
+use crate::errors::{connect_error, init_error, op_failed, OdinServerError, OdinServerResult};
 
 /// the trait that abstracts a single page application service, which normally represents a visualization
 /// layer with its own data (either dynamic or static) and document assets (such as Javascript modules
@@ -59,17 +59,17 @@ use crate::errors::{OdinServerResult,op_failed};
 pub trait SpaService: Send + Sync + 'static {
     /// override this if the service depends on other services. Default is it doesn't
     fn add_dependencies (&self, sb: SpaServiceList)->SpaServiceList {sb} // defaut is no dependencies
-    
+
     /// this adds document fragments and route data for this micro service
     /// Called during server construction to accumulate components of all included SpaServices
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>;
 
     /// is this a service that implements a websocket
-    fn is_websocket (&self)->bool { 
+    fn is_websocket (&self)->bool {
         false
     }
 
-    /// called from server actor after receiving an AddConnection message from the ws route handler  
+    /// called from server actor after receiving an AddConnection message from the ws route handler
     /// If data is not owned by service this triggers a data action
     /// NOTE: this is called from within the actor loop of the server, i.e. we should NOT await message sends
     /// to the server from within init_connection() implementations as this might deadlock if the server mailbox is full.
@@ -82,22 +82,47 @@ pub trait SpaService: Send + Sync + 'static {
     /// of the actor providing service data. It is useful if the ws messages to be sent would be expensive to create
     /// and hence should be avoided if there are no connections yet.
     /// Returns a result with a boolean value indicating if the data required by the service is available
-    async fn data_available (&mut self, hself: &ActorHandle<SpaServerMsg>, has_connections: bool, 
+    async fn data_available (&mut self, hself: &ActorHandle<SpaServerMsg>, has_connections: bool,
                              sender_id: &str, data_type: &str) -> OdinServerResult<bool> {
         Ok(true)
     }
 
-    /// called from ws input task of respective connection
-    async fn handle_incoming_ws_msg (&mut self, msg: String) -> OdinServerResult<()> {
-        Ok(())
+    /// called from within the server task. Override if service processes incomingg websocket message.
+    /// Although we pass in hself and hence services could send SendWsMsg/BroadcastWsMsg messages to respond we also
+    /// use a result type that can bypass additional messages since this is already executing in the SpaServer actor task
+    async fn handle_ws_msg (&mut self, 
+        hself: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr, ws_msg_parts: &WsMsgParts
+    ) -> OdinServerResult<WsMsgReaction> {
+        Ok( WsMsgReaction::None )
+    }
+
+    /// called when a connection is dropped by the client. Use to clean up SpaService instances that have to keep track of connections
+    /// This is async so that it can send messages (e.g. to Broadcase WsMsgs to other connections)
+    async fn remove_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr) -> OdinServerResult<()> {
+       Ok(())
+    }
+
+    /// called when the SpaServer is terminated. Use to store persistent data of a SpaService.
+    /// Note this is sync and does not provide a server handle since that server wouldn't process any more messages
+    fn terminate_service (&mut self) {
+        // no default action
     }
 }
 
-/// SpaServer internal structure to keep track of SpaService state
+/// Service response to incoming websocket messages
+#[derive(PartialEq)]
+pub enum WsMsgReaction {
+    Send(String),
+    Broadcast(String),
+    None
+}
+
+/// SpaServer internal structure to keep track of SpaService objects and their server-specific state
 struct SpaSvc {
-    service: Box<dyn SpaService>,
+    service: Box<dyn SpaService>, // we can keep this in a Box since this is not shared and only used from within the actor task
     is_data_available: bool, // this is where we store the data_available() response of the service
 }
+
 impl SpaSvc {
     pub fn new (service: impl SpaService)->Self {
         SpaSvc {
@@ -106,10 +131,12 @@ impl SpaSvc {
         }
     }
 }
+
 impl Deref for SpaSvc {
     type Target = Box<dyn SpaService>;
     fn deref(&self) -> &Self::Target { &self.service }
 }
+
 impl DerefMut for SpaSvc {
     fn deref_mut(&mut self) -> &mut Self::Target { &mut self.service }
 }
@@ -118,7 +145,7 @@ impl DerefMut for SpaSvc {
 /// Each service type is included just once, in the order of first occurrence
 pub struct SpaServiceList {
     seen: Vec<&'static str>,
-    services: Vec<SpaSvc>
+    services: Vec<SpaSvc>,
 }
 
 impl SpaServiceList {
@@ -155,19 +182,6 @@ impl SpaConnection {
     }
 }
 
-#[derive(Deserialize,Serialize,Debug)]
-pub struct TlsConfig {
-    pub cert_path: String, // path to PEM encoded certificate
-    pub key_path: String,  // path to PEM encoded key data
-}
-
-#[derive(Deserialize,Serialize,Debug)]
-pub struct SpaServerConfig {
-    pub sock_addr: SocketAddr,
-    pub tls: Option<TlsConfig>, // if set use TLS (https)
-}
-
-
 /// this is the state that can be passed into service specific axum handlers
 /// note this has to clone efficiently and needs to be invariant
 #[derive(Clone)]
@@ -178,7 +192,7 @@ pub struct SpaServerState {
 
 /// the actor state for a single page application server actor
 pub struct SpaServer {
-    config: SpaServerConfig,
+    config: ServerConfig,
     name: String, // this is not from the config so that we can have the same for different apps
     services: Vec<SpaSvc>,
 
@@ -188,10 +202,10 @@ pub struct SpaServer {
 
 impl SpaServer {
 
-    pub fn new (config: SpaServerConfig, name: impl ToString, service_list: SpaServiceList)->Self {
-        SpaServer { 
-            config, 
-            name: name.to_string(), 
+    pub fn new (config: ServerConfig, name: impl ToString, service_list: SpaServiceList)->Self {
+        SpaServer {
+            config,
+            name: name.to_string(),
             services: service_list.services,
             connections: HashMap::new(),
             server_task: None,
@@ -207,7 +221,7 @@ impl SpaServer {
     }
 
     /// called when receiving _Start_ message
-    async fn start_server (&mut self, hself: ActorHandle<SpaServerMsg>)->OdinServerResult<()> {
+    fn start_server (&mut self, hself: ActorHandle<SpaServerMsg>)->OdinServerResult<()> {
         if self.server_task.is_none() {
             if cfg!(feature="trace_server") {
                 // note this only succeeds if there is no global subscriber set yet
@@ -217,25 +231,9 @@ impl SpaServer {
                     .try_init();
             }
 
-            let sock_addr = self.config.sock_addr.clone();
-            let router = self.build_router( &hself)?.into_make_service_with_connect_info::<SocketAddr>();
-
-            self.server_task = if let Some(tls) = &self.config.tls {
-                println!("serving https://{}/{}", self.config.sock_addr, self.name);
-                let cert_path = strings::env_expand( &tls.cert_path);
-                let key_path = strings::env_expand( &tls.key_path);
-                Some( tokio::spawn( async move {
-                    let tls_config = RustlsConfig::from_pem_file(PathBuf::from(cert_path), PathBuf::from(key_path)).await.unwrap();
-                    axum_server::bind_rustls( sock_addr, tls_config).serve( router).await.unwrap();
-                }))
-
-            } else {
-                println!("serving http://{}/{}", sock_addr, self.name);
-                Some( tokio::spawn( async move {
-                    let listener = tokio::net::TcpListener::bind(sock_addr).await.unwrap();
-                    axum::serve( listener, router).await.unwrap();    
-                }))
-            };
+            println!("serving SPA on {}/{}", self.config.url(), self.name);
+            let router = self.build_router( &hself)?;
+            self.server_task = Some(spawn_server_task( &self.config, router));
             Ok(())
 
         } else {
@@ -248,7 +246,7 @@ impl SpaServer {
         let doc = Arc::new(comps.to_html( &self.name));
         let proxies = comps.proxies;
         let assets = comps.assets;
-        
+
         let mut router = Router::new()
             //--- the document route
             .route( &format!("/{}", self.name), get({
@@ -272,7 +270,7 @@ impl SpaServer {
             .route( &format!("/{}/proxy/*unmatched", self.name), get({
                 let mode = CacheMode::Default;
                 let manager = CACacheManager { path: odin_build::cache_dir().join("proxies") };
-                let options = HttpCacheOptions::default();    
+                let options = HttpCacheOptions::default();
                 let http_client = ClientBuilder::new(Client::new())
                     .with( Cache( HttpCache {mode, manager, options}))
                     .build();
@@ -297,27 +295,27 @@ impl SpaServer {
         (StatusCode::OK, Body::from(doc.to_string())).into_response()
     }
 
-    async fn proxy_handler (path: AxumPath<String>, query: RawQuery, req: Request, 
-                            http_client: ClientWithMiddleware, proxies: HashMap<String,String>) -> Response {
+    async fn proxy_handler (path: AxumPath<String>, query: RawQuery, req: Request,
+                            http_client: ClientWithMiddleware, proxies: HashMap<String,ProxySpec>) -> Response {
         if let Some(idx) = path.find('/') {
             let key = &path[0..idx];
 
-            if let Some(base_uri) = proxies.get(key) {
+            if let Some(proxy_spec) = proxies.get(key) {
                 let rel_path = &path[idx+1..];
-                let uri = Self::get_proxy_uri( base_uri, rel_path, query);
-        
-                let reqwest_response = match http_client.get( uri).send().await {
+                let proxy_req = proxy_spec.create_request( &http_client, rel_path, &query, req.headers());
+
+                let reqwest_response = match proxy_req.send().await {
                     Ok(res) => res,
                     Err(err) => {
                         return (StatusCode::BAD_REQUEST, Body::empty()).into_response();
                     }
                 };
-        
+
                 Response::builder()
                     .status(reqwest_response.status().as_u16())
                     .body(Body::from_stream(reqwest_response.bytes_stream()))
                     .unwrap()
-        
+
             } else {
                 (StatusCode::BAD_REQUEST, "not proxied").into_response()
             }
@@ -326,27 +324,6 @@ impl SpaServer {
         }
     }
 
-    fn get_proxy_uri (base_uri: &str, path: &str, query: RawQuery)->String {
-        let qs = if let Some(qs) = &query.0 { qs.as_str() } else { "" };
-
-        let len = base_uri.len() + path.len() + 1 + qs.len() + 1;
-        let mut uri = String::with_capacity(len);
-        uri.push_str( base_uri);
-
-        if path.len() > 0 {
-            if !(path.starts_with('?') || path.starts_with('/')) { 
-                uri.push('/'); 
-            }
-            uri.push_str( path);
-        }
-
-        if qs.len() > 0 {
-            uri.push('?');
-            uri.push_str(qs)
-        }
-
-        uri
-    }
 
     async fn asset_handler (uri_elems: AxumPath<(String,String)>, req: Request,
                             assets: HashMap<&'static str,LoadAssetFp>) -> Response {
@@ -384,13 +361,12 @@ impl SpaServer {
                     match msg.into_text() {
                         Ok(msg) => {
                             if !msg.is_empty() {
-                                println!("@@ received ws: {}", msg)
-                                // dispatch to respective SpaService handler here
+                                hself.send_msg( DispatchIncomingWsMsg{remote_addr,ws_msg: msg}).await;
                             }
                         }
                         Err(e) => println!("ignoring binary message")
                     }
-                    
+
                 }
                 hself.send_msg( RemoveConnection{remote_addr}).await;
             })?
@@ -407,12 +383,17 @@ impl SpaServer {
         Ok(())
     }
 
-    fn remove_connection (&mut self, remote_addr: SocketAddr)->OdinServerResult<()> {
+    async fn remove_connection (&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr)->OdinServerResult<()> {
         self.connections.remove(&remote_addr);
+
+        for svc in self.services.iter_mut() { 
+            svc.service.remove_connection( &hself, &remote_addr).await?;
+        }
+
         Ok(())
     }
 
-    // TODO - these should use timeouts (we can't have a connection block the server)
+    // FIXME - these should use timeouts (we can't have a connection block the server)
 
     async fn data_available (&mut self, hself: ActorHandle<SpaServerMsg>, sender_id: &'static str, data_type: &'static str)->OdinServerResult<()> {
         let has_connections = self.has_connections();
@@ -422,6 +403,33 @@ impl SpaServer {
                 Ok(true) => svc.is_data_available = true,
                 Ok(false) => {}
                 Err(e) => error!("data available check failed: {e}")
+            }
+        }
+        Ok(())
+    }
+
+    /// called when receiving a DispatchIncomingWsMsg actor message
+    async fn dispatch_incoming_ws_msg (&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr, msg: String)->OdinServerResult<()> {
+        if let Some( ws_msg_parts ) = ws_service::extract_ws_msg_parts(&msg) {
+            // this is ugly - we have to sequentialize the service loop and the response processing so that we don't keep the mutable self borrow open, 
+            // which would prohibit to call broadcast_/send_ws_msg(&mut self,...). The nested loops are just a way to avoid heap allocating the results
+            let mut i = 0;
+            let n = self.services.len();
+
+            while i < n {
+                let mut response: WsMsgReaction = WsMsgReaction::None;
+
+                for svc in &mut self.services[i..] {
+                    response = svc.handle_ws_msg( &hself, &remote_addr, &ws_msg_parts).await?;
+                    i += 1;
+                    if response != WsMsgReaction::None { break }
+                }
+
+                match response {
+                    WsMsgReaction::Broadcast(m) => self.broadcast_ws_msg(m).await?,
+                    WsMsgReaction::Send(m) => self.send_ws_msg( remote_addr, m).await?,
+                    WsMsgReaction::None => {}
+                }
             }
         }
         Ok(())
@@ -440,10 +448,39 @@ impl SpaServer {
         Ok(())
     }
 
-    /// send a ws message to the connection of the provided client address
+    /// send ws message to all but `except_addr`. Use this for messages that originate from `except_addr`
+    /// and should only be distributed to other connections
+    async fn send_all_others_ws_msg (&mut self, except_addr: SocketAddr, m: String)->OdinServerResult<()> {
+        let ws_msg = Message::Text(m);
+        for conn in self.connections.values_mut() {
+            if conn.remote_addr != except_addr {
+                if let Err(e) = conn.ws_sender.send(ws_msg.clone()).await {
+                    error!("failed to distribute ws message to {:?}: {}", conn.remote_addr, e);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// send ws message to the provided group of remote addresses
+    async fn send_group_ws_msg (&mut self, addr_group: Vec<SocketAddr>, m: String)->OdinServerResult<()> {
+        let ws_msg = Message::Text(m);
+        for remote_addr in &addr_group {
+            if let Some(conn) = self.connections.get_mut(remote_addr) {
+                if let Err(e) = conn.ws_sender.send(ws_msg.clone()).await {
+                    error!("failed to distribute ws message to {:?}: {}", conn.remote_addr, e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// send a ws message to `remote_addr`
     async fn send_ws_msg (&mut self, remote_addr: SocketAddr, m: String)->OdinServerResult<()> {
+        let ws_msg = Message::Text(m);
         if let Some(conn) = self.connections.get_mut( &remote_addr) {
-            if let Err(e) = conn.send( m).await {
+            if let Err(e) = conn.ws_sender.send( ws_msg).await {
                 error!("failed to send ws message to {:?}: {}", conn.remote_addr, e);
             }
         }
@@ -453,6 +490,10 @@ impl SpaServer {
     /// called when receiving _Terminate_ message
     fn stop_server (&mut self)->OdinServerResult<()> {
         if let Some(jh) = &self.server_task {
+            for svc in self.services.iter_mut() { 
+                svc.service.terminate_service();
+            }
+
             jh.abort();
             self.server_task = None;
             Ok(())
@@ -462,16 +503,17 @@ impl SpaServer {
     }
 }
 
+
 /* #region actor *********************************************************************************************/
 
 #[derive(Debug)]
-pub struct AddConnection { 
-    pub remote_addr: SocketAddr, 
-    pub ws: WebSocket 
+pub struct AddConnection {
+    pub remote_addr: SocketAddr,
+    pub ws: WebSocket
 }
 
 #[derive(Debug)]
-pub struct RemoveConnection { 
+pub struct RemoveConnection {
     pub remote_addr: SocketAddr,
 }
 
@@ -482,50 +524,90 @@ pub struct DataAvailable {
 }
 
 #[derive(Debug)]
-pub struct BroadcastWsMsg { 
-    pub data: String 
+pub struct DispatchIncomingWsMsg {
+    pub remote_addr: SocketAddr,
+    pub ws_msg: String
+}
+
+/// send websocket msg to all connections
+#[derive(Debug)]
+pub struct BroadcastWsMsg {
+    pub data: String
+}
+
+/// send websocket msg to all other connections than `except_addr`
+#[derive(Debug)]
+pub struct SendAllOthersWsMsg {
+    pub except_addr: SocketAddr,
+    pub data: String,
 }
 
 #[derive(Debug)]
-pub struct SendWsMsg { 
-    pub remote_addr: SocketAddr, 
-    pub data: String 
+pub struct SendGroupWsMsg {
+    pub addr_group: Vec<SocketAddr>,
+    pub data: String,
 }
 
-define_actor_msg_set! { pub SpaServerMsg = AddConnection | DataAvailable | BroadcastWsMsg | SendWsMsg | RemoveConnection }
+/// send websocket msg to `remote_addr``
+#[derive(Debug)]
+pub struct SendWsMsg {
+    pub remote_addr: SocketAddr,
+    pub data: String
+}
 
-impl_actor! { match msg for Actor<SpaServer,SpaServerMsg> as
-    _Start_ => cont! { 
+define_actor_msg_set! { pub SpaServerMsg =
+     AddConnection | DataAvailable | DispatchIncomingWsMsg | BroadcastWsMsg | SendAllOthersWsMsg | SendGroupWsMsg | SendWsMsg | RemoveConnection 
+}
+
+impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
+    _Start_ => cont! {
         let hself = self.hself.clone();
-        if let Err(e) = self.start_server( hself).await {
+        if let Err(e) = self.start_server( hself) {
             error!("failed to start server: {e:?}");
         }
     }
     AddConnection => cont! {
         let hself = self.hself.clone();
-        if let Err(e) = self.add_connection( hself, msg.remote_addr, msg.ws).await {
-            error!("failed to add connection to {:?}: {:?}", msg.remote_addr, e);
+        if let Err(e) = self.add_connection( hself, actor_msg.remote_addr, actor_msg.ws).await {
+            error!("failed to add connection to {:?}: {:?}", actor_msg.remote_addr, e);
         }
     }
     DataAvailable => cont! {
         let hself = self.hself.clone();
-        if let Err(e) = self.data_available( hself, msg.sender_id, msg.data_type).await {
+        if let Err(e) = self.data_available( hself, actor_msg.sender_id, actor_msg.data_type).await {
             error!("failed to notify data availability: {e:?}");
         }
     }
+    DispatchIncomingWsMsg => cont! {
+        let hself = self.hself.clone();
+        if let Err(e) = self.dispatch_incoming_ws_msg( hself, actor_msg.remote_addr, actor_msg.ws_msg).await {
+            error!("failed to dispatch incoming ws message: {e:?}");
+        }
+    }
     BroadcastWsMsg => cont! {
-        if let Err(e) = self.broadcast_ws_msg( msg.data).await {
+        if let Err(e) = self.broadcast_ws_msg( actor_msg.data).await {
             error!("failed to broadcast ws message: {e:?}");
         }
     }
+    SendAllOthersWsMsg => cont! {
+        if let Err(e) = self.send_all_others_ws_msg( actor_msg.except_addr, actor_msg.data).await {
+            error!("failed to broadcast ws message: {e:?}");
+        }
+    }
+    SendGroupWsMsg => cont! {
+        if let Err(e) = self.send_group_ws_msg( actor_msg.addr_group, actor_msg.data).await {
+            error!("failed to send ws message: {e:?}");
+        }
+    }
     SendWsMsg => cont! {
-        if let Err(e) = self.send_ws_msg( msg.remote_addr, msg.data).await {
+        if let Err(e) = self.send_ws_msg( actor_msg.remote_addr, actor_msg.data).await {
             error!("failed to send ws message: {e:?}");
         }
     }
     RemoveConnection => cont! {
-        if let Err(e) = self.remove_connection( msg.remote_addr) {
-            error!("failed to remove connection to {:?}: {:?}", msg.remote_addr, e);
+        let hself = self.hself.clone();
+        if let Err(e) = self.remove_connection( hself, actor_msg.remote_addr).await {
+            error!("failed to remove connection to {:?}: {:?}", actor_msg.remote_addr, e);
         }
     }
     _Terminate_ => stop! {
@@ -558,10 +640,10 @@ impl HeaderItem {
 /// accumulator for components of a single page application, including the parts that make up the document and the routes
 /// to serve it (including referenced assets and proxied urls). This data structure is our internal model of
 /// the SPA data
-define_struct! { pub SpaComponents = 
+define_struct! { pub SpaComponents =
 
     //--- static document components
-    header_items: Vec<HeaderItem> = Vec::new(), 
+    header_items: Vec<HeaderItem> = Vec::new(),
     body_frags: Vec<String>  = Vec::new(),  // HTML elements to add to the body
 
     //--- components that are used to create the Router
@@ -570,7 +652,7 @@ define_struct! { pub SpaComponents =
     routes: Vec<Box<dyn FnOnce(Router,SpaServerState)->Router + 'static>> = Vec::new(),
 
     // the URIs we proxy. The key is the symbolic name for the proxied server, the value is the remote URI prefix to use
-    proxies: HashMap<String,String> = HashMap::new(), 
+    proxies: HashMap<String,ProxySpec> = HashMap::new(), // symbolic-name -> ProxySpec
 
     // asset data to serve - the key is the crate name and the value is a crate-specific function to
     // get the asset data for a filename. Both crate and filename are extracted from the request URI.
@@ -579,10 +661,84 @@ define_struct! { pub SpaComponents =
     assets: HashMap<&'static str, fn(&str)->std::result::Result<Bytes,OdinBuildError>> = HashMap::new()
 }
 
+/// struct to define how we create requests for proxied URIs
+#[derive(Debug,Clone)]
+struct ProxySpec {
+    uri: String,                     // the target URI to get the data from
+    copy_hdrs: Vec<String>,          // header keys to copy from the incoming request
+    add_hdrs: Vec<(String,String)>,  // header key/value strings to add
+    copy_query: bool,                // shall we copy the query string from the incoming request
+    add_query: Option<String>        // query string to add
+}
+
+impl ProxySpec {
+
+    fn create_request (&self, http_client: &ClientWithMiddleware, rel_path: &str, query: &RawQuery, hdr_map: &HeaderMap) -> MwRequestBuilder {
+        let uri = self.get_uri( rel_path, query);
+        let request_builder = http_client.get(uri);
+
+        self.add_headers( request_builder, hdr_map)
+    }
+
+    fn get_uri (&self, rel_path: &str, query: &RawQuery) -> String {
+        let qs = if let Some(qs) = &query.0 { qs.as_str() } else { "" };
+        let add_qs = if let Some(add_qs) = &self.add_query { add_qs.as_str() } else { "" };
+
+        let mut len = self.uri.len() + rel_path.len() + 1 + qs.len() + 1 + add_qs.len() + 1; // just the upper bound
+        let mut uri = String::with_capacity(len);
+        uri.push_str( &self.uri);
+
+        if rel_path.len() > 0 {
+            if !(rel_path.starts_with('?') || rel_path.starts_with('/')) {
+                uri.push('/');
+            }
+            uri.push_str( rel_path);
+        }
+
+        if self.copy_query {
+            if qs.len() > 0 {
+                uri.push('?');
+                uri.push_str(qs)
+            }
+        }
+
+        if add_qs.len() > 0 {
+            if qs.len() == 0 { uri.push('?') } else { uri.push('&') }
+            uri.push_str( add_qs)
+        }
+
+        uri
+    }
+
+    fn add_headers (&self, req_builder: MwRequestBuilder, hdr_map: &HeaderMap) -> MwRequestBuilder {
+        let mut req_builder = req_builder;
+
+        if !self.copy_hdrs.is_empty() {
+            for (k,v) in hdr_map.iter() {
+                let key = k.as_str();
+                for s in &self.copy_hdrs {
+                    if s.eq_ignore_ascii_case(key) {
+                        req_builder = req_builder.header(k, v);
+                        break;
+                    }
+                }
+            }
+        }
+
+        for (k,v) in &self.add_hdrs {
+            req_builder = req_builder.header(k, v);
+        }
+
+        req_builder
+    }
+}
+
 impl SpaComponents {
 
     fn from_svcs (services: &Vec<SpaSvc>)->OdinServerResult<SpaComponents> {
         let mut comps = SpaComponents::new();
+        comps.add_intrinsics();
+
         for svc in services {
             svc.add_components( &mut comps).map_err(|e| init_error(e))?;
         }
@@ -590,11 +746,12 @@ impl SpaComponents {
     }
 
     pub fn from (svc_list: &SpaServiceList)->OdinServerResult<SpaComponents> {
-        let mut comps = SpaComponents::new();
-        for svc in &svc_list.services {
-            svc.add_components( &mut comps).map_err(|e| init_error(e))?;
-        }
-        Ok(comps)
+        Self::from_svcs(  &svc_list.services)
+    }
+
+    fn add_intrinsics (&mut self) {
+        self.add_assets( self_crate!(), load_asset); // we always serve odin_server assets
+        self.add_module( asset_uri!("main.js")); // we always load main.js
     }
 
     //--- the functions used to add SpaService components (normally by the `SpaService::add_components()` impl)
@@ -620,13 +777,29 @@ impl SpaComponents {
         self.assets.insert( key, load_asset_fn);
     }
 
-    pub fn add_proxy (&mut self, key: impl ToString, uri_base: impl ToString) {
+    pub fn add_proxy (&mut self,
+        key: impl ToString,
+        uri_base: impl ToString,
+        copy_hdrs: Vec<String>,
+        add_hdrs: Vec<(String,String)>,
+        copy_query: bool,
+        add_query: Vec<(String,String)>
+    ) {
         let mut uri = uri_base.to_string();
+
         if uri.ends_with('/') { // canonicalize so that we don't have to check on every use
             uri.pop();
         }
 
-        self.proxies.insert( key.to_string(), uri);
+        // turn tuple vector into properly formatted query string once so that we don't have to do this for every request
+        let add_query: Option<String> = if add_query.is_empty() {
+            None
+        } else {
+            Some( mk_query_string(add_query.iter()) )
+        };
+
+        let proxy_spec = ProxySpec{uri,copy_hdrs,add_hdrs,copy_query,add_query};
+        self.proxies.insert( key.to_string(), proxy_spec);
     }
 
     /// render HTML document. We could use a lib such as build_html but our documents are rather simple so there is no
@@ -634,7 +807,7 @@ impl SpaComponents {
     /// TODO - remove newlines in production
     pub fn to_html(&self, name: &str)->String {
         let mut buf = String::with_capacity(4096);
-        
+
         write!( buf, "<!DOCTYPE html>\n");
         write!( buf, "<html>\n");
         write!( buf, "<head>\n");
@@ -649,7 +822,7 @@ impl SpaComponents {
         write!( buf, "</head>\n");
         write!( buf, "<body>\n");
 
-        for frag in &self.body_frags { 
+        for frag in &self.body_frags {
             write!( buf, "{frag}\n");
         }
 
@@ -688,6 +861,3 @@ impl SpaComponents {
 }
 
 /* #endregion single page app components */
-
-
-

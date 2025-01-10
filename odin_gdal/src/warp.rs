@@ -21,7 +21,7 @@ use gdal::cpl::CslStringList;
 use gdal::spatial_ref::SpatialRef;
 use gdal_sys::{GDALDatasetH, GDALProgressFunc, GDALWarpOptions, CPLErr::CE_None, CPLErr};
 use libc::{c_void,c_char,c_int, c_double};
-use odin_common::geo::BoundingBox;
+use odin_common::BoundingBox;
 use crate::{ok_non_null, ok_mut_non_null, ok_not_zero, ok_ce_none};
 use crate::errors::{Result,last_gdal_error, misc_error, OdinGdalError, reset_last_gdal_error};
 

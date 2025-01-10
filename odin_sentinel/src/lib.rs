@@ -14,6 +14,7 @@
 #![allow(unused)]
 #![feature(trait_alias,exit_status_error,duration_constructors)]
 
+use std::u64;
 #[doc = include_str!("../doc/odin_sentinel.md")]
 
 use std::{
@@ -27,16 +28,16 @@ use ron::{self, to_string};
 use chrono::{DateTime,Utc};
 use strum::IntoStaticStr;
 use tokio_util::bytes::Buf;
-use uom::si::f64::{Velocity,ThermodynamicTemperature,ElectricCurrent,ElectricPotential};
+use uom::si::{length::meter};
+use uom::si::f64::{Angle,Length,Velocity,ThermodynamicTemperature,ElectricCurrent,ElectricPotential};
 use reqwest::{Client,Response};
 use async_trait::async_trait;
 use paste::paste;
 use lazy_static::lazy_static;
 
 use odin_build::{define_load_asset, define_load_config};
-use odin_common::{angle::{LatAngle, LonAngle, Angle},
-    datetime::{Dated,deserialize_duration,to_epoch_millis},
-    fs::{ensure_writable_dir, get_filename_extension}
+use odin_common::{
+    angle::{Latitude,Longitude}, datetime::{deserialize_duration, to_epoch_millis, Dated, EpochMillis}, fs::{ensure_writable_dir, get_filename_extension}, geo::{GeoPoint3,GeoPoint4}
 };
 use odin_actor::{MsgReceiver, Query, ActorHandle};
 use odin_macro::{define_algebraic_type, match_algebraic_type, define_struct};
@@ -55,7 +56,7 @@ pub use live_connector::*;
 mod errors;
 pub use errors::*;
 
-pub mod web;
+pub mod sentinel_service;
 
 define_load_config!{}
 define_load_asset!{}
@@ -289,9 +290,9 @@ define_sensor_data! { Gas =
 }
 
 define_sensor_data! { Gps =
-    pub latitude: LatAngle, //f64,
-    pub longitude: LonAngle,//f64
-    pub altitude: Option<f64>, // update to uom
+    pub latitude: Latitude,
+    pub longitude: Longitude,
+    pub altitude: Option<Length>,
     pub quality: Option<f64>,
     pub number_of_satellites: Option<i32>,
     #[serde(alias = "HDOP")] pub hdop: Option<f32>
@@ -330,11 +331,6 @@ define_sensor_data! { Power = // can use uom here for current, volatage, temp?
     pub soc: f64,
     pub battery_temp: ThermodynamicTemperature, // temp
     pub controller_temp: ThermodynamicTemperature, //temp
-    pub battery_status: String,
-    //pub charging_volatage_status: String,  // changed by Delphire 04/01/24
-    pub charging_status: String,
-    //pub load_volatage_status: String,       // changed by Delphire 04/01/24
-    pub load_status: String
 }
 
 define_sensor_data! { Smoke =
@@ -746,6 +742,53 @@ impl Sentinel {
             self.time_recorded = Some(latest)
         }
     }
+
+    pub fn get_position_at (&self, dt: DateTime<Utc>)->Option<GeoPoint4> {
+        if let Some(i_gps) = get_closest_record_idx( dt, &self.gps) {
+            let gps = &self.gps[i_gps].data;
+            let alt = if let Some(i_gas) = get_closest_record_idx( dt, &self.gas) { // use gas altitude since it is more precise
+                Length::new::<meter>(self.gas[i_gas].data.altitude) // fixme
+            } else {
+                gps.altitude.unwrap_or( Length::new::<meter>(0.0))
+            };
+
+            Some( GeoPoint4::from_geo3_epoch( 
+                GeoPoint3::from_lon_lat_alt( gps.longitude, gps.latitude, alt),
+                dt.into()
+            ))
+
+        } else {
+            None
+        }
+    }
+
+
+}
+
+pub fn get_closest_record_idx<T> (dt: DateTime<Utc>, recs: &VecDeque< Arc<SensorRecord<T>> >)->Option<usize> 
+    where T: RecordDataBounds
+{
+    if recs.is_empty() {
+        None
+
+    } else {
+        let millis = dt.timestamp_millis();
+        let mut d = u64::MAX;
+        let mut idx = 0;
+
+        for i in 0..recs.len() {
+            let nd = i64::abs_diff(recs[i].time_recorded.timestamp_millis(), millis);
+            if nd == 0 { return Some(i) }
+
+            if nd > d { 
+                return Some(idx) 
+            } else {
+                idx = i;
+                d = nd;
+            }
+        }
+        Some(idx)
+    }
 }
 
 pub fn rec_key (device_id: &str, sensor_no: u32, capa: SensorCapability)->String {
@@ -866,7 +909,10 @@ pub struct SentinelConfig {
     pub max_age: Duration, // maximum age after which additional data (images etc.) are deleted
     pub ping_interval: Option<Duration>, // interval duration for sending Ping messages on the websocket 
     pub reconnect_delay: Option<Duration>, // sleep duration after which we try to re-initializa a broken websocket 
-    pub device_filter: Vec<String>  // optional list of device_ids to filter for
+    pub device_filter: Vec<String>, // optional list of device_ids to filter for
+
+    pub inactive_duration: Duration, // max duration since last update after which a device is considered to be inactive
+    pub inactive_interval: Duration  // how often we check for inactive devices
 }
 
 impl Default for SentinelConfig {
@@ -882,7 +928,9 @@ impl Default for SentinelConfig {
             max_age: Duration::from_secs( 60*60*24),
             ping_interval: Some(Duration::from_secs(25)),
             reconnect_delay: None,
-            device_filter: Vec::new() // default is no filter
+            device_filter: Vec::new(), // default is no filter
+            inactive_duration: Duration::from_secs( 7200), // inactive if no update for 2h
+            inactive_interval: Duration::from_secs(300) // check every 5 min
         }
     }
 }
@@ -896,25 +944,35 @@ pub fn sentinel_cache_dir()->PathBuf {
 
 
 /// device information that is not obtained through Delphire server APIs 
-#[derive(Deserialize,Debug)]
+#[derive(Serialize,Deserialize,Debug)]
+#[serde(rename_all(serialize="camelCase"))]
 pub struct SentinelDeviceInfo {
     pub name: String,
-    pub smoke_prob: Vec<SensorProbability>, // overrides general probabilities per image sensor 
-    pub fire_prob: Vec<SensorProbability>,
+    pub sensor_infos: Vec<SensorInfo>,
     pub external_images: Vec<ExternalImage>,
+}
+
+impl SentinelDeviceInfo {
+    pub fn to_json (&self)->Result<String> { Ok(serde_json::to_string(&self)?) }
+    pub fn to_json_pretty (&self)->Result<String> { Ok(serde_json::to_string_pretty(&self)?) }
 }
 
 /// the type we use to configure additional SentinelDeviceInfos
 pub type SentinelDeviceInfos = HashMap<String,SentinelDeviceInfo>;
 
-#[derive(Deserialize,Debug)]
-pub struct SensorProbability {
+#[derive(Serialize, Deserialize,Debug)]
+#[serde(rename_all(serialize="camelCase"))]
+pub struct SensorInfo {
     pub sensor_no: u32,
-    pub prob: f32
+    pub smoke_prob: f32,
+    pub fire_prob: f32,
+    pub fov_left: f32,
+    pub fov_right: f32,
+    pub fov_dist: f64,
 }
 
-define_algebraic_type! { pub ExternalImage: Deserialize = 
-    DirectUriImage
+define_algebraic_type! { 
+    pub ExternalImage: Serialize + Deserialize = DirectUriImage
 
     pub fn name (&self)->&str { __.name.as_str() }
 
@@ -933,7 +991,8 @@ define_algebraic_type! { pub ExternalImage: Deserialize =
 
 
 /// something we can retrieve from a fixed URI with a simple GET
-#[derive(Deserialize,Debug)]
+#[derive(Serialize,Deserialize,Debug)]
+#[serde(rename="image")] // FIXME - this does not rename variant names ?
 pub struct DirectUriImage {
     pub name: String,
     pub sensors: Vec<u32>, // Sentinel image sensor_no for which this external image can be used (empty means any one)
@@ -948,7 +1007,7 @@ pub struct DirectUriImage {
 /* #region file requests ******************************************************************************************************/
 
 /// a struct that associates a SensorRecord with a file (pathname)
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,PartialEq)]
 pub struct SentinelFile {
     pub record_id: String,   // the SensorRecord this file is associated with
     pub pathname: PathBuf,   // this is the physical location of the file (once downloaded)
@@ -1002,6 +1061,12 @@ pub trait SentinelConnector {
     fn terminate (&mut self);
  
     fn max_history(&self)->usize;
+
+    /// duration since last update after which we consider a device inactive
+    fn inactive_duration(&self)->Duration;
+
+    /// duration how often we check for inactive status
+    fn inactive_interval(&self)->Duration;
  }
 
 /* #endregion connectors */

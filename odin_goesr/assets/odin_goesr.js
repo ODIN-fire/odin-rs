@@ -18,9 +18,9 @@ import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
 
-const MODULE_PATH = util.asset_path(import.meta.url);
+const MOD_PATH = "odin_goesr::goesr_service::GoesrService";
 
-ws.addWsHandler( MODULE_PATH, handleWsMessages);
+ws.addWsHandler( MOD_PATH, handleWsMessages);
 
 const maskDesc = new Map();
 maskDesc
@@ -146,8 +146,8 @@ function initHotspotView() {
             { name: "class", tip: "classification of fire pixel", width: "3rem", attrs: ["fixed", "alignRight"], map: e => hotspotClass(e) },
             ui.listItemSpacerColumn(),
             { name: "sat", tip: "name of satellite", width: "4rem", attrs: [], map: e => satNames[e.satId] },
-            { name: "lat", width: "6rem", attrs: ["fixed", "alignRight"], map: e => util.f_4.format(e.position.lat_deg) },
-            { name: "lon", width: "6.5rem", attrs: ["fixed", "alignRight"], map: e => util.f_4.format(e.position.lon_deg) },
+            { name: "lat", width: "6rem", attrs: ["fixed", "alignRight"], map: e => util.f_4.format(e.position.lat) },
+            { name: "lon", width: "6.5rem", attrs: ["fixed", "alignRight"], map: e => util.f_4.format(e.position.lon) },
         ]);
     }
     return view;
@@ -347,7 +347,7 @@ function createHotspotEntity (hs) {
     let clr = color(hs);
 
     let e = new Cesium.Entity({
-        position: Cesium.Cartesian3.fromDegrees( hs.position.lon_deg, hs.position.lat_deg),
+        position: Cesium.Cartesian3.fromDegrees( hs.position.lon, hs.position.lat),
         point: {
             pixelSize: pointSize,
             color: clr,
@@ -418,10 +418,10 @@ function polygon (hs) {
     let bounds = hs.bounds;
 
     return Cesium.Cartesian3.fromDegreesArray([
-        bounds.ne.lon_deg, bounds.ne.lat_deg,
-        bounds.se.lon_deg, bounds.se.lat_deg,
-        bounds.sw.lon_deg, bounds.sw.lat_deg,
-        bounds.nw.lon_deg, bounds.nw.lat_deg
+        bounds.ne.lon, bounds.ne.lat,
+        bounds.se.lon, bounds.se.lat,
+        bounds.sw.lon, bounds.sw.lat,
+        bounds.nw.lon, bounds.nw.lat
     ]);
 }
 
@@ -473,6 +473,7 @@ function handleGoesrSatellites(sats) {
         satNames[sat.satId] = sat.name;
         sat.satIdx = idx++;
         sat.dataSource = new Cesium.CustomDataSource("goesr-" + sat.name);
+
         odinCesium.addDataSource(sat.dataSource);
     });
 }
@@ -581,7 +582,8 @@ function zoomToGoesrHotspot(event) {
     if (lv) {
         let hs = ui.getSelectedListItem(lv);
         if (hs) {
-            odinCesium.zoomTo(Cesium.Cartesian3.fromDegrees(hs.lon, hs.lat, config.zoomHeight));
+            let pos = hs.position;
+            odinCesium.zoomTo(Cesium.Cartesian3.fromDegrees( pos.lon, pos.lat, config.zoomHeight));
             if (hs.entity) odinCesium.setSelectedEntity(hs.entity);
         }
     }

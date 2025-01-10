@@ -18,15 +18,28 @@ This Rust repository contains a [Cargo workspace](https://doc.rust-lang.org/carg
      Periodic updates of the toolchain can be done by executing `rustup update`
 
      To install the [`mdbook`](https://rust-lang.github.io/mdBook/) tool to compile and serve online documentation
-     please run `cargo install mdbook`
+     please run
+
+     ```shell 
+     $> cargo install mdbook
+     ```
+
+     If you are new to Rust you can find documentation and tutorials on [https://www.rust-lang.org/learn](https://www.rust-lang.org/learn). 
+     Information about the vast Rust ecosystem of available 3rd party libraries is available on [https://crates.io](https://crates.io). 
 
   3. [GDAL](https://gdal.org/) - this platform specific native library for handling geospatial data is required by the
      `odin_gdal` crate and should be installed through respective package managers for your operating system
 
-     * Linux: gdal packages are available for all major Linux distributions through their native package managers
+     * Linux: gdal packages are available for all major Linux distributions through their native package managers.
+       Please note that Ubuntu 20.04 only supported old versions of GDAL which might require to [install/build from source](https://gdal.org/en/latest/development/building_from_source.html#building-from-source)
      * macOS: [homebrew](https://brew.sh/): `brew install gdal`
      * windows: [vcpkg](https://learn.microsoft.com/en-us/vcpkg/get_started/overview)
 
+  4. odin-rs sources - downloadable via [Git](https://git-scm.com/) from [https://github.com/ODIN-fire/odin-rs](https://github.com/ODIN-fire/odin-rs):
+
+     ```shell
+     $> git clone https://github.com/ODIN-fire/odin-rs
+     ```
 
 ### Directory Structure
 
@@ -44,16 +57,16 @@ and such files under a single root directory. To conform with the `odin_build` c
     └── odin-rs/...                     ⬅︎ directory into which ODIN source repository is cloned
 ```
 
-The name of the ❬odin-root-dir❭ can be chosen at will. You can have several root dirs with different odin versions/branches and/or resource files. An installation as outlined above does not require any environment variables to set.
+The name of the ❬odin-root-dir❭ can be chosen at will. You can have several root dirs with different odin versions/branches and/or resource files. An installation as outlined above does not require any environment variables to be set.
 
 Resource directories (configs/, assets/ and data/) can be populated upon demand later-on - please see the [odin_build] documentation for further details.
 
 On a Unix/macOS system this amounts to a sequence of commands like:
 ```shell
-$> mkdir my-odin
-$> cd my-odin
+$> mkdir odin
+$> cd odin
 $> mkdir configs assets data cache
-$> git clone http://github.com/nasa-odin/odin-rs  # or other odin-rs repository URL
+$> git clone https://github.com/ODIN-fire/odin-rs  # or other odin-rs repository URL
 ...
 $> cd odin-rs
 ```

@@ -32,8 +32,13 @@ pub fn create_mpsc_sender_receiver <MsgType> (bound: usize) -> (MpscSender<MsgTy
 }
 
 #[inline] 
-pub fn is_closed<M> (tx: &MpscSender<M>)->bool { 
+pub fn is_tx_closed<M> (tx: &MpscSender<M>)->bool { 
     tx.is_closed() 
+}
+
+#[inline] 
+pub fn is_tx_disconnected<M> (tx: &MpscSender<M>)->bool { 
+    tx.is_disconnected() 
 }
 
 #[inline] 
@@ -42,8 +47,18 @@ pub fn send<M> (tx: &MpscSender<M>, msg: M)->SendFuture<'_,M> {
 }
 
 #[inline] 
-pub fn recv<M> (tx: &MpscReceiver<M>)->ReceiveFuture<'_,M> { 
-    tx.recv() 
+pub fn recv<M> (rx: &MpscReceiver<M>)->ReceiveFuture<'_,M> { 
+    rx.recv() 
+}
+
+#[inline]
+pub fn is_rx_closed<M> (rx: &MpscReceiver<M>)->bool {
+    rx.is_closed()
+}
+
+#[inline]
+pub fn close_rx<M> (rx: &MpscReceiver<M>)->bool {
+    rx.close()
 }
 
 #[macro_export]

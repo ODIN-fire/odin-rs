@@ -148,6 +148,31 @@ pub fn env_expand (s: &str)->String {
     expanded
 }
 
+pub fn to_string_vec (a: &[&str])->Vec<String>{
+    a.iter().map(|s| s.to_string()).collect::<Vec<String>>()
+}
+
+pub fn to_sorted_string_vec (a: &[&str])->Vec<String>{
+    let mut v = a.iter().map(|s| s.to_string()).collect::<Vec<String>>();
+    v.sort();
+    v
+}
+
+pub fn mk_query_string<T: Display> (it: std::slice::Iter<'_,(T,T)>) -> String {
+    let mut s = String::new();
+
+    for (k,v) in it {
+        if !s.is_empty() { s.push('&'); }
+        write!(s,"{}={}",k,v);
+    }
+
+    s
+}
+
+pub fn to_lines<'a> (s: &'a str) -> Vec<&'a str> {
+    s.lines().collect()
+}
+
 //--- utilize above parsers for serde deserialization (to be used in #[serde(deserialize_with=".."] field macros
 
 pub fn deserialize_vec <'a,T,D>(deserializer: D) -> Result<Vec<T>,D::Error>

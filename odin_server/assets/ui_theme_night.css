@@ -58,6 +58,7 @@
     --titlebar-color: rgb(255, 196, 196);
     --titlebar-background: rgb(27 1 1);
     --titlebar-font: var(--font);
+    --titlebar-padding: 5px;
     --window-color: var(--color);
     --window-background: var(--background);
     --window-border: 1px solid var(--border-color);

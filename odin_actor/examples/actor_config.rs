@@ -48,7 +48,7 @@ impl Ticker {
 
 impl_actor! { match msg for Actor <Ticker,TickerMsg>  as 
     _Start_ => cont! { 
-        if let Ok(timer) = self.start_repeat_timer( 1, secs(self.config.interval_sec)) {
+        if let Ok(timer) = self.start_repeat_timer( 1, secs(self.config.interval_sec), false) {
             self.timer = Some(timer);
             println!("started timer")
         }

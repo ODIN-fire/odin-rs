@@ -22,7 +22,7 @@ use odin_goesr::{
     GoesrHotspotStore, GoesrHotspotSet, GoesrHotspotActor, GoesrHotspotImportActorMsg, GoesrSat, GoesrService
 };
 
-use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, SentinelActor, web::SentinelService};
+use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, SentinelActor, sentinel_service::SentinelService};
 
 
 run_actor_system!( actor_system => {
@@ -35,30 +35,32 @@ run_actor_system!( actor_system => {
     let goes16 = GoesrSat::new( odin_goesr::load_config("goes_16.ron")?, hgoes16.to_actor_handle());
  
     //--- (1b) set up Sentinel data source handles
-    let hsentinel = PreActorHandle::new( &actor_system, "sentinel", 8);
+    let pre_sentinel = PreActorHandle::new( &actor_system, "sentinel", 8);
 
     //--- (2) spawn the server actor
     let hserver = spawn_actor!( actor_system, "server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
-        "odin",
+        "live",
         SpaServiceList::new()
-            .add( build_service!( GoesrService::new( vec![goes18,goes16])) )
-            .add( build_service!( hsentinel.to_actor_handle() => SentinelService::new(hsentinel)))
+            .add( build_service!( => GoesrService::new( vec![goes18,goes16])) )
+            .add( build_service!( let hsentinel = pre_sentinel.to_actor_handle() => SentinelService::new( hsentinel)))
     ))?;
  
     //--- (3) spawn the data source actors we did set up in (1) 
     let _hgoes18 = spawn_goesr_updater( &mut actor_system, "goes18", hgoes18, odin_goesr::load_config( "goes_18_fdcc.ron")?, &hserver)?;
     let _hgoes16 = spawn_goesr_updater( &mut actor_system, "goes16", hgoes16, odin_goesr::load_config( "goes_16_fdcc.ron")?, &hserver)?;
  
-    let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
+    let _hsentinel = spawn_pre_actor!( actor_system, pre_sentinel, SentinelActor::new(
         LiveSentinelConnector::new( odin_sentinel::load_config( "sentinel.ron")?), 
-        dataref_action!( hserver.clone(): ActorHandle<SpaServerMsg> => |_store: &SentinelStore| {
+        dataref_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |_store: &SentinelStore| {
             Ok( hserver.try_send_msg( DataAvailable{sender_id:"sentinel",data_type: type_name::<SentinelStore>()} )? )
         }),
-        data_action!( hserver: ActorHandle<SpaServerMsg> => |update:SentinelUpdate| {
-            let data = ws_msg!("odin_sentinel/odin_sentinel.js",update).to_json()?;
+        data_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |update:SentinelUpdate| {
+            //let data = ws_msg!("odin_sentinel/odin_sentinel.js",update).to_json()?;
+            let data = WsMsg::json( SentinelService::mod_path(), "update", update)?;
             Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
         }),
+        no_data_action() // we do client side inactive checks
     ))?;
 
     Ok(())
@@ -74,11 +76,16 @@ fn spawn_goesr_updater (
     spawn_pre_actor!( actor_system, pre_handle,  GoesrHotspotActor::new(
         odin_goesr::load_config( "goesr.ron")?, 
         LiveGoesrHotspotImporter::new( config),
-        dataref_action!( hserver.clone(): ActorHandle<SpaServerMsg>, name: &'static str => |_store:&GoesrHotspotStore| {
-            Ok( hserver.try_send_msg( DataAvailable{ sender_id: name, data_type: type_name::<GoesrHotspotStore>()} )? )
-        }),
-        data_action!( hserver.clone(): ActorHandle<SpaServerMsg> => |hotspots:GoesrHotspotSet| {
-            let data = ws_msg!("odin_goesr/odin_goesr.js",hotspots).to_json()?;
+        dataref_action!{
+            let hserver: ActorHandle<SpaServerMsg> = hserver.clone(), 
+            let name: &'static str = name => 
+            |_store:&GoesrHotspotStore| {
+                Ok( hserver.try_send_msg( DataAvailable{ sender_id: name, data_type: type_name::<GoesrHotspotStore>()} )? )
+            }
+        },
+        data_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |hotspots:GoesrHotspotSet| {
+            //let data = ws_msg!("odin_goesr/odin_goesr.js",hotspots).to_json()?;
+            let data = WsMsg::json( GoesrService::mod_path(), "hotspots", hotspots)?;
             Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
         }),
     ))

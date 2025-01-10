@@ -13,30 +13,25 @@
  */
 #![allow(unused)]
 
-pub mod errors;
-
-use std::error::Error;
-use std::fs::File;
-use std::path::{Path, PathBuf};
-use axum::http::{header, HeaderMap, HeaderValue};
-use axum::http::header::CONTENT_TYPE;
-use axum::response::IntoResponse;
-use axum::body::Body;
+use std::{error::Error, ops::Deref, path::{Path, PathBuf}, fs::File, sync::LazyLock};
+use axum::{http::{header::CONTENT_TYPE, HeaderMap, HeaderValue}, response::IntoResponse, body::Body};
+use errors::{invalid_filename, op_failed};
+use serde::{Deserialize, Serialize};
 use tokio::io;
-use gdal::Dataset;
-use gdal::spatial_ref::SpatialRef;
-use gdal::cpl::CslStringList;
-use lazy_static::lazy_static;
-use odin_common::fs;
-use odin_gdal::warp::SimpleWarpBuilder;
-use odin_common::geo::BoundingBox;
+use odin_gdal::{create_wh_image_from_vrt, csl_string_list, get_driver_name_for_extension, CslStringList};
+use odin_common::{fs, BoundingBox,net::mime_type_for_extension};
+use odin_build::define_load_config;
 
-use crate::errors::OdinDemError;
+pub mod errors;
+use errors::OdinDemError;
 
 type Result<T> = std::result::Result<T, OdinDemError>;
 
-//--- supported image and target SRS types
+define_load_config!{}
 
+/* #region supported image types, SRS and data sources ******************************************************************/
+
+/// the image types that can be returned by odin_dem
 pub enum DemImgType {
     PNG,
     TIF,
@@ -51,6 +46,14 @@ impl DemImgType {
         }
     }
 
+    pub fn for_mime_type (mime_type: &str) -> Option<DemImgType> {
+        match mime_type {
+            "image/tif" => Some(DemImgType::TIF),
+            "image/png" => Some(DemImgType::PNG),
+            _ => None
+        }
+    }
+
     pub fn file_extension(&self) -> &'static str {
         match *self {
             DemImgType::PNG => "png",
@@ -58,83 +61,84 @@ impl DemImgType {
         }
     }
 
-    pub fn gdal_driver_name(&self) -> &'static str {
+    // unfortunately we can't do this as a static ref since CslStringList has mutable fields
+    pub fn gdal_create_options(&self) -> Option<CslStringList> {
         match *self {
-            DemImgType::PNG => "PNG",
-            DemImgType::TIF => "GTiff",
+            DemImgType::PNG => None,
+            DemImgType::TIF => Some( csl_string_list!("COMPRESS=DEFLATE", "PREDICTOR=2") )
         }
+    }
+
+    pub fn gdal_driver_name(&self) -> &'static str {
+        get_driver_name_for_extension( self.file_extension()).expect("unsupported GDAL image type")
     }
 
     pub fn content_type(&self) -> &'static str {
-        match *self {
-            DemImgType::PNG => "image/png",
-            DemImgType::TIF => "image/tiff",
-        }
+        mime_type_for_extension( &self.file_extension()).expect("unknown mime type")
     }
 }
 
+/// the spatial reference systems odin_dem can convert to
 pub enum DemSRS {
-    GEO,
+    WGS84,
     UTM { epsg: u32 },
 }
 
 impl DemSRS {
-    pub fn from_epsg (epsg: u32) -> Result<DemSRS> {
-        if epsg == 4326 {
-            Ok(DemSRS::GEO)
-        } else if (epsg >= 32601 && epsg <= 32660) || (epsg >= 32701 && epsg <= 32760) {
-            Ok(DemSRS::UTM{epsg})
-        } else {
-            Err(OdinDemError::UnsupportedTargetSRS(format!("{}", epsg)))
+    pub fn from_epsg (epsg: u32) -> Option<DemSRS> {
+        match epsg {
+            4326 => Some(DemSRS::WGS84),
+            32601..32661 => Some(DemSRS::UTM{epsg}),
+            32701..32761 => Some(DemSRS::UTM{epsg}),
+            _ => None
         }
+    }
+
+    pub fn from_srs_spec (srs: &str) -> Option<DemSRS> {
+        if srs.starts_with("epsg:") || srs.starts_with("EPSG:") {
+            if let Ok(epsg) = srs[5..].parse::<u32>() {
+                return Self::from_epsg( epsg)
+            }
+        } else {
+            if let Ok(epsg) = srs.parse::<u32>() {
+                return Self::from_epsg( epsg)
+            } else {
+                if srs.eq_ignore_ascii_case("WGS84") {
+                    return Some(DemSRS::WGS84)
+                }
+            }
+
+            // TODO - support more specs
+        }
+
+        None
     }
 
     pub fn epsg(&self) -> u32 {
         match *self {
-            DemSRS::GEO => 4326,
+            DemSRS::WGS84 => 4326,
             DemSRS::UTM{epsg} => epsg,
         }
     }
-
-    pub fn bbox_precision(&self) -> usize {
-        match *self {
-            DemSRS::GEO => 4,
-            DemSRS::UTM{..} => 0,
-        }
-    }
 }
 
-//--- output image creation
-
-fn create_opts() -> CslStringList {
-    let mut co_list = CslStringList::new();
-    co_list.add_string("COMPRESS=DEFLATE");
-    co_list.add_string("PREDICTOR=2");
-    co_list
+#[derive(Debug,Serialize,Deserialize,Clone)]
+pub struct Resolution {
+    pub width: u64,
+    pub height: u64
 }
 
-fn get_filename (bbox: &BoundingBox<f64>, precision: usize, file_ext: &str) -> String {
-    format!("dem_{:.precision$},{:.precision$},{:.precision$},{:.precision$}.{}",
-            bbox.west, bbox.south, bbox.east, bbox.north, file_ext)
+/* #endregion  supported image types, SRS and data sources **********************************************************/
+
+fn get_wh_dem_filename (src: &str, epsg: u32, bbox: &BoundingBox<f64>, width: u32, height: u32, file_ext: &str) -> String {
+    format!("{src}_{epsg}_{},{},{},{}_{width}x{height}.{file_ext}",  bbox.west, bbox.south, bbox.east, bbox.north)
 }
 
-fn create_file (bbox: &BoundingBox<f64>, srs: DemSRS, img_type: DemImgType, output_path: &Path, vrt_path: &Path) -> Result<File> {
-    let src_ds =  Dataset::open(vrt_path)?;
-    let tgt_srs = SpatialRef::from_epsg(srs.epsg())?;
-    let co_list = create_opts();
-
-    SimpleWarpBuilder::new( &src_ds, output_path)?
-        .set_tgt_srs(&tgt_srs)
-        .set_tgt_extent_from_bbox(bbox)
-        .set_tgt_format(img_type.gdal_driver_name())?
-        .set_create_options(&co_list)
-        .exec()?;
-
-    Ok(fs::existing_non_empty_file_from_path(output_path)?)
+fn get_res_dem_filename (src: &str, epsg: u32, bbox: &BoundingBox<f64>, res_x: f64, res_y: f64, file_ext: &str) -> String {
+    format!("{src}_{epsg}_{},{},{},{}_{res_x},{res_y}.{file_ext}",  bbox.west, bbox.south, bbox.east, bbox.north)
 }
 
-//--- HTTP response creation
-
+/// HTTP response creation
 async fn create_response (file: File, img_type: DemImgType) -> impl IntoResponse {
     let f = tokio::fs::File::from_std(file);
     let stream = tokio_util::io::ReaderStream::new(f);
@@ -154,22 +158,47 @@ pub fn dem_cache_dir()->PathBuf {
 
 //--- main lib entry
 
+const DEM_OPTS: &[&'static str] = &[ "COMPRESS=DEFLATE", "PREDICTOR=2"];
+
 /// for a given bounding box 'bbox' look for a matching file in 'cache_dir'.
 /// If none found yet create a file with the given 'img_type' from the virtual GDAL tileset specified by 'vrt_file'
-pub fn get_dem (bbox: &BoundingBox<f64>, srs: DemSRS, img_type: DemImgType, vrt_file: &str) -> Result<(String,File)> {
-    let cache_dir = dem_cache_dir();
-
-    let fname = get_filename(bbox, srs.bbox_precision(), img_type.file_extension());
-    let file_path: PathBuf = cache_dir.join( fname.as_str());
-
-    let vrt_path = Path::new(vrt_file);
+/// note that `bbox` has to be in `srs` units (degree for GEO, meters for UTM)
+pub fn get_wh_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, width: u32, height: u32, img_type: DemImgType, vrt_file: &P, out_dir: &PathBuf) -> Result<PathBuf> 
+    where P: AsRef<Path>
+{
+    let vrt_path = vrt_file.as_ref();
     vrt_path.try_exists()?;
+    let data_src = fs::basename(vrt_file).ok_or(invalid_filename( format!("{:?}", vrt_path)))?;
+    let ext = img_type.file_extension();
+    let create_opts = img_type.gdal_create_options();
+    let fname = get_wh_dem_filename( data_src, srs.epsg(), bbox, width, height, ext);
+    let file_path: PathBuf = out_dir.join( fname.as_str());
 
-    let res = if !file_path.exists() {
-        create_file(bbox,srs,img_type,&file_path, &vrt_path)
+    if !file_path.exists() {
+        odin_gdal::create_wh_image_from_vrt( bbox, srs.epsg(), width, height, ext, &create_opts, &file_path, &vrt_path)?;
     } else {
-        Ok(File::open(&file_path)?)
-    };
+        fs::set_accessed(&file_path)?; // update atime so that we could use it for LRU cache bounds
+    }
 
-    res.map( |f| (fs::path_to_lossy_string(&file_path),f) )
+    Ok( file_path )
+}
+
+pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, img_type: DemImgType, vrt_file: &P, out_dir: &PathBuf) -> Result<PathBuf> 
+    where P: AsRef<Path>
+{
+    let vrt_path = vrt_file.as_ref();
+    vrt_path.try_exists()?;
+    let data_src = fs::basename(vrt_file).ok_or(invalid_filename( format!("{:?}", vrt_path)))?;
+    let ext = img_type.file_extension();
+    let create_opts = img_type.gdal_create_options();
+    let fname = get_res_dem_filename( data_src, srs.epsg(), bbox, res_x, res_y, ext);
+    let file_path: PathBuf = out_dir.join( fname.as_str());
+
+    if !file_path.exists() {
+        odin_gdal::create_res_image_from_vrt( bbox, srs.epsg(), res_x, res_y, ext, &create_opts, &file_path, &vrt_path)?;
+    } else {
+        fs::set_accessed(&file_path)?; // update atime so that we could use it for LRU cache bounds
+    }
+
+    Ok( file_path )
 }

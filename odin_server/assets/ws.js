@@ -63,7 +63,7 @@ export function sendWsMessage (modPath, msgType, msgData) {
 export function shutdown() {
     console.log("closing websocket...");
     isShutdown = true;
-    ws.close();
+    if (ws) ws.close();
 }
 
 // execute after all js modules have initialized to make sure handlers have been set
@@ -79,14 +79,9 @@ export function postInitialize() {
             };
 
             ws.onmessage = function(evt) {
-                try {
-                    let data = evt.data.toString();
-                    let msg = JSON.parse(data);
-                    handleServerMessage(msg);
-                } catch (error) {
-                    console.log(error);
-                    console.log("msg-data: ", evt.data.toString());
-                }
+                let data = evt.data.toString();
+                let msg = JSON.parse(data);
+                handleServerMessage(msg);
             };
 
             ws.onerror = function(evt) {

@@ -80,6 +80,8 @@ macro_rules! error {
 pub struct BinContext {
     pub bin_name: String,
     pub bin_crate: String,
+    pub bin_suffix: Option<String>, // optionally set via ODIN_BIN_SUFFIX at runtime (useful if we run simultaneous instances of this bin)
+    pub proc_id: Option<u32>,
 
     pub build: String, // describing how binary was built (showing build-time env settings)
 }
@@ -93,9 +95,11 @@ macro_rules! set_bin_context {
         {
             let bin_crate = env!("CARGO_PKG_NAME").to_string(); // those are only set at compile time hence this needs a macro
             let bin_name = env!("CARGO_BIN_NAME").to_string();
-            let mut build = odin_build::build_mode!();
+            let bin_suffix = std::env::var("ODIN_BIN_SUFFIX").ok(); // NOTE this is a runtime env var
+            let proc_id = Some(std::process::id());
+            let build = odin_build::build_mode!();
 
-            odin_build::BIN_CONTEXT.set( odin_build::BinContext{ bin_name, bin_crate, build } ).unwrap();
+            odin_build::BIN_CONTEXT.set( odin_build::BinContext{ bin_name, bin_crate, bin_suffix, proc_id, build } ).unwrap();
         }
     }
 }
@@ -123,12 +127,14 @@ pub fn get_bin_context()->Option<&'static BinContext> {
 pub fn get_env_bin_context()->Option<BinContext> {
     let bin_name = env::var("ODIN_BIN_NAME");
     let bin_crate = env::var("ODIN_BIN_CRATE");
+    let bin_suffix = env::var("ODIN_BIN_SUFFIX").ok();
 
     if bin_name.is_ok() && bin_crate.is_ok() {
         let bin_name = bin_name.unwrap();
         let bin_crate = bin_crate.unwrap();
+        let proc_id = None;
         let build = build_mode!();
-        Some( BinContext { bin_name, bin_crate, build } )
+        Some( BinContext { bin_name, bin_crate, bin_suffix, proc_id, build } )  // this is build-time - we don't have a proc_id yet
     } else { 
         None
     }
@@ -206,12 +212,15 @@ fn find_resource_file (resource_dir: &str, ctx: &Option<&BinContext>, resource_c
 }
 
 fn find_external_resource (path: &mut PathBuf, resource_dir: &str, bin_ctx: &Option<&BinContext>, resource_crate: &str, filename: &str)->bool {
+
+    // check bin specific override first
     if let Some(ctx) = bin_ctx {
         let bin_crate = ctx.bin_crate.as_str();
         let bin_name = ctx.bin_name.as_str();
         if path_cond!( is_file, path, resource_dir, bin_crate, bin_name, resource_crate, filename) { return true }
     }
 
+    // now check resource crate global
     if path_cond!( is_file, path, resource_dir, resource_crate, filename) { return true }
     
     false

@@ -18,8 +18,7 @@ use tokio;
 
 #[tokio::test]
 async fn test_da() {
-    let x = "gna1".to_string(); // captured context
-    let da = data_action!( x: String => |data: String| {
+    let da = data_action!( let x: String = "gna1".to_string() => |data: String| {
         println!("DataAction<String> execution started ...");
         tokio::time::sleep( Duration::from_secs(2)).await;
         println!("action called with data={data} and x={x}");
@@ -37,8 +36,7 @@ async fn exec_da <T> (da: impl DataAction<T>, data: T) {
 
 #[tokio::test]
 async fn test_dda() {
-    let x = "gna2".to_string(); // captured context
-    let dda: DynDataAction<String> = dyn_data_action!( x: String => |data: String| {
+    let dda: DynDataAction<String> = dyn_data_action!( let x: String = "gna2".to_string() => |data: String| {
         println!("DynDataAction<String> execution started ...");
         tokio::time::sleep( Duration::from_secs(2)).await;
         println!("action called with data={data} and x={x}");
@@ -56,8 +54,7 @@ async fn exec_dda<T> (dda: DynDataAction<T>, data: T) {
 
 #[tokio::test]
 async fn test_dra() {
-    let x = "gna3".to_string(); // captured context
-    let dra = dataref_action!( x: String => |data: &String| {
+    let dra = dataref_action!( let x: String = "gna3".to_string() => |data: &String| {
         println!("DataRefAction<String> execution started ...");
         tokio::time::sleep( Duration::from_secs(2)).await;
         println!("action called with data={data} and x={x}");
@@ -76,8 +73,7 @@ async fn exec_dra <T> (dra: impl DataRefAction<T>, data: &T) {
 
 #[tokio::test]
 async fn test_bdra() {
-    let x = "gna4".to_string(); // captured context
-    let bdra = bi_dataref_action!( x: String => |data: &String, bidata: i64| {
+    let bdra = bi_dataref_action!( let x: String = "gna4".to_string() => |data: &String, bidata: i64| {
         println!("BiDataRefAction<String,i64> execution started ...");
         tokio::time::sleep( Duration::from_secs(2)).await;
         println!("action called with data={data}, bidata={bidata} and x={x}");
@@ -100,8 +96,7 @@ async fn exec_bdra <T,A> (adra: impl BiDataRefAction<T,A>, data: &T, bidata: A) 
 
 #[tokio::test]
 async fn test_ddra() {
-    let x = "gna5".to_string(); // captured context
-    let ddra: DynDataRefAction<String> = dyn_dataref_action!( x: String => |data: &String| {
+    let ddra: DynDataRefAction<String> = dyn_dataref_action!( let x: String = "gna5".to_string() => |data: &String| {
         println!("DynDataRefAction<String> execution started ...");
         tokio::time::sleep( Duration::from_secs(2)).await;
         println!("action called with data={data} and x={x}");

@@ -37,3 +37,4 @@ imglayer_icon = { file = "imglayer.svg"}
 
 [features]
 trace_server = ["odin_server/trace_server"]
+embedded_resources = []

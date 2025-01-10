@@ -37,3 +37,18 @@ impl<K,V> Snapshot<(K,V)> for HashMap<K,V> where K:Clone, V:Clone {
     }
 }
 
+/// find all keys in a HashMap with given value reference
+pub fn find_keys_for_value<'a,K,V>(map: &'a HashMap<K,V>, value: &V) -> Vec<&'a K> where V: PartialEq {
+    map.iter()
+        .filter_map(|(key, &ref val)| if *val == *value { Some(key) } else { None })
+        .collect()
+}
+
+pub fn new_vec<T> ()->Vec<T> {
+    Vec::new()
+}
+
+pub fn empty_vec<T> ()->Vec<T> {
+    Vec::with_capacity(0)
+}
+

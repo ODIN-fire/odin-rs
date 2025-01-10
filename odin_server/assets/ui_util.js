@@ -29,6 +29,11 @@ export function asset_path(url) {
     }
 }
 
+export function filename(path) {
+    let idx = path.lastIndexOf('/');
+    return path.substring(idx+1);
+}
+
 /**
  * a simple (extended) glob pattern to RegExp translator
  * we handle the Java PathMatcher glob syntax
@@ -43,14 +48,7 @@ export function glob2regexp(globPattern) {
 
         switch (c) {
             // special regex chars that have no glob meaning and need to be escaped
-            case "!":
-            case "$":
-            case "(":
-            case ")":
-            case "+":
-            case ".":
-            case "^":
-            case "/":
+            case "!": case "$": case "(": case ")": case "+": case ".": case "^": case "/":
                 buf += "\\";
                 buf += c;
                 break;
@@ -78,19 +76,12 @@ export function glob2regexp(globPattern) {
 
                 // the complex case - substring wildcards (both '*' and '**')
             case "*":
-                var i0 = i;
-                var prev = (i > 0) ? globPattern[i - 1] : "/";
+                buf += "(?:[^/]*/?)"; // needs to be non-greedy
                 i++;
-                while (i < len && globPattern[i] === "*") i++; // consume consecutive '*'
-                var next = (i < len) ? globPattern[i] : "/";
-                var isMultiElement = ((i - i0 > 1) && prev === "/" && next === "/");
-                i--;
-
-                if (isMultiElement) { // a "**" pattern - match any number of path elements
-                    buf += "((?:[^/]*(?:\/|$))*)";
-                    i++; // consume the trailing path element separator (it's part of our regexp pattern)
-                } else { // a single "*", only match within a single path element
-                    buf += "([^/]*)";
+                if (i < len && globPattern[i] == "*") {
+                    buf += "*";
+                } else {
+                    i--;
                 }
                 break;
 
@@ -896,4 +887,16 @@ export function filterMapValues (map,func) {
         if (func(e)) list.push(e);
     }
     return list;
+}
+
+export function haveEqualKeys (a,b) {
+    let ka = Object.keys(a).sort();
+    let kb = Object.keys(b).sort();
+
+    if (ka.length != kb.length) return false;
+    for (var i=0; i<ka.length; i++) {
+      if (ka[i] != kb[i]) return false; 
+    }
+    
+    return true;
 }

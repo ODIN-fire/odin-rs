@@ -19,26 +19,26 @@ pub mod warp;
 pub mod contour;
 
 use lazy_static::lazy_static;
-use std::collections::HashMap;
-use std::ptr::{null, null_mut};
-use std::ffi::{CString,CStr};
-use std::ops::{Sub,Index,Fn};
-use std::sync::Mutex;
-use std::path::Path;
+use std::{path::Path, fs::File, sync::Mutex, ops::{Sub,Index,Fn}, ffi::{CString,CStr}, ptr::{null, null_mut}, collections::HashMap};
 use libc::{c_void,c_char,c_uint, c_int};
 
 // we re-export these so that other crates don't have to use a direct gdal depedency to import.
 // this is to ensure we run bindgen for new GDAL versions that don't yet have pre-computed bindings in gdal-sys
-pub use gdal::{self, Driver, DriverManager, Metadata, MetadataEntry, Dataset, errors::GdalError, GeoTransform};
+pub use gdal::{self, Driver, DriverManager, Metadata, MetadataEntry, Dataset, errors::GdalError, GeoTransform, cpl::CslStringList};
 pub use gdal::raster::{GdalType,RasterBand,Buffer};
 pub use gdal::spatial_ref::{CoordTransform, CoordTransformOptions, SpatialRef};
 
 use gdal_sys::{self,CPLErrorReset, OGRErr, OSRExportToWkt, OSRNewSpatialReference, OSRSetFromUserInput, CPLErr};
 use geo::{Coord, Rect};
-use gdal::cpl::CslStringList;
 
-use odin_common::{fs::*,geo::*,ranges::LinearRange};
-use odin_common::macros::if_let;
+use odin_common::{
+    BoundingBox,
+    geo::{GeoRect,GeoPoint}, 
+    utm::{UtmZone,naive_utm_zone, geo_to_utm_zone, utm_zone}, 
+    fs::{existing_non_empty_file_from_path,get_filename_extension},
+    macros::if_let,
+    ranges::LinearRange
+};
 use crate::errors::{Result,misc_error, last_gdal_error, OdinGdalError, gdal_error, map_gdal_error};
 
 lazy_static! {
@@ -47,7 +47,10 @@ lazy_static! {
     static ref EXT_MAP: HashMap<&'static str, &'static str> = HashMap::from( [ // file extension -> driver short name
         //-- well known raster drivers
         ("tif", "GTiff"),
+        ("tiff", "GTiff"),
+
         ("png", "PNG"),
+        ("webp", "WEBP"),
         ("nc", "netCDF"),
         ("grib2", "GRIB"),
 
@@ -73,14 +76,21 @@ pub fn initialize_gdal() -> bool {
     EXT_MAP.len() > 0
 }
 
+/// Note that filename extension has to be lower case
 pub fn get_driver_name_from_filename (filename: &str) -> Option<&'static str> {
-    get_filename_extension(filename).and_then( |ext| EXT_MAP.get( ext.to_lowercase().as_str()).map(|v| *v))
+    get_filename_extension(filename).and_then( |ext| EXT_MAP.get( ext)).map(|v| &**v)
 }
 
+/// Note that filename extension has to be lowercase
+pub fn get_driver_name_for_extension (ext: &str) -> Option<&'static str> {
+    EXT_MAP.get( ext).map(|v| &**v)
+}
+
+/// Note that filename extension has to be lowercase
 pub fn get_driver_from_filename (filename: &str) -> Option<gdal::Driver> {
     get_filename_extension(filename)
-        .and_then( |ext| EXT_MAP.get( ext.to_lowercase().as_str()))
-        .and_then( |n| DriverManager::get_driver_by_name(n).ok())
+        .and_then( |ext| EXT_MAP.get( ext))
+        .and_then( |n| DriverManager::get_driver_by_name(&**n).ok())
 }
 
 pub fn pc_char_to_string (pc_char: *const c_char) -> String {
@@ -198,20 +208,23 @@ pub fn transform_point_2d (transform: &CoordTransform, x: f64, y: f64) -> Result
     Ok((ax[0],ay[0]))
 }
 
-pub fn latlon_to_utm_bounds (bbox: &BoundingBox<f64>, interior:  bool) -> (BoundingBox<f64>,UtmZone) {
-    let ll_geo = LatLon {lat_deg: bbox.south, lon_deg: bbox.west };
-    let lr_geo = LatLon {lat_deg: bbox.south, lon_deg: bbox.east };
-    let ul_geo = LatLon {lat_deg: bbox.north, lon_deg: bbox.west };
-    let ur_geo = LatLon {lat_deg: bbox.north, lon_deg: bbox.west };
+pub fn geo_bbox_to_utm (bbox: &BoundingBox<f64>, interior:  bool) -> (BoundingBox<f64>,UtmZone) {
+    let ll_geo = GeoPoint::from_lon_lat_degrees( bbox.west, bbox.south);
+    let lr_geo = GeoPoint::from_lon_lat_degrees( bbox.east, bbox.south);
+    let ul_geo = GeoPoint::from_lon_lat_degrees( bbox.west, bbox.north);
+    let ur_geo = GeoPoint::from_lon_lat_degrees( bbox.east, bbox.north);
 
-    let center_geo = LatLon {lat_deg: (ll_geo.lat_deg + ul_geo.lat_deg) / 2.0,
-                             lon_deg: (ll_geo.lon_deg + lr_geo.lon_deg) / 2.0 };
+    let center_geo = GeoPoint::from_lon_lat( 
+        (ll_geo.longitude() + lr_geo.longitude()) / 2.0, 
+        (ll_geo.latitude() + ul_geo.latitude()) / 2.0
+    );
+    
     let zone = naive_utm_zone( &center_geo);
 
-    let ll_utm = latlon_to_utm_zone(&ll_geo, zone).unwrap();
-    let ul_utm = latlon_to_utm_zone(&ul_geo, zone).unwrap();
-    let lr_utm = latlon_to_utm_zone(&lr_geo, zone).unwrap();
-    let ur_utm = latlon_to_utm_zone(&ur_geo, zone).unwrap();
+    let ll_utm = geo_to_utm_zone(&ll_geo, zone).unwrap();
+    let ul_utm = geo_to_utm_zone(&ul_geo, zone).unwrap();
+    let lr_utm = geo_to_utm_zone(&lr_geo, zone).unwrap();
+    let ur_utm = geo_to_utm_zone(&ur_geo, zone).unwrap();
 
     let (west, east) = if interior {
         ( ll_utm.easting.max( ul_utm.easting), lr_utm.easting.min( ur_utm.easting) )
@@ -221,7 +234,7 @@ pub fn latlon_to_utm_bounds (bbox: &BoundingBox<f64>, interior:  bool) -> (Bound
     (BoundingBox {west, south: ll_utm.northing, east, north: ul_utm.northing}, zone)
 }
 
-pub fn transform_latlon_to_utm_bounds (west_deg: f64, south_deg: f64, east_deg: f64, north_deg: f64,
+pub fn transform_geo_to_utm_bounds (west_deg: f64, south_deg: f64, east_deg: f64, north_deg: f64,
                                        interior:  bool, utm_zone: Option<u32>, is_south: bool) -> Result<(f64,f64,f64,f64,u32)> {
     let s_srs = srs_epsg_4326(); // axis order is lat,lon, uom: degrees
 
@@ -251,7 +264,7 @@ pub fn transform_latlon_to_utm_bounds (west_deg: f64, south_deg: f64, east_deg: 
     }
 }
 
-pub fn transform_utm_to_latlon_bounds (west_m: f64, south_m: f64, east_m: f64, north_m: f64, interior: bool, utm_zone: u32, is_south: bool) -> Result<(f64,f64,f64,f64)> {
+pub fn transform_utm_to_geo_bounds (west_m: f64, south_m: f64, east_m: f64, north_m: f64, interior: bool, utm_zone: u32, is_south: bool) -> Result<(f64,f64,f64,f64)> {
     let zone_base = if is_south { 32700 } else { 32600 };
     let s_srs = srs_epsg( zone_base + utm_zone)?;
     let t_srs = srs_epsg_4326();
@@ -324,14 +337,14 @@ pub fn srs_utm_s (zone: u32) -> Result<SpatialRef> {
     Ok(SpatialRef::from_epsg(32700 + zone)?)
 }
 
-pub fn srs_utm_from_lon_lat (lon_deg: f64, lat_deg: f64, opt_zone: Option<u32>) -> Result<(SpatialRef,u32)> {
+pub fn srs_utm_from_lon_lat (lon_deg: f64, lat_deg: f64, opt_zone: Option<u32>) -> Result<(SpatialRef,u32)> { // TODO - use Longitude,Latitude
     let utm_zone = if let Some(zone) = opt_zone {
         if zone <= 60 { zone } else {
             return Err(misc_error(format!("invalide UTM zone: {}", zone)));
         }
     } else {
-		let lat_lon = LatLon { lat_deg, lon_deg };
-        utm_zone( &lat_lon)
+		let geo_point = GeoPoint::from_lon_lat_degrees(lon_deg, lat_deg);
+        utm_zone( &geo_point)
     };
 
     let epsg_base = if lat_deg < 0.0 { 32700 } else { 32600 };
@@ -364,7 +377,7 @@ impl <T> GridPoint<T> where T: GdalValueType {
 
 /// get vec of GridPoint2D elements that match the provided predicate
 /// note that the RasterBand::read_* functions swap axis order
-pub fn find_grid_points<T,P> (ds: &Dataset, band_index: isize, predicate: P)->Result<Vec<GridPoint<T>>> 
+pub fn find_grid_points<T,P> (ds: &Dataset, band_index: usize, predicate: P)->Result<Vec<GridPoint<T>>> 
     where T: GdalValueType, P: Fn(T)->bool 
 {
     let band = ds.rasterband(band_index)?;
@@ -390,7 +403,7 @@ pub fn find_grid_points<T,P> (ds: &Dataset, band_index: isize, predicate: P)->Re
 
 // a version that uses a caller provided closure to iterate over a whole data row, thus allowing optimizations
 // such as inlining or simd to speed up
-pub fn find_grid_points_in_slice<T,F> (ds: &Dataset, band_index: isize, accumulator: F)->Result<Vec<GridPoint<T>>> 
+pub fn find_grid_points_in_slice<T,F> (ds: &Dataset, band_index: usize, accumulator: F)->Result<Vec<GridPoint<T>>> 
     where T: GdalValueType, F: Fn(usize,&[T],&mut Vec<GridPoint<T>>)
 {
     let band = ds.rasterband(band_index)?;
@@ -409,7 +422,7 @@ pub fn find_grid_points_in_slice<T,F> (ds: &Dataset, band_index: isize, accumula
 
 
 /// get Vec of values for given Vec<GridPoint2D> reference
-pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: isize, sub_no_data: Option<T>, pts: &Vec<GridPoint<U>> )->Result<Vec<T>> 
+pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: usize, sub_no_data: Option<T>, pts: &Vec<GridPoint<U>> )->Result<Vec<T>> 
     where T: GdalValueType + Into<f64>, U: GdalValueType
 {
     let band = ds.rasterband(band_index)?;
@@ -437,14 +450,14 @@ pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: isize, sub_no_data:
 }
 
 
-pub fn get_vec_f64<T> (ds: &Dataset, band_index: isize)->Result<Vec<f64>> 
+pub fn get_vec_f64<T> (ds: &Dataset, band_index: usize)->Result<Vec<f64>> 
     where T: GdalValueType + Into<f64>
 {
     let band = ds.rasterband(band_index)?;
     let scale = if let Some(v) = band.scale() { v } else { 1.0 };
     let offset = if let Some(v) = band.offset() { v } else { 0.0 };
     let buf: Buffer<T> = band.read_as( (0,0), band.size(), band.size(), None)?;
-    let data = buf.data;
+    let data = buf.data();
     let len = data.len();
     let mut values: Vec<f64> = Vec::with_capacity(len);
     values.resize( len, 0.0);
@@ -457,7 +470,7 @@ pub fn get_vec_f64<T> (ds: &Dataset, band_index: isize)->Result<Vec<f64>>
 }
 
 
-pub fn get_linear_range<T> (ds: &Dataset, band_index: isize)->Result<LinearRange<f64>>
+pub fn get_linear_range<T> (ds: &Dataset, band_index: usize)->Result<LinearRange<f64>>
     where T: GdalValueType + Into<f64> + Sub<Output=T>
 {
     let band = ds.rasterband(band_index)?;
@@ -480,3 +493,66 @@ pub fn get_linear_range<T> (ds: &Dataset, band_index: isize)->Result<LinearRange
 }
 
 /* #endregion generic Dataset/Rasterband access */
+
+/* #region misc high level functions *************************************************************************************************/
+
+/// create an image with given width,height from VRT
+pub fn create_wh_image_from_vrt (bbox: &BoundingBox<f64>, tgt_epsg: u32, width: u32, height: u32, img_extension: &str, opts: &Option<CslStringList>, vrt_path: &Path, file_path: &Path) -> Result<()> {
+    let src_ds =  Dataset::open(vrt_path)?;
+    let tgt_srs = SpatialRef::from_epsg( tgt_epsg)?;
+    let driver_name = get_driver_name_for_extension( img_extension).ok_or(misc_error(format!("unsupported image type {}", img_extension)))?;
+
+    let mut warp = warp::SimpleWarpBuilder::new( &src_ds, file_path)?;
+
+    warp.set_tgt_srs( &tgt_srs);
+    warp.set_tgt_extent_from_bbox( bbox);
+    warp.set_tgt_size( width as i32, height as i32);
+    warp.set_tgt_format( driver_name)?;
+
+    if let Some(ref opts) = *opts {
+        warp.set_create_options( opts);
+    }
+        
+    warp.exec()?;
+    Ok(())
+}
+
+/// create an image with given resolution from VRT (width,height are computed)
+pub fn create_res_image_from_vrt (bbox: &BoundingBox<f64>, tgt_epsg: u32, res_x: f64, res_y: f64, img_extension: &str, opts: &Option<CslStringList>, vrt_path: &Path, file_path: &Path) -> Result<()> {
+    let src_ds =  Dataset::open(vrt_path)?;
+    let tgt_srs = SpatialRef::from_epsg( tgt_epsg)?;
+    let driver_name = get_driver_name_for_extension( img_extension).ok_or(misc_error(format!("unsupported image type {}", img_extension)))?;
+
+    let mut warp = warp::SimpleWarpBuilder::new( &src_ds, file_path)?;
+
+    warp.set_tgt_srs( &tgt_srs);
+    warp.set_tgt_extent_from_bbox( bbox);
+    warp.set_tgt_resolution( res_x, res_y);
+    warp.set_tgt_format( driver_name)?;
+
+    if let Some(ref opts) = *opts {
+        warp.set_create_options( opts);
+    }
+        
+    warp.exec()?;
+    Ok(())
+}
+
+
+/// syntactic sugar for creating CslStringLists. Note this panics if an invalid string (that cannot be translated into
+/// a C string) is provided.
+#[macro_export]
+macro_rules! csl_string_list {
+    ( $( $v:expr ),* ) => {
+        { 
+            use odin_gdal::CslStringList;
+            let mut co_list = CslStringList::new();
+            $( co_list.add_string( $v).unwrap(); )*
+            co_list
+        }
+    }
+}
+
+
+
+/* #endregion misc high level functions */

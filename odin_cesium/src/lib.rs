@@ -13,8 +13,8 @@
  */
 #![allow(unused)]
 
-use std::net::SocketAddr;
-use odin_common::datetime::epoch_millis;
+use std::{net::SocketAddr,any::type_name};
+use odin_common::{datetime::epoch_millis, strings::to_string_vec, collections::empty_vec};
 use async_trait::async_trait;
 
 use odin_build::prelude::*;
@@ -38,6 +38,8 @@ pub struct CesiumService {
 
 impl CesiumService {
     pub fn new()->Self { CesiumService{} }
+
+    pub fn mod_path()->&'static str { type_name::<Self>() }
 }
 
 #[async_trait]
@@ -45,17 +47,30 @@ impl SpaService for CesiumService {
 
     fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
         spa_builder
-            .add( build_service!( UiService::new()))
-            .add( build_service!( WsService::new()))
+            .add( build_service!( => UiService::new()))
+            .add( build_service!( => WsService::new()))
     }
 
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {
         spa.add_assets( self_crate!(), load_asset);
 
-        //--- add Cesium (we could turn this into assets to ensure it's there)
-        spa.add_proxy( "cesium", "https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium");
-        spa.add_script( proxy_uri!( "cesium", "Cesium.js"));
-        spa.add_css( proxy_uri!( "cesium", "Widgets/widgets.css"));
+        //--- add Cesium
+
+        //.. from proxy
+        //spa.add_proxy( "cesium", "https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium");
+        //spa.add_script( proxy_uri!( "cesium", "Cesium.js"));
+        //spa.add_css( proxy_uri!( "cesium", "Widgets/widgets.css"));
+
+        //.. from local installation
+        // download *.zip from https://cesium.com/downloads/ and put it into ODIN_ROOT/assets/odin_cesium/
+        // rename Cesium/Cesium.js into Cesium/Cesium.min.js - it is already minified 
+        spa.add_script( asset_uri!("cesium_base_url.js")); // required since we renamed Cesium.js
+        spa.add_script( asset_uri!("cesiumjs/Cesium.min.js"));
+        spa.add_css( asset_uri!("cesiumjs/Widgets/widgets.css"));
+
+        //.. from external URL
+        //spa.add_script( "https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium/Cesium.js");
+        //spa.add_css( "https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium/Widgets/widgets.css");
 
         spa.add_css( asset_uri!("odin_cesium.css"));
 
@@ -71,7 +86,7 @@ impl SpaService for CesiumService {
 
     async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
         let clock = SetClock{time: epoch_millis(), time_scale: 1.0};
-        let msg = ws_msg!( "odin_cesium/odin_cesium.js", clock).to_json()?;
+        let msg = WsMsg::json( CesiumService::mod_path(), "clock", clock)?;
         conn.send(msg).await;
         Ok(())
     }
@@ -88,11 +103,17 @@ pub struct ImgLayerService {
 
 impl ImgLayerService {
     pub fn new()->Self { ImgLayerService{} }
+
+    pub fn mod_path()->&'static str { type_name::<Self>() }
 }
+
+// headers to copy from the proxied request for OpenStreetMap tiles - see https://operations.osmfoundation.org/policies/tiles/
+// note that requests will fail if we copy all headers
+const OSM_HDR: &[&str] = &["user-agent","referer","accept","accept-encoding"]; 
 
 impl SpaService for ImgLayerService {
     fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
-        spa_builder.add( build_service!( CesiumService::new()))
+        spa_builder.add( build_service!( => CesiumService::new()))
     }
 
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()> {
@@ -101,7 +122,9 @@ impl SpaService for ImgLayerService {
         spa.add_module( asset_uri!("imglayer_config.js"));
         spa.add_module( asset_uri!("imglayer.js"));
 
-        spa.add_proxy("globe-natgeo", "https://services.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer");
+        spa.add_proxy("globe-natgeo", "https://services.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer", empty_vec(), empty_vec(), true, empty_vec());
+        spa.add_proxy("globe-osm", "https://tile.openstreetmap.org", to_string_vec(OSM_HDR), empty_vec(), true, empty_vec());
+        spa.add_proxy("globe-otm", "https://tile.opentopomap.org", to_string_vec(OSM_HDR), empty_vec(), true, empty_vec());
 
         Ok(())
     }

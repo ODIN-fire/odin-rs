@@ -18,7 +18,7 @@ use odin_cesium::ImgLayerService;
 #[test]
 fn test_doc_assembly()->OdinServerResult<()> {
     let services = SpaServiceList::new()
-        .add( build_service!( ImgLayerService::new()));
+        .add( build_service!( => ImgLayerService::new()));
 
     let spa_comps = SpaComponents::from( &services)?;
 

@@ -19,6 +19,8 @@ import * as odinCesium from "./odin_cesium.js";
 
 //--- module initialization
 
+const MOD_NAME = "odin_cesium::ImgLayerService";
+
 var defaultRender = config.render;
 var sources = config.sources;
 var selectedSrc = undefined;
@@ -44,19 +46,19 @@ console.log("ui_cesium_imglayer initialized");
 //--- end init
 
 function createIcon() {
-    return ui.Icon("./asset/odin_cesium/imglayer.svg", (e)=> ui.toggleWindow(e,'imglayer'));
+    return ui.Icon("./asset/odin_cesium/globe.svg", (e)=> ui.toggleWindow(e,'imglayer'));
 }
 
 function createWindow() {
-    return ui.Window("Imagery Layers", "imglayer", "./asset/odin_cesium/imglayer.svg")(
+    return ui.Window("Imagery Layers", "imglayer", "./asset/odin_cesium/globe.svg")(
         ui.LayerPanel("imglayer", toggleShowImgLayer),
         ui.Panel("sources", true)(
           ui.TreeList("imglayer.source.list", 15, 25, selectImgLayerSrc),
-          ui.Text("imglayer.source.info", 25)
+          ui.Text("imglayer.source.info", "25rem")
         ),
         ui.Panel("color map", false)(
           ui.List("imglayer.cm.list", 15, selectImgCmapEntry),
-          ui.Text("imglayer.cm.info", 25)
+          ui.Text("imglayer.cm.info", "25rem")
         ),
         ui.Panel("layer parameters", false)(
           ui.ColumnContainer("align_right")(

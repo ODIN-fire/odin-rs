@@ -244,10 +244,61 @@ export class ExpandableTreeNode extends TreeNode {
         return root;
     }
 
-    sortInPathName(pathName, newData=null, expand=false) {
+    findNode (pathName) {
+        let path = pathName.split('/');
+        return this.#findNodeRec( path, 0);
+    }
+
+    #findNodeRec (path, i) {
+        let name = path[i];
+        for (let c=this.firstChild; c; c = c.nextSibling) {
+            if (c.name == name) {
+                i++;
+                if (i >= path.length) {
+                    return c;
+                } else {
+                    return c.#findNodeRec( path, i)
+                }
+            }
+        }
+        return null; // not found
+    }
+
+    sortInPathName(pathName, newData, expand=false) {
         let path = pathName.split('/');
         let newNode = new ExpandableTreeNode( path[path.length-1], newData, expand);
         this.#insert(0,path,newNode);
+        return newNode;
+    }
+
+    removePathName(pathName) {
+        let node = this.findNode(pathName);
+        if (node) {
+            let parent = node.parent;
+            let prev = null;
+            for (let c=parent.firstChild; c; c = c.nextSibling) {
+                if (Object.is(node, c)) {
+                    if (prev == null) {
+                        parent.firstChild = c.nextSibling;
+                    } else {
+                        prev.nextSibling = c.nextSibling;
+                    }
+                    return node;
+                } else {
+                    prev = c;
+                }
+            }
+        }
+        return null;
+    }
+
+    isVisible () {
+        let p = this.parent;
+        while (p) {
+            if (!p.isExpanded) return false;
+            p = p.parent;
+        }
+        return true;
     }
 
     static fromPreOrdered (items, pathExtractor = o=>o.pathName, expansionLevel=1) {
@@ -364,6 +415,18 @@ export class ExpandableTreeNode extends TreeNode {
 
     expandedDescendants() {
         return this.depthFirstDescendants( n=> n.isExpanded);
+    }
+
+    collectNamesUp (sep) {
+        let path = this.name;
+        let n = this.parent;
+        while (n) {
+            if (n.parent) { // skip artificial <ROOT> node
+                path = n.name + sep + path;
+            }
+            n = n.parent;
+        }
+        return path;
     }
 }
 

@@ -323,28 +323,32 @@ impl ToTokens for FieldSpec {
 /// ```
 #[proc_macro]
 pub fn define_algebraic_type (item: TokenStream) -> TokenStream {
-    let AdtEnum {attrs, visibility, name, derives, variant_types, methods }= match syn::parse(item) {
+    let AdtEnum {attrs, visibility, name, generic_params, derives, where_clause, variant_types, methods }= match syn::parse(item) {
         Ok(adt) => adt,
         Err(e) => panic!( "expected \"adtName [: Trait,..] = variantType | ..  [ func ... ]\" got error: {:?}", e)
     };
 
     let mut variant_names = get_variant_names_from_types(&variant_types);
+
+    let mut generic_names = get_generic_names( &generic_params);
+    let generics = if generic_params.is_empty() { quote!{} } else { quote! { < #( #generic_params ),* > } };
+
     let derive_clause = if derives.is_empty() { quote!{} } else { quote! { #[derive( #( #derives ),* )] } };
-    let inherent_impl = if methods.is_empty() { quote!{} } else { build_inherent_impl( &name, &variant_names, &methods) };
+    let inherent_impl = if methods.is_empty() { quote!{} } else { build_inherent_impl( &name, &generic_names, &generics, &where_clause, &variant_names, &methods) };
 
     let new_item: TokenStream = quote! {
         #derive_clause
         #( #attrs )*
-        #visibility enum #name {
+        #visibility enum #name #generics #where_clause {
             #( #variant_names ( #variant_types ) ),*
         }
         #inherent_impl
         #(
-            impl From<#variant_types> for #name {
+            impl #generic_names From<#variant_types> for #name #generics #where_clause {
                 fn from (v: #variant_types)->Self { #name::#variant_names(v) }
             }
         )*
-        impl std::fmt::Debug for #name {
+        impl #generic_names std::fmt::Debug for #name #generics #where_clause {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
                     #( Self::#variant_names (msg) => write!(f, concat!( stringify!(#name), "::", stringify!(#variant_names))) ),*
@@ -356,11 +360,12 @@ pub fn define_algebraic_type (item: TokenStream) -> TokenStream {
     new_item
 }
 
-fn build_inherent_impl (enum_name: &Ident, variant_names: &Vec<Ident>, methods: &Vec<ItemFn>)->TokenStream2 {
+fn build_inherent_impl (enum_name: &Ident, generic_names: &TokenStream2, generics: &TokenStream2, 
+                        where_clause: &Option<WhereClause>, variant_names: &Vec<Ident>, methods: &Vec<ItemFn>)->TokenStream2 {
     let mthds: Vec<TokenStream2> = methods.iter().map( |m| build_enum_method( variant_names, m)).collect();
 
     quote! {
-        impl #enum_name {
+        impl #generic_names #enum_name #generics #where_clause {
             #( #mthds )*
         }
     }
@@ -435,7 +440,7 @@ impl<'a> Visit<'a> for BlockAnalyzer {
 /// 
 #[proc_macro]
 pub fn define_actor_msg_set (item: TokenStream) -> TokenStream {
-    let AdtEnum {attrs, visibility, name, derives, mut variant_types, methods }= syn::parse(item).unwrap();
+    let AdtEnum {attrs, visibility, name, generic_params, derives, where_clause, mut variant_types, methods }= syn::parse(item).unwrap();
     for var_type in get_sys_msg_types() {
         variant_types.push(var_type)
     }
@@ -445,30 +450,34 @@ pub fn define_actor_msg_set (item: TokenStream) -> TokenStream {
         variant_names.push(var_name)
     }
 
+    let mut generic_names = get_generic_names( &generic_params);
+    let generics = if generic_params.is_empty() { quote!{} } else { quote! { < #( #generic_params ),* > } };
+
     let derive_clause = if derives.is_empty() { quote!{} } else { quote! { #[derive( #( #derives ),* )] } };
-    let inherent_impl = if methods.is_empty() { quote!{} } else { build_inherent_impl( &name, &variant_names, &methods) };
+    let inherent_impl = if methods.is_empty() { quote!{} } else { build_inherent_impl( &name, &generic_names, &generics, &where_clause, &variant_names, &methods) };
 
     let new_item: TokenStream = quote! {
         #derive_clause
         #( #attrs )*
-        #visibility enum #name {
+        #visibility enum #name #generics #where_clause {
             #( #variant_names ( #variant_types ) ),*
         }
+
         #inherent_impl
-        impl FromSysMsg for #name {}
+        impl #generic_names FromSysMsg for #name #generics #where_clause {}
         #(
-            impl From<#variant_types> for #name {
+            impl #generic_names From<#variant_types> for #name #generics #where_clause {
                 fn from (v: #variant_types)->Self { #name::#variant_names(v) }
             }
         )*
-        impl std::fmt::Debug for #name {
+        impl #generic_names std::fmt::Debug for #name #generics #where_clause {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
                     #( #name::#variant_names (msg) => write!(f, "{:?}", msg), )*
                 }
             }
         }
-        impl DefaultReceiveAction for #name {
+        impl #generic_names DefaultReceiveAction for #name #generics #where_clause {
             fn default_receive_action (&self)->ReceiveAction {
                 match self {
                     #name::_Exec_(msg) => { msg.0(); ReceiveAction::Continue }
@@ -478,6 +487,7 @@ pub fn define_actor_msg_set (item: TokenStream) -> TokenStream {
                 }
             }
         }
+
     }.into();
     //println!("-----\n{}\n-----", new_item.to_string());
 
@@ -497,7 +507,9 @@ struct AdtEnum {
     attrs: Vec<Attribute>,
     visibility: Visibility,
     name: Ident,
+    generic_params:Vec<GenericParam>,
     derives: Vec<Path>,
+    where_clause: Option<WhereClause>,
     variant_types: Vec<Path>,
     methods: Vec<ItemFn>
 }
@@ -507,12 +519,27 @@ impl Parse for AdtEnum {
         let attrs: Vec<Attribute> = input.call(Attribute::parse_outer)?;
         let visibility: Visibility = parse_visibility(input);
         let name: Ident = input.parse()?;
-        let mut derives: Vec<Path> = Vec::new();
 
+        let mut generic_params: Vec<GenericParam> = Vec::new();
+        let mut lookahead = input.lookahead1();
+        if !input.is_empty() && lookahead.peek(Token![<]) {
+            input.parse::<Token![<]>()?;
+            generic_params = Punctuated::<GenericParam,Token![,]>::parse_separated_nonempty(input)?.into_iter().collect();
+            input.parse::<Token![>]>()?;
+            lookahead = input.lookahead1();
+        }
+
+        let mut derives: Vec<Path> = Vec::new();
         let mut lookahead = input.lookahead1();
         if !input.is_empty() && lookahead.peek(Token![:]) {
             input.parse::<Token![:]>()?;
             derives = Punctuated::<Path,Token![+]>::parse_separated_nonempty(input)?.into_iter().collect();
+            lookahead = input.lookahead1();
+        }
+
+        let mut where_clause: Option<WhereClause> = None;
+        if !input.is_empty() && lookahead.peek(Token![where]) {
+            where_clause = Some(input.parse::<WhereClause>()?);
             lookahead = input.lookahead1();
         }
 
@@ -532,7 +559,7 @@ impl Parse for AdtEnum {
             lookahead = input.lookahead1()
         }
 
-        Ok( AdtEnum { attrs, visibility, name, derives, variant_types, methods })
+        Ok( AdtEnum { attrs, visibility, name, generic_params, derives, where_clause, variant_types, methods })
     }
 }
 
@@ -575,13 +602,18 @@ pub fn match_algebraic_type (item: TokenStream) -> TokenStream {
 }
 
 fn get_match_patterns(msg_name: &Ident, msg_type: &Path, match_arms: &Vec<MsgMatchArm>)->Vec<TokenStream2> {
+    let match_msg_type = get_match_adt_type( msg_type);
+
     match_arms.iter().map(|a| {
         match &a.variant_spec {
             VariantSpec::Type(path) => {
                 let variant_name = get_variant_name_from_match_arm(a);
                 let maybe_ref = a.maybe_ref;
                 let maybe_mut = a.maybe_mut;
-                quote!( #msg_type::#variant_name (#maybe_ref #maybe_mut #msg_name))
+
+                quote!( 
+                    #match_msg_type::#variant_name (#maybe_ref #maybe_mut #msg_name)
+                )
             }
             VariantSpec::Wildcard => { quote!(_) }
         }
@@ -619,22 +651,24 @@ fn get_match_patterns(msg_name: &Ident, msg_type: &Path, match_arms: &Vec<MsgMat
 #[proc_macro]
 pub fn match_actor_msg (item: TokenStream)->TokenStream {
     let MsgMatch { msg_name, msg_type, match_arms }: MsgMatch = syn::parse(item).unwrap();
+    
     let variant_names: Vec<Ident> = get_variant_names_from_match_arms(&match_arms);
     let is_mut: Vec<&Option<Token![mut]>> = match_arms.iter().map( |a| { &a.maybe_mut }).collect();
+    let match_msg_type = get_match_adt_type( &msg_type);
     let match_actions: Vec<&Expr> = match_arms.iter().map( |a| { &a.match_action }).collect();
 
     let new_item: TokenStream = quote! {
         match #msg_name {
-            #( #msg_type::#variant_names (#is_mut #msg_name) => #match_actions, )*
+            #( #match_msg_type::#variant_names (#is_mut #msg_name) => #match_actions, )*
 
             // this relies on Rust allowing duplicated match patterns and ignoring all but the first
-            #msg_type::_Start_(_) => msg.default_receive_action(),
-            #msg_type::_Ping_(_) => msg.default_receive_action(),
-            #msg_type::_Timer_(_) => msg.default_receive_action(),
-            #msg_type::_Exec_(_) => msg.default_receive_action(),
-            #msg_type::_Pause_(_) => msg.default_receive_action(),
-            #msg_type::_Resume_(_) => msg.default_receive_action(),
-            #msg_type::_Terminate_(_) => msg.default_receive_action(),
+            #match_msg_type::_Start_(_) => msg.default_receive_action(),
+            #match_msg_type::_Ping_(_) => msg.default_receive_action(),
+            #match_msg_type::_Timer_(_) => msg.default_receive_action(),
+            #match_msg_type::_Exec_(_) => msg.default_receive_action(),
+            #match_msg_type::_Pause_(_) => msg.default_receive_action(),
+            #match_msg_type::_Resume_(_) => msg.default_receive_action(),
+            #match_msg_type::_Terminate_(_) => msg.default_receive_action(),
             //_ => #msg_name . default_receive_action() // this would be a catch-all which would bypass the check for unmatched user messages
         }
     }.into();
@@ -760,6 +794,23 @@ fn parse_match_arms (input: ParseStream)->Result<Vec::<MsgMatchArm>> {
     Ok(match_arms)
 }
 
+/// if the ADT type has generic params we have to remove these from match arm expressions:
+/// ```
+///   enum MyAdt<T> { Foo(T), ... }
+/// ```
+/// is matched like this:
+/// ```
+///   match adt {
+///      MyAdt::Foo(t) => ...
+///   }
+/// ```
+fn get_match_adt_type (adt_type: &Path)->Path {
+    let mut match_adt_type = adt_type.clone();
+    let mut mt = match_adt_type.segments.last_mut().unwrap();
+    mt.arguments = PathArguments::None;
+
+    match_adt_type
+}
 
 /* #endregion match macros */
 
@@ -785,10 +836,12 @@ fn parse_match_arms (input: ParseStream)->Result<Vec::<MsgMatchArm>> {
 /// ```
 #[proc_macro]
 pub fn impl_actor (item: TokenStream) -> TokenStream {
-    let ActorReceive { msg_name, msg_type, state_type, where_clause, match_arms }: ActorReceive = match syn::parse(item) {
+    let ActorReceive { msg_name, mut msg_type, state_type, where_clause, match_arms }: ActorReceive = match syn::parse(item) {
         Ok(actor_receive) => actor_receive,
         Err(e) => panic!( "expected impl_actor!{{ match «msgVarName» for Actor<«stateType»,«msgType»> [where ..] as «msgTypeVariant» => {{..}},...}}, got {:?}", e)
     };
+
+    let match_msg_type = get_match_adt_type( &msg_type);
 
     let variant_names: Vec<Ident> = get_variant_names_from_match_arms(&match_arms);
     //let variant_types: Vec<Path> = get_variant_types_from_match_arms(&match_arms); // if we need to do explicit trait impls for variant types
@@ -802,19 +855,19 @@ pub fn impl_actor (item: TokenStream) -> TokenStream {
 
     let new_item: TokenStream = quote! {
         impl #typevar_tokens ActorReceiver<#msg_type> for Actor<#state_type,#msg_type> #where_clause {
-            async fn receive (&mut self, msg: #msg_type)->ReceiveAction {
+            async fn receive (&mut self, #msg_name: #msg_type)->ReceiveAction {
                 #[allow(unused_variables)] // some match arms might not use msg_name
                 match #msg_name {
-                    #( #msg_type::#variant_names (#is_mut #msg_name) => #match_actions, )*
+                    #( #match_msg_type::#variant_names (#is_mut #msg_name) => #match_actions, )*
 
                     // this relies on Rust allowing duplicated match patterns and ignoring all but the first matching arm
-                    #msg_type::_Start_(_) => #msg_name.default_receive_action(),
-                    #msg_type::_Ping_(_) => #msg_name.default_receive_action(),
-                    #msg_type::_Timer_(_) => #msg_name.default_receive_action(),
-                    #msg_type::_Exec_(_) => #msg_name.default_receive_action(),
-                    #msg_type::_Pause_(_) => #msg_name.default_receive_action(),
-                    #msg_type::_Resume_(_) => #msg_name.default_receive_action(),
-                    #msg_type::_Terminate_(_) => #msg_name.default_receive_action(),
+                    #match_msg_type::_Start_(_) => #msg_name.default_receive_action(),
+                    #match_msg_type::_Ping_(_) => #msg_name.default_receive_action(),
+                    #match_msg_type::_Timer_(_) => #msg_name.default_receive_action(),
+                    #match_msg_type::_Exec_(_) => #msg_name.default_receive_action(),
+                    #match_msg_type::_Pause_(_) => #msg_name.default_receive_action(),
+                    #match_msg_type::_Resume_(_) => #msg_name.default_receive_action(),
+                    #match_msg_type::_Terminate_(_) => #msg_name.default_receive_action(),
                     //_ => #msg_name . default_receive_action() // this would be a catch-all which would cut off the check for unmatched user messages
                 }
             }

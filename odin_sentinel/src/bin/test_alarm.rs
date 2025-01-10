@@ -11,23 +11,27 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
+#![allow(unused)]
 
 use std::path::Path;
 use tokio;
 use chrono::Utc;
-use odin_common::define_cli;
+use odin_common::{define_cli, geo::{GeoPoint3, GeoPoint4},datetime::EpochMillis};
 use odin_sentinel::{load_config, Alarm, AlarmMessenger, EvidenceInfo, 
     ConsoleAlarmMessenger, SmtpAlarmMessenger, SignalCmdAlarmMessenger, SlackAlarmMessenger, SentinelFile
 };
 use anyhow::Result;
  
 define_cli! { ARGS [about="Delphire Sentinel Slack alarm test"] = 
-    slack: bool            [help="enable slack messenger", long],
-    smtp: bool             [help="enable smtp messenger", long],
-    signal_cli: bool       [help="enable signal-cli messenger (requires signal-cli installation)", long],
+    slack: bool                   [help="enable slack messenger", long],
+    smtp: bool                    [help="enable smtp messenger", long],
+    signal_cli: bool              [help="enable signal-cli messenger (requires signal-cli installation)", long],
 
-    img: Option<String>    [help="optional pathname of image to attach", short, long],
-    text: Option<String>    [help="optional alarm notification text", short, long]
+    device: String                [help="device_id", default_value="test-device",short,long],
+    alarm_type: String            [help="alarm type", default_value="smoke", short,long],
+    confidence: f64               [help="confidence [0.0 .. 1.0]", default_value="0.70", short,long],
+    img: Option<String>           [help="optional pathname of image to attach", short, long],
+    text: Option<String>          [help="optional alarm notification text", short, long]
 }
 
 /// test application for alarm messengers - this sends artificial alarms to the messenger types
@@ -35,30 +39,30 @@ define_cli! { ARGS [about="Delphire Sentinel Slack alarm test"] =
 /// Note this uses the same config files from the ODIN installation as the sentinel_alarm server
 #[tokio::main]
 async fn main()->Result<()> {
+    let device_id = ARGS.device.clone();
     let description = if let Some(descr) = &ARGS.text { descr.clone() } else { "test alarm".into() };
-    let alarm = if let Some(img) = &ARGS.img {
-        let pathname = Path::new(&img).to_path_buf();
+    let time_recorded = Utc::now();
+    let pos = Some( GeoPoint4::from_geo3_epoch( 
+        GeoPoint3::from_lon_lat_degrees_alt_meters(-121.9633, 37.1668, 560.0), 
+        time_recorded.into()
+    ));
+    let alarm_type = ARGS.alarm_type.clone();
+    let confidence = ARGS.confidence;
+    let mut evidence_info: Vec<EvidenceInfo> = Vec::new();
+
+    if let Some(img) = &ARGS.img {
+        let pathname = Path::new(img).to_path_buf();
         if !pathname.is_file() { panic!("image file does not exist: {img}") }
-        Alarm { 
-            device_id: "test-device".to_string(),
-            description, 
-            time_recorded: Utc::now(),
-            evidence_info: vec!( 
-                EvidenceInfo { 
-                    sensor_no: 0,
-                    description: "visual".to_string(), 
-                    img: Some(SentinelFile { record_id: "image".to_string(), pathname })
-                }
-            ) 
-        }
-    } else {
-        Alarm { 
-            device_id: "test-device".to_string(),
-            description, 
-            time_recorded: Utc::now(),
-            evidence_info: Vec::new() 
-        }
-    };
+
+        let ei = EvidenceInfo { 
+            sensor_no: 0, 
+            description: "visual".to_string(), 
+            img: Some(SentinelFile { record_id: "image".to_string(), pathname })
+        };
+        evidence_info.push(ei);
+    }
+
+    let alarm = Alarm { device_id, description, time_recorded, pos, alarm_type, confidence, evidence_info };
 
     let messengers = create_messengers()?;
     
@@ -79,10 +83,10 @@ fn create_messengers()->Result<Vec<Box<dyn AlarmMessenger>>> {
         messengers.push( Box::new( SlackAlarmMessenger::new( load_config("slack_alarm.ron")?)))
     }
     if ARGS.smtp { 
-        messengers.push( Box::new( SmtpAlarmMessenger::new( load_config("smtp")?))) 
+        messengers.push( Box::new( SmtpAlarmMessenger::new( load_config("smtp.ron")?))) 
     }
     if ARGS.signal_cli { 
-        messengers.push( Box::new( SignalCmdAlarmMessenger::new( load_config("signal_cmd")?))) 
+        messengers.push( Box::new( SignalCmdAlarmMessenger::new( load_config("signal_cmd.ron")?))) 
     }
 
     Ok(messengers)

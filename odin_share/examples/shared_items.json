@@ -1,0 +1,11 @@
+{
+    "view/bay_area": {
+        "type": "GeoPoint3",
+        "owner": "🔒",
+        "data": {
+            "lat": 38.15910,
+            "lon": -122.67800,
+            "alt": 800000.0
+        }
+    }
+}

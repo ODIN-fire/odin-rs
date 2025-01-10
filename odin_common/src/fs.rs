@@ -12,18 +12,28 @@
  * and limitations under the License.
  */
 
-use std::io;
-use std::fs;
-use std::io::{Read, Write};
+use std::alloc::System;
+use std::cmp::max;
+use std::fs::{self,DirEntry,FileTimes,File,OpenOptions};
+use std::io::{self,Read, Write, Error as IOError,ErrorKind};
 use std::time::{SystemTime,Duration};
 use io::ErrorKind::*;
-use std::fs::{File,OpenOptions};
 use std::path::{Path,PathBuf};
-use std::io::{Error as IOError,ErrorKind};
 
+use crate::if_let;
 use crate::macros::io_error;
 
 type Result<T> = std::result::Result<T,std::io::Error>;
+
+// TODO - public functions should all use AsRef<Path>
+
+pub fn filename<'a,T: AsRef<Path>> (path: &'a T)->Option<&'a str> {
+    path.as_ref().file_name().and_then(|ostr| ostr.to_str())
+}
+
+pub fn extension<'a,T: AsRef<Path>> (path: &'a T)->Option<&'a str> {
+    path.as_ref().extension().and_then(|ostr| ostr.to_str())
+}
 
 pub fn filename_of_path (path: impl AsRef<Path>)->Result<String> {
     let path = path.as_ref();
@@ -94,32 +104,29 @@ pub fn filepath_contents_as_string (dir: &str, filename: &str) -> Result<String>
     file_contents_as_string( &mut file)
 }
 
-pub fn file_length(file: &File) -> Result<u64> {
-    file.metadata().and_then( |md| {
-        if md.is_file() {
-            Ok(md.len())
-        } else {
-            Err(io_error!(NotFound, "file {:?}", file))
-        }
-    })
+pub fn file_contents <P: AsRef<Path>> (path: &P) -> Result<Vec<u8>> {
+    let mut file = File::open(path)?;
+    let md = file.metadata()?;
+    let len = md.len();
+    if len > 0 {
+        let mut contents: Vec<u8> = Vec::with_capacity(len as usize);
+        file.read_to_end(&mut contents)?;
+        Ok(contents)
+
+    } else { Err(io_error!(Other, "file empty: {:?}", file)) }
+}
+
+pub fn file_length <P: AsRef<Path>> (path: &P) -> Option<u64> {
+    fs::metadata(path).ok().map( |meta| meta.len() )
 }
 
 pub fn existing_non_empty_file_from_path <P: AsRef<Path>> (path: P)-> Result<File> {
-    match File::open(path) {
-        Ok(file) => {
-            let md = file.metadata()?;
-            if md.is_file() {
-                if md.len() > 0 {
-                    Ok(file)
-                } else {
-                    Err(io_error!(Other, "file empty: {:?}", file))
-                }
-            } else {
-                Err(io_error!(Other, "not a file: {:?}", file))
-            }
-        },
-        Err(e) => Err(e)
-    }
+    let mut file = File::open(path)?;
+    let md = file.metadata()?;
+    let len = md.len();
+    if len > 0 {
+        Ok(file)
+    } else { Err(io_error!(Other, "file empty: {:?}", file)) }
 }
 
 pub fn existing_non_empty_file (dir: &str, filename: &str) -> Result<fs::File> {
@@ -212,6 +219,10 @@ pub fn get_file_basename<'a> (path: &'a str) -> Option<&'a str> {
     }
 }
 
+pub fn basename<'a,T: AsRef<Path>> (path: &'a T)->Option<&'a str> {
+    filename(path).and_then(|fname| get_file_basename(fname))
+}
+
 
 pub fn remove_old_files<T> (dir: &T, max_age: Duration)->Result<usize> where T: AsRef<Path> {
     let dir: &Path = dir.as_ref();
@@ -239,4 +250,86 @@ pub fn remove_old_files<T> (dir: &T, max_age: Duration)->Result<usize> where T: 
     } else {
         Err( io_error!(NotFound, "dir {:?}", dir))
     }
+}
+
+pub fn visit_dirs (dir: &Path, recursive: bool, cb: &mut dyn FnMut(&DirEntry)) -> io::Result<()> {
+    if dir.is_dir() {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() && recursive {
+                visit_dirs(&path, recursive, cb)?;
+            } else {
+                cb(&entry);
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn lru_files<P: AsRef<Path>> (dir: &P, recursive: bool) -> Result<Vec<(PathBuf,SystemTime,u64)>> {
+    let mut acc: Vec<(PathBuf,SystemTime,u64)> = Vec::new();
+    let mut cb = |entry: &DirEntry| {
+        if let Ok(meta) = entry.metadata() {
+            if let Ok(last_access) = meta.accessed() {
+                let len = meta.len();
+
+                for (i,e) in acc.iter_mut().enumerate() {
+                    if last_access > e.1 {
+                        acc.insert(i, (entry.path(), last_access, len));
+                        return;
+                    }
+                }
+                acc.push( (entry.path(), last_access, len));
+            }
+        }
+    };
+    visit_dirs( dir.as_ref(), recursive, &mut cb)?;
+
+    Ok(acc)
+}
+
+pub fn dir_size <P: AsRef<Path>> (dir: &P, recursive: bool) -> Result<u64> {
+    let mut acc: u64 = 0;
+    let mut cb = |entry: &DirEntry| {
+        if let Ok(meta) = entry.metadata() {
+            acc += meta.len();
+        }
+    };
+
+    visit_dirs( dir.as_ref(), recursive,  &mut cb)?;
+    Ok(acc)
+}
+
+/// check if total size of files in directory exceeds given bounds
+/// if so, remove files with oldes accessed time until it does
+pub fn lru_dir_bound <P: AsRef<Path>> (dir: &P, recursive: bool, max_size: u64) -> Result<bool> {
+    let size = dir_size(dir, recursive)?;
+
+    if size > max_size {
+        let excess = size - max_size;
+        let lru_entries = lru_files(dir, recursive)?;
+        let mut removed: u64 = 0;
+        for e in lru_entries.iter().rev() {
+            fs::remove_file( &e.0)?;
+            removed += e.2;
+            if removed >= excess { return Ok(true) }
+        }
+        Err( io_error!(Other, "dir {:?} cannot be reduced to {} size", dir.as_ref(), max_size) ) // can't get here
+
+    } else { Ok(false) } // nothing to shrink, we are under the limit
+}
+
+
+pub fn set_accessed<P: AsRef<Path>> (path: &P)->Result<()> {
+    let ftimes = FileTimes::new().set_accessed( SystemTime::now());
+    let file = File::open(path.as_ref())?;
+    file.set_times(ftimes)
+}
+
+/// generic notification of file availability (can be used as a message)
+#[derive(Debug,Clone)]
+pub struct FileAvailable {
+    pub topic: String,
+    pub pathname: PathBuf,
 }

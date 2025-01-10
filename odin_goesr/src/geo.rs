@@ -12,19 +12,20 @@
  * and limitations under the License.
  */
 
-use odin_common::{*, geo::LatLon, ranges::LinearRange};
+use odin_common::{*, geo::GeoPoint, ranges::LinearRange};
 use odin_gdal::{Dataset, GdalValueType, GridPoint, Metadata, MetadataEntry}; // gdal re-exports
 use serde::Serialize;
 
 use crate::{OdinGoesrError,Result};
 
 
+// note this is not a GeoRect since it is not aligned with parallels and meridians
 #[derive(Debug,Clone, Copy, Serialize)]
 pub struct GoesrBoundingBox {
-    pub ne: LatLon,
-    pub nw:LatLon,
-    pub sw: LatLon,
-    pub se: LatLon
+    pub ne: GeoPoint,
+    pub nw: GeoPoint,
+    pub sw: GeoPoint,
+    pub se: GeoPoint
 }
 
 pub fn get_bounds<T> (proj: &GoesrProjection, x_range: &LinearRange<f64>, y_range: &LinearRange<f64>, p: &GridPoint<T>)->GoesrBoundingBox 
@@ -41,10 +42,10 @@ pub fn get_bounds<T> (proj: &GoesrProjection, x_range: &LinearRange<f64>, y_rang
     let yn = y - y_inc;  // y_inc negative
     let ys = y + y_inc;
 
-    let nw = proj.lat_lon_from_instrument_angles( xw, yn);
-    let ne = proj.lat_lon_from_instrument_angles( xe, yn);
-    let sw = proj.lat_lon_from_instrument_angles( xw, ys);
-    let se = proj.lat_lon_from_instrument_angles( xe, ys);
+    let nw = proj.geo_from_instrument_angles( xw, yn);
+    let ne = proj.geo_from_instrument_angles( xe, yn);
+    let sw = proj.geo_from_instrument_angles( xw, ys);
+    let se = proj.geo_from_instrument_angles( xe, ys);
 
     GoesrBoundingBox{ne,nw,sw,se}
 }
@@ -86,7 +87,7 @@ impl GoesrProjection {
         Ok( GoesrProjection { h, r2, lon0, c } )
     }
 
-    pub fn lat_lon_from_instrument_angles (&self, ew_scan: f64, ns_elevation: f64)->LatLon {
+    pub fn geo_from_instrument_angles (&self, ew_scan: f64, ns_elevation: f64)->GeoPoint {
         let x = ew_scan;
         let y = ns_elevation;
 
@@ -112,6 +113,6 @@ impl GoesrProjection {
         let lat_deg = (atan(r2 * s_z/sqrt( pow2(h - s_x) + pow2(s_y)))).to_degrees();
         let lon_deg = (lon0 - atan(s_y / (h - s_x))).to_degrees();
 
-        LatLon{ lat_deg, lon_deg }
+        GeoPoint::from_lon_lat_degrees(lon_deg, lat_deg)
     }
 }

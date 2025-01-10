@@ -3,6 +3,7 @@
 - [Installation](install.md)
 
 - [1. Introduction](intro.md)
+  - [Design Principles](design_principles.md)
 
 - [2. System Crates](sys_crates.md)
 
@@ -31,9 +32,11 @@
       - [`actor_config`](odin_actor/examples/actor_config.md)
       - [`heartbeat`](odin_actor/examples/heartbeat.md)
   - [odin_server](odin_server/odin_server.md)
+  - [odin_share](odin_share/odin_share.md)
+  - [odin-dem](odin_dem/odin_dem.md)
 
 - [3. Application Domain Crates](app_crates.md)
-
+  - [odin_hrrr](odin_hrrr/odin_hrrr.md)
   - [odin_sentinel](odin_sentinel/odin_sentinel.md)
   - [odin_goesr](odin_goesr/odin_goesr.md)
 

@@ -15,10 +15,10 @@
  // items that abstract flume MPSC channels
 // note this get conditionally included into the respective runtime module 
 
-use flume::{ bounded, Sender, Receiver, TrySendError, TryRecvError };
+use flume::{ bounded, Sender, Receiver, TrySendError, TryRecvError, r#async::{SendFut,RecvFut} };
 
 pub type MpscSender<M> = Sender<M>;
-pub type MpscReceiver<M> =Receiver<M>;
+pub type MpscReceiver<M> = Receiver<M>;
 
 #[inline] 
 pub fn create_mpsc_sender_receiver <MsgType> (bound: usize) -> (MpscSender<MsgType>,MpscReceiver<MsgType>)
@@ -28,18 +28,34 @@ pub fn create_mpsc_sender_receiver <MsgType> (bound: usize) -> (MpscSender<MsgTy
 }
 
 #[inline] 
-pub fn is_closed<M> (tx: &MpscSender<M>)->bool { 
+pub fn is_tx_closed<M> (tx: &MpscSender<M>)->bool { 
+    false // flume Senders can't be closed explicitly 
+}
+
+#[inline] 
+pub fn is_tx_disconnected<M> (tx: &MpscSender<M>)->bool { 
     tx.is_disconnected() 
 }
 
 #[inline] 
-pub fn send<M> (tx: &MpscSender<M>, msg: M)->SendFuture<'_,M> { 
+pub fn send<M> (tx: &MpscSender<M>, msg: M)->SendFut<'_,M> { 
     tx.send_async(msg)
 }
 
 #[inline] 
-pub fn recv<M> (tx: &MpscReceiver<M>)->ReceiveFuture<'_,M> { 
+pub fn recv<M> (tx: &MpscReceiver<M>)->RecvFut<'_,M> { 
     tx.recv_async()
+}
+
+#[inline]
+pub fn is_rx_closed<M> (rx: &MpscReceiver<M>)->bool {
+    false // flume Receivers can't be closed explicitly
+}
+
+#[inline]
+pub fn close_rx<M> (rx: &MpscReceiver<M>)->bool {
+    // nop - flume Receivers can't be closed explicitly
+    true
 }
 
 #[macro_export]

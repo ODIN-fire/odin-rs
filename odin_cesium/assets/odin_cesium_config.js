@@ -1,8 +1,11 @@
-// this should be in ODIN_HOME/assets/odin_cesium as it contains the cesium access token
+// this should be in ODIN_HOME/assets/odin_cesium as it contains the private cesium access token
+
+// this has to be set *before* calling any Cesium functions
+Cesium.Ion.defaultAccessToken = null; // replace with your Cesium Ion access token from https://ion.cesium.com/tokens?page=1
 
 export const config = {
-    accessToken: 'your-cesium-access-token', // REPLACE WITH YOUR TOKEN
     terrainProvider: Cesium.createWorldTerrainAsync(),
+    showTerrain: true,
     requestRenderMode: true,
     targetFrameRate: -1,
     cameraPositions: [

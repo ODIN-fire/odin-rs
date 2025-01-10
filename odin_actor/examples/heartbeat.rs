@@ -51,7 +51,7 @@ struct Actor2State {
 
 impl_actor! { match msg for Actor<Actor2State,Actor2Msg> as 
     _Start_ => cont!{ 
-        self.start_repeat_timer(1, millis(100)) 
+        self.start_repeat_timer(1, millis(100), false) 
     }
     _Timer_ => cont!{
         self.n += 1;

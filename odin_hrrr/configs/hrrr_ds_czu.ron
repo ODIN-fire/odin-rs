@@ -1,0 +1,13 @@
+// example HrrrDataSetSpec for Santa Cruz Mountains 
+
+HrrrDataSetConfig(
+    name: "CZU",
+    bbox: GeoBoundingBox(
+        west: LonAngle(-122.6799806),
+        south: LatAngle(36.9947389),
+        east: LonAngle(-121.8616750),
+        north: LatAngle(37.4842722)
+    ),
+    fields: ["TCDC", "TMP", "UGRD", "VGRD"],
+    levels: ["lev_2_m_above_ground", "lev_10_m_above_ground", "lev_entire_atmosphere"],
+)

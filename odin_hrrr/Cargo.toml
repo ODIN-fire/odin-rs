@@ -3,27 +3,36 @@ name = "odin_hrrr"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "get_hrrr"
+path = "src/bin/get_hrrr.rs"
 
 [dependencies]
 lazy_static = "*"
-futures = "*"
-tokio = { version = "*", features = ["full"] }
-http = "*"
-reqwest = { version = "*", features = ["json"] }
 bytes = "*"
 structopt = "*"
-chrono = { version = "*", features = ["serde"] }
 regex = "*"
-thiserror = "*"
 anyhow = "*"
-log = "*"
-env_logger = "*"
 tempfile = "*"
-serde = "*"
 serde_derive = "*"
-ron = "*"
 
-# our ODIN crates
-# odin_common = { path = "../odin_common" }
+# workspace dependencies
 odin_common = { workspace = true }
+odin_actor = { workspace = true }
+odin_action = { workspace = true }
+odin_build = { workspace = true }
+
+futures = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }
+thiserror = { workspace = true }
+
+[build-dependencies]
+odin_build = { workspace = true }
+
+[features]
+## inline crate-specific resources (configs and assets) into the executable (see odin_build)
+embedded_resources = []

@@ -9,12 +9,9 @@ name = "bob"
 [dependencies]
 lazy_static = "*"
 anyhow = "*"
-thiserror = "*"
-ron = "*"
-toml = "*"
-cargo_toml = "*"
-serde = { version = "*", features = ["derive"] }
-bytes = "*"
+toml = "0.8.19"
+cargo_toml = "0.20.5"
+bytes = "1.9.0"
 flate2 = "*"
 brotli = "*"
 minifier = "*"
@@ -24,3 +21,6 @@ rand = "*"
 pgp = "*"
 magic-crypt = "*"
 
+thiserror = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }

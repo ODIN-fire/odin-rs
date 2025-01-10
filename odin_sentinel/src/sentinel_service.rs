@@ -13,7 +13,7 @@
  */
 #![allow(unused)]
 
-use std::{net::SocketAddr,any::type_name,fs};
+use std::{net::SocketAddr,any::type_name,fs, time::Duration};
 use async_trait::async_trait;
 use axum::{
     http::{Uri,StatusCode},
@@ -28,16 +28,22 @@ use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_cesium::ImgLayerService;
 
-use crate::{load_asset, sentinel_cache_dir, ExecSnapshotAction, SentinelActorMsg, SentinelStore};
+use crate::{
+    load_config, load_asset, sentinel_cache_dir, ExecSnapshotAction, SentinelConfig, SentinelActorMsg, SentinelStore, SentinelDeviceInfo, SentinelDeviceInfos
+};
 
 /// SpaService to show sentinel infos on a cesium display
 pub struct SentinelService {
+    config: SentinelConfig,
+    device_infos: SentinelDeviceInfos,
     hsentinel: ActorHandle<SentinelActorMsg>, // our data source
 }
 
 impl SentinelService {
-    pub fn new (hsentinel: ActorHandle<SentinelActorMsg>)->Self { 
-        SentinelService{hsentinel}
+    pub fn new (hsentinel: ActorHandle<SentinelActorMsg>, )->Self { 
+        let config = load_config("sentinel.ron").expect("failed to load sentinel.ron config"); // Ok to panic in ctor
+        let device_infos = load_config("sentinel_info.ron").expect("failed to load sentinel_info.ron config"); 
+        SentinelService{config,device_infos,hsentinel}
     }
 
     async fn image_handler (path: AxumPath<String>) -> Response {
@@ -48,12 +54,14 @@ impl SentinelService {
             (StatusCode::NOT_FOUND, "image not found").into_response() // FIXME - it might be in flight so we should wait for the download to complete
         }
     }
+
+    pub fn mod_path()->&'static str { type_name::<Self>() }
 }
 
 #[async_trait]
 impl SpaService for SentinelService {
     fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
-        spa_builder.add( build_service!( ImgLayerService::new()))
+        spa_builder.add( build_service!( => ImgLayerService::new()))
     }
 
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {
@@ -73,9 +81,10 @@ impl SpaService for SentinelService {
 
         if self.hsentinel.id() == sender_id && data_type == type_name::<SentinelStore>() { // is this for us?
             if has_connections {
-                let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg> => |data: &SentinelStore| {
+                let action = dyn_dataref_action!( let hself: ActorHandle<SpaServerMsg> = hself.clone() => |data: &SentinelStore| {
                     let sentinels = data.values();
-                    let data = ws_msg!("odin_sentinel/odin_sentinel.js",sentinels).to_json()?;
+                    //let data = ws_msg!( MOD_PATH, sentinels).to_json()?;
+                    let data = WsMsg::json( SentinelService::mod_path(), "sentinels", sentinels)?;
                     Ok( hself.try_send_msg( BroadcastWsMsg{data})? )
                 });
                 self.hsentinel.send_msg( ExecSnapshotAction(action)).await?;
@@ -87,14 +96,32 @@ impl SpaService for SentinelService {
 
     // send an ExecSnapshotAction to the SentinelActor to send a JSON websocket message to the new connection
     async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
+        let remote_addr = conn.remote_addr;
+
+        //--- send device_infos message to browser
+        let device_infos = &self.device_infos;
+        //let data = ws_msg!( MOD_PATH, device_infos).to_json()?;
+        let data = WsMsg::json( SentinelService::mod_path(), "device_infos", device_infos)?;
+        hself.try_send_msg( SendWsMsg{remote_addr,data})?;
+
+        //--- send inactive_duration to browser
+        let inactive_duration = self.config.inactive_duration.as_millis() as u64;
+        //let data = ws_msg!( MOD_PATH, inactive_duration).to_json()?;
+        let data = WsMsg::json( SentinelService::mod_path(), "inactive_duration", inactive_duration)?;
+        hself.try_send_msg( SendWsMsg{remote_addr,data})?;
+
         if is_data_available {
-            let remote_addr = conn.remote_addr;
-            let action = dyn_dataref_action!( hself.clone(): ActorHandle<SpaServerMsg>, remote_addr: SocketAddr => |data: &SentinelStore| {
-                let sentinels = data.values();
-                let data = ws_msg!("odin_sentinel/odin_sentinel.js",sentinels).to_json()?;
-                let remote_addr = remote_addr.clone();
-                Ok( hself.try_send_msg( SendWsMsg{remote_addr,data})? )
-            });
+            let action = dyn_dataref_action!{
+                let hself: ActorHandle<SpaServerMsg> = hself.clone(), 
+                let remote_addr: SocketAddr = remote_addr => 
+                |data: &SentinelStore| {
+                    let sentinels = data.values();
+                    //let data = ws_msg!( MOD_PATH, sentinels).to_json()?;
+                    let data = WsMsg::json( SentinelService::mod_path(), "sentinels", sentinels)?;
+                    let remote_addr = remote_addr.clone();
+                    Ok( hself.try_send_msg( SendWsMsg{remote_addr,data})? )
+                }
+            };
             self.hsentinel.send_msg( ExecSnapshotAction(action)).await?;
         }
         Ok(())

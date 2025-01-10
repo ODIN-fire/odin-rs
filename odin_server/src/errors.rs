@@ -25,6 +25,9 @@ pub enum OdinServerError {
     #[error("build error: {0}")]
     OdinBuildError( #[from] odin_build::OdinBuildError),
 
+    #[error("IO error: {0}")]
+    IoError( #[from] std::io::Error),
+
     #[error("JSON error: {0}")]
     JsonError( #[from] serde_json::Error),
 
@@ -39,6 +42,9 @@ pub enum OdinServerError {
 
     #[error("axum error: {0}")]
     AxumError( #[from] axum::Error),
+
+    #[error("RON deserialization error {0}")]
+    RonDeError( #[from] ron::de::SpannedError),
 
     #[error("operation failed: {0}")]
     OpFailed( String ),

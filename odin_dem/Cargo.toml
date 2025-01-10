@@ -6,12 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
-name = "odin_dem"
-path = "src/bin/odin_dem.rs"
+name = "serve_dem"
+path = "src/bin/serve_dem.rs"
 
 [[bin]]
-name = "getdem"
-path = "src/bin/getdem.rs"
+name = "get_dem"
+path = "src/bin/get_dem.rs"
+
 
 [dependencies]
 
@@ -19,19 +20,26 @@ path = "src/bin/getdem.rs"
 odin_build = { workspace = true }
 odin_common = { workspace = true }
 odin_gdal = { workspace = true }
+odin_server = { workspace = true }
 
 lazy_static = "*"
 structopt = "*"
-tokio = { version = "*", features = ["full"] }
 tokio-util = { version = "*", features = ["full"] }
 tower-http = { version = "*", features = ["full"] }
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter"] }
 http = "*"
-axum = "*"
-serde = "*"
 serde_derive = "*"
-thiserror = "*"
-gdal = "*"
-gdal-sys = "*"
+anyhow = "*"
 
+
+tokio = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { workspace = true }
+axum = { workspace = true }
+
+[features]
+
+## inline crate-specific resources (configs and assets) into the executable (see odin_build)
+embedded_resources = []

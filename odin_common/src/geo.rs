@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of 
  * the National Aeronautics and Space Administration. All rights reserved.
  *
  * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
@@ -12,234 +12,441 @@
  * and limitations under the License.
  */
 #![allow(unused,uncommon_codepoints,non_snake_case)]
-use serde::{Deserialize, Serialize};
 
-use crate::*;
-use crate::angle;
-use num::{Num, ToPrimitive, traits, zero};
 
-#[repr(C)]
-#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
-pub struct BoundingBox <T: Num> {
-    pub west: T,
-    pub south: T,
-    pub east: T,
-    pub north: T
+/// this module provides support for geometries on the WGS84 ellipsoid surface
+/// Following odin-rs design principles we try to use existing crates, which in this domain
+/// are mostly [geo](https://docs.rs/geo/latest/geo/index.html) and [nav_types](https://docs.rs/nav-types/latest/nav_types/index.html).
+/// However, these crates do not directly support units-of measure (e.g. for lengths) via the [uom](https://docs.rs/uom/latest/uom/) crate,
+/// and underlying value semantics such as euclidian/ellipsoid coordinate system and (normalized) angles as latitude or longitude.
+/// We employ the Rust [new type](https://doc.rust-lang.org/rust-by-example/generics/new_types.html) pattern
+/// to add those and still retain the capability to use algorithms of the 3rd party foundation crates with minimal cpoying overhead.
+
+use std::fmt::{self,Debug,Display};
+use serde::{Serialize,Deserialize};
+
+use serde::ser::{Serialize as SerializeTrait, SerializeSeq, Serializer, SerializeStruct};
+use serde::de::{self, Deserialize as DeserializeTrait, Deserializer, Visitor, SeqAccess, MapAccess};
+
+use geo::{Closest, Contains, Coord, CoordsIter, Distance, Line, LineString, Point, Polygon, Rect};
+use geo::algorithm::line_measures::metric_spaces::{Haversine,Geodesic};
+use geo::algorithm::geodesic_area::GeodesicArea;
+use geo::algorithm::haversine_closest_point::HaversineClosestPoint;
+
+use nav_types::{ECEF,WGS84};
+
+use uom::si::area::square_meter;
+use uom::si::f64::{Length,Area};
+use uom::si::length::meter;
+
+use chrono::{DateTime,TimeZone,Utc};
+
+use crate::{impl_deserialize_struct, impl_deserialize_seq};
+use crate::angle::{normalize_180, normalize_90, Longitude, Latitude};
+use crate::datetime::{Dated, EpochMillis};
+
+pub type GeoCoord = Coord<f64>;
+
+/* #region GeoPoint ***********************************************************************************************/
+
+/// a wrapper for geo::Point that uses geodetic degrees stored as f64
+#[derive(Debug,Clone,Copy,PartialEq)]
+pub struct GeoPoint(Point);
+
+impl GeoPoint {
+    pub fn from_lon_lat(lon: Longitude, lat: Latitude) -> Self {
+        GeoPoint( Point::new( lon.degrees(), lat.degrees()))
+    }
+    pub fn from_lon_lat_degrees (lon: f64, lat: f64) -> Self {
+        GeoPoint( Point::new( normalize_180(lon), normalize_90(lat)))
+    }
+
+    /// note this is not just a conversion but clamps the ECEF point to the WGS84 ellipsoid surface
+    pub fn from_ecef (ecef: ECEF<f64>) -> Self {
+        let wgs84: WGS84<f64> = ecef.into();
+        GeoPoint( Point::new(
+            normalize_180(wgs84.longitude_degrees()),
+            normalize_90(wgs84.latitude_degrees())
+        )) // TODO check if nav_types does normalize
+    }
+
+    fn from_point(p:Point) -> Self { GeoPoint(p) } // TODO - should this be pub?
+
+    pub fn longitude(&self) -> Longitude { Longitude::from_degrees( self.0.x()) }
+    pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.0.y()) }
+
+    pub fn point<'a> (&'a self) -> &'a Point { &self.0 }
+    pub fn mut_point<'a> (&'a mut self) -> &'a mut Point { &mut self.0 }
+
+    pub fn coord (&self)->GeoCoord { self.0.0.clone() }
+
+    /// non-consuming conversion to ECEF
+    pub fn as_ecef (&self)->ECEF<f64> { WGS84::from_degrees_and_meters( self.0.y(), self.0.x(), 0.0).into() }
 }
 
-// no 'I' or 'O' bands
-const LAT_BAND: [char;22] = ['A','B','C','D','E','F','G','H','J','K','L','M','N','P','Q','R','S','T','U','V','W','X'];
-
-#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
-pub struct UtmZone {
-    zone: u32,
-    band: char,
+impl fmt::Display for GeoPoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{},{}]", self.0.x(),self.0.y())
+    }
 }
 
-impl UtmZone {
-    fn is_north(&self) -> bool { self.band >= 'N' }
-    fn central_meridian(&self) -> f64 { -180.0 + (self.zone as f64)*6.0 - 3.0 }
+// we don't provide a From<Point<f64>> since that would allow to create a GeoPoint from arbitrary Points 
+
+/// conversion to [x,y,z] in meters.
+/// Note we can't impl From<ECEF> since GeoPoints are 2dimensional (altitude = 0)
+/// Note also that nav_types::WGS84 uses lat,lon order
+impl Into<ECEF<f64>> for GeoPoint {
+    fn into (self)->ECEF<f64> { WGS84::from_degrees_and_meters( self.0.y(), self.0.x(), 0.0).into() }
 }
 
-impl <T: Num + Copy + ToPrimitive> BoundingBox<T> {
-    pub fn new() -> BoundingBox<T> {
-        BoundingBox{
-            west: zero::<T>(),
-            south: zero::<T>(),
-            east: zero::<T>(),
-            north: zero::<T>()
+impl SerializeTrait for GeoPoint {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_struct("GeoPoint", 2)?;
+        state.serialize_field("lon", &self.longitude().degrees())?;
+        state.serialize_field("lat", &self.latitude().degrees())?;
+        state.end()
+    }
+}
+
+// note that we support alternative input formats for our virtual fields: "lon", "longitude or "x" for longitude degrees
+// and "lat", "latitude" or "y" for latitude degrees. This allows to directly deserialize from data that was
+// serialized by `geo` types (which uses "x", "y"). This also means that we have to make sure the original source was
+// using the same coordinate system.
+impl_deserialize_struct!{ GeoPoint::from_lon_lat_degrees( lon | longitude | x, lat | latitude | y) }
+
+/* #endregion GeoPoint */
+
+
+/* #region GeoLine ***********************************************************************************************/
+
+#[derive(Debug,Clone)]
+pub struct GeoLine(Line);
+
+impl GeoLine {
+    pub fn from_geo_points (start: GeoPoint, end: GeoPoint) -> Self {
+        GeoLine( Line::new( *start.point(), *end.point()))
+    }
+    pub fn line<'a> (&'a self) -> &'a Line { &self.0 }
+
+    pub fn start (&self)->GeoPoint { GeoPoint::from_point(self.0.start_point()) }
+    pub fn end (&self)->GeoPoint { GeoPoint::from_point(self.0.end_point()) }
+
+
+    pub fn haversine_distance (&self) -> Length {
+        let (start,end) = self.0.points();
+        let dist = Haversine::distance( start, end);
+        Length::new::<meter>(dist)
+    }
+
+    pub fn geodesic_distance (&self) -> Length {
+        let (start,end) = self.0.points();
+        let dist = Geodesic::distance( start, end);
+        Length::new::<meter>(dist)
+    }
+
+    pub fn closest_point (&self, p: &GeoPoint) -> ClosestGeoPoint {
+        match self.0.haversine_closest_point( &p.0) {
+            Closest::Intersection(r) => ClosestGeoPoint::Intersection(GeoPoint::from_point(r)),
+            Closest::SinglePoint(r) => ClosestGeoPoint::SinglePoint(GeoPoint::from_point(r)),
+            Closest::Indeterminate => ClosestGeoPoint::Indeterminate
         }
     }
+}
 
-    pub fn from_wsen<N> (wsen: &[N;4]) -> BoundingBox<T> where N: Num + Copy + Into<T> {
-        BoundingBox::<T>{
-            west: wsen[0].into(),
-            south: wsen[1].into(),
-            east: wsen[2].into(),
-            north: wsen[3].into()
+/// result of a closest point computation
+#[derive(Debug)]
+pub enum ClosestGeoPoint {
+    Intersection(GeoPoint),  // closest point is on reference geometry
+    SinglePoint(GeoPoint),   // single, unique solution
+    Indeterminate,           // no or multiple solutions
+}
+
+impl SerializeTrait for GeoLine {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_struct("GeoLine", 2)?;
+        state.serialize_field("start", &self.start())?;
+        state.serialize_field("end", &self.end())?;
+        state.end()
+    }
+}
+
+impl_deserialize_struct!{ GeoLine::from_geo_points( start, end) }
+
+/* #endregion GeoLine */
+
+
+/* #region GeoRect ***********************************************************************************************/
+
+#[derive(Debug,Clone)]
+pub struct GeoRect(Rect);
+
+impl GeoRect {
+    pub fn from_min_max (sw: GeoPoint, ne: GeoPoint) -> Self {
+        GeoRect( Rect::new( sw.coord(), ne.coord()))
+    }
+
+    pub fn from_wsen (west: Longitude, south: Latitude, east: Longitude, north: Latitude) -> Self {
+        GeoRect( Rect::new( Point::new( west.degrees(), south.degrees()), Point::new( east.degrees(), north.degrees()) ))
+    }
+
+    pub fn area (&self) -> Area {
+        let a = self.0.geodesic_area_unsigned();
+        Area::new::<square_meter>(a)
+    }
+
+    #[inline] pub fn west(&self)->Longitude { Longitude::from_degrees( self.0.min().x )}
+    #[inline] pub fn east(&self)->Longitude { Longitude::from_degrees( self.0.max().x )}
+    #[inline] pub fn south(&self)->Latitude { Latitude::from_degrees( self.0.min().y )}
+    #[inline] pub fn north(&self)->Latitude { Latitude::from_degrees( self.0.max().y )}
+}
+
+impl SerializeTrait for GeoRect {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_struct("GeoRect", 4)?;
+        state.serialize_field("west", &self.west())?;
+        state.serialize_field("south", &self.south())?;
+        state.serialize_field("east", &self.east())?;
+        state.serialize_field("north", &self.north())?;
+        state.end()
+    }
+}
+
+impl_deserialize_struct!{ GeoRect::from_wsen(west, south, east, north) }
+
+/* #endregion GeoRect */
+
+
+/* #region GeoLineString ***********************************************************************************************/
+
+#[derive(Debug,Clone)]
+pub struct GeoLineString(LineString);
+
+impl GeoLineString {
+    pub fn from_geo_points( ps: Vec<GeoPoint>) -> Self {
+        let coords: Vec<GeoCoord> = ps.iter().map(|p| p.coord()).collect();
+        GeoLineString( LineString::new(coords))
+    }
+
+    pub fn as_geo_points (&self)->Vec<GeoPoint> {
+        self.0.points().map(|p| GeoPoint::from_point(p)).collect() // the inverse
+    }
+
+    pub fn coords_count(&self)->usize { self.0.coords_count() }
+}
+
+impl SerializeTrait for GeoLineString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_struct("GeoLineString", 1)?;
+        state.serialize_field("points", &self.as_geo_points())?;
+        state.end()
+    }
+}
+impl_deserialize_struct!{ GeoLineString::from_geo_points( points) }
+
+
+/* #endregion GeoLineString */
+
+
+/* #region GeoPolygon **********************************************************************************************/
+
+#[derive(Debug,Clone)]
+pub struct GeoPolygon(Polygon);
+
+impl GeoPolygon {
+    pub fn from_geo_points (external: Vec<GeoPoint>, internals: Vec<Vec<GeoPoint>>) -> Self {
+        let ext_coords: Vec<GeoCoord> = external.iter().map(|p| p.coord()).collect();
+        let exterior = LineString::new( ext_coords);
+
+        let mut interiors: Vec<LineString> = Vec::with_capacity(internals.len());
+        for ps in internals.iter() {
+            let coords: Vec<GeoCoord>  = ps.iter().map( |p| p.coord()).collect();
+            interiors.push( LineString::new( coords));
+        }
+
+        GeoPolygon( Polygon::new( exterior, interiors) )
+    }
+
+    pub fn from_exterior_geo_points( external: Vec<GeoPoint>) -> Self {
+        let ext_coords: Vec<GeoCoord> = external.iter().map(|p| p.coord()).collect();
+        let exterior = LineString::new( ext_coords);
+
+        GeoPolygon( Polygon::new( exterior, Vec::with_capacity(0)))
+    }
+
+    //... and more ctors to follow
+
+    pub fn as_exterior_geo_points (&self)->Vec<GeoPoint> {
+        self.0.exterior().points().map(|p| GeoPoint::from_point(p)).collect() // the inverse
+    }
+
+    pub fn as_interior_geo_points (&self)->Vec<Vec<GeoPoint>> {
+        self.0.interiors().iter().map( |ls| ls.coords().map(|p| GeoPoint( Point(p.clone()))).collect()).collect()
+    }
+
+    pub fn exterior_coords_count(&self)->usize { self.0.exterior().coords_count() }
+
+    pub fn has_interiors(&self)->bool { self.0.interiors().len() > 0 }
+
+    pub fn contains (&self, p: &GeoPoint)->bool { self.0.contains( &p.0) }
+}
+
+impl SerializeTrait for GeoPolygon {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        if self.has_interiors() {
+            let mut state = serializer.serialize_struct("GeoPolygon", 2)?;
+            state.serialize_field("exterior", &self.as_exterior_geo_points())?;
+            state.serialize_field("interiors", &self.as_interior_geo_points())?;
+            state.end()
+        } else {
+            let mut state = serializer.serialize_struct("GeoPolygon", 1)?;
+            state.serialize_field("exterior", &self.as_exterior_geo_points())?;
+            state.end()
         }
     }
+}
 
-    pub fn to_minmax_array (&self) -> [T;4] {
-        [self.west,self.south,self.east,self.north]
+impl_deserialize_struct!{ GeoPolygon::from_geo_points(exterior,interiors = Vec::new()) }
+
+/* #endregion GeoPolygon */
+
+
+//--- specialized types that don't map to GeoJSON
+
+/* #region GeoPoint3 ***********************************************************************************************/
+
+/// 3 dimensional point given by longitude, latitude and altitude above ellipsoid surface
+/// note this is not supported bu the `geo` crate and hence we need a different representation. Since
+/// this type is probably used in computations involving ECEF transformation we chose the `nav_types`
+/// implementation as the underlying basis
+#[derive(Debug,Clone,Copy,PartialEq)]
+pub struct GeoPoint3(WGS84<f64>);
+
+impl GeoPoint3 {
+    pub fn from_lon_lat_alt(lon: Longitude, lat: Latitude, alt: Length) -> Self {
+        GeoPoint3( WGS84::from_degrees_and_meters( lat.degrees(), lon.degrees(), alt.get::<meter>()))
+    }
+    pub fn from_lon_lat_degrees_alt_meters (lon: f64, lat: f64, alt: f64) -> Self {
+        GeoPoint3( WGS84::from_degrees_and_meters( normalize_90(lat), normalize_180(lon), alt) )
     }
 
-    pub fn as_mimax_array_ref (&self) -> &[T;4] {
-        unsafe { std::mem::transmute(self) }
-    }
+    #[inline] pub fn longitude(&self) -> Longitude { Longitude::from_degrees( self.0.longitude_degrees()) }
+    #[inline] pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.0.latitude_degrees()) }
+    #[inline] pub fn altitude(&self) -> Length { Length::new::<meter>(self.0.altitude()) }
 
-    // FIXME - should stay as (T,T) but how can we divide/round
-    pub fn center (&self) -> (f64,f64) {
-        ( (self.west + self.east).to_f64().unwrap() / 2.0, (self.south + self.north).to_f64().unwrap() / 2.0 )
-    }
+    pub fn longitude_degrees(&self) -> f64 { self.0.longitude_degrees() }
+    pub fn latitude_degrees(&self) -> f64 { self.0.latitude_degrees() }
+    pub fn altitude_meters(&self) -> f64 { self.0.altitude() }
 }
 
-//--- bbox types that avoid confusion about coordinate type and order (note the fields are not public)
-
-pub struct GeoBoundingBox (BoundingBox<f64>);
-
-impl GeoBoundingBox {
-    pub fn from_wsen_degrees (wsen: &[f64;4]) -> GeoBoundingBox {
-        GeoBoundingBox(BoundingBox::<f64>::from_wsen(wsen))
+impl fmt::Display for GeoPoint3 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{},{},{}]", self.0.longitude_degrees(),self.0.latitude_degrees(), self.0.altitude())
     }
 }
 
-pub struct UtmBoundingBox (BoundingBox<f64>,UtmZone);
+impl From<ECEF<f64>> for GeoPoint3 {
+    fn from (ecef: ECEF<f64>) -> Self { GeoPoint3(ecef.into()) }
+}
 
-impl UtmBoundingBox {
-    pub fn from_wsen_meters (wsen: &[f64;4], utm_zone: UtmZone) -> UtmBoundingBox {
-        UtmBoundingBox(BoundingBox::<f64>::from_wsen(wsen),utm_zone)
+impl From<WGS84<f64>> for GeoPoint3 {
+    fn from (wgs84: WGS84<f64>) -> Self { GeoPoint3(wgs84) }
+}
+
+impl SerializeTrait for GeoPoint3 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_struct("GeoPoint3", 3)?;
+        state.serialize_field("lon", &self.0.longitude_degrees())?;
+        state.serialize_field("lat", &self.0.latitude_degrees())?;
+        state.serialize_field("alt", &self.0.altitude())?;
+        state.end()
     }
 }
 
+impl_deserialize_struct!{ GeoPoint3::from_lon_lat_degrees_alt_meters(
+    lon | longitude | x,
+    lat | latitude | y,
+    alt | altitude | z
+)}
 
-#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
-pub struct LatLon {
-    pub lat_deg: f64,
-    pub lon_deg: f64,
+/* #endregion GeoPoint3 */
+
+/* #region DatedGeoPoint3 ***********************************************************************************************/
+
+#[derive(Debug,Clone,Copy,PartialEq)]
+pub struct GeoPoint4 {
+    pub location: GeoPoint3,
+    pub date: EpochMillis  // msec is enough precision and saves us 4 bytes. More importantly it makes GeoPoint4 arrays dense
 }
 
-#[derive(Debug,Copy,Clone,Serialize,Deserialize)]
-pub struct UTM {
-    pub easting: f64,
-    pub northing: f64,
-    utm_zone: UtmZone,
-}
-
-pub fn utm_zone (lat_lon: &LatLon) -> u32 {
-    let lat_deg = angle::canonicalize_90(lat_lon.lat_deg);
-    let lon_deg = angle::canonicalize_180(lat_lon.lon_deg);
-
-    // handle special cases (Svalbard/Norway)
-    if lat_deg > 55.0 && lat_deg < 64.0 && lon_deg > 2.0 && lon_deg < 6.0 {
-        return 32
+impl GeoPoint4 {
+    pub fn from_geo3_epoch (loc: GeoPoint3, date: EpochMillis)-> Self {
+        GeoPoint4{ location: loc, date }
     }
 
-    if lat_deg > 71.0 {
-        if lon_deg >= 6.0 && lon_deg < 9.0 {
-            return 31
-        }
-        if (lon_deg >= 9.0 && lon_deg < 12.0) || (lon_deg >= 18.0 && lon_deg < 21.0) {
-            return 33
-        }
-        if (lon_deg >= 21.0 && lon_deg < 24.0) || (lon_deg >= 30.0 && lon_deg < 33.0) {
-            return 35
-        }
+    pub fn from_lon_lat_alt_epoch (lon: Longitude, lat: Latitude, alt: Length, date: EpochMillis)->Self {
+        GeoPoint4{ location: GeoPoint3::from_lon_lat_alt(lon, lat, alt), date }
     }
 
-    (((lon_deg + 180.0) / 6.0).trunc() as u32 % 60) + 1
+    pub fn from_lon_lat_degrees_alt_meters_epoch_millis (lon_deg: f64, lat_deg: f64, alt_m: f64, epoch_millis: i64) -> Self {
+        GeoPoint4{ location: GeoPoint3::from_lon_lat_degrees_alt_meters( lon_deg, lat_deg, alt_m), date: EpochMillis::new(epoch_millis) }
+    } 
+
+    #[inline] pub fn longitude(&self) -> Longitude { Longitude::from_degrees( self.location.longitude_degrees()) }
+    #[inline] pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.location.latitude_degrees()) }
+    #[inline] pub fn altitude(&self) -> Length { self.location.altitude() }
+    #[inline] pub fn epoch_millis(&self) ->EpochMillis { self.date }
 }
 
-pub fn naive_utm_zone (lat_lon: &LatLon) -> UtmZone {
-    let lon = angle::canonicalize_180( lat_lon.lon_deg);
-    let zone = (((lon + 180.0) / 6.0).trunc() as u32 % 60) + 1;
-
-    let lat = angle::canonicalize_180( lat_lon.lat_deg);
-    let band = LAT_BAND[ (lat / 8.0).trunc() as usize ];
-
-	UtmZone { zone, band }
-}
-
-// Krueger approximation - see https://en.wikipedia.org/wiki/Universal_Transverse_Mercator_coordinate_system
-pub fn latlon_to_utm_zone (lat_lon: &LatLon, utm_zone: UtmZone) -> Option<UTM> {
-    let lat_deg = angle::canonicalize_90(lat_lon.lat_deg);
-    let lon_deg = angle::canonicalize_180(lat_lon.lon_deg);
-
-    // let a = 6378.137
-    // let f = 0.0033528106647474805 // 1.0/298.257223563
-    // let n = 0.0016792203863837047 // f / (2.0 - f)
-    // let n2 = 2.8197811060466384E-6 // n * n
-    // let n3 = 4.7350339184131065E-9 // n2 * n
-    // let n4 = 7.951165486017604E-12 // n2 * n2
-    // let A = 6367.449145823416 // (a / (1.0 + n)) * (1 + n2/4.0 + n4/64.0)
-    let α1 = 8.377318188192541E-4; // n/2.0 - (2.0/3.0)*n2 + (5.0/16.0)*n3
-    let α2 = 7.608496958699166E-7; // (13.0/48.0)*n2 - (3.0/5.0)*n3
-    let α3 = 1.2034877875966646E-9; // (61.0/240.0)*n3
-    let C = 0.08181919084262149; // (2.0*sqrt(n)) / (1.0 + n)
-    // let k0 = 0.9996
-    let D = 6364.902166165087; // k0 * A
-    let E0 = 500.0;
-
-    if lat_deg < -80.0 || lat_deg > 84.0 { return None } // not valid outside
-
-    let band = LAT_BAND[ (lat_deg + 80.0 / 6.0) as usize ];
-
-    let φ = lat_deg.to_radians();
-    let λ = lon_deg.to_radians();
-    let λ0 = (((utm_zone.zone -1) * 6 - 180 + 3) as f64).to_radians();
-    let dλ = λ - λ0;
-    let N0 = if φ < 0.0 { 10000.0 } else { 0.0 };
-
-    let sin_φ = sin(φ);
-    let t = sinh( atanh(sin_φ) - C * atanh( C*sin_φ));
-
-    let ξ = atan( t/cos(dλ));
-    let ξ2 = ξ * 2.0;
-    let ξ4 = ξ * 4.0;
-    let ξ6 = ξ * 6.0;
-
-    let η = atanh( sin(dλ) / sqrt(1.0 + t*t));
-    let η2 = η * 2.0;
-    let η4 = η * 4.0;
-    let η6 = η * 6.0;
-
-    let easting = (E0 + D*(η + (α1 * cos(ξ2)*sinh(η2)) + (α2 * cos(ξ4)*sinh(η4)) + (α3 * cos(ξ6)*sinh(η6)))) * 1000.0;
-    let northing = (N0 + D*(ξ + (α1 * sin(ξ2)*cosh(η2)) + (α2 * sin(ξ4)*cosh(η4)) + (α3 * sin(ξ6)*cosh(η6)))) * 1000.0;
-
-    Some( UTM {easting, northing, utm_zone} )
-}
-
-pub fn latlon_to_utm (lat_lon: &LatLon) -> Option<UTM> {
-    let utm_zone = naive_utm_zone( lat_lon);
-    latlon_to_utm_zone( lat_lon, utm_zone)
-}
-
-pub fn utm_to_latlon (utm: &UTM) -> LatLon {
-    let UTM { easting, northing, utm_zone} = utm;
-    let N = northing / 1000.0;
-    let E = easting / 1000.0;
-
-    //let A = 6367.449145823416;
-    //let k0 = 0.9996;
-    let k0_A = 6364.902166165086634;
-    let n = 0.0016792203863837047; // f / (2.0 - f)
-    let β1 = 0.000837732164082144;
-    let β2 = 0.00000005906110863719917;
-    let β3 = 0.00000000016769911794379754;
-    let δ1 = 0.003356551448628875;
-    let δ2 = 0.000006571913193172695;
-    let δ3 = 0.0000000176774599620756;
-
-    let E0 = 500.0;
-    let N0 = if utm_zone.is_north() { 0.0 } else { 10000.0 };
-
-    let ξ = (N - N0)/k0_A;
-    let ξ2 = ξ * 2.0;
-    let ξ4 = ξ * 4.0;
-    let ξ6 = ξ * 6.0;
-
-    let η = (E - E0)/k0_A;
-    let η2 = η * 2.0;
-    let η4 = η * 4.0;
-    let η6 = η * 6.0;
-
-    let β1_2 = β1 * 2.0;
-    let β2_4 = β2 * 4.0;
-    let β3_6 = β3 * 6.0;
-
-    let ξʹ = ξ - ((β1*sin(ξ2)*cosh(η2)) + (β2*sin(ξ4)*cosh(η4)) + (β3*sin(ξ6)*cosh(η6)));
-    let ηʹ = η - ((β1*cos(ξ2)*sinh(η2)) + (β2*cos(ξ4)*sinh(η4)) + (β3*cos(ξ6)*sinh(η6)));
-
-    let χ = asin( sin(ξʹ) / cosh(ηʹ));
-
-    let φ = χ + (δ1*sin(2.0*χ)) + (δ2*sin(4.0*χ)) + (δ3*sin(6.0*χ));
-    let λ0 = (utm_zone.zone * 6 - 183).to_f64().unwrap().to_radians();
-    let λ = λ0 + atan( sin(ξʹ)/cosh(ηʹ));
-
-    let lat_deg = φ.to_degrees();
-    let lon_deg = λ.to_degrees();
-
-    LatLon { lat_deg, lon_deg }
+impl Dated for GeoPoint4 {
+    fn date (&self)->DateTime<Utc> { self.date.into() }
 }
 
 
+impl SerializeTrait for GeoPoint4 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_struct("GeoPoint4", 4)?;
+        state.serialize_field( "lon", &self.location.longitude_degrees())?;
+        state.serialize_field( "lat", &self.location.latitude_degrees())?;
+        state.serialize_field( "alt", &self.location.altitude())?;
+        state.serialize_field( "date", &self.date)?;
+        state.end()
+    }
+}
+
+impl_deserialize_struct!{ GeoPoint4::from_lon_lat_degrees_alt_meters_epoch_millis(
+    lon | longitude | x,
+    lat | latitude | y,
+    alt | altitude | z,
+    date | time | t
+)}
+
+/* #endregion GeoPoint4 */
+
+/* #region GeoLineString4 ************************************************************************************************/
+
+/// this can serve as a simple trajectory but is not the most space efficient way to store or serialize
+#[derive(Debug,Clone)]
+pub struct GeoLineString4(Vec<GeoPoint4>);
+
+impl GeoLineString4 {
+    pub fn from_geo_points4( ps: Vec<GeoPoint4>) -> Self {
+        GeoLineString4( ps)
+    }
+
+    pub fn as_geo_points4 (&self)->Vec<GeoPoint4> {
+        self.0.clone()
+    }
+
+    pub fn coords_count(&self)->usize { self.0.len() }
+}
+
+impl SerializeTrait for GeoLineString4 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_struct("GeoLineString4", 1)?;
+        state.serialize_field("points4", &self.0)?;
+        state.end()
+    }
+}
+impl_deserialize_struct!{ GeoLineString4::from_geo_points4( points4) }
+
+/* #endregion GeoLineString4 */

@@ -22,7 +22,7 @@ run_actor_system!( actor_system => {
     spawn_actor!( actor_system, "spa_server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
         "basic_globe",
-        SpaServiceList::new().add( build_service!( ImgLayerService::new())) // this automatically includes Cesium and UI services
+        SpaServiceList::new().add( build_service!( => ImgLayerService::new())) // this automatically includes Cesium and UI services
     ));
 
     Ok(())

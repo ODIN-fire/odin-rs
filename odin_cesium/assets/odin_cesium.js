@@ -14,14 +14,24 @@
 
 // the ecmascript module that is our CesiumJS interface. Not this is an async module
 
+
 import { config } from "./odin_cesium_config.js";
+import * as main from "../odin_server/main.js";
 import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 
-const MODULE_PATH = util.asset_path(import.meta.url);
+const MOD_PATH = "odin_cesium::CesiumService";
 
-ws.addWsHandler( MODULE_PATH, handleWsMessages);
+ws.addWsHandler( MOD_PATH, handleWsMessages);
+
+// initialize share interface of this module
+main.addShareHandler( handleShareMessage);
+main.addShareEditor( "GeoPoint3", "current view", withCurrentCameraPosition);
+main.addShareEditor( "GeoPoint", "pick point", pickSurfacePoint);
+main.addShareEditor( "GeoRect", "pick bbox", pickSurfaceRectangle);
+main.addSyncHandler( handleSyncMessage);
+
 setCesiumContainerVisibility(false); // don't render before everybody is initialized
 
 const UI_POSITIONS = "race-ui-positions";
@@ -61,10 +71,10 @@ class PositionSet {
 }
 
 class Position {
-    constructor (name, latDeg, lonDeg, altM) {
+    constructor (name, lonDeg, latDeg, altM) {
         this.name = name;
-        this.lat = latDeg;
         this.lon = lonDeg;
+        this.lat = latDeg;
         this.alt = altM;
 
         this.asset = undefined; // on-demand point entity
@@ -96,16 +106,21 @@ var selectedPositionSet = undefined;
 var positions = undefined;
 var positionsView = undefined;
 
+var isSelectedView = false;
+var utcClock;
+
 const centerOrientation = {
     heading: Cesium.Math.toRadians(0.0),
     pitch: Cesium.Math.toRadians(-90.0),
     roll: Cesium.Math.toRadians(0.0)
 };
 
-if (config.accessToken) Cesium.Ion.defaultAccessToken = config.accessToken;
-
 export const ellipsoidTerrainProvider = new Cesium.EllipsoidTerrainProvider();
 var terrainProvider = ellipsoidTerrainProvider; // switched on demand
+
+if (Cesium.Ion.defaultAccessToken) {
+    console.log("using configured Ion access token");
+}
 
 export const viewer = new Cesium.Viewer('cesiumContainer', {
     terrainProvider: terrainProvider,
@@ -290,31 +305,33 @@ function initViewWindow() {
 }
 
 function createViewWindow() {
-    return ui.Window("View", "view", "./asset/odin_cesium/view.svg")(
+    let fieldOpts = {isFixed: true, isDisabled: true};
+
+    return ui.Window("View", "view", "./asset/odin_cesium/camera.svg")(
         ui.RowContainer()(
             ui.CheckBox("fullscreen", toggleFullScreen),
             ui.HorizontalSpacer(1),
-            ui.CheckBox("terrain", toggleTerrain),
+            ui.CheckBox("terrain", toggleTerrain, "view.show_terrain"),
             ui.HorizontalSpacer(1),
             ui.Button("⟘", setDownView, 2.5),  // ⇩  ⊾ ⟘
             ui.Button("⌂", setHomeView, 2.5) // ⌂ ⟐ ⨁
           ),
           ui.RowContainer()(
-            ui.TextInput("pointer [φ,λ,m]", "view.pointer.latitude", null, true, null, "5rem"),
-            ui.TextInput("", "view.pointer.longitude", null, true, null, "6rem"),
-            ui.TextInput("", "view.pointer.elevation", null, true, null, "5.5rem"),
+            ui.TextInput("pointer [φ,λ,m]", "view.pointer.latitude", "5rem", fieldOpts),
+            ui.TextInput("", "view.pointer.longitude", "6rem", fieldOpts),
+            ui.TextInput("", "view.pointer.elevation", "5.5rem", fieldOpts),
             ui.HorizontalSpacer(0.4)
           ),
           ui.RowContainer()(
-            ui.TextInput("UTM [N,E,z]", "view.pointer.utmN", null, true, null, "5rem"),
-            ui.TextInput("", "view.pointer.utmE", null, true, null, "6rem"),
-            ui.TextInput("", "view.pointer.utmZ", null, true, null, "5.5rem"),
+            ui.TextInput("UTM [N,E,z]", "view.pointer.utmN", "5rem", fieldOpts),
+            ui.TextInput("", "view.pointer.utmE", "6rem", fieldOpts),
+            ui.TextInput("", "view.pointer.utmZ", "5.5rem", fieldOpts),
             ui.HorizontalSpacer(0.4)
           ),
           ui.RowContainer()(
-            ui.TextInput("camera", "view.camera.latitude", setViewFromFields, true, null, "5rem"),
-            ui.TextInput("", "view.camera.longitude", setViewFromFields, true, null, "6rem"),
-            ui.TextInput("", "view.camera.altitude", setViewFromFields, true, null, "5.5rem"),
+            ui.TextInput("camera", "view.camera.latitude", "5rem", {changeAction: setViewFromFields, isFixed: true}),
+            ui.TextInput("", "view.camera.longitude", "6rem", {changeAction: setViewFromFields, isFixed: true}),
+            ui.TextInput("", "view.camera.altitude", "5.5rem", {changeAction: setViewFromFields, isFixed: true}),
             ui.HorizontalSpacer(0.4)
           ),
           ui.RowContainer()(
@@ -356,7 +373,7 @@ function initPositionsView() {
 }
 
 function createViewIcon() {
-    return ui.Icon("./asset/odin_cesium/view.svg", (e)=> ui.toggleWindow(e,'view'));
+    return ui.Icon("./asset/odin_cesium/camera.svg", (e)=> ui.toggleWindow(e,'view'));
 }
 
 //--- time window
@@ -368,10 +385,14 @@ function initTimeWindow() {
 
 function createTimeWindow() {
     return ui.Window("clock", "time", "./asset/odin_cesium/time.svg")(
-        ui.Clock("time UTC", "time.utc", "UTC"),
+        (utcClock = ui.Clock("time UTC", "time.utc", "UTC")),
         ui.Clock("time loc", "time.loc",  config.localTimeZone),
         ui.Timer("elapsed", "time.elapsed")
     );
+}
+
+function getCurrentTime() {
+    return ui.getClockEpochMillis( utcClock);
 }
 
 function createTimeIcon() {
@@ -514,9 +535,10 @@ function getPositionSets() {
     return sets;
 }
 
-// TODO - we should support multiple gobal position sets
+// TODO - this should use main.getAllMatchingSharedItems( util.glob2regexp("view/**"))
+// { key: "view/bay_area", value: { type: "Point3D", comment: "...", data: {lon: 42, lat: 42, alt: 42}}}
 function getGlobalPositionSet() { // from config
-    let positions = config.cameraPositions.map( p=> new Position(p.name, p.lat, p.lon, p.alt));
+    let positions = config.cameraPositions.map( p=> new Position(p.name, p.lon, p.lat, p.alt));
     let pset = new PositionSet("default", positions);
 
     let initPos = getInitialPosition();
@@ -550,7 +572,7 @@ function getInitialPosition() {
                             elems[2] = elems[2] * 1000;
                         }
                     }
-                    return new Position( "<initial>", elems[0], elems[1], elems[2]); // name,lat,lon,alt
+                    return new Position( "<initial>", elems[0], elems[1], elems[2]); // name,lon,lat,alt
 
                 } catch (e) {
                     console.log("ignoring invalid initial position spec: ", view);
@@ -855,12 +877,21 @@ function handleSetClock(setClock) {
 
 function updateCamera() {
     let pos = viewer.camera.positionCartographic;
-    let longitudeString = Cesium.Math.toDegrees(pos.longitude).toFixed(4);
-    let latitudeString = Cesium.Math.toDegrees(pos.latitude).toFixed(4);
+    let lat = Cesium.Math.toDegrees(pos.latitude);
+    let lon = Cesium.Math.toDegrees(pos.longitude);
+    let alt = Math.round(pos.height);
 
-    ui.setField(cameraLat, latitudeString);
-    ui.setField(cameraLon, longitudeString);
-    ui.setField(cameraAlt, Math.round(pos.height).toString());
+    ui.setField(cameraLat, lat.toFixed(4));
+    ui.setField(cameraLon, lon.toFixed(4));
+    ui.setField(cameraAlt, alt.toString());
+
+    if (isSelectedView) {
+        isSelectedView = false;
+    } else {
+        ui.clearSelectedListItem(positionsView); // we moved away from it
+    }
+
+    main.publishCmd( { updateCamera: {lon, lat, alt} });
 
     /*
     if (useEllipsoidTerrain()) {
@@ -1041,6 +1072,7 @@ function setCameraFromSelection(event){
         let cp = ui.getSelectedListItem(places);
         if (cp) {
             setCamera(cp);
+            isSelectedView = true;
         }
     }
 }
@@ -1358,16 +1390,45 @@ function setCesiumContainerVisibility (isVisible) {
     document.getElementById("cesiumContainer").style.visibility = isVisible;
 }
 
+function handleShareMessage (msg) {
+    console.log("@@ odin_cesium received shareMessage", msg);
+}
+
+function handleSyncMessage (msg) {
+    if (msg.updateCamera) {
+        setCamera( msg.updateCamera);
+    }
+    //... and more to follow
+}
+
+// return object suitable to set a Point3D from the current camera position
+function withCurrentCameraPosition (callback) {
+    let pos = viewer.camera.positionCartographic;
+    callback({
+        lon: Math.round( Cesium.Math.toDegrees(pos.longitude) * 10000) / 10000, // round to 4 decimals
+        lat: Math.round( Cesium.Math.toDegrees(pos.latitude) * 10000) / 10000,
+        alt: Math.round(pos.height)
+    });
+}
+
 // executed after all modules have been loaded and initialized
 export function postInitialize() {
-    initModuleLayerViewData();
-
+    initModuleLayerViewData();    
     terrainProviderPromise = getTerrainProviderPromise();
     terrainProviderPromise.then( (tp) => { 
         console.log("topoTerrainProvider set: ", tp);
         topoTerrainProvider = tp;
         console.log("topographic terrain loaded");
+
+        if (config.showTerrain) {
+            console.log("enabling terrain display");
+            ui.setCheckBox( "view.show_terrain", true);
+            switchToTopoTerrain();
+        }
     });
+
+    const credit = new Cesium.Credit('<a href="https://openstreetmap.org/" target="_blank">OpenStreetMap</a>');
+    viewer.creditDisplay.addStaticCredit(credit);
 
     setCesiumContainerVisibility(true);
 
