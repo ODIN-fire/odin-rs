@@ -70,7 +70,7 @@ impl GeoPoint {
         )) // TODO check if nav_types does normalize
     }
 
-    fn from_point(p:Point) -> Self { GeoPoint(p) } // TODO - should this be pub?
+    pub fn from_point(p:Point) -> Self { GeoPoint(p) } // TODO - should this be pub?
 
     pub fn longitude(&self) -> Longitude { Longitude::from_degrees( self.0.x()) }
     pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.0.y()) }
@@ -193,6 +193,13 @@ impl GeoRect {
         let a = self.0.geodesic_area_unsigned();
         Area::new::<square_meter>(a)
     }
+    
+    pub fn points(&self) -> Vec<GeoPoint> {
+        vec![GeoPoint::from_lon_lat(self.west(), self.north()),
+            GeoPoint::from_lon_lat(self.west(), self.south()),
+            GeoPoint::from_lon_lat(self.east(), self.north()),
+            GeoPoint::from_lon_lat(self.east(), self.south())]
+    } 
 
     #[inline] pub fn west(&self)->Longitude { Longitude::from_degrees( self.0.min().x )}
     #[inline] pub fn east(&self)->Longitude { Longitude::from_degrees( self.0.max().x )}
@@ -336,6 +343,7 @@ impl GeoPoint3 {
     pub fn longitude_degrees(&self) -> f64 { self.0.longitude_degrees() }
     pub fn latitude_degrees(&self) -> f64 { self.0.latitude_degrees() }
     pub fn altitude_meters(&self) -> f64 { self.0.altitude() }
+    
 }
 
 impl fmt::Display for GeoPoint3 {
