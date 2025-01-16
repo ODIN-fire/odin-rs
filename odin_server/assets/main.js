@@ -21,6 +21,8 @@
 
 var main = {};
 
+export const SHARE_INITIALIZED = { SHARE_INITIALIZED: true };
+
 if (window) {
     if (!window.main) window.main = main; // used as an anchor for global properties available from document
 }
@@ -48,11 +50,9 @@ export function withMainObj (objName, f) {
 
 /// post module init hook
 export function postInitialize() {
-    if (!main.share) {
+    if (Object.is(defaultShare, main.share)) {
         console.log("using default main.share object");
-        main.share = new Share();
-    } else {
-        console.log("using module provided main.share object");
+        notifyShareHandlers( SHARE_INITIALIZED); // there might be modules processing it
     }
     console.log("main.js postInitialize complete.");
 }
@@ -105,42 +105,8 @@ export function getShareEditorForItemType (itemType) {
     return shareEditors.get(itemType);
 }
 
-//--- those are forwarding to the main.share object (which is guaranteed to be set *after* postInit)
 
-export function setShareObj (o) {
-    if (main.share) { 
-        throw "main.shared already set"
-    } else {
-        main.share = o;
-    }
-}
-
-export function getSharedItems (key) {
-    if (main.share) { main.share.getShared(key) } else throw "no main.share set";
-}
-
-export function getAllMatchingSharedItems (regex) {
-    if (main.share) { main.share.getAllMatchingSharedItems(regex) } else throw "no main.share set";
-}
-
-export function findAllSharedItems (pred) {
-    if (main.share) { main.share.findAllSharedItems(pred) } else throw "no main.share set";
-}
-
-export function setSharedItem (key, valType, value, isLocal=false, comment=null) {
-    if (main.share) { main.share.setSharedItem(key, valType, value, isLocal, comment) } else throw "no main.share set";
-}
-
-export function removeSharedItem (key) {
-    if (main.share) { main.share.removeSharedItem(key) } else throw "no main.share set";
-}
-
-
-export function publishCmd (cmd) {
-    if (main.share) { main.share.publishCmd(cmd) } else throw "no main.share set";
-}
-
-//--- basic share types
+//--- basic share value types
 
 export function radToDeg (rad) { return (rad * 180.0)/Math.PI; }
 export function ftToMeters (ft) { return (ft * 0.3048); }
@@ -239,6 +205,10 @@ export class Share {
 
     _set (key,sharedItem) {
         this._sharedItems.set(key,sharedItem);
+    }
+
+    _get (key) {
+        return this._sharedItems.get(key);
     }
 
     _delete (key) {
@@ -342,7 +312,7 @@ export class Share {
     // this returns a list of SharedItem objects
     getAllMatchingSharedItems (regex) {
         let matching = [];
-        for (let sharedItem of this._sharedItems.values) {
+        for (let sharedItem of this._sharedItems.values()) {
             if (sharedItem.key.match(regex)) matching.push(sharedItem);
         }
         matching.sort( (a,b) => a.key.localeCompare(b.key)); 
@@ -351,8 +321,8 @@ export class Share {
     
     findAllSharedItems (pred) {
         let matching = [];
-        for (let sharedItem of this._sharedItems.values) {
-            if (pred(e)) matching.push(e);
+        for (let sharedItem of this._sharedItems.values()) {
+            if (pred(sharedItem)) matching.push(sharedItem);
         }
         matching.sort( (a,b) => a.key.localeCompare(b.key)); 
         return matching;
@@ -391,18 +361,65 @@ export class Share {
     }
 
     setSharedItem (key, type, data, isLocal=false, comment=null) {
-        let value = { type, comment, data };
-        let sharedItem = { key, value };
+        let value = new SharedValue( type, comment, data);
+        let sharedItem = new SharedItem( key, isLocal, value);
 
         this._sharedItems.set( key, sharedItem);
         notifyShareHandlers( {setShared: sharedItem} );
     }
 
-    removeSharedItem (sharedItem) {
+    removeSharedItem (key) {
+        let sharedItem = this._sharedItems.get(key);
         if (sharedItem) {
-            let key = sharedItem.key;
             this._sharedItems.delete( key);
             notifyShareHandlers( {removeShared: key});
         }
     }
+}
+
+
+var defaultShare = new Share();
+main.share = defaultShare;
+
+//--- the share API used by other modules - forwarding to the main.share object so that we don't have to hand out its reference
+
+export function setShareObj (newShare) {
+    console.log("setting share object");
+
+    let oldItems = main.share._sharedItems;
+    main.share = newShare;
+
+    if (oldItems.size > 0) {
+        // carry over existing shared items
+        oldItems.forEach( (sharedItem,key) => {
+            if (sharedItem.isLocal && !newShare._sharedItems.has(key)) {
+                // we can't do server updates through the websocket yet so this can only copy over local shared items
+                newShare._set( sharedItem.key, sharedItem);
+            }
+        })
+    }
+}
+
+export function getSharedItem (key) {
+    return main.share.getSharedItem(key);
+}
+
+export function getAllMatchingSharedItems (regex) {
+    return main.share.getAllMatchingSharedItems(regex);
+}
+
+export function findAllSharedItems (pred) {
+    return main.share.findAllSharedItems(pred);
+}
+
+export function setSharedItem (key, valType, data, isLocal=false, comment=null) {
+    main.share.setSharedItem(key, valType, data, isLocal, comment);
+}
+
+export function removeSharedItem (key) {
+    main.share.removeSharedItem(key);
+}
+
+export function publishCmd (cmd) {
+    main.share.publishCmd(cmd);
 }

@@ -10,6 +10,7 @@ odin_common = { workspace = true }
 odin_action = { workspace = true }
 odin_actor = { workspace = true }
 odin_server = { workspace = true }
+odin_cesium = { workspace = true }
 
 tokio = { workspace = true }
 async-trait = { workspace = true }
@@ -23,8 +24,6 @@ regex = "1.11.1"
 anyhow = "1.0.93"
 bytes = "1.9.0"
 
-[dev-dependencies]
-odin_cesium = { workspace = true }
 
 [features]
 embedded_resources = []

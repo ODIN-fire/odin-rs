@@ -709,10 +709,12 @@ function getIconBox() {
 
 //--- input element functions
 
-export function Button (text, action) {
+export function Button (text, action, minWidth=null) {
     let e = createElement("INPUT", "ui_button");
     e.type = "button";
     e.value = text;
+
+    if (minWidth) setWidthStyle(e,minWidth);
 
     if (action instanceof Function) {
         e.addEventListener("click", action);
@@ -738,27 +740,63 @@ export function setButtonDisabled(o, isDisabled) {
 
 //--- passive text (no user input, only programmatic)
 
-// dialog element label to be set explicitly (hence we require an eid)
-export function Label (eid, isPermanent=false, maxWidthInRem=0, minWidthInRem=0) {
+// static label that is not associated with another element
+export function Label (text, eid=null, minWidth=0, maxWidth=0) {
     let e = createElement("DIV", "ui_label");
-    e.setAttribute("id", eid);
-    if (isPermanent) e.classList.add("permanent");
-    setWidthStyle(e, maxWidthInRem, minWidthInRem);
+    if (eid) e.setAttribute("id", eid);
+    e.innerText = text;
+
+    setWidthStyle(e, minWidth, maxWidth);
+    setLineHeight(e);
+
     return e;
 }
 
-// un-labeled static text data (not an input - can only be set programatically)
-export function Text (eid, width=null, opts={}, text=null) {
-    let e = createElement("DIV", "ui_text");
-    e.setAttribute("id", eid);
-    e.style.width = width;
+function setLineHeight (e){
+    if (e.innerText) {
+        let h = getRootVar("--field-height");
+        e.style.height = h;
+        e.style.lineHeight = h;
+    } else {
+        e.style.height = 0;
+        e.style.lineHeight = 0;
+    }
+}
 
+// non-interactive variable text element that can be set progrmmatically and has zero height if empty 
+export function VarText (text=null, eid=null, minWidth=0, maxWidth=0, opts={}) {
+    let e = createElement("DIV", "ui_text");
+
+    if (eid) e.setAttribute("id", eid);
+    setWidthStyle(e, minWidth, maxWidth);
+
+    if (opts.isPermanent) e.classList.add("permanent");
     if (opts.isFixed) e.classList.add("fixed");
     if (opts.alignRight) e.classList.add("align_right");
 
     if (text) e.innerText = text;
+    setLineHeight(e);
     
     return e;
+}
+
+export function getVarText(o) {
+    let e = _elementOf(o);
+    if (e && e.classList.contains("ui_text")) {
+        return e;
+    }
+    throw "not a text";
+}
+
+export function setVarText(o, text) {
+    let e = getVarText(o);
+    if (e) {
+        e.innerText = text;
+
+        if (!_containsClass(e, "permanent")) {
+            setLineHeight(e);
+        }
+    }
 }
 
 //--- text area
@@ -913,32 +951,6 @@ export function getField(o) {
     throw "not a field";
 }
 
-//--- stand-alone text labels
-
-export function getLabel(o) {
-    let e = _elementOf(o);
-    if (e && e.classList.contains("ui_label")) {
-        return e;
-    }
-    throw "not a label";
-}
-
-export function setLabelText(o, text) {
-    let e = getLabel(o);
-    if (e) {
-        if (!_containsClass(e, "permanent")) {
-            if (text) {
-                let h = getRootVar("--field-height");
-                e.style.height = h;
-                e.style.lineHeight = h;
-            } else {
-                e.style.height = 0;
-                e.style.lineHeight = 0;
-            }
-        }
-        e.innerText = text;
-    }
-}
 
 //--- TextArea
 
@@ -1941,12 +1953,12 @@ export function getSelectorLabel(o) {
 
 //--- key-value tables (2 column lists, first column contains right aligned labels)
 
-export function KvTable(eid, maxRows, maxWidthInRem, minWidthInRem) {
+export function KvTable(eid, maxRows, minWidth, maxWidth) {
     let e = createElement("DIV", "ui_kvtable");
 
     if (eid) e.setAttribute("id", eid);
     e.setAttribute("data-rows", maxRows.toString());
-    setWidthStyle(e, maxWidthInRem,minWidthInRem);
+    setWidthStyle(e, minWidth, maxWidth);
 
     return e;
 }
@@ -2025,9 +2037,9 @@ export function List (eid, maxRows, selectAction, clickAction, contextMenuAction
     return genList(null, eid, maxRows, selectAction, clickAction, contextMenuAction, dblClickAction);
 }
 
-export function TreeList (eid, maxRows, minWidthInRem, selectAction, clickAction, contextMenuAction, dblClickAction) {
+export function TreeList (eid, maxRows, minWidth, selectAction, clickAction, contextMenuAction, dblClickAction) {
     let e = genList("tree", eid, maxRows, selectAction, clickAction, contextMenuAction, dblClickAction);
-    setWidthStyle(e, 0,minWidthInRem);
+    setWidthStyle(e, minWidth);
     return e;
 }
 
@@ -2345,8 +2357,6 @@ export function removeTreeItemPath(o,pathName) {
         let node = root.removePathName(pathName);
         if (node) {
             let ce = getNodeElement(e, node);
-            console.log("@@ removeTreeItemPath", pathName, ce);
-
             if (ce) { // otherwise node isn't visible and we don't have to update elements
                 if (e._uiSelectedNodeElement == node) {
                     _setSelectedItemElement(e, null);
@@ -3037,7 +3047,7 @@ export function getProgressBar(o) {
 
 export function LayerPanel (windowId, showAction, isExpanded=false) {
     return Panel("layer", isExpanded, `${windowId}.layer`)(
-        Label(`${windowId}.layer-descr`)
+        VarText( null, `${windowId}.layer-descr`)
     )
 }
 
@@ -3147,11 +3157,11 @@ function _containsAnyClass(element, ...cls) {
     return false;
 }
 
-function setWidthStyle (e, maxWidthInRem=0, minWidthInRem=0) {
+function setWidthStyle (e, minWidth=null, maxWidth=null) {
     let style = "";
-    if (maxWidthInRem) style += `max-width:${maxWidthInRem}rem;`;
-    if (minWidthInRem) style += `min-width:${minWidthInRem}rem;`;
-    if (style) e.setAttribute("style", style);
+    if (maxWidth) style += `max-width:${maxWidth};`;
+    if (minWidth) style += `min-width:${minWidth};`;
+    if (style.length > 0) e.setAttribute("style", style);
 }
 
 function _setAlignment(e, attrs) {

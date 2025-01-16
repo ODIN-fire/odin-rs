@@ -10,7 +10,7 @@ name = "bob"
 lazy_static = "*"
 anyhow = "*"
 toml = "0.8.19"
-cargo_toml = "0.20.5"
+cargo_toml = "0.21.0"
 bytes = "1.9.0"
 flate2 = "*"
 brotli = "*"
@@ -18,7 +18,7 @@ minifier = "*"
 minify-html-onepass = "*"
 
 rand = "*"
-pgp = "*"
+# pgp = "0.14.2"
 magic-crypt = "*"
 
 thiserror = { workspace = true }

@@ -18,10 +18,12 @@
 import { config } from "./odin_cesium_config.js";
 import * as main from "../odin_server/main.js";
 import * as util from "../odin_server/ui_util.js";
+import * as data from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 
 const MOD_PATH = "odin_cesium::CesiumService";
+const VIEW_PATTERN = util.glob2regexp("{view/**,**/view/**,**/view}");
 
 ws.addWsHandler( MOD_PATH, handleWsMessages);
 
@@ -42,8 +44,8 @@ class LayerEntry {
         this.id = layerConfig.name;    // (unique) full path: /cat/.../name
 
         let p = util.matchPath(this.id);
-        this.name = p[2];
-        this.category = p[1];
+        this.name = p[p.length-1]; // last path element
+        this.category = p[1]; // the first path element (p[0] is the whole match)
 
         this.config = layerConfig;     // at minimum {name,description,show}
         this.show = layerConfig.show;  // the configured initial state
@@ -61,21 +63,15 @@ class LayerEntry {
     }
 }
 
-// don't depend on member functions as we serialize/deserialize these
-
-class PositionSet {
-    constructor (name, positions) {
-        this.name = name;
-        this.positions = positions;
-    }
-}
-
-class Position {
-    constructor (name, lonDeg, latDeg, altM) {
-        this.name = name;
+// we can't directly use SharedItems here since we have to add properties that are display/layer specific (assets, home)
+class CameraPosition {
+    constructor (key, lonDeg, latDeg, altM, isLocal=true, home=false) {
+        this.key = key;
         this.lon = lonDeg;
         this.lat = latDeg;
         this.alt = altM;
+        this.isLocal = isLocal;
+        this.home = home;
 
         this.asset = undefined; // on-demand point entity
     }
@@ -102,8 +98,7 @@ var terrainChangeHandlers = [];
 
 var homePosition = undefined;
 var initPosition = undefined;
-var selectedPositionSet = undefined;
-var positions = undefined;
+var positions = new Map(); // list of known CameraPositions
 var positionsView = undefined;
 
 var isSelectedView = false;
@@ -138,14 +133,13 @@ export const viewer = new Cesium.Viewer('cesiumContainer', {
 
 checkImagery();
 
-let positionSets = getPositionSets();
-
 let dataSource = new Cesium.CustomDataSource("positions");
 addDataSource(dataSource);
 
 initTimeWindow();
 initViewWindow();
 initLayerWindow();
+
 
 // position fields
 let cameraLat = ui.getField("view.camera.latitude");
@@ -157,6 +151,7 @@ let pointerElev = ui.getField("view.pointer.elevation");
 let pointerUtmN = ui.getField("view.pointer.utmN");
 let pointerUtmE = ui.getField("view.pointer.utmE");
 let pointerUtmZ = ui.getField("view.pointer.utmZ");
+let cameraName = ui.getField("view.camera.name");
 
 setTargetFrameRate(config.targetFrameRate);
 initFrameRateSlider();
@@ -188,6 +183,7 @@ viewer.scene.postRender.addEventListener(function() {
     pendingRenderRequest = false;
 });
 
+setInitialViewPositions();
 setInitialView();
 
 var terrainProviderPromise = undefined; // set in postInitialize
@@ -334,16 +330,12 @@ function createViewWindow() {
             ui.TextInput("", "view.camera.altitude", "5.5rem", {changeAction: setViewFromFields, isFixed: true}),
             ui.HorizontalSpacer(0.4)
           ),
+          ui.TreeList("view.positions", 10, "32rem", setCameraFromSelection, setCameraName),
           ui.RowContainer()(
-            ui.Choice("","view.posSet", selectPositionSet),
-            ui.Button("save", storePositionSet, 3.5),
-            ui.Button("del", removePositionSet, 3.5)
-          ),
-          ui.List("view.positions", 8, setCameraFromSelection),
-          ui.RowContainer()(
-            ui.Button("⨀", pickPoint),
-            ui.Button("⨁", addPoint),
-            ui.Button("⌫", removePoint)
+            ui.TextInput("name", "view.camera.name", "15rem", {isFixed: true, placeHolder: 'enter pathname for position'}),
+            ui.Button("pick", pickPoint),
+            ui.Button("add", addPoint),
+            ui.Button("del", removePoint)
           ),
           ui.Panel("view parameters", false)(
             ui.CheckBox("render on-demand", toggleRequestRenderMode, "view.rm"),
@@ -356,17 +348,12 @@ function initPositionsView() {
     let view = ui.getList("view.positions");
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "", tip: "show/hide ground point", width: "2rem", attrs: [], map: e => ui.createCheckBox(e.asset, toggleShowPosition) },
-            { name: "name", tip: "place name name", width: "6rem", attrs: [], map: e => e.name },
-            { name: "lat", tip: "latitude [deg]", width:  "5.5rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.lat,4)},
+            { name: "", width: "1.5rem", attrs: [], map: e => !e.isLocal ? '\u{1f310}' : '' },
+            { name: "pt", tip: "show/hide ground point", width: "1.5rem", attrs: [], map: e => ui.createCheckBox(e.asset, toggleShowPosition) },
+            { name: "lat", tip: "latitude [deg]", width:  "4.5rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.lat,4)},
             { name: "lon", tip: "longitude [deg]", width:  "6.5rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.lon,4)},
-            { name: "alt", tip: "altitude [m]", width:  "5.5rem", attrs: ["fixed", "alignRight"], map: e => Math.round(e.alt)}
+            { name: "alt", tip: "altitude [km]", width:  "4rem", attrs: ["fixed", "alignRight"], map: e => Math.round(e.alt / 1000)}
         ]);
-
-        selectedPositionSet = positionSets[0];
-        positions = selectedPositionSet.positions;
-        ui.setChoiceItems("view.posSet", positionSets, 0);
-        ui.setListItems(view, positions);
     }
 
     return view;
@@ -418,7 +405,7 @@ function createLayerWindow() {
             )
         ),
         ui.Panel("module hierarchy", false)(
-            ui.TreeList("layer.hierarchy", 15, 25)
+            ui.TreeList("layer.hierarchy", 15, "25rem")
         )
     );
 }
@@ -441,15 +428,6 @@ function initLayerOrderView() {
 
 //--- view position sets
 
-function selectPositionSet(event) {
-    let posSet = ui.getSelectedChoiceValue(event);
-    if (posSet) {
-        selectedPositionSet = posSet;
-        positions = selectedPositionSet.positions;
-        ui.setListItems(positionsView, positions);
-    }
-}
-
 function toggleShowPosition(event) {
     let cb = ui.getCheckBox(event.target);
     if (cb) {
@@ -465,22 +443,19 @@ function toggleShowPosition(event) {
 }
 
 function addPoint() {
-    let latDeg = Number.parseFloat(ui.getFieldValue("view.camera.latitude"));
-    let lonDeg = Number.parseFloat(ui.getFieldValue("view.camera.longitude"));
-    let altM = Number.parseFloat(ui.getFieldValue("view.camera.altitude"));
+    let lon = Number.parseFloat(ui.getFieldValue("view.camera.longitude"));
+    let lat = Number.parseFloat(ui.getFieldValue("view.camera.latitude"));
+    let alt = Number.parseFloat(ui.getFieldValue("view.camera.altitude"));
 
-    if (isNaN(latDeg) || isNaN(lonDeg) || isNaN(altM)){
+    if (isNaN(lat) || isNaN(lon) || isNaN(alt)){
         alert("please enter valid latitude, longitude and altitude");
         return;
     }
 
-    let name = prompt("please enter point name", positions.length.toString());
-    if (name) {
-        let pt = new Position(name, latDeg, lonDeg, altM);
-        positions = util.copyArrayIfSame( selectedPositionSet.positions, positions);
-        positions.push(pt);
-        ui.setListItems(positionsView, positions);
-    }
+    let key = ui.getFieldValue(cameraName);
+    if (key && isValidViewKey(key)) {
+        main.setSharedItem( key, "GeoPoint3", new main.GeoPoint3( lon, lat, alt), true); // we add this as a locally shared var and update from the sharedHandler
+    } else alert("please enter valid view name: ", VIEW_PATTERN);
 }
 
 function pickPoint() {
@@ -489,71 +464,61 @@ function pickPoint() {
 
     // system prompt blocks DOM manipulation so we need to defer the action
     setTimeout( ()=> {
-        let name = prompt("please enter point name and click on map", selectedPositionSet.positions.length);
-        if (name) {
+        let key = ui.getFieldValue( cameraName);
+        if (key && isValidViewKey(key)) {
             pickSurfacePoint( (cp) => {
                 if (cp) {
-                    let latDeg = util.toDegrees(cp.latitude);
-                    let lonDeg = util.toDegrees(cp.longitude);
-                    let altM = ui.getFieldValue("view.camera.altitude");
+                    let lat = util.toDegrees(cp.latitude);
+                    let lon = util.toDegrees(cp.longitude);
+                    let alt = Number.parseFloat( ui.getFieldValue("view.camera.altitude"));
                     
-                    ui.setField("view.pointer.latitude", latDeg);
-                    ui.setField("view.pointer.longitude", lonDeg);
+                    ui.setField("view.pointer.latitude", lat);
+                    ui.setField("view.pointer.longitude", lon);
                     
-                    let pt = new Position(name, latDeg, lonDeg, altM);
-                    positions = util.copyArrayIfSame( selectedPositionSet.positions, positions);
-                    positions.push(pt);
-                    ui.setListItems("view.positions", positions);
+                    let p = new main.GeoPoint3(lon, lat, alt);
+                    main.setSharedItem( key, "GeoPoint3", p, true);
+
                 }
                 ui.resetElementColors(btn);
             });
         } else {
+            alert("please enter valid view name: ", VIEW_PATTERN);
             ui.resetElementColors(btn);
         }
     }, 100);
 }
 
-function namePoint() {
+function isValidViewKey(key) {
+    return key.match( VIEW_PATTERN);
 }
 
 function removePoint() {
     let pos = ui.getSelectedListItem(positionsView);
     if (pos) {
-        let idx = positions.findIndex( p=> p === pos);
-        if (idx >= 0) {
-            positions = util.copyArrayIfSame( selectedPositionSet.positions, positions);
-            positions.splice(idx, 1);
-            ui.setListItems(positionsView, positions);
+        if (pos.isLocal) {
+            main.removeSharedItem( pos.key);
+        } else alert("only local views can be removed here");
+    } else alert( "please select view to remove");
+}
+
+function getConfigViews() {
+    return config.defaultViews.map( p=> new CameraPosition( p.key, p.default.lon, p.default.lat, p.default.alt, true, p.home));
+}
+
+function getSharedViews() {
+    let views = [];
+    let items = main.getAllMatchingSharedItems( VIEW_PATTERN);
+    for (let item of items) {
+        if (item.value.type == "GeoPoint3") {
+            let p = item.value.data;
+            views.push( new CameraPosition( item.key, p.lon, p.lat, p.alt, item.isLocal));
         }
     }
+
+    return views;
 }
 
-function getPositionSets() {
-    let sets = [];
-    sets.push( getGlobalPositionSet());
-    getLocalPositionSets().forEach( ps=> sets.push(ps));
-    return sets;
-}
-
-// TODO - this should use main.getAllMatchingSharedItems( util.glob2regexp("view/**"))
-// { key: "view/bay_area", value: { type: "Point3D", comment: "...", data: {lon: 42, lat: 42, alt: 42}}}
-function getGlobalPositionSet() { // from config
-    let positions = config.cameraPositions.map( p=> new Position(p.name, p.lon, p.lat, p.alt));
-    let pset = new PositionSet("default", positions);
-
-    let initPos = getInitialPosition();
-    if (initPos) {
-        initPosition = initPos;
-        pset.positions.unshift(initPos)
-    }
-
-    homePosition = positions.find( p=> p.name === "home");
-    if (!homePosition) homePosition = positions[0];
-
-    return pset;
-}
-
-function getInitialPosition() {
+function getQueryView() {
     let queryString = window.location.search;
     if (queryString.length > 0) {
         let params = new URLSearchParams(queryString);
@@ -572,7 +537,7 @@ function getInitialPosition() {
                             elems[2] = elems[2] * 1000;
                         }
                     }
-                    return new Position( "<initial>", elems[0], elems[1], elems[2]); // name,lon,lat,alt
+                    return new CameraPosition( "view/<initial>", elems[0], elems[1], elems[2], true); // name,lon,lat,alt,isLocal
 
                 } catch (e) {
                     console.log("ignoring invalid initial position spec: ", view);
@@ -583,9 +548,45 @@ function getInitialPosition() {
     return null;
 }
 
-function getLocalPositionSets() { // from local storage
-    let psets = localStorage.getItem(UI_POSITIONS);
-    return psets ? JSON.parse(psets) : [];
+function setInitialViewPositions() {
+    let vps = getConfigViews();
+
+    let home = vps.find( p=> p.home );
+    homePosition = home ? home : vps[0];
+
+    let queryView = getQueryView();
+    if (queryView) {
+        initPosition = queryView;
+        vps.push(queryView);
+    }
+    
+    // add all configured views as locally shared items (if they are not overriding existing shared items)
+    vps.forEach( p => {
+        if (!main.getSharedItem(p.key)) {
+            main.setSharedItem(p.key, "GeoPoint3", new main.GeoPoint3( p.lon, p.lat, p.alt), true)
+        }
+    });
+
+    positions = new Map();
+    vps.forEach( p=> positions.set(p.key, p));
+
+    let tree = data.ExpandableTreeNode.from( vps, e=>e.key );
+    ui.setTree( positionsView, tree);
+}
+
+function updateSharedViewPositions() {
+    let vps = getSharedViews();
+
+    let newPositions = new Map();
+    vps.forEach( p=> newPositions.set(p.key, p));
+    positions = newPositions;
+
+    updatePositionsView();
+}
+
+function updatePositionsView() {
+    let tree = data.ExpandableTreeNode.from( positions.values(), e=>e.key );
+    ui.setTree( positionsView, tree);
 }
 
 function filterAssets(k,v) {
@@ -593,71 +594,11 @@ function filterAssets(k,v) {
     else return v;
 }
 
-function storePositionSet() {
-    if (selectedPositionSet) {
-        let psName = selectedPositionSet.name;
-        if (!psName.startsWith(LOCAL)) psName = LOCAL + psName;
-
-        psName = prompt("please enter name for local poisition set",psName);
-        if (psName) {
-            if (!psName.startsWith(LOCAL)) psName = LOCAL + psName;
-
-            let newPss = getLocalPositionSets();
-            let newPs = new PositionSet(psName, positions);
-            let idx = newPss.findIndex(e => e.name === psName);
-            if (idx <0 ) {
-                newPss.push( newPs);
-                idx = newPss.length-1;
-            } else {
-                newPss[idx] = newPs;
-            }
-
-            localStorage.setItem(UI_POSITIONS, JSON.stringify( newPss, filterAssets));
-
-            newPss.unshift(getGlobalPositionSet());
-            selectedPositionSet = newPs;
-            positions = selectedPositionSet.positions;
-            ui.setChoiceItems("view.posSet", newPss, idx+1);
-            ui.selectChoiceItem("view.posSet", newPs);
-            ui.setListItems(positionsView, positions);
-        }
-    }
-}
-
-function removePositionSet() {
-    if (selectedPositionSet) {
-        let psName = selectedPositionSet.name;
-        if (!psName.startsWith(LOCAL)) {
-            alert("denied - cannot remove non-local position sets");
-            return;
-        }
-
-        let localPs = getLocalPositionSets();
-        let idx = localPs.findIndex(e => e.name === psName);
-        if (idx >= 0){
-            if (confirm("delete position set " + selectedPositionSet.name)) {
-                if (localPs.length == 1) {
-                    localStorage.removeItem(UI_POSITIONS);
-                } else {
-                    localPs.splice(idx, 1);
-                    localStorage.setItem(UI_POSITIONS, JSON.stringify(localPs));
-                }
-
-                let ps = getPositionSets();
-                selectedPositionSet = ps[0];
-                positions = selectedPositionSet.positions;
-                ui.setChoiceItems("view.posSet", ps, 0);
-                ui.setListItems(positionsView, positions);
-            }
-        }
-    }
-}
-
 function setPositionAsset(pos) {
     let cfg = config;
 
     let e = new Cesium.Entity({
-        id: pos.name,
+        id: pos.key,
         position: Cesium.Cartesian3.fromDegrees( pos.lon, pos.lat),
         point: {
             pixelSize: cfg.pointSize,
@@ -667,7 +608,7 @@ function setPositionAsset(pos) {
             disableDepthTestDistance: Number.NEGATIVE_INFINITY
         },
         label: {
-            text: pos.name,
+            text: pos.key,
             font: cfg.font,
             fillColor: cfg.outlineColor,
             showBackground: true,
@@ -1067,14 +1008,19 @@ export function setCamera(camera) {
 }
 
 function setCameraFromSelection(event){
-    let places = ui.getList(event);
-    if (places) {
-        let cp = ui.getSelectedListItem(places);
-        if (cp) {
-            setCamera(cp);
-            isSelectedView = true;
-        }
+    let p = ui.getSelectedListItem(positionsView);
+    if (p) {
+        setCamera(p);
+        isSelectedView = true;
     }
+}
+
+function setCameraName(event) {
+    let node = ui.getSelectedTreeNode( positionsView);
+    if (node) {
+        let path = node.collectNamesUp('/');
+        ui.setField( cameraName, path);
+    } 
 }
 
 var minCameraHeight = 50000;
@@ -1163,7 +1109,7 @@ export function initLayerPanel(wid, conf, showAction) {
             phe.appendChild(cb);
             le.modulePanelCb = cb;
 
-            ui.setLabelText(wid + '.layer-descr', conf.layer.description);
+            ui.setVarText(wid + '.layer-descr', conf.layer.description);
 
             layerOrder.push(le);
         }
@@ -1390,8 +1336,37 @@ function setCesiumContainerVisibility (isVisible) {
     document.getElementById("cesiumContainer").style.visibility = isVisible;
 }
 
+var shareInitialized = false;
+
 function handleShareMessage (msg) {
-    console.log("@@ odin_cesium received shareMessage", msg);
+
+    if (msg.SHARE_INITIALIZED) { // we get that no matter what the share implementation is
+        shareInitialized = true;
+        updateSharedViewPositions();
+
+    } else if (shareInitialized) { // if we aren't initialized yet there is no need for updating the view
+        if (msg.setShared) {
+            let sharedItem = msg.setShared;
+            if (sharedItem.key.match(VIEW_PATTERN)) {
+                let sharedVal = sharedItem.value;
+                if (sharedVal.type == "GeoPoint3") {
+                    let p = sharedVal.data;
+                    let newPos = new CameraPosition( sharedItem.key, p.lon, p.lat, p.alt, sharedItem.isLocal);
+                    
+                    positions.set( sharedItem.key, newPos);
+                    ui.sortInTreeItem( positionsView, newPos, sharedItem.key);
+                    //updatePositionsView();
+                }
+            }
+        } else if (msg.removeShared) {
+            let key = msg.removeShared;
+            if (positions.has(key)) {
+                positions.delete(key);
+                ui.removeTreeItemPath( positionsView, key);
+                //updatePositionsView();
+            }
+        }
+    }
 }
 
 function handleSyncMessage (msg) {
@@ -1416,7 +1391,7 @@ export function postInitialize() {
     initModuleLayerViewData();    
     terrainProviderPromise = getTerrainProviderPromise();
     terrainProviderPromise.then( (tp) => { 
-        console.log("topoTerrainProvider set: ", tp);
+        console.log("topoTerrainProvider set");
         topoTerrainProvider = tp;
         console.log("topographic terrain loaded");
 

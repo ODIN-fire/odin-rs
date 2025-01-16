@@ -1,0 +1,25 @@
+{
+    "view/bay_area": {
+        "type": "GeoPoint3",
+        "owner": "🔒",
+        "data": {
+            "lat": 38.15910,
+            "lon": -122.67800,
+            "alt": 800000.0
+        }
+    },
+
+    "incident/czu/ignition": {
+        "type": "GeoPoint",
+        "data": {
+            "lon": -122.2854, 
+            "lat": 37.137
+        }
+    }, 
+
+    "incident/czu/cause": {
+        "type": "String",
+        "comment": "preliminary",
+        "data": "dry lightning"
+    }
+}

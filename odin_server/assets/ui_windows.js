@@ -22,8 +22,7 @@ export function ImageWindow (title, id, closeAction, imgUri, caption,
     let img = new Image();
     img.src = imgUri; // kicks off async loading
 
-    let label = ui.Label( id+".caption", true);
-    ui.setLabelText( label, caption);
+    let label = ui.Label( caption, id+".caption");
 
     let scaleSlider = ui.Slider("scale", null, setImgScale, "18rem");
     let cbFullSize = ui.CheckBox("full", toggleFullScale);
