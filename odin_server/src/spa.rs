@@ -814,6 +814,7 @@ impl SpaComponents {
 
         write!( buf, "<title>{name}</title>\n");
         write!( buf, "<base href=\"{}/\">\n", name);
+        write!( buf, "<link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"./asset/odin_server/odin-icon-32x32.png\">");
 
         for item in &self.header_items {
             item.append_html(&mut buf);

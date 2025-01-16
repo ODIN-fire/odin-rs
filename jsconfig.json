@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "module": "ES6",
+    "target": "ES6",
+    "baseUrl": ".",
+    "paths": {
+      "../odin_server/*": ["./odin_server/assets/*"]
+    }
+  },
+  "include": ["odin_server/assets/*", "odin_cesium/assets/*"]
+}

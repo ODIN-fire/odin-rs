@@ -156,6 +156,31 @@ macro_rules! dyn_shared_store_action {
 
 /* #region KvStore impls **************************************************************************/
 
+/// remove heading and trailing path separators
+fn canonical_key(mut key: String)->Option<String> {
+    while let Some(idx) = key.find("//") {
+        key.replace_range(idx..idx+1, ""); // not very efficient but also unlikely
+    }
+
+    let mut k: &str = key.as_str();
+    let k0: &str = k;
+
+    // start/end trim
+    k = k.trim_start_matches('/');
+    k = k.trim_end_matches('/');
+    
+    if k == k0 {
+        println!("not changed");
+        Some(key) // nothing changed
+    } else {
+        if k.len() > 0 {
+            Some(k.to_string())
+        } else {
+            None
+        }
+    }
+}
+
 impl<T> SharedStoreReadAccess<T> for HashMap<String,T>
     where T: SharedStoreValueConstraints
 {
@@ -219,6 +244,7 @@ pub fn hashmap_store_from<P,T> (path: &P)->Result<HashMap<String,T>, OdinShareEr
 pub struct PersistentHashMapStore<T>{
     #[serde(skip,default="default_store_path")]
     path: PathBuf,
+    save: bool,
     map: HashMap<String,T>
 }
 
@@ -227,10 +253,10 @@ fn default_store_path()->PathBuf {
 }
 
 impl<T> PersistentHashMapStore<T> where T: SharedStoreValueConstraints {
-    fn new<P> (path: &P)->Result<Self,OdinShareError> where P: AsRef<Path> {
+    pub fn new<P> (path: &P, save: bool)->Result<Self,OdinShareError> where P: AsRef<Path> {
         let map = hashmap_store_from(path)?;
         let path = path.as_ref().to_path_buf();
-        Ok( PersistentHashMapStore { path, map } )
+        Ok( PersistentHashMapStore { path, save, map } )
     }
 }
 
@@ -285,8 +311,10 @@ impl<T> SharedStore<T> for PersistentHashMapStore<T>
     }
 
     fn save (&self)->Result<(),OdinShareError> {
-        let file = File::open(&self.path)?;
-        serde_json::to_writer_pretty(file, &self.map)?;
+        if self.save {
+            let file = File::open(&self.path)?;
+            serde_json::to_writer_pretty(file, &self.map)?;
+        }
         Ok(())
     }
 }

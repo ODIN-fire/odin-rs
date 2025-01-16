@@ -14,7 +14,7 @@
 #![allow(unused)]
 
 use odin_build;
-use odin_actor::prelude::*;
+use odin_actor::{errors::op_failed, prelude::*};
 use odin_server::prelude::*;
 use odin_share::prelude::*;
 use odin_cesium::ImgLayerService;
@@ -35,7 +35,7 @@ run_actor_system!( actor_system => {
             .add( build_service!( let hstore = pre_store.to_actor_handle() => ShareService::new( hstore)) )
     ))?;
 
-    let hstore = spawn_pre_actor!( actor_system, pre_store, new_shared_store_actor( create_store(), "store", &hserver))?;
+    let hstore = spawn_pre_actor!( actor_system, pre_store, new_shared_store_actor( load_store()?, "store", &hserver))?;
 
     /* this would be the explicit way to create the SharedStoreActor, in case there are other actions than to just notify the server
     let hstore = spawn_pre_actor!( actor_system, pre_store, SharedStoreActor::new(
@@ -51,6 +51,10 @@ run_actor_system!( actor_system => {
 
     Ok(())
 });
+
+fn load_store()->OdinActorResult<PersistentHashMapStore<SharedItemType>> {
+    PersistentHashMapStore::new( &"examples/shared_items.json", false).map_err(|e| op_failed(e.to_string()))
+}
 
 // this is artificial - normally we would initialize the store from a <odin-root>/data file
 fn create_store()->HashMap<String,SharedItemType> {

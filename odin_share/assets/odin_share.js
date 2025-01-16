@@ -20,12 +20,14 @@ import { config } from "./odin_share_config.js";
 import * as main from "../odin_server/main.js";
 import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
+import * as odinCesium from "../odin_cesium/odin_cesium.js";
 import * as util from "../odin_server/ui_util.js";
 import { ExpandableTreeNode } from "../odin_server/ui_data.js";
 
 const MOD_PATH = "odin_share::share_service::ShareService";
 const NAME_PLACEHOLDER = '◻︎';
 const DEFAULT_TYPE = "Json";
+const LOCAL_SHARE = "LOCAL_SHARE";
 
 ws.addWsHandler( MOD_PATH, handleWsMessages); // we process websocket messages for MOD_PATH
 
@@ -39,21 +41,27 @@ var saveBtn = undefined;
 var localCb = undefined;
 var addRoleEntry = undefined;
 var msgEntry = undefined;
+var complChoice = undefined;
 
 var messages = [];
 var hasDataEntryChanged = false; // state to keep track if dataEntry has changed
+
+var shareDataSource = new Cesium.CustomDataSource("share");
+odinCesium.addDataSource(shareDataSource);
 
 compileConfigGlobs();
 createIcon();
 createWindow();
 
 var dirView = initDirView();
-var completionList = initSuffixList();
+//var completionList = initSuffixList();
 var ownRoleList = initOwnRoleList();
 var extRoleList = initExtRoleList();
 var msgList = initMsgList();
 
-setObjButtonsDisabled(true);
+// we don't have other direct layer manager dependencies (e.g. odin_cesium) so we go through the main interface here
+odinCesium.initLayerPanel("share", config, showShareLayer);
+console.log("share layer initialized.");
 
 //--- set the window.main.share interface object
 
@@ -64,22 +72,22 @@ class OdinShare extends main.Share {
     }
 
     setSharedItem (key, type, data, isLocal=false, comment=null) {
-        let value = new SharedValue( type, comment, data);
-        let sharedItem = new main.SharedItem( key, value);
+        let value = new main.SharedValue( type, comment, data);
+        let sharedItem = new main.SharedItem( key, isLocal, value);
 
         if (isLocal) { // notify shareHandlers right away
-            handleSetShared( {setShared: sharedItem}, true);
+            handleSetShared( {key,value}, true);
         } else {
             ws.sendWsMessage( MOD_PATH, "setShared", sharedItem);
             // sharedItems will be updated when server responds in handleWsMessages()
         }
     }
 
-    removeSharedItem (sharedItem) {
+    removeSharedItem (key) {
+        let sharedItem = this._get(key);
         if (sharedItem) {
-            let key = sharedItem.key;
             if (sharedItem.isLocal) {
-                handleRemoveShared( {removeShared: key});
+                handleRemoveShared( {key});
             } else {
                 ws.sendWsMessage( MOD_PATH, "removeShared", {key});
             }
@@ -176,26 +184,33 @@ function createWindow() {
                         ui.Button("clear sub", unsubscribeAll)
                     )
                 )
-            )
-        ),
-        ui.Panel("messages", false)(
-            (msgList = ui.List("share.msg.list", 8)),
-            (msgEntry = ui.TextInput("send", "share.msg.entry", "27rem", {placeHolder: "enter message text", changeAction: sendMsg})),
-            ui.RowContainer()(
-                ui.Button("send", sendMsg), 
-                ui.Button("clear all", clearMsgList)
+            ),
+            ui.ColumnContainer() (
+                (msgList = ui.List("share.msg.list", 8)),
+                (msgEntry = ui.TextInput("send", "share.msg.entry", "25rem", {placeHolder: "enter message text", changeAction: sendMsg})),
+                ui.RowContainer()(
+                    ui.Button("send", sendMsg), 
+                    ui.Button("clear all", clearMsgList)
+                )
             )
         ),
         ui.Panel("item directory", true)(
-            ui.RowContainer("start")(
-                ui.TreeList("share.dir.list", 15, 25, selectShareEntry),
-                (completionList = ui.List("share.suffix.list", 15, selectSuffix))
-            )
+                ui.RowContainer("start")(
+                    ui.TreeList("share.dir.list", 15, "32rem", selectShareEntry, setKey),
+                    ui.ColumnContainer("end")(
+                        ui.Button("clear local", clearLocalItems, "6rem"),
+                        ui.Button("store local", saveLocalItems, "6rem"),
+                        ui.Button("load local", loadLocalItems, "6rem"),
+                    )
+                )
         ),
         ui.Panel("item editor", false)(
-            (keyEntry = ui.TextInput( "key","share.obj.key", "30rem", {isFixed: true, placeHolder: "enter item key", changeAction: keyChanged})),
-            (commentEntry = ui.TextInput( "comment", "share.obj.cmt", "30rem", {isFixed: true, placeHolder: "enter (optional) item comment"})),
-            (dataEntry = ui.TextArea("share.obj.text", "30rem", "8lh", {isFixed: true, changeAction: dataChanged})),
+            ui.RowContainer()(
+                (keyEntry = ui.TextInput( "key","share.obj.key", "20.6rem", {isFixed: true, placeHolder: "enter item key", changeAction: keyChanged})),
+                (complChoice = ui.Choice( "compl", "share.obj.compl", completeKey))
+            ),
+            (commentEntry = ui.TextInput( "comment", "share.obj.cmt", "32rem", {isFixed: true, placeHolder: "enter (optional) item comment"})),
+            (dataEntry = ui.TextArea("share.obj.text", "32rem", "8lh", {isFixed: true, changeAction: dataChanged})),
             ui.RowContainer()(
                 (localCb = ui.CheckBox("local", null, "share.obj.cb-local")),
                 ui.HorizontalSpacer(4),
@@ -218,19 +233,10 @@ function initDirView() {
     let view = ui.getList("share.dir.list");
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "priv", tip: "item is private", width: "2rem", attrs: [], map: e => itemVisibility(e) },
+            { name: "show", tip: "render selected item", width: "2.5rem", attrs:[], map: e=> ui.createCheckBox( isItemShowing(e), toggleShowItem) },
+            { name: "loc", tip: "item is local", width: "2rem", attrs: [], map: e => itemScope(e) },
             { name: "owner", tip: "owner of item", width: "6rem", attrs: [], map: e => itemOwner(e) },
-            { name: "type", tip: "item type", width: "8rem", attrs: ["small"], map: e=> itemType(e) }
-        ]);
-    }
-    return view;
-}
-
-function initSuffixList() {
-    let view = ui.getList("share.suffix.list");
-    if (view) {
-        ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "completion", tip: "allowed completion for selected dir item", width: "8rem", attrs: ["alignLeft", "small"], map: e=>e },
+            { name: "type", tip: "item type", width: "6rem", attrs: ["small"], map: e=> itemType(e) }
         ]);
     }
     return view;
@@ -285,15 +291,47 @@ function initMsgList() {
             { name: "time", tip: "time of send", width: "5rem", attrs:["small", "fixed"], map: e=> util.toLocalTimeString(e.date) },
             { name: "role", tip: "role of msg sender", width: "4rem", attrs: ["alignLeft", "small"], map: e=>e.role },
             { name: "", tip:"", width: "1rem", attrs: [], map: e=> share._getOwnRole(e.role) ? '>' : '' },
-            { name: "message", tip: "message text", width: "26rem", attrs: [], map: e=>e.msg },
+            { name: "message", tip: "message text", width: "24rem", attrs: [], map: e=>e.msg },
         ]);
     }
     return view;
 }
 
+function isItemShowing (e) {
+    return shareDataSource.entities.getById( e.key);
+}
+
+function toggleShowItem(event) {
+    let cb = ui.getCheckBox(event.target);
+    if (cb) {
+        let e = ui.getListItemOfElement(cb);
+
+        if (ui.isCheckBoxSelected(cb)) {
+            let entity = getItemEntity(e);
+            if (entity) shareDataSource.entities.add( entity);
+        } else {
+            shareDataSource.entities.removeById( e.key);
+        }
+        odinCesium.requestRender();
+    }
+}
+
+function getItemEntity (e) {
+    if (e.value) {
+        switch (e.value.type) {
+            case "GeoPoint": case "GeoPoint3": return createPointEntity(e);
+            case "GeoLine": return createLineEntity(e);
+            case "GeoLineString": return createLineStringEntity(e);
+            case "GeoRect": return createRectEntity(e);
+            case "GeoPolygon": return createPolygonEntity(e);
+            default: return null;
+        }
+    }  
+}
+
 // is this is a dir or a sealed prefix it is global. Otherwise check the 'global' property of a value
-function itemVisibility (e) {
-    return (e.value && e.isLocal) ? '☒' : '';
+function itemScope (e) {
+    return (e.value && e.isLocal) ? '⨁' : '';
 }
 
 function itemOwner (e) {
@@ -349,12 +387,13 @@ function keyChanged (event) {
     let si = share.getSharedItem(key);
 
     if (si) {
-        let json = JSON.stringify( si.value, 0, 2);
+        let json = JSON.stringify( si.value.data, 0, 2);
         setDataEntry( json);
         setObjButtonsDisabled(false);
 
     } else {
         checkTemplate(key);
+        updateKeyCompletions();
     }
 }
 
@@ -385,6 +424,11 @@ function setEditorChoice (itemType) {
 
 function toggleShareLayer(event) {
     // nothing to toggle yet
+}
+
+function showShareLayer (cond) {
+    shareDataSource.show = cond;
+    odinCesium.requestRender();
 }
 
 function sendMsg(event) {
@@ -435,32 +479,42 @@ function selectShareEntry(event) {
     }
 
     ui.setField( keyEntry, key);
-    setSuffixList(key);
 
     let ti = lookupTypeInfo(key);
     if (ti) setEditorChoice(ti.type);
 }
 
-function setSuffixList (key) {
+function setKey (event){
+    let node = ui.getSelectedTreeNode( dirView);
+    if (node) {
+        let path = node.collectNamesUp('/');
+        ui.setField( keyEntry, path);
+        updateKeyCompletions();
+    } 
+}
+
+function updateKeyCompletions() {
+    let choices = [];
+
+    let key = ui.getFieldValue(keyEntry);
     if (key) {
         for (var e of config.completions) {
             if (e.glob && key.match(e.glob)) {
-                ui.setListItems( completionList, e.completion);
-                return;
+                e.completion.forEach( c=> choices.push(c));
             } 
         }
     }
-    ui.setListItems( completionList, null);
+
+    ui.setChoiceItems( complChoice, choices, 0);
 }
 
-// list selection in completionList
-function selectSuffix(event) {
-    let e = ui.getSelectedListItem(completionList);
-    if (e) {
-        let key = ui.getFieldValue(keyEntry) + e;
+function completeKey (event) {
+    let completion = ui.getSelectedChoiceValue(event);
+    if (completion) {
+        let key = ui.getFieldValue(keyEntry) + completion;
+        ui.setField( keyEntry, key);
+
         let i = key.indexOf(NAME_PLACEHOLDER);
-        
-        ui.setField(keyEntry, key);
         ui.focusField(keyEntry);
         if (i>=0) { // key not complete yet
             ui.selectFieldRange( keyEntry, i, i+1);
@@ -469,7 +523,7 @@ function selectSuffix(event) {
             checkTemplate(key);
             setObjButtonsDisabled(false);
         }
-    }
+    } 
 }
 
 function setDataEntry (src) {
@@ -487,7 +541,7 @@ function removeItem(event) {
     let key = ui.getNonEmptyFieldValue(keyEntry);
     let sharedItem = share.getSharedItem(key);
     if (sharedItem) {
-        share.removeSharedItem(sharedItem);
+        share.removeSharedItem(sharedItem.key);
     } else {
         window.alert("missing key or item not shared");
     }
@@ -532,6 +586,33 @@ function saveItem(event) {
     }
 }
 
+function saveLocalItems() {
+    let sharedItems = share.findAllSharedItems( e=> e.isLocal);
+    if (sharedItems.length > 0) {
+        let json = JSON.stringify(sharedItems);
+        localStorage.setItem( LOCAL_SHARE, json);
+    }
+}
+
+function loadLocalItems() {
+    let json = localStorage.getItem(LOCAL_SHARE);
+    if (json) {
+        let sharedItems = JSON.parse(json);
+        if (sharedItems && sharedItems.length > 0){
+            for (let e of sharedItems) {
+                share.setSharedItem(e.key, e.value.type, e.value.data, e.isLocal, e.value.comment);
+            }
+        }
+    }
+}
+
+function clearLocalItems() {
+    let sharedItems = share.findAllSharedItems( e=> e.isLocal);
+    for (let e of sharedItems) {
+        share.removeSharedItem(e.key);
+    }
+}
+
 // this is how we get data and/or sync operations from the server
 function handleWsMessages(msgType, msg) {
     switch (msgType) {
@@ -561,7 +642,9 @@ function handleWsMessages(msgType, msg) {
 }
 
 function handleSetShared (msg, isLocal) {
-    let sharedItem = new SharedItem( msg.key, isLocal, msg.value);
+    let key = msg.key;
+    let value = msg.value;
+    let sharedItem = new main.SharedItem(key,isLocal,value);
     share._set( sharedItem.key, sharedItem);
 
     ui.sortInTreeItem( dirView, sharedItem, sharedItem.key);
@@ -659,14 +742,17 @@ function handleInitSharedItems(o) {
         share._set( item.key, item); // store the item in our share object
     }
 
+    items.sort( (a,b)=> a.key.localeCompare(b.key));
+
     let tree = ExpandableTreeNode.from( items, e=>e.key );
     ui.setTree( dirView, tree);
+
+    main.notifyShareHandlers( main.SHARE_INITIALIZED);
 }
 
 
 function runSelectedEditor(event) {
     function valueCallback (data) {
-        console.log("@@ data=", data);
         let src = JSON.stringify(data, 0, 2);
 
         setDataEntry( src);
@@ -689,4 +775,108 @@ function runSelectedEditor(event) {
 
 function isValidItemKey (key) {
     return (key && key.length > 0 && key.indexOf(NAME_PLACEHOLDER) < 0);
+}
+
+function createPointEntity(e) {
+    let d = e.value.data;
+    return new Cesium.Entity({
+        id: e.key,
+        name: e.key,
+        position: Cesium.Cartesian3.fromDegrees( d.lon, d.lat, 0),
+        label: entityLabel(e.key),
+        point: {
+            pixelSize: config.pointSize,
+            color: config.color,
+            outlineColor: config.outlineColor,
+            outlineWidth: config.outlineWidth,
+            //distanceDisplayCondition: config.pointDC, 
+        }
+    });
+}
+
+function createLineEntity(e) {
+    let d = e.value.data;
+    let points = [
+        Cesium.Cartesian3.fromDegrees( d.start.lon, d.start.lat),
+        Cesium.Cartesian3.fromDegrees( d.end.lon, d.end.lat),
+    ];
+    let midPoint =  Cesium.Cartesian3.fromDegrees( (d.start.lon + d.end.lon)/2, (d.start.lat + d.end.lat)/2);
+
+    return new Cesium.Entity({
+        id: e.key,
+        name: e.key,
+        position: midPoint,
+        label: entityLabel(e.key),
+        polyline: {
+            positions: points,
+            clampToGround: true,
+            material: color,
+            width: config.lineWidth
+        }
+    });
+}
+
+function createLineStringEntity(e){
+    let d = e.value.data;
+    let points = d.points.map( p=> Cesium.Cartesian3.fromDegrees( p.lon, p.lat));
+    let midPoint = points[points.length/2];
+
+    return new Cesium.Entity({
+        id: e.key,
+        name: e.key,
+        position: midPoint,
+        label: entityLabel(e.key),
+        polyline: {
+            positions: points,
+            clampToGround: true,
+            material: color,
+            width: config.lineWidth
+        }
+    });
+}
+
+function createRectEntity(e) {
+    let d = e.value.data;
+    let vertices = [
+        Cesium.Cartesian3.fromDegrees( d.west, d.south),
+        Cesium.Cartesian3.fromDegrees( d.west, d.north),
+        Cesium.Cartesian3.fromDegrees( d.east, d.north),
+        Cesium.Cartesian3.fromDegrees( d.east, d.south)
+    ];
+    let center =  Cesium.Cartesian3.fromDegrees( (d.east + d.west)/2, (d.north + d.south)/2);
+
+    return new Cesium.Entity({
+        id: e.key,
+        name: e.key,
+        position: center,
+        label: entityLabel(e.key),
+        polygon: {
+            hierarchy: vertices,
+            heightReference: Cesium.CLAMP_TO_GROUND,
+            fill: true,
+            material: config.fillColor,
+            outlineColor: config.outlineColor,
+            outlineWidth: config.outlineWidth,
+        }
+    });
+}
+
+function createPolygonEntity(e){
+    // TODO
+    return null;
+}
+
+function entityLabel (key) {
+    return {
+        text: key,
+        scale: 0.8,
+        horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+        verticalOrigin: Cesium.VerticalOrigin.TOP,
+        font: config.labelFont,
+        fillColor: config.color,
+        showBackground: true,
+        backgroundColor: config.labelBackground,
+        pixelOffset: config.labelOffset,
+        distanceDisplayCondition: config.labelDC,
+    };
 }

@@ -28,9 +28,10 @@ pub fn normalize_90 (d:f64) -> f64 {
 #[inline]
 pub fn normalize_180 (d: f64) -> f64 {
     let mut x = d % 360.0;
-    if x < 0.0 { x = 360.0 + x } // normalize to 0..360
-
-    if x > 180.0 { x - 360.0 } else { x }
+    
+    if x < -180.0 { return 360.0 + x }
+    if x > 180.0 { return x - 360.0 }
+    x
 }
 
 #[inline]

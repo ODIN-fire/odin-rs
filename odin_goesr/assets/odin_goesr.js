@@ -13,6 +13,7 @@
  */
 import { config } from "./odin_goesr_config.js";
 
+import * as main from "../odin_server/main.js";
 import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
@@ -74,7 +75,7 @@ createWindow();
 var dataSetView = initDataSetView();
 var hotspotView = initHotspotView();
 var historyView = initHistoryView();
-var maskLabel = ui.getLabel("goesr.mask");
+var maskText = ui.getVarText("goesr.mask");
 
 ui.setCheckBox("goesr.followLatest", followLatest);
 ui.setCheckBox("goesr.lockStep", lockStep);
@@ -82,7 +83,6 @@ ui.selectRadio( "goesr.level.all");
 initSliders();
 
 odinCesium.setEntitySelectionHandler(goesrSelection);
-
 odinCesium.initLayerPanel("goesr", config, showGoesr);
 console.log("ui_cesium_goesr initialized");
 
@@ -115,7 +115,7 @@ function createWindow() {
         ),
         ui.Panel("hotspot history", true)(
             ui.List("goesr.history", 8, selectGoesrHistory),
-            ui.Label("goesr.mask")
+            ui.VarText(null,"goesr.mask", 0, 0, {isFixed:true})
         ),
         ui.Panel("layer parameters", false)(
             ui.Slider("max missing [min]", "goesr.maxMissing", setGoesrMaxMissing),
@@ -564,12 +564,12 @@ function selectGoesrHotspot(event) {
     } else {
         ui.clearList(historyView);
     }
-    ui.setLabelText(maskLabel, null);
+    ui.setVarText(maskText, null);
 }
 
 function selectGoesrHistory(event) {
     let hs = event.detail.curSelection;
-    ui.setLabelText(maskLabel, hs ? getMaskDescription(hs.mask) : null);
+    ui.setVarText(maskText, hs ? getMaskDescription(hs.mask) : null);
 }
 
 function getMaskDescription(mask) {

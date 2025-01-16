@@ -1,11 +1,59 @@
 {
-    "view/bay_area": {
-        "type": "GeoPoint3",
-        "owner": "🔒",
-        "data": {
-            "lat": 38.15910,
-            "lon": -122.67800,
-            "alt": 800000.0
-        }
-    }
+  "view/globe/US": {
+    "owner": "🔒",
+    "type": "GeoPoint3",
+    "data": { "lon": -127.71080, "lat": 37.32540, "alt": 11229395 }
+  },
+
+  "view/region/CONUS West": {
+    "owner": "🔒",
+    "type": "GeoPoint3",
+    "data": { "lon": -120.38130, "lat": 40.98100, "alt": 2388500 }
+  },
+
+  "view/state/CA/SF Bay Area": {
+    "owner": "🔒",
+    "type": "GeoPoint3",
+    "data": { "lon": -122.678, "lat": 38.1591, "alt": 800000.0 }
+  },
+
+  "view/state/CA/SF Peninsula": {
+    "owner": "🔒",
+    "type": "GeoPoint3",
+    "data": { "lon": -122.4833, "lat": 37.3833, "alt": 153500 }
+  },
+
+  "view/state/CA/Big Sur": {
+    "owner": "🔒",
+    "type": "GeoPoint3",
+    "data": { "lon": -121.77800, "lat": 36.29400, "alt": 90000 }
+  }, 
+
+  "view/state/CA/Los Angeles": {
+    "owner": "🔒",
+    "type": "GeoPoint3",
+    "data": { "lon": -118.02000, "lat": 34.04000, "alt": 120000 }
+  },
+
+  "incident/czu/ignition": {
+    "comment": "origin of fire at blabla",
+    "type": "GeoPoint",
+    "data": { "lon": -122.2854, "lat": 37.137 }
+  },
+
+  "incident/czu/view": {
+    "type": "GeoPoint3",
+    "data": { "lon": -122.2854, "lat": 37.137, "alt": 67000 }
+  },
+
+  "incident/czu/cause": {
+    "comment": "preliminary",
+    "type": "String",
+    "data": "dry lightning"
+  },
+
+  "incident/czu/bbox": {
+    "type": "GeoRect",
+    "data": { "west": -122.68, "south": 36.9947, "east": -121.8617, "north": 37.4843 }
+  }
 }

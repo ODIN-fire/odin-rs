@@ -21,6 +21,7 @@
 // https://nasarace.github.io/race/design/share.html which supports data distribution of tabular data within
 // network nodes with a tree topology
 
+use odin_cesium::CesiumService;
 use odin_server::{ errors::op_failed, prelude::*};
 use async_trait::async_trait;
 use odin_actor::prelude::*;
@@ -134,6 +135,7 @@ impl SpaService for ShareService {
         spa_builder
             .add( build_service!( => UiService::new()))
             .add( build_service!( => WsService::new()))
+            .add( build_service!( => CesiumService::new()))
     }
 
     fn add_components(&self, spa: &mut SpaComponents) -> OdinServerResult<()> {

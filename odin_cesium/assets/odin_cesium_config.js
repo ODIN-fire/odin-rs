@@ -8,13 +8,14 @@ export const config = {
     showTerrain: true,
     requestRenderMode: true,
     targetFrameRate: -1,
-    cameraPositions: [
-      {name: "Bay Area", lat: 38.15910, lon: -122.67800, alt: 779589},
-      {name: "Peninsula", lat: 37.23020, lon: -122.19930, alt: 58887},
-      {name: "Big Sur North", lat: 36.29400, lon: -121.77800, alt: 90000},
-      {name: "Los Angeles", lat: 34.04000, lon: -118.02000, alt: 120000},
-      {name: "conus west", lat: 40.98100, lon: -120.38130, alt: 2388500},
-      {name: "space", lat: 37.32540, lon: -127.71080, alt: 11229395}
+    defaultViews: [
+      // default views (will be locally shared if not yet set)
+      {key: "view/globe/US",               default: { lat: 38.4705, lon: -97.2921, alt: 10370000} },
+      {key: "view/region/CONUS West",      default: { lat: 40.98100, lon: -120.38130, alt: 2388500}, home: true },
+      {key: "view/state/CA/SF Bay Area",      default: { lat: 38.15910, lon: -122.67800, alt: 779589} },
+      {key: "view/state/CA/SF Peninsula",     default: { lat: 37.23020, lon: -122.19930, alt: 58887} },
+      {key: "view/state/CA/Big Sur", default: { lat: 36.29400, lon: -121.77800, alt: 90000} },
+      {key: "view/state/CA/Los Angeles",   default: { lat: 34.04000, lon: -118.02000, alt: 120000} }
     ],
     localTimeZone: 'America/Los_Angeles',
     color: Cesium.Color.fromCssColorString('red'),

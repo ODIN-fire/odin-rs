@@ -194,7 +194,7 @@ impl GeoRect {
         Area::new::<square_meter>(a)
     }
     
-    pub fn points(&self) -> Vec<GeoPoint> {
+    pub fn points (&self) -> Vec<GeoPoint> {
         vec![GeoPoint::from_lon_lat(self.west(), self.north()),
             GeoPoint::from_lon_lat(self.west(), self.south()),
             GeoPoint::from_lon_lat(self.east(), self.north()),
@@ -326,46 +326,67 @@ impl_deserialize_struct!{ GeoPolygon::from_geo_points(exterior,interiors = Vec::
 /// this type is probably used in computations involving ECEF transformation we chose the `nav_types`
 /// implementation as the underlying basis
 #[derive(Debug,Clone,Copy,PartialEq)]
-pub struct GeoPoint3(WGS84<f64>);
+pub struct GeoPoint3 {
+    point: Point,
+    alt: f64
+}
 
 impl GeoPoint3 {
     pub fn from_lon_lat_alt(lon: Longitude, lat: Latitude, alt: Length) -> Self {
-        GeoPoint3( WGS84::from_degrees_and_meters( lat.degrees(), lon.degrees(), alt.get::<meter>()))
+        GeoPoint3 {
+            point: Point::new( lon.degrees(), lat.degrees()),
+            alt: alt.get::<meter>()
+        }
     }
     pub fn from_lon_lat_degrees_alt_meters (lon: f64, lat: f64, alt: f64) -> Self {
-        GeoPoint3( WGS84::from_degrees_and_meters( normalize_90(lat), normalize_180(lon), alt) )
+        GeoPoint3 {
+            point: Point::new( lon, lat),
+            alt
+        }
     }
 
-    #[inline] pub fn longitude(&self) -> Longitude { Longitude::from_degrees( self.0.longitude_degrees()) }
-    #[inline] pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.0.latitude_degrees()) }
-    #[inline] pub fn altitude(&self) -> Length { Length::new::<meter>(self.0.altitude()) }
+    #[inline] pub fn longitude(&self) -> Longitude { Longitude::from_degrees( self.point.x()) }
+    #[inline] pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.point.y()) }
+    #[inline] pub fn altitude(&self) -> Length { Length::new::<meter>(self.alt) }
 
-    pub fn longitude_degrees(&self) -> f64 { self.0.longitude_degrees() }
-    pub fn latitude_degrees(&self) -> f64 { self.0.latitude_degrees() }
-    pub fn altitude_meters(&self) -> f64 { self.0.altitude() }
-    
+    pub fn longitude_degrees(&self) -> f64 { self.point.x() }
+    pub fn latitude_degrees(&self) -> f64 { self.point.y() }
+    pub fn altitude_meters(&self) -> f64 { self.alt }
 }
 
 impl fmt::Display for GeoPoint3 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{},{},{}]", self.0.longitude_degrees(),self.0.latitude_degrees(), self.0.altitude())
+        write!(f, "[{},{},{}]", self.longitude_degrees(),self.latitude_degrees(), self.altitude_meters())
     }
 }
 
+// nav_types conversions
+
 impl From<ECEF<f64>> for GeoPoint3 {
-    fn from (ecef: ECEF<f64>) -> Self { GeoPoint3(ecef.into()) }
+    fn from (ecef: ECEF<f64>) -> Self { 
+        let wgs84: WGS84<f64> = ecef.into(); 
+        GeoPoint3 {
+            point: Point::new( wgs84.longitude_degrees(), wgs84.latitude_degrees()),
+            alt: wgs84.altitude()
+        }
+    }
 }
 
 impl From<WGS84<f64>> for GeoPoint3 {
-    fn from (wgs84: WGS84<f64>) -> Self { GeoPoint3(wgs84) }
+    fn from (wgs84: WGS84<f64>) -> Self {
+        GeoPoint3 {
+            point: Point::new( wgs84.longitude_degrees(), wgs84.latitude_degrees()),
+            alt: wgs84.altitude()
+        }
+    }
 }
 
 impl SerializeTrait for GeoPoint3 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         let mut state = serializer.serialize_struct("GeoPoint3", 3)?;
-        state.serialize_field("lon", &self.0.longitude_degrees())?;
-        state.serialize_field("lat", &self.0.latitude_degrees())?;
-        state.serialize_field("alt", &self.0.altitude())?;
+        state.serialize_field("lon", &self.longitude_degrees())?;
+        state.serialize_field("lat", &self.latitude_degrees())?;
+        state.serialize_field("alt", &self.altitude_meters())?;
         state.end()
     }
 }
