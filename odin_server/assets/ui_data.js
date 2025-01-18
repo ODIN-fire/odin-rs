@@ -102,6 +102,12 @@ export class TreeNode {
         return a.reverse();
     }
 
+    nodeList () {
+        let a = [this];
+        for (let n = this.parent; n; n = n.parent) a.push(n);
+        return a.reverse();
+    }
+
     siblings () {
         let a = [];
         for (let n = this.nextSibling; n; n = n.nextSibling) a.push(n);
@@ -403,6 +409,10 @@ export class ExpandableTreeNode extends TreeNode {
 
     expandChildren() {
         for (let n=this.firstChild; n; n = n.nextSibling) n.isExpanded = true;
+    }
+
+    expandParents() {
+        for (let n=this.parent; n; n = n.parent) n.isExpanded = true;
     }
 
     collapseAll() {

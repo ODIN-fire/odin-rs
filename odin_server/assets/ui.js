@@ -942,6 +942,14 @@ export function selectFieldRange(o, i0, i1) {
     }
 }
 
+export function triggerFieldChange(o) {
+    let e = getField(o);
+    if (e) {
+        let event = new Event('change', { bubbles: true });
+        e.dispatchEvent(event);
+    }
+}
+
 export function getField(o) {
     let e = _elementOf(o);
     if (e && e.classList.contains("ui_field")) {
@@ -1010,6 +1018,13 @@ export function setTextAreaContent(o,text) {
     let v = getTextArea(o);
     if (v) {
         v.value = text;
+    }
+}
+
+export function clearTextAreaContent(o){
+    let v = getTextArea(o);
+    if (v) {
+        v.value = null;
     }
 }
 
@@ -1628,6 +1643,17 @@ export function setChoiceItems(o, items, selIndex = -1) {
     }
 }
 
+export function clearChoiceItems(o) {
+    let e = getChoice(o);
+    if (e && e._uiItems.length > 0) {
+        e._uiItems = [];
+        e._uiSelIndex = -1;
+        e.innerText = null;
+        
+        e.parentElement.removeChild( e.nextSibling); // this removes the popup menu
+    }
+}
+
 export function getChoiceItems(o) {
     let e = getChoice(o);
     if (e) {
@@ -2038,7 +2064,7 @@ export function List (eid, maxRows, selectAction, clickAction, contextMenuAction
 }
 
 export function TreeList (eid, maxRows, minWidth, selectAction, clickAction, contextMenuAction, dblClickAction) {
-    let e = genList("tree", eid, maxRows, selectAction, clickAction, contextMenuAction, dblClickAction);
+    let e = genList("ui_tree", eid, maxRows, selectAction, clickAction, contextMenuAction, dblClickAction);
     setWidthStyle(e, minWidth);
     return e;
 }
@@ -2294,7 +2320,7 @@ export function setListItems(o, items) {
 //--- tree list variation
 
 export function setTree(o,root) {
-    let e = getList(o);
+    let e = getTreeList(o);
     if (e) {
         _setSelectedItemElement(e, null);
         _removeChildrenOf(e);
@@ -2308,9 +2334,9 @@ export function setTree(o,root) {
     }
 }
 
-// this returns a EpandableTreeNode
+// this returns an ExpandableTreeNode
 export function getRootNode(o) {
-    let e = getList(o);
+    let e = getTreeList(o);
     return e ? e._uiRoot : null;
 }
 
@@ -2322,7 +2348,7 @@ function getNodeElement (e, node) {
 }
 
 export function sortInTreeItem(o,item,pathName) {
-    let e = getList(o);
+    let e = getTreeList(o);
     if (e && e._uiRoot) {
         let root = e._uiRoot;
         let node = root.sortInPathName( pathName, item);
@@ -2351,7 +2377,7 @@ export function sortInTreeItem(o,item,pathName) {
 }
 
 export function removeTreeItemPath(o,pathName) {
-    let e = getList(o);
+    let e = getTreeList(o);
     if (e && e._uiRoot) {
         let root = e._uiRoot;
         let node = root.removePathName(pathName);
@@ -2410,13 +2436,12 @@ function selectNode (event) {
         list._uiSelectedNodeElement = ne;
         _addClass(ne, "selected");
 
+        let selElem = null;
         if (ne._uiNode.data) {
             let ie = ne.firstChild.nextElementSibling;
-            if (ie && _containsClass(ie, "ui_list_item")) _setSelectedItemElement(list,ie);
-            else _setSelectedItemElement(list,null);
-        } else {
-            _setSelectedItemElement(list,null);
-        }
+            if (ie && _containsClass(ie, "ui_list_item")) selElem = ie;
+        } 
+         _setSelectedItemElement(list,selElem);
     }
 }
 
@@ -2431,9 +2456,9 @@ function clickNodePrefix(event) {
             if (node.isExpanded) { // collapse
                 let lvl = node.level();
                 for (let nne = ne.nextElementSibling; nne && nne._uiNode.level() > lvl; nne = ne.nextElementSibling) {
-                    if (nne._uiNode.data) {
-                        e._uiItemMap.delete(nne._uiNode.data);
-                    }
+                    if (nne._uiNode.data) { e._uiItemMap.delete(nne._uiNode.data) }
+                    if (Object.is(nne, e._uiSelectedItemElement)) { clearSelectedListItem(e) }
+                    nne._uiNode.collapse();
                     e.removeChild(nne);
                 }
                 node.collapse();
@@ -2453,8 +2478,61 @@ function clickNodePrefix(event) {
 }
 
 export function getSelectedTreeNode (o) {
-    let e = getList(o);
+    let e = getTreeList(o);
     return (e && e._uiSelectedNodeElement) ? e._uiSelectedNodeElement._uiNode : null;
+}
+
+export function selectNodePath (o,path) {
+    let e = getTreeList(o);
+    if (e){
+        let n = e._uiRoot.findNode(path);
+        if (n) {
+            if (e._uiSelectedNodeElement) {
+                _removeClass(e._uiSelectedNodeElement, "selected");
+                e._uiSelectedNodeElement = null;
+            }
+
+            let ie = findNodeElement(e, n);
+            if (ie) { // it was already expanded
+                selectAndShow(e, ie);
+
+            } else {
+                let parents = n.parents(); // the nodes from n to root
+                let itemElements = e.children;
+                let j=0;
+                let selElem = null;
+                for (let i=1; i < parents.length; i++){
+                    let pn = parents[i];
+                    if (!pn.isExpanded){
+                        pn.isExpanded = true;
+                        while (!Object.is( itemElements[j]._uiNode, pn)) j++;
+
+                        let nextElem = j < itemElements.length-1 ? itemElements[j+1] : null; 
+                        for (let cn=pn.firstChild; cn; cn = cn.nextSibling) {
+                            let ie = _createNodeElement(e, cn);
+                            if (nextElem) { e.insertBefore( ie, nextElem) } else { e.appendChild( ie) }
+                            if (Object.is( cn, n)) selElem = ie;
+                        }
+                    }
+                }
+                selectAndShow(e, selElem);
+            }
+            return true;
+
+        } else {
+            clearSelectedListItem(e);
+        }
+    }
+    return false;
+}
+
+function findNodeElement (e, treeNode) {
+    let nodeList = e.childNodes;
+    for (let i=0; i<nodeList.length; i++) {
+        let ne = nodeList[i];
+        if (Object.is( treeNode, ne._uiNode)) return ne;
+    }
+    return null;
 }
 
 export function getTreeList (o) {
@@ -2559,7 +2637,7 @@ export function getSelectedListItem(o) {
     if (listBox) {
         let sel = listBox._uiSelectedItemElement;
         if (sel) {
-            return sel._uiItem;
+            return sel._uiNode ? sel._uiNode.data : sel._uiItem;
         } else return null;
 
     } else throw "not a list";
@@ -2643,16 +2721,19 @@ function _setSelectedItemElement(listBox, itemElement, srcEvent) {
 
     let prevItemElem = listBox._uiSelectedItemElement;
 
-    if (!Object.is( prevItemElem,itemElement)) {
+    if ((prevItemElem == null && itemElement == null) || !Object.is( prevItemElem,itemElement)) {
         if (prevItemElem) {
-            prevItem = prevItemElem._uiItem;
+            prevItem = prevItemElem._uiNode ? prevItemElem._uiNode.data : prevItemElem._uiItem;
             _removeClass(prevItemElem, "selected");
             if (_containsClass(prevItemElem.parentElement, "ui_node")) _removeClass(prevItemElem.parentElement, "selected");
         }
 
         if (itemElement) {
-            nextItem = itemElement._uiItem;
+            nextItem = itemElement._uiNode ? itemElement._uiNode.data : itemElement._uiItem;
+
+            if (itemElement._uiNode) listBox._uiSelectedNodeElement = itemElement;
             listBox._uiSelectedItemElement = itemElement;
+            
             _addClass(itemElement, "selected");
             if (_containsClass(itemElement.parentElement, "ui_node")) _addClass(itemElement.parentElement, "selected");
 
@@ -2691,12 +2772,11 @@ function _selectListItem(event) {
 export function clearSelectedListItem(o) {
     let e = getList(o);
     if (e) {
-        _setSelectedItemElement(e, null);
-
         if (e._uiSelectedNodeElement) {
             _removeClass(e._uiSelectedNodeElement, "selected");
             e._uiSelectedNodeElement = undefined;
         }
+        _setSelectedItemElement(e, null);
     }
 }
 

@@ -55,5 +55,19 @@
   "incident/czu/bbox": {
     "type": "GeoRect",
     "data": { "west": -122.68, "south": 36.9947, "east": -121.8617, "north": 37.4843 }
+  },
+
+  "area/CONUS": {
+    "type": "GeoPolygon",
+    "data": {
+      "exterior": [
+          { "lon": -129.8029, "lat": 50.4250 },
+          { "lon": -122.5463, "lat": 32.3474 },
+          { "lon":  -97.6721, "lat": 24.1709 },
+          { "lon":  -79.8117, "lat": 24.1709 },
+          { "lon":  -62.8262, "lat": 47.7229 },
+          { "lon": -129.8029, "lat": 50.4250 }
+      ]
+    }
   }
 }

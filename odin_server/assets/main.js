@@ -81,7 +81,7 @@ export function notifyShareHandlers (msg) {
 // called with the entered value when the editor is finished. This needs to use a callback
 // since most editors work async (e.g. for interactively entering of picking data)
 export function addShareEditor (dataType, label, editorFunc) {
-    let editorEntry = {label: label, editor: editorFunc};
+    let editorEntry = {label: label, editor: editorFunc, type: dataType};
     
     let editors = shareEditors.get(dataType);
     if (editors) {
@@ -110,6 +110,8 @@ export function getShareEditorForItemType (itemType) {
 
 export function radToDeg (rad) { return (rad * 180.0)/Math.PI; }
 export function ftToMeters (ft) { return (ft * 0.3048); }
+
+export const ALL_TYPES = ["Json", "GeoPoint", "GeoPoint3", "GeoLine", "GeoLineString", "GeoRect", "GeoPolygon", "U64", "F64", "String"];
 
 // the basic share-able data value types (note these should *not* depend on any other module)
 // it is up to client modules to provide conversion functions (e.g. to/from CesiumJS types)
@@ -150,8 +152,9 @@ export class GeoLineString {
 }
 
 export class GeoPolygon {
-    constructor (vertices) {
-        this.vertices = vertices;
+    constructor (exterior,interiors=null) {
+        this.exterior = exterior;
+        this.interiors = interiors;
     }
 }
 
