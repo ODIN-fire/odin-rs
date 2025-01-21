@@ -20,7 +20,7 @@ use anyhow::{Result,anyhow};
 use std::path::PathBuf;
 
 use odin_common::define_cli;
-use odin_jpss::read_jpss;
+use odin_orbital::read_hotspots;
 
 define_cli! { ARGS [about="tool to extract hotspots from JPSS VIIRS data product files"] =
     pathname: String [help="path to csv file"]
@@ -29,7 +29,7 @@ define_cli! { ARGS [about="tool to extract hotspots from JPSS VIIRS data product
 fn main() {
     let path = PathBuf::from( &ARGS.pathname);
     if path.is_file() { 
-        let hs = read_jpss(&path).unwrap();
+        let hs = read_hotspots(&path).unwrap();
         println!("{}", hs.to_json_pretty().unwrap());
     } else { 
         println!("file not found") }

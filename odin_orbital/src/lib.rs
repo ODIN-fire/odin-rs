@@ -17,15 +17,21 @@ use std::time::Duration;
 use std::collections::HashMap;
 use std::collections::BTreeMap;
 use std::vec::Vec;
+use chrono::TimeDelta;
+use chrono::TimeZone;
 use chrono::{DateTime, NaiveDate, NaiveTime};
 use geo::{GeodesicBearing, GeodesicDestination};
 use nav_types::{ECEF, WGS84};
-use odin_common::{angle::{LatAngle, LonAngle}, geo::LatLon};
+use odin_common::angle::Latitude;
+use odin_common::angle::Longitude;
+use odin_common::geo::GeoPoint;
+use odin_common::geo::GeoPolygon;
+use odin_common::geo::GeoRect;
 use orekit::{get_trajectory_point, OrbitalTrajectory};
 use serde::{Serialize, Deserialize};
 use uom::si::f32::{Power,ThermodynamicTemperature};
 use odin_common::fs::ensure_writable_dir;
-use odin_build::define_load_config;
+use odin_build::{define_load_config, define_load_asset};
 use reqwest;
 use chrono::Utc;
 use std::{fs, path::PathBuf};
@@ -44,14 +50,15 @@ use actor::*;
 
 pub mod live_importer;
 
-mod jpss_geo;
-use jpss_geo::*;
+mod orbital_geo;
+use orbital_geo::*;
 
-
-use crate::jpss_geo::Cartesian3D;
+pub mod orbital_service;
+pub use orbital_service::*;
 
 
 define_load_config!{}
+define_load_asset!{}
 
 
 /* #region VIIRS data structures  ***************************************************************************/
@@ -59,8 +66,8 @@ define_load_config!{}
 // raw viirs hotspot - used for easy parsing of CSV file
 #[derive(Serialize,Deserialize,Debug,Clone)]
 pub struct RawHotspot {
-    latitude: LatAngle,
-    longitude: LonAngle,
+    latitude: Latitude,
+    longitude: Longitude,
     #[serde(alias="brightness")] bright_ti4: ThermodynamicTemperature,
     scan: f64,
     track: f64,
@@ -105,15 +112,16 @@ impl RawHotspots {
 
 // formatted viirs hotspot - has bounds, slightly different value set and variable names - alligns with RACE-ODIN json
 #[derive(Serialize,Deserialize,Debug,Clone)]
+#[serde(rename_all="camelCase")]
 pub struct ViirsHotspot {
-    pub date: DateTime<Utc>, // batched
-    pub lat: LatAngle,
-    pub lon: LonAngle,
+    pub date: i64, // batched
+    pub lat: Latitude,
+    pub lon: Longitude,
     pub bright: ThermodynamicTemperature,
     pub frp: Power,
     pub confidence: char,
     pub version: String,
-    pub bounds: Vec<LatLon>
+    pub bounds: Vec<GeoPoint>
 }
 impl ViirsHotspot {
     pub fn to_json_pretty (&self)->Result<String> {
@@ -122,20 +130,25 @@ impl ViirsHotspot {
     pub fn to_json (&self)->Result<String> {
         Ok(serde_json::to_string( &self )?)
     }
-    pub fn set_date (&mut self, date: DateTime<Utc>) {
+    pub fn set_date (&mut self, date: i64) {
         self.date = date;
     }
 }
 
 #[derive(Serialize,Deserialize,Debug,Clone)]
-pub struct ViirsHotspots {
-    satellite: u32,
+#[serde(rename_all="camelCase")]
+pub struct ViirsHotspotSet { //should also have dates
+    date: i64,
+    sat_id: u32,
     source: String,
     hotspots: Vec<ViirsHotspot>
 }
-impl ViirsHotspots {
-    pub fn new (satellite: u32, source: String) -> Self {
-        ViirsHotspots { satellite, source, hotspots: Vec::new() }
+impl ViirsHotspotSet {
+    // pub fn new (satellite: u32, source: String) -> Self {
+    //     ViirsHotspotSet { satellite, source, hotspots: Vec::new() }
+    // }
+    pub fn from_hotspots (date: i64, sat_id: u32, source: String, hotspots: Vec<ViirsHotspot>) -> Self {
+        ViirsHotspotSet {date, sat_id, source, hotspots }
     }
     pub fn to_json_pretty (&self)->Result<String> {
         Ok(serde_json::to_string_pretty( &self )?)
@@ -146,21 +159,22 @@ impl ViirsHotspots {
 }
 
 #[derive(Serialize,Deserialize,Debug,Clone)]
-pub struct ViirsHotspotMap {
+pub struct ViirsHotspotStore {
     satellite: u32,
     source: String,
     hotspots: HashMap<DateTime<Utc>, HashMap<String, ViirsHotspot>> // we use a string for latlon comparison
 }
 
-impl ViirsHotspotMap {
+impl ViirsHotspotStore {
     pub fn new (satellite: u32, source: String) -> Self {
-        ViirsHotspotMap{satellite, source, hotspots: HashMap::new()}
+        ViirsHotspotStore{satellite, source, hotspots: HashMap::new()}
     }
-    pub fn update(&mut self, new_hs: ViirsHotspots, max_age: Duration) {
+    pub fn update(&mut self, hs_set: ViirsHotspotSet, max_age: Duration) { // function to update the hotspot store primarily for handling duplicate hotspots/nrt corrections
         // --- step 1: identify hs that are past max_age
+        println!("in update hotspot store: {} hotspot sets", self.hotspots.len());
         let mut old_dates = vec![];
         for dt in self.hotspots.keys() {
-            if Utc::now() < (dt.clone() + max_age) {
+            if Utc::now() > (dt.clone() + max_age) {
                 old_dates.push(dt.to_owned());
             }
         }
@@ -168,35 +182,52 @@ impl ViirsHotspotMap {
         for dt in old_dates.into_iter() {
             self.hotspots.remove(&dt);
         }
+        println!("in update hotspot store: {} hotspot sets", self.hotspots.len());
         // --- step 3: add new hotspots based on date, latlon - check for existing hs with latlon rounded to 4 decimal
-        for hs in new_hs.hotspots.into_iter() {
-            let hs_loc = format!("({:.4}, {:.4})", hs.lat.degrees(), hs.lon.degrees());
-            let hs_date = &hs.date.clone();
-            if let Some(date_map) = self.hotspots.get_mut(hs_date) {
-                // --- update pixel even if it is in the map, ensures we use most accurate hotspot data
+        let hs_date = Utc.timestamp_millis_opt(hs_set.date).unwrap();
+        if let Some(date_map) = self.hotspots.get_mut(&hs_date ) {
+            // --- update pixel even if it is in the map, ensures we use most accurate hotspot data
+            for hs in hs_set.hotspots.into_iter() {
+                let hs_loc = format!("({:.4}, {:.4})", hs.lat.degrees(), hs.lon.degrees());
                 date_map.insert(hs_loc, hs);
-            } else {
-                // -- datetime not in map yet, need to create it
-                let mut date_map: HashMap<String, ViirsHotspot> = HashMap::new();
+            }
+            
+        } else {
+            // -- datetime not in map yet, need to create it
+            let mut date_map: HashMap<String, ViirsHotspot> = HashMap::new();
+            for hs in hs_set.hotspots.into_iter() {
+                let hs_loc = format!("({:.4}, {:.4})", hs.lat.degrees(), hs.lon.degrees());
                 date_map.insert(hs_loc, hs);
-                self.hotspots.insert(hs_date.clone(), date_map);
+            }
+            self.hotspots.insert(hs_date, date_map);
+        }
+        println!("in update hotspot store: {} hotspot sets", self.hotspots.len());
+    }   
+    pub fn to_hotspots(&self) -> Vec<ViirsHotspotSet> { // this should be to a vec of hotspot sets
+        // for each hs map date, build a hs set from the 
+        // let hs_list: Vec<HashMap<String, ViirsHotspot>> = self.hotspots.clone().into_values().collect();
+        // let mut hs: Vec<ViirsHotspot> = vec![];
+        // for latlon_map in hs_list.into_iter() { // to do: write this cleaner
+        //     let vals: Vec<ViirsHotspot> = latlon_map.into_iter().map(|(latlon, hs_val)| hs_val).collect();
+        //     hs.extend(vals);
+        // }
+        let mut hs_sets = Vec::new(); 
+        for dt in self.hotspots.keys(){
+            let hs_map_op = self.hotspots.get(dt);
+            if let Some(hs_map) = hs_map_op {
+                let hs: Vec<ViirsHotspot> = hs_map.to_owned().into_iter().map(|(latlon, hs_val)| hs_val).collect();
+                let hs_set: ViirsHotspotSet =  ViirsHotspotSet::from_hotspots(dt.timestamp_millis(), self.satellite, self.source.clone(), hs);
+                hs_sets.push(hs_set);
             }
         }
-    }   
-    pub fn to_hotspots(&self) -> ViirsHotspots {
-        let hs_list: Vec<HashMap<String, ViirsHotspot>> = self.hotspots.clone().into_values().collect();
-        let mut hs: Vec<ViirsHotspot> = vec![];
-        for latlon_map in hs_list.into_iter() { // to do: write this cleaner
-            let vals: Vec<ViirsHotspot> = latlon_map.into_iter().map(|(latlon, hs_val)| hs_val).collect();
-            hs.extend(vals);
-        }
-        ViirsHotspots { satellite: self.satellite, source: self.source.clone(), hotspots: hs }
+        println!("in to_hotspots: {} hotspot sets", hs_sets.len());
+        hs_sets
     }
 }
 
 /* #endregion VIIRS data structure */
 
-pub async fn get_latest_jpss(data_dir: &PathBuf, url: &String, source: &String) -> Result<PathBuf> {
+pub async fn get_latest_hotspot_download(data_dir: &PathBuf, url: &String, source: &String) -> Result<PathBuf> {
     let request_date = Utc::now();
     let filename = data_dir.join(format!("{}_{}.csv", source, request_date.format("%Y-%m-%d_H-%M-%S")));
     let mut file = tempfile::NamedTempFile::new().unwrap(); // don't use path yet as that would expose partial downloads to the world
@@ -212,11 +243,11 @@ pub async fn get_latest_jpss(data_dir: &PathBuf, url: &String, source: &String) 
         }
         Ok(filename) 
     } else {
-        Err(OdinJpssError::FileDownloadError(format!("download failed: {:?}", response.status())))
+        Err(OdinOrbitalSatError::FileDownloadError(format!("download failed: {:?}", response.status())))
     } 
 }
 
-pub fn read_jpss(filename: &PathBuf) -> Result<RawHotspots> {
+pub fn read_hotspots(filename: &PathBuf) -> Result<RawHotspots> {
     let mut hs:Vec<RawHotspot> = Vec::new();
     let mut rdr = Reader::from_path(filename)?;
     let iter = rdr.deserialize();
@@ -228,34 +259,18 @@ pub fn read_jpss(filename: &PathBuf) -> Result<RawHotspots> {
 }
 
 
-pub fn get_query_bounds(bounds: &Vec<LatLon>) -> String {
+pub fn get_query_bounds(bounds: &GeoRect) -> String {
     //w,s,e,n 
-    let mut w: Option<f64> = None;
-    let mut s: Option<f64> = None;
-    let mut e: Option<f64> = None;
-    let mut n: Option<f64> = None;
-    for bound in bounds.iter() {
-        let lat = bound.lat_deg;
-        let lon = bound.lon_deg;
-        if w.is_none() || lon < w.unwrap() {
-            w = Some(lon);
-        }
-        if e.is_none() || lon > e.unwrap() {
-            e = Some(lon);
-        }
-        if s.is_none() || lat < s.unwrap() {
-            s = Some(lat);
-        } 
-        if n.is_none() || lat> n.unwrap() {
-            n = Some(lat);
-        }
-    }
-    format!("{:?},{:?},{:?},{:?}", w.unwrap(),s.unwrap(),e.unwrap(),n.unwrap())
+    let w = bounds.west().degrees();
+    let s = bounds.south().degrees();
+    let e = bounds.east().degrees();
+    let n = bounds.north().degrees();
+    format!("{:?},{:?},{:?},{:?}", w, s, e, n)
 }
 
 /* #region hotspot parsing *************************************************************************************************/
 
-pub fn get_hs_bounds(hs: &RawHotspot, overpass_list: &OverpassList) -> Result<Vec<LatLon>> {
+pub fn get_hs_bounds(hs: &RawHotspot, overpass_list: &OverpassList) -> Result<Vec<GeoPoint>> {
     // transform lat lon to ECEF
     let hs_loc = WGS84::from_degrees_and_meters(hs.latitude.degrees(), hs.longitude.degrees(), 0.0);
     let hs_loc_ecef = Cartesian3D::from_ecef(ECEF::from(hs_loc));
@@ -279,17 +294,18 @@ pub fn get_hs_bounds(hs: &RawHotspot, overpass_list: &OverpassList) -> Result<Ve
                                     p_scan_1.geodesic_destination(track_bearing, track_dist),
                                     p_scan_1.geodesic_destination(opp_track_bearing, track_dist),
                                     p_scan_0.geodesic_destination(opp_track_bearing, track_dist)];
-        let b:Vec<LatLon> = bounds.into_iter().map(|x| lat_lon_from_point(x)).collect();
+        let b:Vec<GeoPoint> = bounds.into_iter().map(|x| GeoPoint::from_point(x)).collect();
         Ok(b)
     } else {
-        Err(OdinJpssError::BoundsError(String::from("Error: no trajectory ground point")))
+        println!("no traj ground point");
+        Err(OdinOrbitalSatError::BoundsError(String::from("Error: no trajectory ground point")))
     }   
 }
 
 pub fn process_hotspot(raw_hs: &RawHotspot, overpass_list: &OverpassList) -> Result<ViirsHotspot> {
     let bounds = get_hs_bounds(&raw_hs, overpass_list)?;
     Ok(ViirsHotspot { // add bounds as optional?
-        date: raw_hs.get_datetime(),
+        date: raw_hs.get_datetime().timestamp_millis(),
         lat: raw_hs.latitude,
         lon: raw_hs.longitude,
         bright: raw_hs.bright_ti4,
@@ -299,22 +315,24 @@ pub fn process_hotspot(raw_hs: &RawHotspot, overpass_list: &OverpassList) -> Res
         bounds: bounds
     })
 }
-pub fn process_hotspots(raw_hotspots: RawHotspots, overpass_list: &OverpassList, satellite: u32, source: String) -> Result<ViirsHotspots> {
+pub fn process_hotspots(raw_hotspots: RawHotspots, overpass_list: &OverpassList, satellite: u32, source: String) -> Result<Vec<ViirsHotspotSet>> {
     let hotspot_res: Vec<Result<ViirsHotspot>> = raw_hotspots.hotspots.iter().map(|x| process_hotspot(x, overpass_list)).collect();
     let hs_res: Result<Vec<ViirsHotspot>> = hotspot_res.into_iter().collect();
     let hs = hs_res?;
-    let sorted_hs = partition_hotspots(hs, overpass_list)?;
-    Ok(ViirsHotspots {satellite, source, hotspots: sorted_hs})
+    println!("in process hotspots: {}", hs.len());
+    let sorted_hs = partition_hotspots(hs, overpass_list, satellite, source.clone())?;
+    Ok(sorted_hs)
 }
 
-pub fn partition_hotspots(hotspots: Vec<ViirsHotspot>, overpass_list: &OverpassList) -> Result<Vec<ViirsHotspot>>{
+pub fn partition_hotspots(hotspots: Vec<ViirsHotspot>, overpass_list: &OverpassList, satellite: u32, source: String) -> Result<Vec<ViirsHotspotSet>>{
+    println!("in partition hotspots: {}", hotspots.len());
     let mut parts: BTreeMap<DateTime<Utc>, Vec<ViirsHotspot>> = BTreeMap::new();
     let start = overpass_list.get_start()?;
     let end = overpass_list.get_end()?;
     let overpasses = overpass_list.get_end_dates();
     //--- step 1: sort into bins
     for hs in hotspots.into_iter() {
-        let hs_d = hs.date;
+        let hs_d = Utc.timestamp_millis_opt(hs.date).unwrap();
         let overpass_d = get_overpass(&hs_d, &start, &end, &overpasses);
         match parts.get_mut(&overpass_d) {
             Some(hs_vec) => {hs_vec.push(hs)}
@@ -323,15 +341,20 @@ pub fn partition_hotspots(hotspots: Vec<ViirsHotspot>, overpass_list: &OverpassL
     }
     //--- step 2: merge bins according to maxOverpassDuration - i dont think we need this? overpasses should be unique, only possible issue for hotspots that were not cleanly mapped into an overpass
 
-    //--- step 3: turn into date sorted ViirsHotspots sequence
-    let mut sorted_hotspots = Vec::new();
+    //--- step 3: turn into date sorted ViirsHotspotSet sequence
+    let mut sorted_hotspot_sets = Vec::new();
     for (od, hs_vec) in parts.into_iter() {
+        println!("partitioned hs vec: {}", hs_vec.len());
+        let mut sorted_hotspots = Vec::new();
         for mut hs in hs_vec.into_iter() {
-            hs.set_date(od);
+            hs.set_date(od.timestamp_millis());
             sorted_hotspots.push(hs) 
         }
+        sorted_hotspot_sets.push(ViirsHotspotSet::from_hotspots(od.timestamp_millis(), satellite, source.clone(), sorted_hotspots));
+
     }
-    Ok(sorted_hotspots)
+    
+    Ok(sorted_hotspot_sets)
 }
 
 pub fn get_overpass(d: &DateTime<Utc>, start: &DateTime<Utc>, end: &DateTime<Utc>, overpasses: &Vec<DateTime<Utc>>) -> DateTime<Utc> {

@@ -14,8 +14,8 @@
 
 #![allow(unused)]
 
-use odin_common::sqrt;
-use odin_common::geo::LatLon;
+use odin_common::{geo::GeoPoint, sqrt};
+use odin_common::geo::GeoCoord;
 use std::ops::{Add, AddAssign, Mul, MulAssign};
 use nav_types::{ECEF, WGS84};
 use geo::{GeodesicBearing, GeodesicDestination, Point};
@@ -25,7 +25,7 @@ pub struct Cartesian3D {
     pub y: f64,
     pub z: f64
 }
-
+// best way to convert to geopoint3 - calculations are intended to be performed on ecef
 impl Cartesian3D {
     pub fn new() -> Self {
         Cartesian3D { 
@@ -41,8 +41,8 @@ impl Cartesian3D {
             z: ecef.z()
         }
     }
-    pub fn from_latlon(latlon: LatLon) -> Self {
-        let wgs84 = WGS84::from_degrees_and_meters(latlon.lat_deg, latlon.lon_deg, 0.0);
+    pub fn from_latlon(latlon: GeoPoint) -> Self {
+        let wgs84 = WGS84::from_degrees_and_meters(latlon.latitude().degrees(), latlon.longitude().degrees(), 0.0);
         let ecef = ECEF::from(wgs84);
         Cartesian3D {
             x: ecef.x(),
@@ -108,8 +108,4 @@ impl Cartesian3D {
         WGS84::from(self.to_ecef())
     }
 
-}
-
-pub fn lat_lon_from_point(p: Point<f64>) -> LatLon {
-    LatLon{lat_deg: p.y(), lon_deg:p.x()}
 }

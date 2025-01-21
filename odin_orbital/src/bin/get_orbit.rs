@@ -20,7 +20,7 @@ use structopt::StructOpt;
 use std::{fs::File, io::Write};
 use tokio;
 use anyhow::{Result, Ok};
-use odin_jpss::orekit::{get_tles_celestrak, compute_full_orbits};
+use odin_orbital::orekit::{get_tles_celestrak, compute_full_orbits};
 
  /// structopt command line arguments
 #[derive(StructOpt,Debug)]
@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
     let tle = get_tles_celestrak(ARGS.sat_id).await?;
     let overpass = compute_full_orbits(tle, ARGS.max_scan)?;
     let j = serde_json::to_string(&overpass)?;
-    let fname = ARGS.filename;
+    let fname = &ARGS.filename;
     let mut file = File::create(fname).expect("Could not create file!");
     file.write(j.as_bytes()).expect("Cannot write to the file!");
 

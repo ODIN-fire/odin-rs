@@ -14,10 +14,13 @@
 
  use thiserror::Error;
 
- pub type Result<T> = std::result::Result<T, OdinJpssError>;
+ pub type Result<T> = std::result::Result<T, OdinOrbitalSatError>;
  
  #[derive(Error, Debug)]
- pub enum OdinJpssError {
+ pub enum OdinOrbitalSatError {
+   //  #[error("Tryinto error {0}")]
+   //  TryIntoError( #[from] std::ops::Try),
+
     #[error("IO error {0}")]
     IOError( #[from] std::io::Error),
 
@@ -48,7 +51,7 @@
     #[error("Date error {0}")]
     DateError( String ),
 
-    #[error("time delta out of range error {0}")]
+    #[error("Time delta out of range error {0}")]
     DurationError( #[from] chrono::OutOfRangeError),
 
     #[error("Bounds error {0}")]
@@ -65,12 +68,12 @@
 
  }
  
- pub fn date_error (msg: impl ToString)->OdinJpssError {
-    OdinJpssError::DateError(msg.to_string())
+ pub fn date_error (msg: impl ToString)->OdinOrbitalSatError {
+    OdinOrbitalSatError::DateError(msg.to_string())
  }
 
- pub fn bounds_error (msg: impl ToString)->OdinJpssError {
-    OdinJpssError::BoundsError(msg.to_string())
+ pub fn bounds_error (msg: impl ToString)->OdinOrbitalSatError {
+    OdinOrbitalSatError::BoundsError(msg.to_string())
 }
 
  

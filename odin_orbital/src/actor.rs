@@ -17,23 +17,35 @@ use std::fs;
 use std::future::Future;
 use std::iter::Map;
 use std::path::PathBuf;
-use std::io::Write;
 use std::time::Duration;
-use odin_common::geo::LatLon;
+use odin_common::geo::{GeoCoord, GeoRect};
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
 use crate::orekit::{OrbitalTrajectory, OverpassList};
-use crate::{RawHotspots, ViirsHotspotMap, ViirsHotspots};
-use crate::errors::OdinJpssError;
+use crate::{RawHotspots, ViirsHotspot, ViirsHotspotSet, ViirsHotspotStore};
+use crate::errors::OdinOrbitalSatError;
 use crate::errors::Result;
 use crate::process_hotspots;
 
  // config
  #[derive(Serialize,Deserialize,Debug,Clone)]
-pub struct JpssConfig {
+pub struct OrbitalSatConfig {
     pub satellite: u32,
     pub source: String,
     pub max_age: Duration
+}
+
+#[derive(Serialize,Deserialize,Debug,Clone)]
+pub struct OrbitalSatImporterConfig {
+   pub server: String,
+   pub map_key: String,
+   pub region: GeoRect,
+   pub request_delay: Vec<Duration>,
+}
+#[derive(Serialize,Deserialize,Debug,Clone)]
+pub struct OrbitalSatOrbitCalculatorConfig {
+   pub full_region: GeoRect,
+   pub calculation_interval: Duration,
 }
 
  // external messages
@@ -43,40 +55,45 @@ pub struct JpssConfig {
     pub sat_id: u32, // 43013, 
     pub scan_angle: f64, // 56.2
     pub history: Duration, // 3 days  Duration(secs:604800, nanos:0) - pulls overpasses for past three days plus for next day
-    pub region: Vec<LatLon>, // bounding box[ LatLon(lat_deg: 60.0, lon_deg: -135.0), LatLon(lat_deg: 60.0, lon_deg: -95.0), LatLon(lat_deg: 30.0, lon_deg: -95.0), LatLon(lat_deg: 30.0, lon_deg: -135.0), ],
+    pub region: GeoRect, // bounding box[ GeoCoord(lat_deg: 60.0, lon_deg: -135.0), GeoCoord(lat_deg: 60.0, lon_deg: -95.0), GeoCoord(lat_deg: 30.0, lon_deg: -95.0), GeoCoord(lat_deg: 30.0, lon_deg: -135.0), ],
     pub requester: DynMsgReceiver<UpdateOverpassList> // actor handle 
  }
 
  
  // exec snapshotaction
- #[derive(Debug)] pub struct ExecSnapshotAction(DynDataRefAction<ViirsHotspots>);
+ #[derive(Debug)] pub struct ExecSnapshotAction( pub DynDataRefAction<ViirsHotspotStore>);
+ #[derive(Debug)] pub struct ExecOverpassSnapshotAction( pub DynDataRefAction<OverpassList>);
 
 
- /* #region JPSS import actor *************************************************************************************************/
+ /* #region OrbitalSat import actor *************************************************************************************************/
 
  // internal message 
-#[derive(Debug)] pub struct UpdateHotspots(pub(crate) ViirsHotspots);
+ 
+#[derive(Debug)] pub struct InitialHotspots(pub(crate) RawHotspots);
+#[derive(Debug)] pub struct UpdateHotspots(pub(crate) ViirsHotspotSet);
 
 #[derive(Debug)] pub struct UpdateRawHotspots(pub(crate) RawHotspots);
 
 #[derive(Debug, Clone)] pub struct UpdateOverpassList(pub(crate) OverpassList);
 
-#[derive(Debug)] pub struct ImportError(pub(crate) OdinJpssError);
+#[derive(Debug)] pub struct ImportError(pub(crate) OdinOrbitalSatError);
 
-define_actor_msg_set! { pub JpssImportActorMsg = OrbitsReady | ExecSnapshotAction | UpdateHotspots | UpdateOverpassList | ImportError | UpdateRawHotspots }
-
+define_actor_msg_set! { pub OrbitalSatImportActorMsg = ExecSnapshotAction | ExecOverpassSnapshotAction | OrbitsReady | InitialHotspots | UpdateHotspots | UpdateOverpassList | ImportError | UpdateRawHotspots }
+// TODO: add init of sending the store
  // actor struct
- #[derive(Debug)]
-pub struct JpssImportActor<T, HotspotUpdateAction, OverpassUpdateAction> 
-    where T: JpssImporter + Send, 
-        HotspotUpdateAction: DataAction<ViirsHotspots>,
+ #[derive(Debug)] 
+pub struct OrbitalSatImportActor<T, InitAction, HotspotUpdateAction, OverpassUpdateAction> 
+    where T: OrbitalSatImporter + Send, 
+        InitAction: DataRefAction<ViirsHotspotStore>,
+        HotspotUpdateAction: DataAction<ViirsHotspotSet>,
         OverpassUpdateAction: DataAction<OverpassList>
 {   source: String,
     satellite: u32,
     max_age: Duration,
-    hotspots: ViirsHotspotMap,
+    hotspots: ViirsHotspotStore,
     overpass_list: OverpassList,
-    jpss_importer: T,
+    orbital_importer: T,
+    init_action: InitAction,
     hs_update_action: HotspotUpdateAction,
     op_update_action: OverpassUpdateAction,
     orbit_calculator: ActorHandle<OrbitActorMsg>
@@ -85,84 +102,92 @@ pub struct JpssImportActor<T, HotspotUpdateAction, OverpassUpdateAction>
 
  // new, init, update
  // actor impl start, execsnapshot action, initialize, update, import error, terminate
-impl <T, HotspotUpdateAction, OverpassUpdateAction> JpssImportActor <T, HotspotUpdateAction, OverpassUpdateAction> 
-    where T: JpssImporter + Send, 
-          HotspotUpdateAction: DataAction<ViirsHotspots>,
+impl <T, InitAction, HotspotUpdateAction, OverpassUpdateAction> OrbitalSatImportActor <T, InitAction, HotspotUpdateAction, OverpassUpdateAction> 
+    where T: OrbitalSatImporter + Send, 
+          InitAction: DataRefAction<ViirsHotspotStore>,
+          HotspotUpdateAction: DataAction<ViirsHotspotSet>,
           OverpassUpdateAction: DataAction<OverpassList>
 {
-    pub fn new (config: JpssConfig, jpss_importer:T, hs_update_action: HotspotUpdateAction, op_update_action: OverpassUpdateAction, orbit_calculator:ActorHandle<OrbitActorMsg>) -> Self {
-        let hotspots: ViirsHotspotMap = ViirsHotspotMap::new(config.satellite.clone(), config.source.clone());
+    pub fn new (config: OrbitalSatConfig, orbital_importer:T, init_action: InitAction, hs_update_action: HotspotUpdateAction, op_update_action: OverpassUpdateAction, orbit_calculator:ActorHandle<OrbitActorMsg>) -> Self {
+        let hotspots: ViirsHotspotStore = ViirsHotspotStore::new(config.satellite.clone(), config.source.clone());
         let overpass_list: OverpassList = OverpassList::new();
-        JpssImportActor{source: config.source, max_age: config.max_age, satellite: config.satellite, hotspots, overpass_list, jpss_importer, hs_update_action, op_update_action, orbit_calculator}
+        OrbitalSatImportActor{source: config.source, max_age: config.max_age, satellite: config.satellite, hotspots, overpass_list, orbital_importer, init_action, hs_update_action, op_update_action, orbit_calculator}
     }
 
+    pub async fn process_initial_hotspots(&mut self, init_hotspots: RawHotspots) -> Result<()> {
+        println!("in process initial hotspots");
+        let hotspots = process_hotspots( init_hotspots, &self.overpass_list, self.satellite.clone(), self.source.clone())?;
+        println!("in process initial hotspots: {} hotspot sets", hotspots.len());
+        for hs in hotspots.into_iter() {
+          self.hotspots.update(hs, self.max_age);
+        }
+        self.init_action.execute(&self.hotspots).await;
+        Ok(())
+    }
 
-    pub async fn update_hotspots (&mut self, new_hotspots: ViirsHotspots) {
+    pub async fn update_hotspots (&mut self, new_hotspots: ViirsHotspotSet) -> Result<()> {
         self.hotspots.update(new_hotspots.clone(), self.max_age);
-        let data_dir = PathBuf::from("C:\\Users\\srandrad\\odin\\odin_rs\\odin_jpss\\");
-        let filename = data_dir.join(format!("hotspots_{}.json", self.source));
-        let mut file = fs::File::create(filename).unwrap(); // don't use path yet as that would expose partial downloads to the world
-        file.write(serde_json::to_string_pretty(&new_hotspots).unwrap().as_bytes());
         self.hs_update_action.execute(new_hotspots).await;
+        Ok(())
     }
 
-    pub async fn update_overpass_list (&mut self, overpass_list: OverpassList) {
+    pub async fn update_overpass_list (&mut self, overpass_list: OverpassList) -> Result<()> {
         self.overpass_list.update(overpass_list.clone());
-        let data_dir = PathBuf::from("C:\\Users\\srandrad\\odin\\odin_rs\\odin_jpss\\");
-        let ot = overpass_list.overpasses[0].clone();
-        let filename = data_dir.join(format!("{}_{}.json", self.source, ot.t_start.format("%Y-%m-%d_H-%M-%S")));
-        let mut file = fs::File::create(filename).unwrap(); // don't use path yet as that would expose partial downloads to the world
-        file.write(serde_json::to_string_pretty(&ot).unwrap().as_bytes());
         self.op_update_action.execute(overpass_list).await;
+        Ok(())
     }
 
-    pub fn process_raw_hotspots (&mut self, raw_hotspots:RawHotspots ) -> Result<ViirsHotspots> {
+    pub fn process_raw_hotspots (&mut self, raw_hotspots:RawHotspots ) -> Result<Vec<ViirsHotspotSet>> {
         let hotspots = process_hotspots( raw_hotspots, &self.overpass_list, self.satellite.clone(), self.source.clone())?;
-        println!("hotspots: {:?}", hotspots);
         Ok(hotspots)
     }
 }
  
-impl_actor! { match msg for Actor< JpssImportActor<T, HotspotUpdateAction, OverpassUpdateAction>, JpssImportActorMsg> 
-    where T:JpssImporter + Send + Sync, 
-          HotspotUpdateAction: DataAction<ViirsHotspots> + Sync,
+impl_actor! { match msg for Actor< OrbitalSatImportActor<T, InitAction, HotspotUpdateAction, OverpassUpdateAction>, OrbitalSatImportActorMsg> 
+    where T:OrbitalSatImporter + Send + Sync, 
+          InitAction: DataRefAction<ViirsHotspotStore>,
+          HotspotUpdateAction: DataAction<ViirsHotspotSet> + Sync,
           OverpassUpdateAction: DataAction<OverpassList>
     as
+    
+
+    ExecSnapshotAction => cont! { msg.0.execute( &self.hotspots ).await; }
+
+    ExecOverpassSnapshotAction => cont! { msg.0.execute( &self.overpass_list ).await; }
+
     OrbitsReady => cont! { 
-        println!("starting importer");
+        println!("got orbits ready");
         let hself = self.hself.clone();
         let orbit_calculator =  self.orbit_calculator.clone() ;
-        self.jpss_importer.start( hself, orbit_calculator ); //
+        self.orbital_importer.start( hself, orbit_calculator ); 
     }
 
-    ExecSnapshotAction => cont! { msg.0.execute( &self.hotspots.to_hotspots()).await; }
+    InitialHotspots => cont! { println!("got init hotspots");
+        self.process_initial_hotspots(msg.0).await; }
 
     UpdateRawHotspots => cont! { 
-        println!("got raw hotspots");
         match self.process_raw_hotspots(msg.0) {
-            Ok(hs) => { self.hself.try_send_msg(UpdateHotspots(hs)); },
+            Ok(hs) => { hs.into_iter().map(|hs_set| self.hself.try_send_msg(UpdateHotspots(hs_set))); },
             Err(e) => warn!("failed to process hotspots: {:?}", e)
         };
     }
 
     UpdateHotspots => cont! { self.update_hotspots(msg.0).await; }
 
-    UpdateOverpassList => cont! { 
-        self.update_overpass_list(msg.0).await; 
-    }
+    UpdateOverpassList => cont! { self.update_overpass_list(msg.0).await; }
 
     ImportError => cont! { error!("{:?}", msg.0); }
     
-    _Terminate_ => stop! { self.jpss_importer.terminate(); }
+    _Terminate_ => stop! { self.orbital_importer.terminate(); }
 }
 
  // abstraction trait
- pub trait JpssImporter {
-    fn start (&mut self, hself: ActorHandle<JpssImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> Result<()>;
+ pub trait OrbitalSatImporter {
+    fn start (&mut self, hself: ActorHandle<OrbitalSatImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> Result<()>;
     fn terminate (&mut self);
 }
 
- /* #endregion JPSS import actor*/
+ /* #endregion OrbitalSat import actor*/
 
  /* #region orbit calculator actor *************************************************************************************************/
  
@@ -173,24 +198,24 @@ impl_actor! { match msg for Actor< JpssImportActor<T, HotspotUpdateAction, Overp
 
  define_actor_msg_set! { pub OrbitActorMsg = InitOverpassList | AskOverpassRequest | Query<AskOverpassRequest, UpdateOverpassList> |  UpdateOverpassList}
 
-pub struct OrbitActor <T, InitDataAction, UpdateAction> 
+pub struct OrbitActor <T, InitDataAction> 
     where T: OrbitCalculator + Send, 
         InitDataAction: DataAction<OrbitsReady>,
-        UpdateAction: DataAction<OverpassList>
+        //UpdateAction: DataAction<OverpassList>
 { 
     pub overpasses: OverpassList, // map of satellite ids and overpasses
     pub orbit_calculator: T,
     init_action: InitDataAction,
-    update_action: UpdateAction
+    //update_action: UpdateAction
 }
 
-impl <T, InitDataAction, UpdateAction> OrbitActor <T, InitDataAction, UpdateAction> 
+impl <T, InitDataAction> OrbitActor <T, InitDataAction> 
     where T: OrbitCalculator + Send,
         InitDataAction: DataAction<OrbitsReady>,
-        UpdateAction: DataAction<OverpassList>
+        //UpdateAction: DataAction<OverpassList>
 {
-    pub fn new (orbit_calculator:T, init_action: InitDataAction, update_action:UpdateAction) -> Self {
-        OrbitActor {orbit_calculator, overpasses: OverpassList::new(), init_action, update_action}
+    pub fn new (orbit_calculator:T, init_action: InitDataAction) -> Self {
+        OrbitActor {orbit_calculator, overpasses: OverpassList::new(), init_action}
     }
 
     pub fn update_overpass_list(&mut self, new_overpasses: OverpassList) {
@@ -198,10 +223,10 @@ impl <T, InitDataAction, UpdateAction> OrbitActor <T, InitDataAction, UpdateActi
     }
 }
 
-impl_actor! { match msg for Actor< OrbitActor <T,InitDataAction, UpdateAction>, OrbitActorMsg> 
+impl_actor! { match msg for Actor< OrbitActor <T,InitDataAction>, OrbitActorMsg> 
     where T: OrbitCalculator + Send, 
-        InitDataAction: DataAction<OrbitsReady>,
-        UpdateAction: DataAction<OverpassList>
+        InitDataAction: DataAction<OrbitsReady>
+        //UpdateAction: DataAction<OverpassList>
     as
     _Start_ => cont! { 
         let hself = self.hself.clone();
@@ -209,26 +234,18 @@ impl_actor! { match msg for Actor< OrbitActor <T,InitDataAction, UpdateAction>, 
     }
 
     InitOverpassList => cont! {
-        println!("got init orbits");
-        let data_dir = PathBuf::from("C:\\Users\\srandrad\\odin\\odin_rs\\odin_jpss\\");
-        let ot = msg.0.overpasses[0].clone();
-        let filename = data_dir.join(format!("init_{}_{}.json", String::from("NOAA20"), ot.t_start.format("%Y-%m-%d_H-%M-%S")));
-        let mut file = fs::File::create(filename).unwrap(); // don't use path yet as that would expose partial downloads to the world
-        file.write(serde_json::to_string_pretty(&ot).unwrap().as_bytes());
         let hself = self.hself.clone();
         self.update_overpass_list(msg.0); // updates overpass list
         self.orbit_calculator.start( hself ); // starts task that continuously calculates orbits
-        println!("started orbit calculator");
-        self.init_action.execute(OrbitsReady{}).await; // sends message to JpssImportActor to start
+        self.init_action.execute(OrbitsReady{}).await; // sends message to OrbitalSatImportActor to start
     }
 
     UpdateOverpassList => cont! {
         self.update_overpass_list(msg.0.clone());
-        self.update_action.execute(msg.0);
+        // self.update_action.execute(msg.0);
     }
 
     AskOverpassRequest => cont! {
-        println!("asking for overpasses");
         let overpass_list_res = self.orbit_calculator.calc_overpass_list(&msg.0, &self.overpasses);
         match overpass_list_res {
             Ok(overpass_list) => { msg.0.requester.send_msg(UpdateOverpassList(overpass_list)).await.unwrap(); }
@@ -237,7 +254,6 @@ impl_actor! { match msg for Actor< OrbitActor <T,InitDataAction, UpdateAction>, 
     }
 
     Query<AskOverpassRequest, UpdateOverpassList> => cont! {
-        println!("asking for overpasses");
         let overpass_list_res = self.orbit_calculator.calc_overpass_list(&msg.question.0, &self.overpasses);
         match overpass_list_res {
             Ok(overpass_list) => match msg.respond(UpdateOverpassList(overpass_list)).await {
@@ -251,9 +267,9 @@ impl_actor! { match msg for Actor< OrbitActor <T,InitDataAction, UpdateAction>, 
 }
 
  pub trait OrbitCalculator {
-    fn init(&mut self, hself: ActorHandle<OrbitActorMsg>) -> impl Future< Output = Result<()>> + Send; // completes first orbit calculation to kick off jpss importer and orbit calculation task
+    fn init(&mut self, hself: ActorHandle<OrbitActorMsg>) -> impl Future< Output = Result<()>> + Send; // completes first orbit calculation to kick off OrbitalSat importer and orbit calculation task
     fn start(&mut self, hself: ActorHandle<OrbitActorMsg>) -> Result<()>; // starts task to calculate orbits every so often
-    fn calc_overpass_list (&self, overpass_request: &OverpassRequest, current_overpasses: &OverpassList ) -> Result<OverpassList>; // equivalent of JpssActor get_overpasses
+    fn calc_overpass_list (&self, overpass_request: &OverpassRequest, current_overpasses: &OverpassList ) -> Result<OverpassList>; // equivalent of OrbitalSatActor get_overpasses
  }
 
  

@@ -16,17 +16,17 @@ use serde::{Serialize, Deserialize};
 use std::result;
 use std::time::Duration;
 use std::sync::Arc;
-use odin_common::geo::LatLon;
+use odin_common::geo::GeoCoord;
 use odin_common::fs::remove_old_files;
 use odin_actor::prelude::*;
 use crate::*;
-use crate::actor::JpssImportActorMsg;
+use crate::actor::*;
 
  /* #region configs *************************************************************************************************/
 
  #[derive(Serialize,Deserialize,Debug,Clone)]
 
- pub struct LiveJpssConfig {
+ pub struct LiveOrbitalSatConfig {
     // shared values
     pub satellite: u32,
     pub source: String,
@@ -35,40 +35,28 @@ use crate::actor::JpssImportActorMsg;
     pub max_age: Duration,
     pub cleanup_interval: Duration,
  }
- impl LiveJpssConfig {
-    pub fn make_jpss_config(&self) -> JpssConfig {
-        JpssConfig { satellite: self.satellite.clone(), source: self.source.clone(), max_age: self.max_age.clone() }
+ impl LiveOrbitalSatConfig {
+    pub fn make_orbital_sat_config(&self) -> OrbitalSatConfig {
+        OrbitalSatConfig { satellite: self.satellite.clone(), source: self.source.clone(), max_age: self.max_age.clone() }
     }
  }
 
- #[derive(Serialize,Deserialize,Debug,Clone)]
- pub struct JpssImporterConfig {
-    pub server: String,
-    pub map_key: String,
-    pub region: Vec<LatLon>,
-    pub request_delay: Vec<Duration>,
- }
- #[derive(Serialize,Deserialize,Debug,Clone)]
- pub struct JpssOrbitCalculatorConfig {
-    pub full_region: Vec<LatLon>,
-    pub calculation_interval: Duration,
- }
  #[derive(Debug,Clone)]
- pub struct LiveJpssImporterConfig {
+ pub struct LiveOrbitalSatImporterConfig {
     pub server: String,
     pub map_key: String,
     pub satellite: u32,
     pub source: String,
-    pub region: Vec<LatLon>,
+    pub region: GeoRect,
     pub history: Duration,
     pub request_delay: Vec<Duration>,
     pub max_scan_angle: f64,
     pub max_age: Duration,
     pub cleanup_interval: Duration
  }
- impl LiveJpssImporterConfig {
-    pub fn new(live_config: &Arc<LiveJpssConfig>, importer_config: JpssImporterConfig) -> Self {
-        LiveJpssImporterConfig {
+ impl LiveOrbitalSatImporterConfig {
+    pub fn new(live_config: &Arc<LiveOrbitalSatConfig>, importer_config: OrbitalSatImporterConfig) -> Self {
+        LiveOrbitalSatImporterConfig {
             server: importer_config.server,
             map_key: importer_config.map_key,
             satellite: live_config.satellite,
@@ -84,10 +72,10 @@ use crate::actor::JpssImportActorMsg;
  }
 
  #[derive(Debug,Clone)]
-pub struct LiveJpssOrbitCalculatorConfig {
+pub struct LiveOrbitalSatOrbitCalculatorConfig {
     pub satellite: u32,
     pub source: String,
-    pub full_region: Vec<LatLon>,
+    pub full_region: GeoRect,
     pub history: Duration,
     pub calculation_interval: Duration,
     pub max_scan_angle: f64,
@@ -95,9 +83,9 @@ pub struct LiveJpssOrbitCalculatorConfig {
     pub cleanup_interval: Duration
 }
 
-impl LiveJpssOrbitCalculatorConfig {
-    pub fn new(live_config: &Arc<LiveJpssConfig>, orbit_config: JpssOrbitCalculatorConfig) -> Self {
-        LiveJpssOrbitCalculatorConfig {
+impl LiveOrbitalSatOrbitCalculatorConfig {
+    pub fn new(live_config: &Arc<LiveOrbitalSatConfig>, orbit_config: OrbitalSatOrbitCalculatorConfig) -> Self {
+        LiveOrbitalSatOrbitCalculatorConfig {
             satellite: live_config.satellite,
             source: live_config.source.clone(),
             full_region: orbit_config.full_region,
@@ -113,8 +101,8 @@ impl LiveJpssOrbitCalculatorConfig {
 
 
  #[derive(Debug)]
-pub struct LiveJpssImporter {
-    config: LiveJpssImporterConfig,
+pub struct LiveOrbitalSatImporter {
+    config: LiveOrbitalSatImporterConfig,
     cache_dir: Arc<PathBuf>,
 
     /// values set during initialization
@@ -123,23 +111,23 @@ pub struct LiveJpssImporter {
     file_cleanup_task: Option<AbortHandle>,
 }
 
-impl LiveJpssImporter {
-    pub fn new (config: LiveJpssImporterConfig) -> Self {
-        let cache_dir = Arc::new( odin_build::cache_dir().join("jpss"));
+impl LiveOrbitalSatImporter {
+    pub fn new (config: LiveOrbitalSatImporterConfig) -> Self {
+        let cache_dir = Arc::new( odin_build::cache_dir().join("orbital"));
         ensure_writable_dir(cache_dir.as_ref()).unwrap(); // Ok to panic - this is a toplevel application object
-        LiveJpssImporter{ config, cache_dir, file_import_task:None, overpass_import_task: None, file_cleanup_task:None }
+        LiveOrbitalSatImporter{ config, cache_dir, file_import_task:None, overpass_import_task: None, file_cleanup_task:None }
     }
 
-    fn initialize (&mut self, hself: ActorHandle<JpssImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> Result<()> {
+    fn initialize (&mut self, hself: ActorHandle<OrbitalSatImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> Result<()> {
         let cache_dir = &self.cache_dir;
         self.overpass_import_task = Some( self.spawn_overpass_import_task( hself.clone(), orbit_handle, cache_dir.clone() )? );
         self.file_cleanup_task = Some( self.spawn_file_cleanup_task()? );
         Ok(())
     }
 
-    fn spawn_overpass_import_task (&mut self, hself: ActorHandle<JpssImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>, cache_dir:Arc<PathBuf>) -> Result<AbortHandle> {
+    fn spawn_overpass_import_task (&mut self, hself: ActorHandle<OrbitalSatImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>, cache_dir:Arc<PathBuf>) -> Result<AbortHandle> {
         let config = self.config.clone();
-        Ok( spawn( &format!("jpss-{}-overpass-acquisition", self.config.satellite), async move {
+        Ok( spawn( &format!("orbital-{}-overpass-acquisition", self.config.satellite), async move {
             run_overpass_acquisition( hself, orbit_handle, config, cache_dir ).await
         })?.abort_handle()
         )
@@ -150,7 +138,7 @@ impl LiveJpssImporter {
         let cleanup_interval = self.config.cleanup_interval;
         let max_age = self.config.max_age;
 
-        Ok( spawn( &format!("jpss-{}-file-cleanup-", self.config.satellite), async move {
+        Ok( spawn( &format!("orbital-{}-file-cleanup-", self.config.satellite), async move {
                 run_file_cleanup( cache_dir, cleanup_interval, max_age).await
             })?.abort_handle()
         )
@@ -158,8 +146,8 @@ impl LiveJpssImporter {
 
 }
 
-impl JpssImporter for LiveJpssImporter {
-    fn start (&mut self, hself: ActorHandle<JpssImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> Result<()> {
+impl OrbitalSatImporter for LiveOrbitalSatImporter {
+    fn start (&mut self, hself: ActorHandle<OrbitalSatImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> Result<()> {
         self.initialize(hself, orbit_handle)?;
         Ok(())
     }
@@ -171,7 +159,7 @@ impl JpssImporter for LiveJpssImporter {
     }
 }
 
-pub fn get_overpass_request(config: LiveJpssImporterConfig, hself: ActorHandle<JpssImportActorMsg>) -> OverpassRequest {
+pub fn get_overpass_request(config: LiveOrbitalSatImporterConfig, hself: ActorHandle<OrbitalSatImportActorMsg>) -> OverpassRequest {
     OverpassRequest{sat_id: config.satellite,
         scan_angle: config.max_scan_angle,
         history: config.history,
@@ -179,17 +167,19 @@ pub fn get_overpass_request(config: LiveJpssImporterConfig, hself: ActorHandle<J
         requester: hself.into() }
 }
 
-async fn run_init_data_acquisition (hself: ActorHandle<JpssImportActorMsg>, config: LiveJpssImporterConfig, cache_dir:Arc<PathBuf>) -> Result<()> {
+async fn run_init_data_acquisition (hself: ActorHandle<OrbitalSatImportActorMsg>, config: LiveOrbitalSatImporterConfig, cache_dir:Arc<PathBuf>) -> Result<()> {
+    println!("in run init data aquisition");
     let query_bounds = get_query_bounds(&config.region);
     let url = format!("{}/usfs/api/area/csv/{}/{}/{}/3", &config.server, &config.map_key, &config.source, &query_bounds); // update date to match history
-    let filename = get_latest_jpss( &cache_dir, &url, &config.source).await?;
-    let hs = read_jpss(&filename)?;
-    hself.try_send_msg(UpdateRawHotspots(hs))?;
+    let filename = get_latest_hotspot_download( &cache_dir, &url, &config.source).await?;
+    let hs = read_hotspots(&filename)?;
+    println!("got raw hotspots: {:?}", hs.hotspots.len());
+    hself.try_send_msg(InitialHotspots(hs))?;
     Ok(())
    
 }
 
-async fn run_data_acquisition (hself: ActorHandle<JpssImportActorMsg>, config: LiveJpssImporterConfig, cache_dir:Arc<PathBuf>, overpass: OrbitalTrajectory) -> Result<()> {
+async fn run_data_acquisition (hself: ActorHandle<OrbitalSatImportActorMsg>, config: LiveOrbitalSatImporterConfig, cache_dir:Arc<PathBuf>, overpass: OrbitalTrajectory) -> Result<()> {
     // set up schedule for next acquisition 
     let schedule = get_data_request_schedule(overpass, config.request_delay)?;
     let query_bounds = get_query_bounds(&config.region);
@@ -199,15 +189,15 @@ async fn run_data_acquisition (hself: ActorHandle<JpssImportActorMsg>, config: L
         sleep( sleep_time.to_std()?).await;
         //  download
         let url = format!("{}/usfs/api/area/csv/{}/{}/{}/1", &config.server, &config.map_key, &config.source, &query_bounds);
-        let filename = get_latest_jpss( &cache_dir, &url, &config.source).await?;
-        let hs = read_jpss(&filename)?;
+        let filename = get_latest_hotspot_download( &cache_dir, &url, &config.source).await?;
+        let hs = read_hotspots(&filename)?;
         hself.try_send_msg(UpdateRawHotspots(hs))?;
     }
     Ok(())
 }
 
 
-async fn run_overpass_acquisition (hself: ActorHandle<JpssImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>, config: LiveJpssImporterConfig, cache_dir:Arc<PathBuf>) -> Result<()> {
+async fn run_overpass_acquisition (hself: ActorHandle<OrbitalSatImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>, config: LiveOrbitalSatImporterConfig, cache_dir:Arc<PathBuf>) -> Result<()> {
     let hself_id = hself.id.clone();
     // initial overpass download
     let mut last_overpass_date = Utc::now();
@@ -252,7 +242,7 @@ async fn run_overpass_acquisition (hself: ActorHandle<JpssImportActorMsg>, orbit
             let config_clone = config.clone();
             let hself_clone = hself.clone();
             run_data_acquisition( hself_clone, config_clone,  cache_dir_clone, overpass).await?;
-            // spawn( &format!("jpss-{}-{}-data-acquisition", sat_id.clone(), overpass.t_end.clone()), async move {
+            // spawn( &format!("orbital-{}-{}-data-acquisition", sat_id.clone(), overpass.t_end.clone()), async move {
             //     run_data_acquisition( hself_clone, config_clone,  cache_dir_clone, overpass).await
             // })?;
         }
@@ -278,15 +268,15 @@ fn get_data_request_schedule (overpass: OrbitalTrajectory, request_delays: Vec<D
 }
 
 pub struct LiveOrbitCalculator { 
-    config: LiveJpssOrbitCalculatorConfig,
+    config: LiveOrbitalSatOrbitCalculatorConfig,
     cache_dir: Arc<PathBuf>,
     orbit_calculation_task: Option<AbortHandle>,
 
 }
 
 impl LiveOrbitCalculator {
-    pub fn new(config:  LiveJpssOrbitCalculatorConfig ) -> Self {
-        let cache_dir= Arc::new( odin_build::cache_dir().join("jpss"));
+    pub fn new(config:  LiveOrbitalSatOrbitCalculatorConfig ) -> Self {
+        let cache_dir= Arc::new( odin_build::cache_dir().join("orbital"));
         ensure_writable_dir(cache_dir.as_ref()).unwrap(); 
         LiveOrbitCalculator { 
             config: config,
@@ -302,16 +292,17 @@ impl LiveOrbitCalculator {
 
     fn spawn_orbit_calculation_task (&mut self, hself: ActorHandle<OrbitActorMsg>, cache_dir: Arc<PathBuf> ) -> Result<AbortHandle> {
         let config = self.config.clone();
-        Ok( spawn( &format!("jpss-{}-orbit-calculation", self.config.satellite), async move {
+        Ok( spawn( &format!("orbital-{}-orbit-calculation", self.config.satellite), async move {
             run_orbit_calculation( hself, config, cache_dir ).await
         })?.abort_handle()
         )
     }
 
     async fn calc_init_overpasses(&mut self, hself: ActorHandle<OrbitActorMsg>) -> Result<()> {
+        println!("calculating init overpasses");
         let tle = get_tles_celestrak(self.config.satellite).await?;
+        println!("got tles");
         let overpass = compute_initial_orbits(tle, self.config.max_scan_angle, chrono::Duration::from_std(self.config.history)?)?;
-        // println!("init overpass: {:?}; {:?}", overpass.get_start_dates(), overpass.get_end_dates());
         hself.try_send_msg(InitOverpassList(overpass))?;
         Ok(())
     }
@@ -320,7 +311,7 @@ impl LiveOrbitCalculator {
  impl OrbitCalculator for LiveOrbitCalculator {
     fn calc_overpass_list (&self, overpass_request: &OverpassRequest, current_overpasses: &OverpassList ) -> Result<OverpassList> {
         let overpasses = get_overpasses_for_small_region(&overpass_request.region, current_overpasses, overpass_request.scan_angle);
-        // println!("overpass: {:?}; {:?}", overpasses.get_start_dates(), overpasses.get_end_dates());
+        println!("overpass calc for request: {:?}; {:?}", overpasses.get_start_dates(), overpasses.get_end_dates());
         Ok(overpasses)
     }
 
@@ -335,7 +326,7 @@ impl LiveOrbitCalculator {
     }
  }
 
- async fn run_orbit_calculation( hself: ActorHandle<OrbitActorMsg>, config: LiveJpssOrbitCalculatorConfig, cache_dir: Arc<PathBuf>) -> Result<()> {
+ async fn run_orbit_calculation( hself: ActorHandle<OrbitActorMsg>, config: LiveOrbitalSatOrbitCalculatorConfig, cache_dir: Arc<PathBuf>) -> Result<()> {
     loop {
         sleep(config.calculation_interval).await;
         let tle = get_tles_celestrak(config.satellite).await?;
