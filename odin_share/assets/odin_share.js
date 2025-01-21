@@ -47,7 +47,7 @@ var typeChoice = undefined;
 var typeCandidates = main.ALL_TYPES;
 
 var messages = [];
-var hasDataEntryChanged = false; // state to keep track if dataEntry has changed
+var pendingSavedKeys = new Set();
 
 var shareDataSource = new Cesium.CustomDataSource("share");
 odinCesium.addDataSource(shareDataSource);
@@ -74,6 +74,7 @@ class OdinShare extends main.Share {
     }
 
     setSharedItem (key, type, data, isLocal=false, comment=null) {
+        if (type == main.JSON) data = JSON.stringify(data); // we store JSON as a generic string
         let value = new main.SharedValue( type, comment, data);
         let sharedItem = new main.SharedItem( key, isLocal, value);
 
@@ -148,15 +149,15 @@ main.setShareObj(share);
 
 function compileConfigGlobs() {
     for (var e of config.keyCompletions) {
-        if (e.pattern) {
-            e.glob = util.glob2regexp( e.pattern);
-        }
+        if (e.pattern) e.glob = util.glob2regexp( e.pattern);
     }
 
     for (var e of config.keyTypes) {
-        if (e.pattern) {
-            e.glob = util.glob2regexp( e.pattern);
-        }
+        if (e.pattern) e.glob = util.glob2regexp( e.pattern);
+    }
+
+    for (var e of config.keyTemplates) {
+        if (e.pattern) e.glob = util.glob2regexp( e.pattern);
     }
 }
 
@@ -422,7 +423,7 @@ function clearMsgList (event) {
 // tree list selection in dirView
 function selectShareEntry(event) {
     let e = ui.getSelectedListItem(dirView);
-    if (e) {
+    if (e) { // data item selected
         let key = e.key;
         if (e.value) {
             ui.setField( keyEntry, key);
@@ -430,20 +431,27 @@ function selectShareEntry(event) {
             ui.setChoiceItems( typeChoice, typeCandidates, 0);
             ui.setField( commentEntry, e.value.comment);
             setDataEntry( JSON.stringify(e.value.data, 0, 2));
-            updateTypeCandidates(e);
+            updateTypeCandidates(key,e);
             return;
         }
     } 
 
-    // did we select a branch node
     let node = ui.getSelectedTreeNode( dirView);
-    if (node) {
-        let path = node.collectNamesUp('/');
-        ui.setField( keyEntry, path);
-        updateKeyCompletions( path);
-        updateTypeCandidates();
+    if (node) { // parent (non-data) node selected
+        let key = node.collectNamesUp('/');
+        ui.setField( keyEntry, key);
+        updateKeyCompletions( key);
+        updateTypeCandidates( key);
         ui.clearTextAreaContent(dataEntry);
+        return;
     }
+
+    // nothing selected at all, reset entries
+    ui.setField( keyEntry, null);
+    ui.clearChoiceItems( complChoice);
+    ui.clearChoiceItems( typeChoice);
+    ui.setField( commentEntry, null);
+    ui.clearTextAreaContent(dataEntry);
 }
 
 function updateKeyCompletions(key) {
@@ -463,8 +471,8 @@ function updateKeyCompletions(key) {
     ui.clearChoiceItems( complChoice);
 }
 
-function updateTypeCandidates(selItem = null) {
-    typeCandidates = selItem ? [selItem.value.type] : getTypeCandidates(ui.getFieldValue(keyEntry));
+function updateTypeCandidates(key, selItem = null) {
+    typeCandidates = selItem ? [selItem.value.type] : getTypeCandidates(key);
 
     if (typeCandidates.length > 0) {
         ui.setChoiceItems( typeChoice, typeCandidates, 0);
@@ -498,48 +506,57 @@ function completeKey (event) {
         } else {
             ui.triggerFieldChange(keyEntry);
         }
-        updateTypeCandidates();
+        updateTypeCandidates(key);
     } 
 }
 
 function selectType (event){
     let type = ui.getSelectedChoiceValue( typeChoice);
-    if (type) setTemplate( type);
+    let key = ui.getFieldValue( keyEntry);
+    if (type) setTemplate( key, type);
     updateEditorChoices();
 }
 
-function setTemplate (type) {
-    let templ = config.typeTemplates.get(type);
-    let json = JSON.stringify( templ, 0, 2);
-    setDataEntry( json);
+function setTemplate (key, dataType) {
+    let templ = getTypeTemplate( key, dataType);
+    setDataEntry( templ);
+}
+
+function getTypeTemplate(key, dataType) {
+    for (var e of config.keyTemplates) { // overrides our static type templates
+        if (e.glob && key.match(e.glob)) {
+            return e.template;
+        }
+    }
+
+    return main.typeTemplate( dataType);
 }
 
 function setDataEntry (src) {
     ui.setTextAreaContent( dataEntry, src);
-    hasDataEntryChanged = false;
 }
 
 // textarea change (triggered when loosing focus)
 function dataChanged(event) {
-    hasDataEntryChanged = true;
 }
 
 // triggered when keyEntry changed
 function keyChanged (event) {
     let key = ui.getFieldValue(keyEntry);
 
-    if (!ui.selectNodePath( dirView, key)) { // key was not in our current list
+    if (!ui.selectNodePath( dirView, key)) { // key was not in our current list (NOTE this causes a select null)
+        ui.setField( keyEntry, key);
         updateKeyCompletions(key);
-        updateTypeCandidates();
+        updateTypeCandidates(key);
         ui.setField( commentEntry, null);
 
         if (typeCandidates.length == 0) {
             typeCandidates = main.ALL_TYPES;
             ui.setChoiceItems( typeChoice, typeCandidates, 0);
-            setTemplate( typeCandidates[0]);
+            setTemplate( key, typeCandidates[0]);
 
         } else if (typeCandidates.length == 1) {
-            setTemplate( typeCandidates[0]);
+            setTemplate( key, typeCandidates[0]);
         }
     }
 }
@@ -579,25 +596,19 @@ function saveItem(event) {
     let dataType = ui.getSelectedChoiceValue( typeChoice);
 
     if (key && dataType && dataSrc.length > 0) {
-        // todo - should also allow changes of comment or isLocal
-        if (hasDataEntryChanged) { 
-            try {
-                let data = JSON.parse(dataSrc);
-                let templ = config.typeTemplates.get(dataType);
-                if (templ) {
-                    if (!util.haveEqualKeys( data, templ)) {
-                        window.alert("entered data does not correspond with template");
-                        return;
-                    }
-                }
-
-                share.setSharedItem( key, dataType, data, isLocal, comment);
-
-            } catch (error) {
-                window.alert("invalid JSON: " + error);
+        try {
+            let data = JSON.parse(dataSrc);
+            let templ = (dataType == main.JSON) ? null : getTypeTemplate(key, dataType);
+            if (!main.checkType( dataType, data, templ)) {
+                window.alert("entered data does not correspond with template");
+                return;
             }
-        } else {
-            window.alert("data was not changed");
+
+            pendingSavedKeys.add( key);
+            share.setSharedItem( key, dataType, data, isLocal, comment);
+
+        } catch (error) {
+            window.alert("invalid JSON: " + error);
         }
     } else {
         window.alert("missing shared item key, type or data");
@@ -659,13 +670,45 @@ function handleWsMessages(msgType, msg) {
     }
 }
 
+function handleInitSharedItems(sharedItems) { 
+    let items = config.keyCategories.slice(); // add the category entries // FIXME - this has to map objects
+
+    // we get this as a map (JS object with keys as properties)
+    for (var e of Object.entries(sharedItems)) { // add the values from the server
+        let item = new main.SharedItem( e[0], false, e[1]);
+        items.push(item);
+
+        share._set( item.key, item); // store the item in our share object
+    }
+
+    items.sort( (a,b)=> a.key.localeCompare(b.key));
+
+    let tree = ExpandableTreeNode.from( items, e=>e.key, e=>e.value == undefined ); // this classifies keyCategories as branch nodes
+    for (e of config.keyCategories) {
+        tree.setPathNameSticky( e.key); // make sure category nodes are not removed if we delete the last child
+    }
+
+    ui.setTree( dirView, tree);
+
+    main.notifyShareHandlers( main.SHARE_INITIALIZED);
+}
+
 function handleSetShared (msg, isLocal) {
     let key = msg.key;
     let value = msg.value;
+
+    if (value.type == main.JSON) { value.data = JSON.parse( value.data) }
+
     let sharedItem = new main.SharedItem(key,isLocal,value);
     share._set( sharedItem.key, sharedItem);
 
     ui.sortInTreeItem( dirView, sharedItem, sharedItem.key);
+
+    if (pendingSavedKeys.has(key)) {
+        pendingSavedKeys.delete(key);
+        ui.selectNodePath(dirView, key);
+    }
+
     main.notifyShareHandlers( {setShared: sharedItem} );
 }
 
@@ -676,7 +719,8 @@ function handleRemoveShared (msg) {
         let key = sharedItem.key;
         share._delete( key);
 
-        ui.removeTreeItemPath( dirView, key);
+        ui.removeTreeItemPath( dirView, key); // if visible this will trigger a select null
+
         main.notifyShareHandlers( {removeShared: key});
     }
 }
@@ -749,32 +793,10 @@ function handlePublishMsg (publishedMsg){
     ui.selectLastListItem( msgList);
 }
 
-function handleInitSharedItems(o) { 
-    let items = config.keyCategories.slice(); // add the category entries
-
-    // we get this as a map (JS object with keys as properties)
-    for (var e of Object.entries(o)) { // add the values from the server
-        let item = new main.SharedItem( e[0], false, e[1]);
-        items.push(item);
-
-        share._set( item.key, item); // store the item in our share object
-    }
-
-    items.sort( (a,b)=> a.key.localeCompare(b.key));
-
-    let tree = ExpandableTreeNode.from( items, e=>e.key );
-    ui.setTree( dirView, tree);
-
-    main.notifyShareHandlers( main.SHARE_INITIALIZED);
-}
-
-
 function runSelectedEditor(event) {
     function valueCallback (data) {
         let src = JSON.stringify(data, 0, 2);
-
         setDataEntry( src);
-        hasDataEntryChanged = true;
     }
 
     let e = ui.getSelectedChoiceValue(editorChoice);

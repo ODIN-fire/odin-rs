@@ -646,10 +646,21 @@ export function defaultCompare (a,b) {
     else return 0;
 }
 
+export function firstElement(list) {
+    if (list && list.length) {
+        return list[0];
+    }
+    return null;
+}
+
+export function lastElement(list) {
+    if (list && list.length) {
+        return list[list.length-1];
+    }
+    return null;
+}
 
 //--- misc
-
-
 
 export function firstDefined(...theArgs) {
     for (const arg of theArgs) {

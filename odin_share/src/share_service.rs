@@ -363,7 +363,7 @@ pub struct PublishMsg {
 /// a specialized SharedStoreActor ctor used in conjunction with ShareService and SpaServer
 /// This only sets up init/change actions to send messages to the provided SpaServer actor
 /// Use the generic SharedStoreActor::new(..) if you need to set up other init/change actions than to just notify a SpaServer
-pub fn new_shared_store_actor<S> (store: S, store_actor_name: &'static str, hserver: &ActorHandle<SpaServerMsg>)
+pub fn new_shared_store_actor<S> (store: S, store_actor_name: Arc<String>, hserver: &ActorHandle<SpaServerMsg>)
          -> SharedStoreActor<SharedItemType,S,impl SharedStoreAction<SharedItemType> + Send,impl for<'a> DataAction<SharedStoreChange<'a, SharedItemType>>> 
     where S: SharedStore<SharedItemType>
 {
@@ -371,8 +371,8 @@ pub fn new_shared_store_actor<S> (store: S, store_actor_name: &'static str, hser
         store, 
         shared_store_action!( 
             let hserver: ActorHandle<SpaServerMsg> = hserver.clone(),
-            let store_actor_name: &'static str = store_actor_name => 
-            |store as &dyn SharedStore<SharedItemType>| announce_data_availability( &hserver, store_actor_name).await
+            let sender_id: Arc<String> = store_actor_name.clone() => 
+            |store as &dyn SharedStore<SharedItemType>| announce_data_availability( &hserver, sender_id).await
         ),
         data_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
             |update: SharedStoreChange<'_,SharedItemType>| broadcast_store_change( &hserver, update).await
@@ -382,8 +382,8 @@ pub fn new_shared_store_actor<S> (store: S, store_actor_name: &'static str, hser
 
 /// helper function for the body of a SharedStore init action
 /// This just announces data avaiability by sending a message to the provided SpaServer actor handle
-pub async fn announce_data_availability<'a> (hserver: &'a ActorHandle<SpaServerMsg>, store_actor_name: &'static str)->Result<(),OdinActionFailure> {
-    hserver.send_msg( DataAvailable{ sender_id: store_actor_name, data_type: type_name::<SharedItemType>()} ).await.map_err(|e| e.into())
+pub async fn announce_data_availability<'a> (hserver: &'a ActorHandle<SpaServerMsg>, sender_id: &Arc<String>)->Result<(),OdinActionFailure> {
+    hserver.send_msg( DataAvailable::new::<SharedItemType>( sender_id) ).await.map_err(|e| e.into())
 }
 
 /// helper function for the body of a SharedStoreActor change action

@@ -22,8 +22,8 @@ export const config = {
 
     // known suffixes for key patterns
     keyCompletions: [
-        { pattern: "incident", completion: ["/◻/view", "/◻︎/cause", "/◻︎/bbox", "/◻︎/perimeter"] },
-        { pattern: "incident/*", completion: ["/view", "/cause", "/bbox", "/perimeter"] },
+        { pattern: "incident", completion: ["/◻/view", "/◻︎/cause", "/◻︎/bbox", "/◻︎/origin", "/◻︎/perimeter"] },
+        { pattern: "incident/*", completion: ["/view", "/cause", "/bbox", "/origin", "/perimeter"] },
         { pattern: "{bbox,point}", completion: ["/◻︎"] },
         { pattern: "view", completion: ["/globe/◻︎", "/region/◻︎", "/state/◻︎/◻︎"] },
         { pattern: "view/*", completion: ["/◻︎"] },
@@ -39,22 +39,14 @@ export const config = {
         { pattern: "{bbox/**,**/bbox/**,**/bbox}",    type: "GeoRect" },
         { pattern: "{area/**,**/area/**,**/area}",    type: "GeoPolygon" },
         { pattern: "**/cause",  type: "String"},
+        { pattern: "**/origin", type: "GeoPoint"},
         { pattern: "{perimeter/**,**/perimeter/**,**/perimeter}", type: "GeoPolygon" }
     ],
 
-    // JSON templates for known types
-    typeTemplates: new Map([
-        ["GeoPoint",        {lon: 0.0, lat: 0.0 }],
-        ["GeoPoint3",       {lon: 0.0, lat: 0.0, alt: 0.0 }],
-        ["GeoLine",         {start: {lon: 0.0, lat: 0.0, alt: 0.0 }, end: {lon: 0.0, lat: 0.0, alt: 0.0 }}],
-        ["GeoLineString",   {points: [{lon: 0.0, lat: 0.0, alt: 0.0 }, {lon: 0.0, lat: 0.0, alt: 0.0 }]}],
-        ["GeoRect",         {west: 0.0, south: 0.0, east: 0.0, north: 0.0}],
-        ["GeoPolygon",      {exterior: [{lon: 0.0, lat: 0.0, alt: 0.0 }, {lon: 0.0, lat: 0.0, alt: 0.0 }]}],
-        ["String",          ""],
-        ["F64",             0.0],
-        ["U64",             0],
-        ["Json",            {}]
-    ]),
+    // JSON templates for known key patterns (overrides default type templates)
+    keyTemplates: [
+        { pattern: "**/origin",  template: JSON.stringify({lon: -121.0, lat: 37.0}) }
+    ],
 
     maxMessages: 50,
 

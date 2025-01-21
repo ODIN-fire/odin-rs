@@ -2319,6 +2319,10 @@ export function setListItems(o, items) {
 
 //--- tree list variation
 
+// tree lists are normal lists in which we wrap item elements into tree node elements. Those
+// tree node elements are the child elements of the list and are used to control expand/collapse
+// This also means we have tree nodes without data (for each item element parent level)
+
 export function setTree(o,root) {
     let e = getTreeList(o);
     if (e) {
@@ -2341,37 +2345,34 @@ export function getRootNode(o) {
 }
 
 function getNodeElement (e, node) {
-    for (let ce = e.firstChild; ce; ce = ce.nextSibling) {
+    for (let ce = e.firstChild; ce; ce = ce.nextElementSibling) {
         if (Object.is(ce._uiNode,node)) return ce;
     }
     return null;
 }
 
-export function sortInTreeItem(o,item,pathName) {
+export function sortInTreeItem (o, item, pathName, isSticky=false) {
     let e = getTreeList(o);
     if (e && e._uiRoot) {
         let root = e._uiRoot;
-        let node = root.sortInPathName( pathName, item);
+        let addedNodes = root.sortInPathName( pathName, item, isSticky);
+        let firstNode = addedNodes[0];
 
-        if (node.isVisible()){
-            let i = -1;
-            for (let n of root.expandedDescendants()) {
-                i++;
-                if (Object.is(n, node)) break;
+        if (firstNode.parent.isExpanded) { // first added node is showing -> insert
+            let i = firstNode.visibleIndex();
+            let ne = e.firstElementChild;
+            while (i--)  ne = ne.nextElementSibling;
+
+            let newElement = _createNodeElement(e, firstNode); // the element to insert
+            if (ne) {
+                e.insertBefore( newElement, ne);
+            } else {
+                e.appendChild( newElement);
             }
-            if (i>= 0) {
-                let newElement = _createNodeElement(e, node);
-                let nextElement = _nthChildOf(e,i);
-                if (nextElement) {
-                    e.insertBefore( newElement, nextElement);
-                } else {
-                    e.appendChild( newElement);
-                }
-                _resetPanelMaxHeight(e);
-            }
+            _resetPanelMaxHeight(e);
         }
 
-        return node;
+        return addedNodes;
     }
     return null;
 }
@@ -2379,19 +2380,28 @@ export function sortInTreeItem(o,item,pathName) {
 export function removeTreeItemPath(o,pathName) {
     let e = getTreeList(o);
     if (e && e._uiRoot) {
-        let root = e._uiRoot;
-        let node = root.removePathName(pathName);
-        if (node) {
-            let ce = getNodeElement(e, node);
-            if (ce) { // otherwise node isn't visible and we don't have to update elements
-                if (e._uiSelectedNodeElement == node) {
+        let removedNodes = e._uiRoot.removePathName(pathName);
+        for (let node of removedNodes) {
+            let ce = getNodeElement(e, node); 
+            if (ce) { // it was visible
+                if (e._uiSelectedNodeElement && Object.is( e._uiSelectedNodeElement._uiNode, node)) {
                     _setSelectedItemElement(e, null);
                 }
                 e.removeChild(ce);
-                _resetPanelMaxHeight(e);
             }
-            return node;
         }
+        if (removedNodes.length > 0) {
+            let parentNode = removedNodes[0].parent;
+            if (!parentNode.hasChildren()){ // happens if it is a sticky node
+                let pe = getNodeElement(e, parentNode);
+                let prefixElem = pe.firstElementChild.firstElementChild; // ui_node { ui_node_header { ui_node_prefix, ui_node_name } }
+                if (prefixElem && _containsClass( prefixElem, "ui_node_prefix")) {
+                    prefixElem.innerText = parentNode.nodePrefix();
+                }
+            }
+            _resetPanelMaxHeight(e);
+        }
+        return removedNodes;
     }
     return null; // wasn't there
 }
@@ -2715,48 +2725,51 @@ export function removeLastNListItems(o, n) {
     }
 }
 
+// NOTE if this is a tree item elements hava a node element as parent (both are 'selected')
 function _setSelectedItemElement(listBox, itemElement, srcEvent) {
     let prevItem = null;
     let nextItem = null;
 
     let prevItemElem = listBox._uiSelectedItemElement;
 
-    if ((prevItemElem == null && itemElement == null) || !Object.is( prevItemElem,itemElement)) {
-        if (prevItemElem) {
-            prevItem = prevItemElem._uiNode ? prevItemElem._uiNode.data : prevItemElem._uiItem;
-            _removeClass(prevItemElem, "selected");
-            if (_containsClass(prevItemElem.parentElement, "ui_node")) _removeClass(prevItemElem.parentElement, "selected");
-        }
+    if (prevItemElem && itemElement && Object.is( prevItemElem,itemElement)) { // no changes of non-empty selection
+        prevItem = itemElement._uiNode ? itemElement._uiNode.data : itemElement._uiItem;
+        nextItem = prevItem;
 
-        if (itemElement) {
-            nextItem = itemElement._uiNode ? itemElement._uiNode.data : itemElement._uiItem;
+    } else {
+        // remove current selection attrs
+        if (prevItemElem) _removeClass( prevItemElem, "selected");
+        if (listBox._uiSelectedNodeElement) _removeClass( listBox._uiSelectedNodeElement, "selected");
 
-            if (itemElement._uiNode) listBox._uiSelectedNodeElement = itemElement;
-            listBox._uiSelectedItemElement = itemElement;
-            
-            _addClass(itemElement, "selected");
-            if (_containsClass(itemElement.parentElement, "ui_node")) _addClass(itemElement.parentElement, "selected");
+        if (!Object.is( prevItemElem,itemElement)) {
+            if (itemElement) {
+                nextItem = itemElement._uiNode ? itemElement._uiNode.data : itemElement._uiItem;
 
-        } else {
-            listBox._uiSelectedItemElement = null;
-        }
+                listBox._uiSelectedItemElement = itemElement;
+                _addClass( itemElement, "selected");
 
-        if (listBox._uiSelectAction) {
-            let event = new CustomEvent("selectionChanged", {
-                bubbles: true,
-                detail: {
-                    curSelection: nextItem,
-                    prevSelection: prevItem,
-                    src: srcEvent
+                if (_containsClass( itemElement.parentElement, "ui_node")) {
+                    listBox._uiSelectedNodeElement = itemElement.parentElement;
+                    _addClass( itemElement.parentElement, "selected");
                 }
-            });
-    
-            listBox.dispatchEvent(event);
+            } else {
+                listBox._uiSelectedItemElement = null;
+            }
         }
     }
 
-    // always perform the select action since it might have side effects outside the UI view (e.g. panning camera)
+    if (listBox._uiSelectAction) {
+        let event = new CustomEvent("selectionChanged", {
+            bubbles: true,
+            detail: {
+                curSelection: nextItem,
+                prevSelection: prevItem,
+                src: srcEvent
+            }
+        });
 
+        listBox.dispatchEvent(event);
+    }
 }
 
 function _selectListItem(event) {

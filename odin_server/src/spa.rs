@@ -395,11 +395,11 @@ impl SpaServer {
 
     // FIXME - these should use timeouts (we can't have a connection block the server)
 
-    async fn data_available (&mut self, hself: ActorHandle<SpaServerMsg>, sender_id: &'static str, data_type: &'static str)->OdinServerResult<()> {
+    async fn data_available (&mut self, hself: ActorHandle<SpaServerMsg>, sender_id: Arc<String>, data_type: &'static str)->OdinServerResult<()> {
         let has_connections = self.has_connections();
 
         for svc in self.services.iter_mut() {
-            match svc.data_available( &hself, has_connections, sender_id, data_type).await {
+            match svc.data_available( &hself, has_connections, sender_id.as_str(), data_type).await {
                 Ok(true) => svc.is_data_available = true,
                 Ok(false) => {}
                 Err(e) => error!("data available check failed: {e}")
@@ -519,8 +519,13 @@ pub struct RemoveConnection {
 
 #[derive(Debug)]
 pub struct DataAvailable {
-    pub sender_id: &'static str,
-    pub data_type: &'static str,
+    pub sender_id: Arc<String>, // normally the actor id of the sender, hence Arc<String>
+    pub data_type: &'static str, // normally a static type name obtained via std::any::type_name<T>()
+}
+impl DataAvailable {
+    pub fn new<T>( sender_id: &Arc<String>)->Self {
+        DataAvailable{ sender_id: sender_id.clone(), data_type: type_name::<T>() }
+    }
 }
 
 #[derive(Debug)]

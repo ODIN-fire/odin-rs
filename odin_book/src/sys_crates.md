@@ -2,7 +2,7 @@
 
 As the name implies ODIN *system crates* provide functionality that is not directly associated to a specific application domain such as weather or even the general topic of disaster management. Most of them can be used for non-ODIN applications.
 
-ODIN system crates can be divided into 3 categories:
+ODIN system crates can be divided into the following categories:
 
 ## ODIN development
 
@@ -28,3 +28,8 @@ ODIN system crates can be divided into 3 categories:
 - [odin_job](odin_job/odin_job.md) - general system-global scheduling
 - [odin_server](odin_server/odin_server.md) - this crate provides the building blocks to construct web server actors
 - [odin_share](odin_share/odin_share.md) - crate that provides infrastructure to share data between services and users
+
+## client library support
+
+- [odin_cesium](odin_cesium/odin_cesium.md) - this crate provides assets for client side virtual globe rendering with 
+  [CesiumJS](https://cesium.com/platform/cesiumjs)

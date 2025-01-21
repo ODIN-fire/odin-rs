@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 
-use std::any::type_name;
+use std::sync::Arc;
 use odin_build;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
@@ -30,20 +30,28 @@ run_actor_system!( actor_system => {
             .add( build_service!( let hsentinel = pre_sentinel.to_actor_handle() => SentinelService::new( hsentinel)))
     ))?;
 
-    let _hsentinel = spawn_pre_actor!( actor_system, pre_sentinel, SentinelActor::new(
-        LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
-        dataref_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |_store: &SentinelStore| {
+    let init_action = dataref_action!(
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone(),
+        let sender_id: Arc<String> = pre_sentinel.get_id() => 
+        |_store: &SentinelStore| {
             // we could directly send a BroadcastWsMsg here but if there are no connections yet that would 
             // create a potentially large WsMsg for naught
-            Ok( hserver.try_send_msg( DataAvailable{sender_id:"updater",data_type: type_name::<SentinelStore>()} )? )
-        }),
-        data_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |update:SentinelUpdate| {
+            Ok( hserver.try_send_msg( DataAvailable::new::<SentinelStore>(sender_id) )? )
+        }
+    );
+
+    let update_action = data_action!( 
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
+        |update:SentinelUpdate| {
             //let data = ws_msg!("odin_sentinel/odin_sentinel.js",update).to_json()?;
             let data = WsMsg::json( SentinelService::mod_path(), "update", update)?;
             Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
-        }),
-        no_data_action() // we do client side inactive checks
-    ))?;
+        }
+    );
+
+    let _hsentinel = spawn_pre_actor!( actor_system, pre_sentinel, 
+        SentinelActor::new( LiveSentinelConnector::new( load_config( "sentinel.ron")?), init_action, update_action, no_data_action())
+    )?;
     
     Ok(())
 });

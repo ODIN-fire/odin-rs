@@ -26,6 +26,7 @@ use std::{collections::HashMap, sync::Arc, any::type_name};
 /// Cesium app using a ShareService
 run_actor_system!( actor_system => {
     let pre_store = PreActorHandle::<SharedStoreActorMsg<SharedItemType>>::new( &actor_system, "store", 8);
+    let store_id = pre_store.get_id();
 
     let hserver = spawn_actor!( actor_system, "server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
@@ -35,7 +36,7 @@ run_actor_system!( actor_system => {
             .add( build_service!( let hstore = pre_store.to_actor_handle() => ShareService::new( hstore)) )
     ))?;
 
-    let hstore = spawn_pre_actor!( actor_system, pre_store, new_shared_store_actor( load_store()?, "store", &hserver))?;
+    let hstore = spawn_pre_actor!( actor_system, pre_store, new_shared_store_actor( load_store()?, store_id, &hserver))?;
 
     /* this would be the explicit way to create the SharedStoreActor, in case there are other actions than to just notify the server
     let hstore = spawn_pre_actor!( actor_system, pre_store, SharedStoreActor::new(

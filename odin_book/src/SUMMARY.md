@@ -32,6 +32,7 @@
       - [`actor_config`](odin_actor/examples/actor_config.md)
       - [`heartbeat`](odin_actor/examples/heartbeat.md)
   - [odin_server](odin_server/odin_server.md)
+  - [odin_cesium](odin_cesium/odin_cesium.md)
   - [odin_share](odin_share/odin_share.md)
   - [odin-dem](odin_dem/odin_dem.md)
 

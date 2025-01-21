@@ -15,7 +15,7 @@
 
 use tokio;
 use anyhow::Result;
-use std::any::type_name;
+use std::sync::Arc;
 
 use odin_build;
 use odin_actor::prelude::*;
@@ -43,8 +43,8 @@ async fn main()->Result<()> {
             .add( build_service!( => GoesrService::new( vec![goes18,goes16])) )
     ))?;
 
-    let _hgoes18 = spawn_goesr_updater( &mut actor_system, "goes18", hgoes18, load_config( "goes_18_fdcc.ron")?, &hserver)?;
-    let _hgoes16 = spawn_goesr_updater( &mut actor_system, "goes16", hgoes16, load_config( "goes_16_fdcc.ron")?, &hserver)?;
+    let _hgoes18 = spawn_goesr_updater( &mut actor_system, hgoes18, load_config( "goes_18_fdcc.ron")?, &hserver)?;
+    let _hgoes16 = spawn_goesr_updater( &mut actor_system, hgoes16, load_config( "goes_16_fdcc.ron")?, &hserver)?;
 
     actor_system.timeout_start_all(secs(2)).await?;
     actor_system.process_requests().await?;
@@ -54,28 +54,29 @@ async fn main()->Result<()> {
 
 fn spawn_goesr_updater (
     actor_system: &mut ActorSystem,
-    name: &'static str, 
     pre_handle: PreActorHandle<GoesrHotspotImportActorMsg>, 
     config: LiveGoesrHotspotImporterConfig,
     hserver: &ActorHandle<SpaServerMsg>
 ) ->OdinActorResult<ActorHandle<GoesrHotspotImportActorMsg>> {
-    spawn_pre_actor!( actor_system, pre_handle,  GoesrHotspotActor::new(
-        load_config( "goesr.ron")?, 
-        LiveGoesrHotspotImporter::new( config),
-        dataref_action!{ 
-            let hserver: ActorHandle<SpaServerMsg> = hserver.clone(), 
-            let name: &'static str = name => 
-            |_store:&GoesrHotspotStore| {
-                Ok( hserver.try_send_msg( DataAvailable{ sender_id: name, data_type: type_name::<GoesrHotspotStore>()} )? )
-            }
-        },
-        data_action!{ 
-            let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
-            |hotspots:GoesrHotspotSet| {
-                //let data = ws_msg!("odin_goesr/odin_goesr.js",hotspots).to_json()?;
-                let data = WsMsg::json( GoesrService::mod_path(), "hotspots", hotspots)?;
-                Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
-            }
-        },
-    ))
+
+    let init_action = dataref_action!{ 
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone(), 
+        let sender_id: Arc<String> = pre_handle.get_id().clone() => 
+        |_store:&GoesrHotspotStore| {
+            Ok( hserver.try_send_msg( DataAvailable::new::<GoesrHotspotStore>(sender_id) )? )
+        }
+    };
+    
+    let update_action = data_action!{ 
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
+        |hotspots:GoesrHotspotSet| {
+            //let data = ws_msg!("odin_goesr/odin_goesr.js",hotspots).to_json()?;
+            let data = WsMsg::json( GoesrService::mod_path(), "hotspots", hotspots)?;
+            Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
+        }
+    };
+
+    spawn_pre_actor!( actor_system, pre_handle,  
+        GoesrHotspotActor::new( load_config( "goesr.ron")?, LiveGoesrHotspotImporter::new( config), init_action, update_action)
+    )
 }

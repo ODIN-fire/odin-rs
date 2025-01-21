@@ -13,6 +13,7 @@ odin_macro = { workspace = true }
 odin_server = { workspace = true }
 odin_goesr = { workspace = true }
 odin_sentinel = { workspace = true }
+odin_share = { workspace = true }
 
 tokio = { workspace = true }
 anyhow = "*"
