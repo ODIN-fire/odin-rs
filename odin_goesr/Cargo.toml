@@ -53,3 +53,7 @@ goes_18_fdcc = { file="goes_18_fdcc.ron" }
 
 [features]
 embedded_resources = []
+
+# pass through build features to control how cesium libs are served (default is proxied)
+cesium_asset = ["odin_cesium/cesium_asset"]
+cesium_external = ["odin_cesium/cesium_external"]

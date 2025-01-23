@@ -45,7 +45,7 @@ use serde::{Deserialize,Serialize};
 use async_trait::async_trait;
 
 use odin_build::LoadAssetFp;
-use odin_common::{fs::get_file_basename,strings::{self, mk_query_string}};
+use odin_common::{fs::get_file_basename,strings::{self, mk_query_string},collections::empty_vec};
 use odin_macro::define_struct;
 use odin_actor::prelude::*;
 
@@ -782,13 +782,13 @@ impl SpaComponents {
         self.assets.insert( key, load_asset_fn);
     }
 
-    pub fn add_proxy (&mut self,
+    pub fn add_modified_proxy (&mut self,
         key: impl ToString,
         uri_base: impl ToString,
-        copy_hdrs: Vec<String>,
-        add_hdrs: Vec<(String,String)>,
-        copy_query: bool,
-        add_query: Vec<(String,String)>
+        copy_hdrs: Vec<String>,          // from incoming request
+        add_hdrs: Vec<(String,String)>,  // to hdrs in incoming request
+        copy_query: bool,                // from incoming request
+        add_query: Vec<(String,String)>  // to query in incoming request
     ) {
         let mut uri = uri_base.to_string();
 
@@ -805,6 +805,11 @@ impl SpaComponents {
 
         let proxy_spec = ProxySpec{uri,copy_hdrs,add_hdrs,copy_query,add_query};
         self.proxies.insert( key.to_string(), proxy_spec);
+    }
+
+    /// a proxy without header and/or query modification
+    pub fn add_proxy (&mut self, key: impl ToString, uri_base: impl ToString) {
+        self.add_modified_proxy( key, uri_base, empty_vec(), empty_vec(), true, empty_vec())
     }
 
     /// render HTML document. We could use a lib such as build_html but our documents are rather simple so there is no

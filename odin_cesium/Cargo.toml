@@ -41,7 +41,7 @@ imglayer = { file = "imglayer.js"}
 imglayer_icon = { file = "imglayer.svg"}
 
 [features]
-default = ["cesium_asset"]
+default = ["cesium_proxy"]
 
 trace_server = ["odin_server/trace_server"]
 embedded_resources = []

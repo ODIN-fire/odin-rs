@@ -111,3 +111,13 @@ $> mdbook serve
 ...
 ```
 Once the mdbook server is running you can view the odin_book contents in any browser at http://localhost:3000 
+
+
+### Known Installation Pitfalls
+
+#### MacOS
+
+On MacOS Rust does require reasonably updated Xcode command line tools. This problem manifests itself in different ways (e.g. CC link errors)
+but early on. You can verify outside of `odin-rs` by running the `cargo new my_test; cd my_test; cargo run` test mentioned above. 
+
+The xtools command line tools can be installed as part of Xcode from the Apple AppStore or - if you already have Xcode - by running `xcode-select –-install`.
