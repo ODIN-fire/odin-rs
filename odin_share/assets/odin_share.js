@@ -367,10 +367,9 @@ function addOwnRole (event) {
     let newRole = ui.getFieldValue(addRoleEntry);
     if (newRole) {
         share.requestRole(newRole); // this will come back to us as a 'newOwner' message
-    } else {
-        window.alert("no role name provided");
     }
 }
+
 
 function deleteRole(event) {
     let role = share.selectedOwnRole();

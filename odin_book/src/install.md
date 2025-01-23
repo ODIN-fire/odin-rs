@@ -15,6 +15,19 @@ This Rust repository contains a [Cargo workspace](https://doc.rust-lang.org/carg
      $> rustup default nightly
      ``` 
 
+     To check if the basic Rust installation is working correctly you can create, build and run a simple test project by executing
+
+     ```shell
+     $> cargo new my_test
+         Creating binary (application) `my_test` package
+     $> cd my_test
+     $> cargo run
+         Compiling my_test v0.1.0 ...
+         ...
+         Running `target/debug/my_test`
+     Hello, world!
+     ```
+
      Periodic updates of the toolchain can be done by executing `rustup update`
 
      To install the [`mdbook`](https://rust-lang.github.io/mdBook/) tool to compile and serve online documentation
