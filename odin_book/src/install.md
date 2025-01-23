@@ -226,8 +226,9 @@ This should leave you with a gdal installation in `./install/{include,lib}`.
 To direct `odin-rs` to use your GDAL library you have to set two environment variables that should be present as long as you don't want to go back to a native package manager version:
 
 ```shell
-export GDAL_HOME=$HOME/libraries/gdal/build/install
-export DYLD_LIBRARY_PATH=$GDAL_HOME/lib:$DYLD_LIBRARY_PATH
+export GDAL_HOME="$HOME/libraries/gdal/build/install"
+export DYLD_LIBRARY_PATH="$GDAL_HOME/lib:$DYLD_LIBRARY_PATH"
+export PKG_CONFIG_LIBDIR="$GDAL_HOME/lib/pkgconfig:$PKG_CONFIG_LIBDIR"
 ```
 
 To make this permanent you can set them in your `~/.profile`. Make sure your GDAL_HOME directory is not deleted or moved as long as you want to use your GDAL version as it would otherwise prevent your `odin-rs` applications to load.
