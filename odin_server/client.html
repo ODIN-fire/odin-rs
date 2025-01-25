@@ -1,0 +1,531 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Server/Client Interaction - ODIN</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="the Open Data Integration Framework">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../odin.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../about.html">About this Document</a></li><li class="chapter-item expanded "><a href="../install.html">Installation</a></li><li class="chapter-item expanded "><a href="../intro.html">1. Introduction</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../design_principles.html">Design Principles</a></li></ol></li><li class="chapter-item expanded "><a href="../sys_crates.html">2. System Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../odin_build/odin_build.html">odin_build</a></li><li class="chapter-item "><a href="../odin_action/odin_action.html">odin_action</a></li><li class="chapter-item "><a href="../odin_actor/odin_actor.html">odin_actor</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../odin_actor/actor_basics.html">Actor Programming Model</a></li><li class="chapter-item "><a href="../odin_actor/actor_impl.html">Basic Design</a></li><li class="chapter-item "><a href="../odin_actor/actor_communication.html">Actor Communication</a></li><li class="chapter-item "><a href="../odin_actor/examples/examples.html">Examples</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../odin_actor/examples/hello_world.html">hello_world</a></li><li class="chapter-item "><a href="../odin_actor/examples/sys_msgs.html">sys_msgs</a></li><li class="chapter-item "><a href="../odin_actor/examples/spawn.html">spawn</a></li><li class="chapter-item "><a href="../odin_actor/examples/spawn_blocking.html">spawn_blocking</a></li><li class="chapter-item "><a href="../odin_actor/examples/exec.html">exec</a></li><li class="chapter-item "><a href="../odin_actor/examples/jobs.html">jobs</a></li><li class="chapter-item "><a href="../odin_actor/examples/producer_consumer.html">producer_consumer</a></li><li class="chapter-item "><a href="../odin_actor/examples/pub_sub.html">pub_sub</a></li><li class="chapter-item "><a href="../odin_actor/examples/pin_pong.html">ping_pong</a></li><li class="chapter-item "><a href="../odin_actor/examples/query.html">query</a></li><li class="chapter-item "><a href="../odin_actor/examples/dyn_actor.html">dyn_actor</a></li><li class="chapter-item "><a href="../odin_actor/examples/actions.html">actions</a></li><li class="chapter-item "><a href="../odin_actor/examples/dyn_actions.html">dyn_actions</a></li><li class="chapter-item "><a href="../odin_actor/examples/retry.html">retry</a></li><li class="chapter-item "><a href="../odin_actor/examples/requests.html">requests</a></li><li class="chapter-item "><a href="../odin_actor/examples/actor_config.html">actor_config</a></li><li class="chapter-item "><a href="../odin_actor/examples/heartbeat.html">heartbeat</a></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../odin_server/odin_server.html">odin_server</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../odin_server/client.html" class="active">Server/Client Interaction</a></li><li class="chapter-item "><a href="../odin_server/ui_library.html">Web Client UI Library</a></li></ol></li><li class="chapter-item "><a href="../odin_cesium/odin_cesium.html">odin_cesium</a></li><li class="chapter-item "><a href="../odin_share/odin_share.html">odin_share</a></li><li class="chapter-item "><a href="../odin_dem/odin_dem.html">odin-dem</a></li></ol></li><li class="chapter-item expanded "><a href="../app_crates.html">3. Application Domain Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../odin_hrrr/odin_hrrr.html">odin_hrrr</a></li><li class="chapter-item "><a href="../odin_sentinel/odin_sentinel.html">odin_sentinel</a></li><li class="chapter-item "><a href="../odin_goesr/odin_goesr.html">odin_goesr</a></li></ol></li><li class="chapter-item expanded "><a href="../glossary.html">Glossary</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">ODIN</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="odin-web-clientserver-interaction"><a class="header" href="#odin-web-clientserver-interaction">ODIN Web Client/Server Interaction</a></h1>
+<p>The <code>SpaServer</code> and its <code>SpaServices</code> are only half of the story. Since they serve (static and dynamic) data
+we still need to visualize and control the data on user machines. To avoid the need for any end-user install we
+use standard HTTP, HTML, Javascript and JSON messages over websockets for this purpose.</p>
+<p>While <code>SpaServer</code> and <code>SpaService</code> are generic and can be used for many different web pages/applications the
+main end-user visualization we target is a single web page showing geospatial data in application specific layers.</p>
+<img class="mono right" src="../img/odin-ui.svg" width="40%"/>
+<p>The four items within this UI are:</p>
+<ul>
+<li>icon box</li>
+<li>UI windows (with UI components)</li>
+<li>virtual globe</li>
+<li>data entities</li>
+</ul>
+<p>The icon box contains icons that launch associated UI windows. There is an icon/window pair for each data layer
+that can be displayed, plus some pairs for general functions such as clocks, settings and layer control.</p>
+<img class="mono left" src="../img/odin-ui-window.svg" width="20%"/>
+<p>The UI windows serve a dual purpose: they can be used for alphanumeric display of data and they hold user interface
+components to control what data is displayed and how it is rendered. UI windows normally contain vertically stacked,
+expandable <em>panels</em> for different functional areas within the layer. Panels hold related <em>UI components</em></p>
+<p>The windows are shown on top of a 3D virtual globe background that uses WebGL to render both static maps and
+dynamic data entities such as track symbols or weather information. Data entities are geometric constructs
+such as points, lines and polygons, or symbols/icons representing data items.</p>
+<h3 id="31-dom"><a class="header" href="#31-dom">3.1 DOM</a></h3>
+<p>The underlying DOM is assembled by <code>odin_server::SpaComponents::to_html()</code> based on the components that were collected
+from each of the configured <code>SpaService</code> implementations of the application. It has the following structure:</p>
+<pre><code class="language-html">&lt;html&gt;
+    &lt;head&gt;
+        &lt;!-- collected head fragments  --&gt;
+        &lt;link rel="stylesheet" type="text/css" href="./asset/odin_server/ui.css"/&gt;&gt;
+        &lt;script type="module" src="./asset/odin_server/main.js"&gt;&lt;/script&gt;
+        &lt;script type="module" src="./asset/odin_goesr/odin_goesr.js"&gt;&lt;/script&gt;
+        ...
+    &lt;/head&gt;
+
+    &lt;body&gt;
+        &lt;!-- collected body fragments  --&gt;
+        &lt;div id="cesiumContainer" class="ui_full_window"&gt;&lt;/div&gt;
+        ...
+
+        &lt;!-- post init script  --&gt;
+        &lt;script type="module"&gt;
+            import * as main from './asset/odin_server/main.js';
+            if (main.postInitialize) { main.postInitialize(); }
+            import * as odin_goesr from './asset/odin_goesr/odin_goesr.js';
+            if (odin_goesr.postInitialize) { odin_goesr.postInitialize(); }
+            ...
+        &lt;/script&gt;
+    &lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+<p>Head fragments can contain link elements (for CSS) and script elements (for JS scripts and modules).
+This is collected from the <code>SpaService::add_components()</code> implementations of the configured services.
+<code>SpaServices</code> normally have an associated JS module, stored in the <code>asset/</code> dir of the containing crate, e.g</p>
+<pre><code>    odin_goesr/
+      assets/
+         odin_goesr_config.js       optional, if there is static config of odin_goesr.js
+         odin_goesr.js              the JS module associated with the SpaService
+      src/      ⬆︎         
+         goesr_service.rs           the SpaService implementation that adds odin_goesr.js to the document
+</code></pre>
+<p>The first included JS module is always the automatically added <code>main.js</code>, which mostly contains code to share data items
+between all other modules.</p>
+<p>The document construction ensures that each configured JS module is loaded just once in the order of first reference as
+odin-rs modules normally depend on each other (specified by their <code>SpaService::add_dependencies()</code> implementation).</p>
+<p>Body fragments are not restricted and can contain whatever HTML elements are required by their <code>SpaServices</code>.</p>
+<p>Following the body fragment section is a script that calls <code>postInitialize()</code> of each loaded JS module that contains
+such a function. This is used for code that has to run after all modules have been initialized. Modules
+might be async and hence we cannot rely on their static order to guarantee completed initializatin.</p>
+<p>If <code>SpaService</code> impls do have dependencies and components such as JS modules those have to be
+specified in the <code>SpaService</code> trait function, as shown in the <code>GoesrService</code> example below:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[async_trait]
+impl SpaService for GoesrService {
+
+    fn add_dependencies (&amp;self, spa_builder: SpaServiceList) -&gt; SpaServiceList {
+        spa_builder.add( build_service!( =&gt; CesiumService::new())) // recursive dependency graph
+        ...
+    }
+
+    fn add_components (&amp;self, spa: &amp;mut SpaComponents) -&gt; OdinServerResult&lt;()&gt;  {
+        spa.add_assets( self_crate!(), load_asset);          // all icons and other resources used by JS module
+        spa.add_module( asset_uri!("odin_goesr_config.js")); // module with static config
+        spa.add_module( asset_uri!( "odin_goesr.js" ));      // service specific JS module itself
+        ...
+        Ok(())
+    }
+    ...
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="32-client-browser-code"><a class="header" href="#32-client-browser-code">3.2 Client (Browser) Code</a></h3>
+<p>Although there is no need for a specific structure or purpose of a JS module the ones implementing UI windows
+and websocket message processing follow the convention laid out in the <code>odin_goesr.js</code> example below:</p>
+<pre><code class="language-javascript">
+//--- 1. import JS module configuration
+import { config } from "./odin_goesr_config.js";              // associated static config for this module
+
+//--- 2. import other JS modules
+import * as main from "../odin_server/main.js";               // global functions (e.g. for data sharing)
+import * as util from "../odin_server/ui_util.js";            // common, cross-module support functions
+import * as ui from "../odin_server/ui.js";                   // ODIN specific user interface library 
+import * as ws from "../odin_server/ws.js";                   // websocket processing
+import * as odinCesium from "../odin_cesium/odin_cesium.js";  // virtual globe rendering interface from odin_cesium
+... 
+
+//--- 3. constants
+const MOD_PATH = "odin_goesr::goesr_service::GoesrService";   // the name of the associated odin-rs SpaService 
+...
+
+//--- 4. registering JS message handlers
+ws.addWsHandler( MOD_PATH, handleWsMessages);                 // incoming websocket messages for MOD_PATH
+main.addShareHandler( handleShareMessage);                    // if module uses shared data items
+main.addSyncHandler( handleSyncMessage);                      // if module supports synchronization commands
+
+//--- 5. data type definitions, module variable initialization
+...
+var dataSets = [];                                            // module data
+var dataSetView = undefined;                                  // module global UI components
+var selectedDataSet = undefined;                              // keeping track of user selections
+...
+
+//--- 6. UI initialization
+createIcon();
+createWindow();                                               // UI window definition
+initDataSetView();                                            // initialize UI window components and store references
+...
+
+console.log("ui_cesium_goesr initialized");
+
+//--- 7. function definitions
+...
+function createIcon() {                                       // define UI window icon (used to automatically populate icon box)
+    return ui.Icon("./asset/odin_goesr/geo-sat-icon.svg", (e)=&gt; ui.toggleWindow(e,'goesr'));
+}
+
+function createWindow() {                                     // define UI window structure and layout
+    return ui.Window("GOES-R Satellites", "goesr", "./asset/odin_goesr/geo-sat-icon.svg")(
+        ui.LayerPanel("goesr", toggleShowGoesr),              // panel with module information (should be first)
+        ...
+        ui.Panel("data sets", true)(                          // (collapsible) panel definition
+            ui.RowContainer()(
+                ui.CheckBox("lock step", ...),
+                ...
+                (dataSetView = ui.List("goesr.dataSets", 6, selectGoesrDataSet)),
+                ...
+            )
+        ),
+        ...
+        ui.Panel("layer parameters", false)(                 // panel with display parameter controls (should be last)
+            ui.Slider("size [pix]", "goesr.pointSize", ...)
+            ...
+        )
+    );
+}
+
+function initDataSetView() {                                 // UI component init 
+    let view = ui.getList("goesr.dataSets");
+    if (view) {
+        ui.setListItemDisplayColumns(view, ["fit", "header"], [    // defines List columns and display
+            { name: "sat", tip: "name of satellite", width: "3rem", attrs: [], map: e =&gt; e.sat.name },
+            { name: "good", tip: "number of good pixels", width: "3rem", attrs: ["fixed", "alignRight"], map: e =&gt; e.nGood },
+            ...
+        ])
+    }
+}
+
+function selectGoesrDataSet(event) {                         // UI component callback
+    let ds = event.detail.curSelection;
+    if (ds) {
+        selectedDataSet = ds;                                // update selected items
+        ...
+    }
+}
+
+function handleWsMessages(msgType, msg) {
+    switch (msgType) {
+        case "hotspots": handleGoesrDataSet(msg); break;
+        ...
+    }
+}
+
+function handleGoesrDataSet (hotspots) {
+    ...
+    dataSets.push( hotspots);                                // update data
+    ui.setListItems( dataSetView, displayDataSets);          // update UI components displaying data
+    ...
+}
+
+function handleShareMessage (msg) {                          // shared data updates (local and between users)
+    if (msg.setShared) {
+        let sharedItem = msg.setShared; ...
+    }
+    ...
+}
+
+function handleSyncMessage (msg) {                           // user interface sync (between users)
+    if (msg.updateCamera) { ... }
+}
+...                                                          // more module functions
+
+
+//--- 8. global post JS module initialization
+export function postInitialize() {                            // optional but needs to be named 'postInitialize`  
+    ...
+}
+</code></pre>
+<p>Not all JS modules need all these sections. All functions (except postInitialize) are module private and can be named
+at will, although we encourage to use above conventions so that modules are more easy to read.</p>
+<p>If a module requires static initialization that can change independently of the code this should go into a separate
+<code>&lt;module-name&gt;_config.js</code> asset that is kept either outside the repository in the <code>ODIN_ROOT/asset/</code> directory tree or
+(if it has sensible non-application specific defaults) in the respective <code>assets/</code> directory of the crate that provides
+the service. Although there can be some code (and even imports) config modules should be restricted to exporting a
+single <code>config</code> object like so:</p>
+<pre><code class="language-javascript">export const config = {
+    layer: {
+      name: "/fire/detection/GOES-R",
+      description: "GOES-R ABI Fire / Hotspot Characterization",
+    },
+    pointSize: 5,
+    ...
+}
+</code></pre>
+<p>The functions and UI components used by JS modules are from ODIN's own <a href="odin_server/ui_library.html"><code>odin_server/assets/ui.js</code></a> library.
+The main reason why we use our own is that most available 3rd party libraries are meant to be for full web pages whereas we
+use UI components in floating windows on top of our main display - the virtual globe. This means we have to minimize screen
+space for UI components. See <a href="design_principles.html">design principles</a> for other reasons.</p>
+<h3 id="33-websocket-message-processing"><a class="header" href="#33-websocket-message-processing">3.3 WebSocket Message Processing</a></h3>
+<p>This leaves us the (bi-directional) processing of websocket messages, which is not hard-coded but implemented as a <code>SpaService</code> /
+JS module pair itself: <code>odin_server::WsService</code> and <code>odin_server/assets/ws.js</code>.</p>
+<p>As a general principle we only exchange JSON messages over the websocket. Each message uses the following JSON format:</p>
+<pre><code>    { "mod": "&lt;service name&gt;", "&lt;msg-name&gt;": &lt;payload value&gt; }
+</code></pre>
+<p>(e.g. <code>{ "mod": "odin_goesr::GoesrService", "hotspots": [...] }</code> in the above example). The <code>mod</code> field is used on both the
+server- and the client-side to filter/route it to its respective service/JS module, i.e. it effectively creates a service
+specific namespace for messages.</p>
+<h4 id="331-spaservice-websocket-handling"><a class="header" href="#331-spaservice-websocket-handling">3.3.1 <code>SpaService</code> websocket handling</a></h4>
+<p>On the server side this entails a <code>SpaService::handle_ws_msg(..)</code> implementation for incoming messages (sent by the JS module):</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl SpaService for MyService {
+    ...
+    async fn handle_ws_msg (&amp;mut self, 
+        hself: &amp;ActorHandle&lt;SpaServerMsg&gt;, remote_addr: &amp;SocketAddr, ws_msg_parts: &amp;WsMsgParts) -&gt; OdinServerResult&lt;WsMsgReaction&gt; 
+    {
+        if ws_msg_parts.mod_path == ShareService::mod_path() {
+            match ws_msg_parts.msg_type {
+                "myMessage" =&gt; ...
+                ...
+            }
+        }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>WsMsgParts</code> is a helper type that already breaks out the <code>mod_path</code>, <code>msg_type</code> and <code>payload</code> string slices of the incoming
+message text.</p>
+<p>Sending messages from the service to the client has to go through the <code>SpaServer</code>, i.e. is done by sending any one of the
+following actor messages to it:</p>
+<ul>
+<li><code>BroadcastWsMsg</code> sends a websocket message to all currently connected (browser) clients</li>
+<li><code>SendAllOthersWsMsg</code> sends to all but one (usually the sender client) websocket connection</li>
+<li><code>SendGroupWsMsg</code> sends to a explicitly provided set of websocket connections</li>
+<li><code>SendWsMsg</code> sends only to one explicitly specified websocket connection</li>
+</ul>
+<p>Each of these types store the websocket message as a generic <code>String</code> field, i.e. the message can be assembled manually. To
+avoid mistakes and cut boiler plate code we provide a</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct WsMsg&lt;T&gt;  {
+    pub mod_path: &amp;'static str, // this is composed of crate_name/js_module (e.g. "odin_cesium/odin_cesium.js")
+    pub msg_type: &amp;'static str, // the operation on the payload
+    pub payload: T
+}
+<span class="boring">}</span></code></pre></pre>
+<p>helper construct for serialization that can be used like so:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>   let msg = WsMsg::json(ShareService::mod_path(), "myMessage", payload)?;
+   hserver.send_msg( BroadcastWsMsg{ data: msg}).await;
+<span class="boring">}</span></code></pre></pre>
+<p>The payload serialization/deserialization is usually done by means of the <a href="https://docs.rs/serde_json/latest/serde_json/"><code>serde_json</code></a> crate.</p>
+<h4 id="332-js-module-websocket-processing"><a class="header" href="#332-js-module-websocket-processing">3.3.2 JS module websocket processing</a></h4>
+<p>On the client (browser) side websocket messages come in through the <code>odin_server/assets/ws.js</code> JS module (if <code>odin_server::WsService</code> is used),
+which is responsible for dispatching the message to the JS module that registered for the <code>mod</code> property of the message object.</p>
+<p>JS module websocket handlers are functions that take two arguments - the name of the message (a string) and the Javascript object
+that is deserialized from the payload value:</p>
+<pre><code class="language-javascript">   function myHandler (msgTypeName, msgObj) {..}
+</code></pre>
+<p>This means deserialization if automatically done in ws.js - the receiving JS module does not have to call <code>JSON.parse(..)</code>.</p>
+<p>The JS module recipient has to provide the message handler function and register it like so:</p>
+<pre><code class="language-javascript">...
+import * as ws from "../odin_server/ws.js";                  
+...
+const MOD_PATH = "odin_goesr::goesr_service::GoesrService";   // the type name of the corresponding SpaService implementation
+...
+ws.addWsHandler( MOD_PATH, handleWsMessages);
+...
+function handleWsMessages(msgType, msgObj) {
+    switch (msgType) {
+        case "hotspots": ...; break;
+    }
+}
+</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../odin_server/odin_server.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../odin_server/ui_library.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../odin_server/odin_server.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../odin_server/ui_library.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>

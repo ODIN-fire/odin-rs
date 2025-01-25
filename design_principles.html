@@ -1,0 +1,291 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Design Principles - ODIN</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="the Open Data Integration Framework">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="odin.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="about.html">About this Document</a></li><li class="chapter-item expanded "><a href="install.html">Installation</a></li><li class="chapter-item expanded "><a href="intro.html">1. Introduction</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item expanded "><a href="design_principles.html" class="active">Design Principles</a></li></ol></li><li class="chapter-item expanded "><a href="sys_crates.html">2. System Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_build/odin_build.html">odin_build</a></li><li class="chapter-item "><a href="odin_action/odin_action.html">odin_action</a></li><li class="chapter-item "><a href="odin_actor/odin_actor.html">odin_actor</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_actor/actor_basics.html">Actor Programming Model</a></li><li class="chapter-item "><a href="odin_actor/actor_impl.html">Basic Design</a></li><li class="chapter-item "><a href="odin_actor/actor_communication.html">Actor Communication</a></li><li class="chapter-item "><a href="odin_actor/examples/examples.html">Examples</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_actor/examples/hello_world.html">hello_world</a></li><li class="chapter-item "><a href="odin_actor/examples/sys_msgs.html">sys_msgs</a></li><li class="chapter-item "><a href="odin_actor/examples/spawn.html">spawn</a></li><li class="chapter-item "><a href="odin_actor/examples/spawn_blocking.html">spawn_blocking</a></li><li class="chapter-item "><a href="odin_actor/examples/exec.html">exec</a></li><li class="chapter-item "><a href="odin_actor/examples/jobs.html">jobs</a></li><li class="chapter-item "><a href="odin_actor/examples/producer_consumer.html">producer_consumer</a></li><li class="chapter-item "><a href="odin_actor/examples/pub_sub.html">pub_sub</a></li><li class="chapter-item "><a href="odin_actor/examples/pin_pong.html">ping_pong</a></li><li class="chapter-item "><a href="odin_actor/examples/query.html">query</a></li><li class="chapter-item "><a href="odin_actor/examples/dyn_actor.html">dyn_actor</a></li><li class="chapter-item "><a href="odin_actor/examples/actions.html">actions</a></li><li class="chapter-item "><a href="odin_actor/examples/dyn_actions.html">dyn_actions</a></li><li class="chapter-item "><a href="odin_actor/examples/retry.html">retry</a></li><li class="chapter-item "><a href="odin_actor/examples/requests.html">requests</a></li><li class="chapter-item "><a href="odin_actor/examples/actor_config.html">actor_config</a></li><li class="chapter-item "><a href="odin_actor/examples/heartbeat.html">heartbeat</a></li></ol></li></ol></li><li class="chapter-item "><a href="odin_server/odin_server.html">odin_server</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_server/client.html">Server/Client Interaction</a></li><li class="chapter-item "><a href="odin_server/ui_library.html">Web Client UI Library</a></li></ol></li><li class="chapter-item "><a href="odin_cesium/odin_cesium.html">odin_cesium</a></li><li class="chapter-item "><a href="odin_share/odin_share.html">odin_share</a></li><li class="chapter-item "><a href="odin_dem/odin_dem.html">odin-dem</a></li></ol></li><li class="chapter-item expanded "><a href="app_crates.html">3. Application Domain Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_hrrr/odin_hrrr.html">odin_hrrr</a></li><li class="chapter-item "><a href="odin_sentinel/odin_sentinel.html">odin_sentinel</a></li><li class="chapter-item "><a href="odin_goesr/odin_goesr.html">odin_goesr</a></li></ol></li><li class="chapter-item expanded "><a href="glossary.html">Glossary</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">ODIN</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="design-principles"><a class="header" href="#design-principles">Design Principles</a></h1>
+<p>To keep a complex and multi-disciplinary framework such as odin-rs consistent we have to adhere to a set of
+general design principles. The dominant ones for odin-rs are listed below.</p>
+<h2 id="use-existing-libraries"><a class="header" href="#use-existing-libraries">Use existing libraries</a></h2>
+<p>The use of odin-rs generally falls into the cross section of several application domains such as</p>
+<ul>
+<li>(web) server/client development</li>
+<li>serialization/deserialization</li>
+<li>geo-spatial processing</li>
+<li>physical computation</li>
+<li>data visualization and user interfaces</li>
+<li>asynchronous programming</li>
+</ul>
+<p>The <a href="https://crates.io">Rust ecosystem</a> contains substantial libraries for all these domains. Wherever
+these libraries are stable, maintained, widely adopted and license compatible <code>odin-rs</code> should use them
+to avoid not-invented-here syndrome. Not doing so means to dramatically increase the size of <code>odin-rs</code>
+with functions that probably won't be based on the same domain expertise and won't be as well tested.</p>
+<p>Using 3rd party libaries does come with caveats, namely dependency management and interface/type consistency.</p>
+<p>To avoid <a href="https://en.wikipedia.org/wiki/Dependency_hell">dependency/version hell</a> we have to ensure that</p>
+<p>(1) we use Rust crates instead of native libraries wherever possible so that we can rely on the Rust build
+system to manage versions and features. This also means we can statically compile/link those dependencies
+which greatly reduces the risk of version hell.</p>
+<p>(2) we try to keep the number of 3rd party dependencies low by using only established crates.</p>
+<p>To mitigate the interface/type consistency problem that comes with using partly overlapping 3rd party libraries
+we use Rust language features, namely <a href="https://doc.rust-lang.org/book/ch10-02-traits.html">traits</a> and the
+<a href="https://rust-unofficial.github.io/patterns/patterns/behavioural/newtype.html"><em>NewType</em> pattern</a>. The goal
+is to use Rust's "zero cost abstraction" features to add adapters that imply minimal (if any) runtime costs.
+The caveat here is to be aware where this might involve copying of aggregates and collections.</p>
+<p>As of this time the strategic 3rd party crates used by <code>odin-rs</code> are:</p>
+<ul>
+<li>server/client development: <a href="https://docs.rs/axum/latest/axum/">Axum</a> and <a href="https://docs.rs/reqwest/latest/reqwest/">Reqwest</a></li>
+<li>serialization/deserialization: <a href="https://serde.rs/">serde</a></li>
+<li>geo-spatial processing: <a href="https://georust.org/">GeoRust</a> - esp. <a href="https://docs.rs/geo/latest/geo/">geo</a> and [gdal](https://docs.rs/gdal/latest/gdal/,
+<a href="https://nalgebra.org/">nalgebra</a>)</li>
+<li>physical computation: <a href="https://docs.rs/uom/latest/uom/">uom</a></li>
+<li>asynchronous programming: <a href="https://tokio.rs/">Tokio</a></li>
+</ul>
+<p>These are defined as workspace dependencies (in the <code>odin-rs</code> <code>Cargo.toml</code>) to make sure versions are compatible
+across all <code>odin-rs</code> sub crates.</p>
+<p>The client code (browser scripts/modules) in <code>odin-rs</code> does not strictly follow the rule of using existing libraries. This code runs in many
+different environments (browsers, operating systems, hardware) and has to be loaded over the network so we have to minimize
+the amount of required code by adhering to what we strictly need. This also means to limit the client code to user interface
+related functions and performing as much data processing as possible on the server side.</p>
+<p>Where a separation is not entirely possible (e.g. to serve client library specific data/code) respective <code>odin-rs</code> sub-crates have to
+be very limited in scope and purpose, and are not allowed to be a dependency for non-client dependent ones (see [<code>odin_cesium</code>] example).</p>
+<p>That said there are (a) readily available standard browser APIs we have to use in order to be platform/browser independent, and (b) complex
+geospatial display libraries that cannot be re-implemented in <code>odin-rs</code>. The former is the <a href="https://developer.mozilla.org/en-US/docs/Web/API/Document_Object_Model/Introduction">Document Object Model (DOM)</a> that is supported by contemporary browsers. The latter is the virtual globe display for which we use <a href="https://cesium.com/platform/cesiumjs/">CesiumJS</a>. This is a serious 3rd party dependency and hence extra care has to be
+taken to not let it proliferate into the server. This is achieved with the following principle.</p>
+<h2 id="separate-server--and-client--side-code"><a class="header" href="#separate-server--and-client--side-code">Separate server- and client- side code</a></h2>
+<p>The primary purpose of the server is to import and process external data, and then serve it in a timely manner to connected clients.
+The client code should only be concerned about visualization and user interface.</p>
+<p>To that end communication between the two is using standard protocols and data formats, namely <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Overview">HTTP</a> and <a href="https://www.json.org/json-en.html">JSON</a> over <a href="https://en.wikipedia.org/wiki/WebSocket">websockets</a>. The ideal
+is to be able to re-implement each side without affecting the other.</p>
+<h2 id="use-the-rust-type-system-to-enforce-correct-semantics"><a class="header" href="#use-the-rust-type-system-to-enforce-correct-semantics">Use the Rust type system to enforce correct semantics</a></h2>
+<p>Many domain-specific 3rd party Rust libraries do abstract the memory type of variables (e.g. <code>f64</code>) but do little to enforce
+compatible units of measure (e.g. SI vs. Imperial). As a simple example, the correct use of angles entails</p>
+<ul>
+<li>memory type (e.g. <code>f64</code>)</li>
+<li>units (degrees or radians)</li>
+<li>semantics (e.g. use as latitude or longitude)</li>
+</ul>
+<p>Again we can use the Rust type system to our advantage. By means of using <a href="https://docs.rs/uom/latest/uom/">uom</a> types (such as
+<code>Length</code> based on SI and <code>f64</code>), and/or by using the <a href="https://rust-unofficial.github.io/patterns/patterns/behavioural/newtype.html"><em>NewType</em> pattern</a> and overloadable Rust <a href="https://doc.rust-lang.org/std/ops/index.html"><code>std::ops</code></a> traits we can add specific types that catch most potential errors at compile time without introducing runtime overhead.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="intro.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="sys_crates.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="intro.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="sys_crates.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>
