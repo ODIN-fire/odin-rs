@@ -23,7 +23,7 @@ odin_gdal = { workspace = true }
 odin_server = { workspace = true }
 odin_cesium = { workspace = true }
 
-
+gdal-sys = { workspace = true, features = ["bindgen"]}
 axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
