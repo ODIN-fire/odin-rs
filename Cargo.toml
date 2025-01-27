@@ -19,7 +19,7 @@ members = [
 
   "odin_sentinel",
   "odin_goesr",
-  "odin_jpss",
+  "odin_orbital",
   "odin_live",
   "gpshub",
 
