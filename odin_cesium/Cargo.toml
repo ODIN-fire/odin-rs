@@ -17,9 +17,14 @@ odin_macro = { workspace = true }
 odin_server = { workspace = true }
 
 anyhow = "*"
-tokio = { version = "*", features = ["full"] }
-serde = { version = "*", features = ["derive"] }
+tokio = { workspace = true }
+serde = { workspace = true }
 async-trait = "*"
+structopt = "0.3.26"
+lazy_static = { workspace = true }
+reqwest = { workspace = true }
+http = "1.2.0"
+zip = "2.2.2"
 
 [build-dependencies]
 odin_build = { workspace = true }
@@ -36,5 +41,11 @@ imglayer = { file = "imglayer.js"}
 imglayer_icon = { file = "imglayer.svg"}
 
 [features]
+default = ["cesium_proxy"]
+
 trace_server = ["odin_server/trace_server"]
 embedded_resources = []
+
+cesium_external = []
+cesium_proxy = []
+cesium_asset = []

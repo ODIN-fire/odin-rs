@@ -45,7 +45,7 @@ use serde::{Deserialize,Serialize};
 use async_trait::async_trait;
 
 use odin_build::LoadAssetFp;
-use odin_common::{fs::get_file_basename,strings::{self, mk_query_string}};
+use odin_common::{fs::get_file_basename,strings::{self, mk_query_string},collections::empty_vec};
 use odin_macro::define_struct;
 use odin_actor::prelude::*;
 
@@ -395,11 +395,11 @@ impl SpaServer {
 
     // FIXME - these should use timeouts (we can't have a connection block the server)
 
-    async fn data_available (&mut self, hself: ActorHandle<SpaServerMsg>, sender_id: &'static str, data_type: &'static str)->OdinServerResult<()> {
+    async fn data_available (&mut self, hself: ActorHandle<SpaServerMsg>, sender_id: Arc<String>, data_type: &'static str)->OdinServerResult<()> {
         let has_connections = self.has_connections();
 
         for svc in self.services.iter_mut() {
-            match svc.data_available( &hself, has_connections, sender_id, data_type).await {
+            match svc.data_available( &hself, has_connections, sender_id.as_str(), data_type).await {
                 Ok(true) => svc.is_data_available = true,
                 Ok(false) => {}
                 Err(e) => error!("data available check failed: {e}")
@@ -519,8 +519,13 @@ pub struct RemoveConnection {
 
 #[derive(Debug)]
 pub struct DataAvailable {
-    pub sender_id: &'static str,
-    pub data_type: &'static str,
+    pub sender_id: Arc<String>, // normally the actor id of the sender, hence Arc<String>
+    pub data_type: &'static str, // normally a static type name obtained via std::any::type_name<T>()
+}
+impl DataAvailable {
+    pub fn new<T>( sender_id: &Arc<String>)->Self {
+        DataAvailable{ sender_id: sender_id.clone(), data_type: type_name::<T>() }
+    }
 }
 
 #[derive(Debug)]
@@ -777,13 +782,13 @@ impl SpaComponents {
         self.assets.insert( key, load_asset_fn);
     }
 
-    pub fn add_proxy (&mut self,
+    pub fn add_modified_proxy (&mut self,
         key: impl ToString,
         uri_base: impl ToString,
-        copy_hdrs: Vec<String>,
-        add_hdrs: Vec<(String,String)>,
-        copy_query: bool,
-        add_query: Vec<(String,String)>
+        copy_hdrs: Vec<String>,          // from incoming request
+        add_hdrs: Vec<(String,String)>,  // to hdrs in incoming request
+        copy_query: bool,                // from incoming request
+        add_query: Vec<(String,String)>  // to query in incoming request
     ) {
         let mut uri = uri_base.to_string();
 
@@ -802,6 +807,11 @@ impl SpaComponents {
         self.proxies.insert( key.to_string(), proxy_spec);
     }
 
+    /// a proxy without header and/or query modification
+    pub fn add_proxy (&mut self, key: impl ToString, uri_base: impl ToString) {
+        self.add_modified_proxy( key, uri_base, empty_vec(), empty_vec(), true, empty_vec())
+    }
+
     /// render HTML document. We could use a lib such as build_html but our documents are rather simple so there is no
     /// need for another intermediate doc model
     /// TODO - remove newlines in production
@@ -814,7 +824,7 @@ impl SpaComponents {
 
         write!( buf, "<title>{name}</title>\n");
         write!( buf, "<base href=\"{}/\">\n", name);
-        write!( buf, "<link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"./asset/odin_server/odin-icon-32x32.png\">");
+        write!( buf, "<link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"./asset/odin_server/odin-icon-32x32.png\">\n");
 
         for item in &self.header_items {
             item.append_html(&mut buf);

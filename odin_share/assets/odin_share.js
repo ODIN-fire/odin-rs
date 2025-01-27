@@ -42,9 +42,12 @@ var localCb = undefined;
 var addRoleEntry = undefined;
 var msgEntry = undefined;
 var complChoice = undefined;
+var typeChoice = undefined;
+
+var typeCandidates = main.ALL_TYPES;
 
 var messages = [];
-var hasDataEntryChanged = false; // state to keep track if dataEntry has changed
+var pendingSavedKeys = new Set();
 
 var shareDataSource = new Cesium.CustomDataSource("share");
 odinCesium.addDataSource(shareDataSource);
@@ -54,7 +57,6 @@ createIcon();
 createWindow();
 
 var dirView = initDirView();
-//var completionList = initSuffixList();
 var ownRoleList = initOwnRoleList();
 var extRoleList = initExtRoleList();
 var msgList = initMsgList();
@@ -72,6 +74,7 @@ class OdinShare extends main.Share {
     }
 
     setSharedItem (key, type, data, isLocal=false, comment=null) {
+        if (type == main.JSON) data = JSON.stringify(data); // we store JSON as a generic string
         let value = new main.SharedValue( type, comment, data);
         let sharedItem = new main.SharedItem( key, isLocal, value);
 
@@ -145,16 +148,16 @@ main.setShareObj(share);
 //--- end init
 
 function compileConfigGlobs() {
-    for (var e of config.completions) {
-        if (e.pattern) {
-            e.glob = util.glob2regexp( e.pattern);
-        }
+    for (var e of config.keyCompletions) {
+        if (e.pattern) e.glob = util.glob2regexp( e.pattern);
     }
 
-    for (var e of config.typeInfos) {
-        if (e.pattern) {
-            e.glob = util.glob2regexp( e.pattern);
-        }
+    for (var e of config.keyTypes) {
+        if (e.pattern) e.glob = util.glob2regexp( e.pattern);
+    }
+
+    for (var e of config.keyTemplates) {
+        if (e.pattern) e.glob = util.glob2regexp( e.pattern);
     }
 }
 
@@ -196,7 +199,7 @@ function createWindow() {
         ),
         ui.Panel("item directory", true)(
                 ui.RowContainer("start")(
-                    ui.TreeList("share.dir.list", 15, "32rem", selectShareEntry, setKey),
+                    ui.TreeList("share.dir.list", 15, "32rem", selectShareEntry),
                     ui.ColumnContainer("end")(
                         ui.Button("clear local", clearLocalItems, "6rem"),
                         ui.Button("store local", saveLocalItems, "6rem"),
@@ -206,11 +209,16 @@ function createWindow() {
         ),
         ui.Panel("item editor", false)(
             ui.RowContainer()(
-                (keyEntry = ui.TextInput( "key","share.obj.key", "20.6rem", {isFixed: true, placeHolder: "enter item key", changeAction: keyChanged})),
-                (complChoice = ui.Choice( "compl", "share.obj.compl", completeKey))
+                ui.ColumnContainer()(
+                    (keyEntry = ui.TextInput( "key","share.obj.key", "24rem", {isFixed: true, placeHolder: "enter item key", changeAction: keyChanged})),
+                    (commentEntry = ui.TextInput( "comment", "share.obj.cmt", "24rem", {isFixed: true, placeHolder: "enter (optional) item comment"}))
+                ),
+                ui.ColumnContainer()(
+                    (complChoice = ui.Choice( "compl", "share.obj.compl", completeKey)),
+                    (typeChoice = ui.Choice( "type", "share.obj.type", selectType))
+                )
             ),
-            (commentEntry = ui.TextInput( "comment", "share.obj.cmt", "32rem", {isFixed: true, placeHolder: "enter (optional) item comment"})),
-            (dataEntry = ui.TextArea("share.obj.text", "32rem", "8lh", {isFixed: true, changeAction: dataChanged})),
+            (dataEntry = ui.TextArea("share.obj.text", "35.4rem", "8lh", {isFixed: true, changeAction: dataChanged})),
             ui.RowContainer()(
                 (localCb = ui.CheckBox("local", null, "share.obj.cb-local")),
                 ui.HorizontalSpacer(4),
@@ -224,16 +232,11 @@ function createWindow() {
     );
 }
 
-function setObjButtonsDisabled (isDisabled) {
-    ui.setButtonDisabled(deleteBtn, isDisabled);
-    ui.setButtonDisabled(saveBtn, isDisabled);
-}
-
 function initDirView() {
     let view = ui.getList("share.dir.list");
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "show", tip: "render selected item", width: "2.5rem", attrs:[], map: e=> ui.createCheckBox( isItemShowing(e), toggleShowItem) },
+            { name: "show", tip: "render selected item", width: "2.5rem", attrs:[], map: e=> itemRenderCb(e) },
             { name: "loc", tip: "item is local", width: "2rem", attrs: [], map: e => itemScope(e) },
             { name: "owner", tip: "owner of item", width: "6rem", attrs: [], map: e => itemOwner(e) },
             { name: "type", tip: "item type", width: "6rem", attrs: ["small"], map: e=> itemType(e) }
@@ -297,6 +300,19 @@ function initMsgList() {
     return view;
 }
 
+function toggleShareLayer(event) {
+    // nothing to toggle yet
+}
+
+function showShareLayer (cond) {
+    shareDataSource.show = cond;
+    odinCesium.requestRender();
+}
+
+function itemRenderCb (e) {
+    return e && e.value ? ui.createCheckBox( isItemShowing(e), toggleShowItem) : "";
+}
+
 function isItemShowing (e) {
     return shareDataSource.entities.getById( e.key);
 }
@@ -351,10 +367,9 @@ function addOwnRole (event) {
     let newRole = ui.getFieldValue(addRoleEntry);
     if (newRole) {
         share.requestRole(newRole); // this will come back to us as a 'newOwner' message
-    } else {
-        window.alert("no role name provided");
     }
 }
+
 
 function deleteRole(event) {
     let role = share.selectedOwnRole();
@@ -381,56 +396,6 @@ function unsubscribeAll (event) {
     }
 }
 
-// triggered when keyEntry changed
-function keyChanged (event) {
-    let key = ui.getFieldValue(keyEntry);
-    let si = share.getSharedItem(key);
-
-    if (si) {
-        let json = JSON.stringify( si.value.data, 0, 2);
-        setDataEntry( json);
-        setObjButtonsDisabled(false);
-
-    } else {
-        checkTemplate(key);
-        updateKeyCompletions();
-    }
-}
-
-function lookupTypeInfo (key) {
-    if (key) {
-        for (var e of config.typeInfos) {
-            if (e.glob && key.match(e.glob)) {
-                return e;
-            }
-        }
-    }
-}
-
-function checkTemplate (key) {
-    let ti = lookupTypeInfo(key);
-    if (ti && ti.template) {
-        let json = JSON.stringify( ti.template, 0, 2);
-        setDataEntry( json);
-        setObjButtonsDisabled(false);
-        setEditorChoice( ti.type);
-    }
-}
-
-function setEditorChoice (itemType) {
-    let editors = main.getShareEditorForItemType(itemType);
-    ui.setChoiceItems( editorChoice, editors, 0);
-}
-
-function toggleShareLayer(event) {
-    // nothing to toggle yet
-}
-
-function showShareLayer (cond) {
-    shareDataSource.show = cond;
-    odinCesium.requestRender();
-}
-
 function sendMsg(event) {
     let selRoleEntry = ui.getSelectedListItem( ownRoleList);
     if (selRoleEntry && selRoleEntry.isPublishing) {
@@ -452,62 +417,81 @@ function clearMsgList (event) {
     }
 }
 
+//--- shared item selections
+
 // tree list selection in dirView
 function selectShareEntry(event) {
     let e = ui.getSelectedListItem(dirView);
-    let key = null;
-
-    if (e) {
-        key = e.key;
+    if (e) { // data item selected
+        let key = e.key;
         if (e.value) {
+            ui.setField( keyEntry, key);
+            ui.clearChoiceItems( complChoice); // nothing to complete
+            ui.setChoiceItems( typeChoice, typeCandidates, 0);
             ui.setField( commentEntry, e.value.comment);
             setDataEntry( JSON.stringify(e.value.data, 0, 2));
-            setObjButtonsDisabled(false);
-
-        } else { // dir entry
-            ui.setField( commentEntry, null);
-            setDataEntry(null);  
-            setObjButtonsDisabled(true);
+            updateTypeCandidates(key,e);
+            return;
         }
-    } else { // no item selected but check for branch nodes
-        let node = ui.getSelectedTreeNode(dirView);
-        key =  node ? node.collectNamesUp('/') : null;
+    } 
 
-        ui.setField( commentEntry, null);
-        setDataEntry(null);
-        setObjButtonsDisabled(true);
+    let node = ui.getSelectedTreeNode( dirView);
+    if (node) { // parent (non-data) node selected
+        let key = node.collectNamesUp('/');
+        ui.setField( keyEntry, key);
+        updateKeyCompletions( key);
+        updateTypeCandidates( key);
+        ui.clearTextAreaContent(dataEntry);
+        return;
     }
 
-    ui.setField( keyEntry, key);
-
-    let ti = lookupTypeInfo(key);
-    if (ti) setEditorChoice(ti.type);
+    // nothing selected at all, reset entries
+    ui.setField( keyEntry, null);
+    ui.clearChoiceItems( complChoice);
+    ui.clearChoiceItems( typeChoice);
+    ui.setField( commentEntry, null);
+    ui.clearTextAreaContent(dataEntry);
 }
 
-function setKey (event){
-    let node = ui.getSelectedTreeNode( dirView);
-    if (node) {
-        let path = node.collectNamesUp('/');
-        ui.setField( keyEntry, path);
-        updateKeyCompletions();
-    } 
-}
-
-function updateKeyCompletions() {
-    let choices = [];
-
-    let key = ui.getFieldValue(keyEntry);
+function updateKeyCompletions(key) {
     if (key) {
-        for (var e of config.completions) {
+        let choices = [];
+        for (var e of config.keyCompletions) {
             if (e.glob && key.match(e.glob)) {
                 e.completion.forEach( c=> choices.push(c));
             } 
         }
+        if (choices.length > 0) {
+            ui.setChoiceItems( complChoice, choices, 0);
+            return;
+        }
     }
 
-    ui.setChoiceItems( complChoice, choices, 0);
+    ui.clearChoiceItems( complChoice);
 }
 
+function updateTypeCandidates(key, selItem = null) {
+    typeCandidates = selItem ? [selItem.value.type] : getTypeCandidates(key);
+
+    if (typeCandidates.length > 0) {
+        ui.setChoiceItems( typeChoice, typeCandidates, 0);
+    } else {
+        ui.clearChoiceItems( typeChoice);
+    }
+    updateEditorChoices();
+}
+
+function getTypeCandidates (key) {
+    let candidates = [];
+    if (key) {
+        for (var e of config.keyTypes) {
+            if (e.glob && key.match(e.glob)) candidates.push(e.type);
+        }
+    }
+    return candidates;
+}
+
+// complChoice selection
 function completeKey (event) {
     let completion = ui.getSelectedChoiceValue(event);
     if (completion) {
@@ -518,23 +502,78 @@ function completeKey (event) {
         ui.focusField(keyEntry);
         if (i>=0) { // key not complete yet
             ui.selectFieldRange( keyEntry, i, i+1);
-
         } else {
-            checkTemplate(key);
-            setObjButtonsDisabled(false);
+            ui.triggerFieldChange(keyEntry);
         }
+        updateTypeCandidates(key);
     } 
+}
+
+function selectType (event){
+    let type = ui.getSelectedChoiceValue( typeChoice);
+    let key = ui.getFieldValue( keyEntry);
+    if (type) setTemplate( key, type);
+    updateEditorChoices();
+}
+
+function setTemplate (key, dataType) {
+    let templ = getTypeTemplate( key, dataType);
+    setDataEntry( templ);
+}
+
+function getTypeTemplate(key, dataType) {
+    for (var e of config.keyTemplates) { // overrides our static type templates
+        if (e.glob && key.match(e.glob)) {
+            return e.template;
+        }
+    }
+
+    return main.typeTemplate( dataType);
 }
 
 function setDataEntry (src) {
     ui.setTextAreaContent( dataEntry, src);
-    hasDataEntryChanged = false;
 }
 
 // textarea change (triggered when loosing focus)
 function dataChanged(event) {
-    hasDataEntryChanged = true;
 }
+
+// triggered when keyEntry changed
+function keyChanged (event) {
+    let key = ui.getFieldValue(keyEntry);
+
+    if (!ui.selectNodePath( dirView, key)) { // key was not in our current list (NOTE this causes a select null)
+        ui.setField( keyEntry, key);
+        updateKeyCompletions(key);
+        updateTypeCandidates(key);
+        ui.setField( commentEntry, null);
+
+        if (typeCandidates.length == 0) {
+            typeCandidates = main.ALL_TYPES;
+            ui.setChoiceItems( typeChoice, typeCandidates, 0);
+            setTemplate( key, typeCandidates[0]);
+
+        } else if (typeCandidates.length == 1) {
+            setTemplate( key, typeCandidates[0]);
+        }
+    }
+}
+
+function updateEditorChoices () {
+    let selType = ui.getSelectedChoiceValue( typeChoice);
+    if (selType) { // we only set editors once we know the type
+        let editors = main.getShareEditorForItemType( selType);
+        if (editors && editors.length > 0)  {
+            ui.setChoiceItems( editorChoice, editors, 0);
+            return;
+        }
+    }
+
+    ui.clearChoiceItems( editorChoice);
+}
+
+
 
 // triggered when pressing "delete" button
 function removeItem(event) {
@@ -553,36 +592,25 @@ function saveItem(event) {
     let comment = ui.getNonEmptyFieldValue(commentEntry);
     let dataSrc = ui.getTextAreaContent( dataEntry);
     let isLocal =  ui.isCheckBoxSelected( localCb);
+    let dataType = ui.getSelectedChoiceValue( typeChoice);
 
-    if (key && dataSrc.length > 0) {
-        // todo - should also allow changes of comment or isLocal
-        if (hasDataEntryChanged) { 
-            try {
-                let data = JSON.parse(dataSrc);
-                let dataType = DEFAULT_TYPE;
-
-                let ti = lookupTypeInfo(key);
-                if (ti) {
-                    dataType = ti.type;
-                    if (ti.template) {
-                        if (!util.haveEqualKeys( data, ti.template)) {
-                            window.alert("entered data does not correspond with template");
-                            return;
-                        }
-                    }
-                }
-
-                share.setSharedItem( key, dataType, data, isLocal, comment);
-                setObjButtonsDisabled(true);
-
-            } catch (error) {
-                window.alert("invalid JSON: " + error);
+    if (key && dataType && dataSrc.length > 0) {
+        try {
+            let data = JSON.parse(dataSrc);
+            let templ = (dataType == main.JSON) ? null : getTypeTemplate(key, dataType);
+            if (!main.checkType( dataType, data, templ)) {
+                window.alert("entered data does not correspond with template");
+                return;
             }
-        } else {
-            window.alert("data was not changed");
+
+            pendingSavedKeys.add( key);
+            share.setSharedItem( key, dataType, data, isLocal, comment);
+
+        } catch (error) {
+            window.alert("invalid JSON: " + error);
         }
     } else {
-        window.alert("missing shared item key or data");
+        window.alert("missing shared item key, type or data");
     }
 }
 
@@ -641,13 +669,45 @@ function handleWsMessages(msgType, msg) {
     }
 }
 
+function handleInitSharedItems(sharedItems) { 
+    let items = config.keyCategories.slice(); // add the category entries // FIXME - this has to map objects
+
+    // we get this as a map (JS object with keys as properties)
+    for (var e of Object.entries(sharedItems)) { // add the values from the server
+        let item = new main.SharedItem( e[0], false, e[1]);
+        items.push(item);
+
+        share._set( item.key, item); // store the item in our share object
+    }
+
+    items.sort( (a,b)=> a.key.localeCompare(b.key));
+
+    let tree = ExpandableTreeNode.from( items, e=>e.key, e=>e.value == undefined ); // this classifies keyCategories as branch nodes
+    for (e of config.keyCategories) {
+        tree.setPathNameSticky( e.key); // make sure category nodes are not removed if we delete the last child
+    }
+
+    ui.setTree( dirView, tree);
+
+    main.notifyShareHandlers( main.SHARE_INITIALIZED);
+}
+
 function handleSetShared (msg, isLocal) {
     let key = msg.key;
     let value = msg.value;
+
+    if (value.type == main.JSON) { value.data = JSON.parse( value.data) }
+
     let sharedItem = new main.SharedItem(key,isLocal,value);
     share._set( sharedItem.key, sharedItem);
 
     ui.sortInTreeItem( dirView, sharedItem, sharedItem.key);
+
+    if (pendingSavedKeys.has(key)) {
+        pendingSavedKeys.delete(key);
+        ui.selectNodePath(dirView, key);
+    }
+
     main.notifyShareHandlers( {setShared: sharedItem} );
 }
 
@@ -658,7 +718,8 @@ function handleRemoveShared (msg) {
         let key = sharedItem.key;
         share._delete( key);
 
-        ui.removeTreeItemPath( dirView, key);
+        ui.removeTreeItemPath( dirView, key); // if visible this will trigger a select null
+
         main.notifyShareHandlers( {removeShared: key});
     }
 }
@@ -731,39 +792,17 @@ function handlePublishMsg (publishedMsg){
     ui.selectLastListItem( msgList);
 }
 
-function handleInitSharedItems(o) { 
-    let items = config.categories.slice(); // add the category entries
-
-    // we get this as a map (JS object with keys as properties)
-    for (var e of Object.entries(o)) { // add the values from the server
-        let item = new main.SharedItem( e[0], false, e[1]);
-        items.push(item);
-
-        share._set( item.key, item); // store the item in our share object
-    }
-
-    items.sort( (a,b)=> a.key.localeCompare(b.key));
-
-    let tree = ExpandableTreeNode.from( items, e=>e.key );
-    ui.setTree( dirView, tree);
-
-    main.notifyShareHandlers( main.SHARE_INITIALIZED);
-}
-
-
 function runSelectedEditor(event) {
     function valueCallback (data) {
         let src = JSON.stringify(data, 0, 2);
-
         setDataEntry( src);
-        setObjButtonsDisabled(false);
-        hasDataEntryChanged = true;
     }
 
     let e = ui.getSelectedChoiceValue(editorChoice);
     if (e) {
         let key = ui.getNonEmptyFieldValue(keyEntry);
         if (isValidItemKey(key)) {
+            ui.selectChoiceItem( typeChoice, e.type); // if we run the editor we select a type
             e.editor( valueCallback);
         } else {
             window.alert("no valid item key to edit");
@@ -862,8 +901,25 @@ function createRectEntity(e) {
 }
 
 function createPolygonEntity(e){
-    // TODO
-    return null;
+    let d = e.value.data;
+    let exterior = d.exterior.map( p=> Cesium.Cartesian3.fromDegrees( p.lon, p.lat));
+    let cp = util.centerLonLat(d.exterior);
+    let center = Cesium.Cartesian3.fromDegrees( cp.lon, cp.lat);
+
+    return new Cesium.Entity({
+        id: e.key,
+        name: e.key,
+        position: center,
+        label: entityLabel(e.key),
+        polygon: {
+            hierarchy: exterior,
+            heightReference: Cesium.CLAMP_TO_GROUND,
+            fill: true,
+            material: config.fillColor,
+            outlineColor: config.outlineColor,
+            outlineWidth: config.outlineWidth,
+        }
+    });
 }
 
 function entityLabel (key) {

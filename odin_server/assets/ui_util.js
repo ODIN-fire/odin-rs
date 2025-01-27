@@ -569,6 +569,22 @@ export function distanceBetweenGeoPos(lat1Deg,lon1Deg, lat2Deg,lon2Deg) {
     return meanEarthRadius * c;
 }
 
+// naive center
+export function centerLonLat (geoPoints) {
+    let lon = 0;
+    let lat = 0;
+
+    geoPoints.forEach( p=> {
+        lon += p.lon;
+        lat += p.lat;
+    });
+
+    lon /= geoPoints.length;
+    lat /= geoPoints.length;
+
+    return { lon, lat };
+}
+
 //--- array utilities
 
 export function prependElement(e, array) {
@@ -630,10 +646,21 @@ export function defaultCompare (a,b) {
     else return 0;
 }
 
+export function firstElement(list) {
+    if (list && list.length) {
+        return list[0];
+    }
+    return null;
+}
+
+export function lastElement(list) {
+    if (list && list.length) {
+        return list[list.length-1];
+    }
+    return null;
+}
 
 //--- misc
-
-
 
 export function firstDefined(...theArgs) {
     for (const arg of theArgs) {

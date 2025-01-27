@@ -942,6 +942,14 @@ export function selectFieldRange(o, i0, i1) {
     }
 }
 
+export function triggerFieldChange(o) {
+    let e = getField(o);
+    if (e) {
+        let event = new Event('change', { bubbles: true });
+        e.dispatchEvent(event);
+    }
+}
+
 export function getField(o) {
     let e = _elementOf(o);
     if (e && e.classList.contains("ui_field")) {
@@ -1010,6 +1018,13 @@ export function setTextAreaContent(o,text) {
     let v = getTextArea(o);
     if (v) {
         v.value = text;
+    }
+}
+
+export function clearTextAreaContent(o){
+    let v = getTextArea(o);
+    if (v) {
+        v.value = null;
     }
 }
 
@@ -1517,11 +1532,11 @@ export function setSliderValue(o, v) {
     let e = getSlider(o);
     if (e) {
         let newValue = _computeSliderValue(e, v);
-        if (newValue != e._uiValue) {
-            e._uiValue = newValue;
-            if (e._uiNum) e._uiNum.innerText = _formattedNum(e._uiValue, e._uiNumFormatter);
-            if (_hasDimensions(e)) _positionThumb(e);
+        e._uiValue = newValue;
+        if (e._uiNum) e._uiNum.innerText = _formattedNum(e._uiValue, e._uiNumFormatter);
+        if (_hasDimensions(e)) _positionThumb(e);
 
+        if (newValue != e._uiValue) {
             let slider = e.parentElement;
             slider.dispatchEvent(new Event('change'));
         }
@@ -1625,6 +1640,17 @@ export function setChoiceItems(o, items, selIndex = -1) {
                 event.preventDefault();
             });
         }
+    }
+}
+
+export function clearChoiceItems(o) {
+    let e = getChoice(o);
+    if (e && e._uiItems.length > 0) {
+        e._uiItems = [];
+        e._uiSelIndex = -1;
+        e.innerText = null;
+        
+        e.parentElement.removeChild( e.nextSibling); // this removes the popup menu
     }
 }
 
@@ -2038,7 +2064,7 @@ export function List (eid, maxRows, selectAction, clickAction, contextMenuAction
 }
 
 export function TreeList (eid, maxRows, minWidth, selectAction, clickAction, contextMenuAction, dblClickAction) {
-    let e = genList("tree", eid, maxRows, selectAction, clickAction, contextMenuAction, dblClickAction);
+    let e = genList("ui_tree", eid, maxRows, selectAction, clickAction, contextMenuAction, dblClickAction);
     setWidthStyle(e, minWidth);
     return e;
 }
@@ -2293,8 +2319,12 @@ export function setListItems(o, items) {
 
 //--- tree list variation
 
+// tree lists are normal lists in which we wrap item elements into tree node elements. Those
+// tree node elements are the child elements of the list and are used to control expand/collapse
+// This also means we have tree nodes without data (for each item element parent level)
+
 export function setTree(o,root) {
-    let e = getList(o);
+    let e = getTreeList(o);
     if (e) {
         _setSelectedItemElement(e, null);
         _removeChildrenOf(e);
@@ -2308,64 +2338,70 @@ export function setTree(o,root) {
     }
 }
 
-// this returns a EpandableTreeNode
+// this returns an ExpandableTreeNode
 export function getRootNode(o) {
-    let e = getList(o);
+    let e = getTreeList(o);
     return e ? e._uiRoot : null;
 }
 
 function getNodeElement (e, node) {
-    for (let ce = e.firstChild; ce; ce = ce.nextSibling) {
+    for (let ce = e.firstChild; ce; ce = ce.nextElementSibling) {
         if (Object.is(ce._uiNode,node)) return ce;
     }
     return null;
 }
 
-export function sortInTreeItem(o,item,pathName) {
-    let e = getList(o);
+export function sortInTreeItem (o, item, pathName, isSticky=false) {
+    let e = getTreeList(o);
     if (e && e._uiRoot) {
         let root = e._uiRoot;
-        let node = root.sortInPathName( pathName, item);
+        let addedNodes = root.sortInPathName( pathName, item, isSticky);
+        let firstNode = addedNodes[0];
 
-        if (node.isVisible()){
-            let i = -1;
-            for (let n of root.expandedDescendants()) {
-                i++;
-                if (Object.is(n, node)) break;
+        if (firstNode.parent.isExpanded) { // first added node is showing -> insert
+            let i = firstNode.visibleIndex();
+            let ne = e.firstElementChild;
+            while (i--)  ne = ne.nextElementSibling;
+
+            let newElement = _createNodeElement(e, firstNode); // the element to insert
+            if (ne) {
+                e.insertBefore( newElement, ne);
+            } else {
+                e.appendChild( newElement);
             }
-            if (i>= 0) {
-                let newElement = _createNodeElement(e, node);
-                let nextElement = _nthChildOf(e,i);
-                if (nextElement) {
-                    e.insertBefore( newElement, nextElement);
-                } else {
-                    e.appendChild( newElement);
-                }
-                _resetPanelMaxHeight(e);
-            }
+            _resetPanelMaxHeight(e);
         }
 
-        return node;
+        return addedNodes;
     }
     return null;
 }
 
 export function removeTreeItemPath(o,pathName) {
-    let e = getList(o);
+    let e = getTreeList(o);
     if (e && e._uiRoot) {
-        let root = e._uiRoot;
-        let node = root.removePathName(pathName);
-        if (node) {
-            let ce = getNodeElement(e, node);
-            if (ce) { // otherwise node isn't visible and we don't have to update elements
-                if (e._uiSelectedNodeElement == node) {
+        let removedNodes = e._uiRoot.removePathName(pathName);
+        for (let node of removedNodes) {
+            let ce = getNodeElement(e, node); 
+            if (ce) { // it was visible
+                if (e._uiSelectedNodeElement && Object.is( e._uiSelectedNodeElement._uiNode, node)) {
                     _setSelectedItemElement(e, null);
                 }
                 e.removeChild(ce);
-                _resetPanelMaxHeight(e);
             }
-            return node;
         }
+        if (removedNodes.length > 0) {
+            let parentNode = removedNodes[0].parent;
+            if (!parentNode.hasChildren()){ // happens if it is a sticky node
+                let pe = getNodeElement(e, parentNode);
+                let prefixElem = pe.firstElementChild.firstElementChild; // ui_node { ui_node_header { ui_node_prefix, ui_node_name } }
+                if (prefixElem && _containsClass( prefixElem, "ui_node_prefix")) {
+                    prefixElem.innerText = parentNode.nodePrefix();
+                }
+            }
+            _resetPanelMaxHeight(e);
+        }
+        return removedNodes;
     }
     return null; // wasn't there
 }
@@ -2410,13 +2446,12 @@ function selectNode (event) {
         list._uiSelectedNodeElement = ne;
         _addClass(ne, "selected");
 
+        let selElem = null;
         if (ne._uiNode.data) {
             let ie = ne.firstChild.nextElementSibling;
-            if (ie && _containsClass(ie, "ui_list_item")) _setSelectedItemElement(list,ie);
-            else _setSelectedItemElement(list,null);
-        } else {
-            _setSelectedItemElement(list,null);
-        }
+            if (ie && _containsClass(ie, "ui_list_item")) selElem = ie;
+        } 
+         _setSelectedItemElement(list,selElem);
     }
 }
 
@@ -2431,9 +2466,9 @@ function clickNodePrefix(event) {
             if (node.isExpanded) { // collapse
                 let lvl = node.level();
                 for (let nne = ne.nextElementSibling; nne && nne._uiNode.level() > lvl; nne = ne.nextElementSibling) {
-                    if (nne._uiNode.data) {
-                        e._uiItemMap.delete(nne._uiNode.data);
-                    }
+                    if (nne._uiNode.data) { e._uiItemMap.delete(nne._uiNode.data) }
+                    if (Object.is(nne, e._uiSelectedItemElement)) { clearSelectedListItem(e) }
+                    nne._uiNode.collapse();
                     e.removeChild(nne);
                 }
                 node.collapse();
@@ -2453,8 +2488,61 @@ function clickNodePrefix(event) {
 }
 
 export function getSelectedTreeNode (o) {
-    let e = getList(o);
+    let e = getTreeList(o);
     return (e && e._uiSelectedNodeElement) ? e._uiSelectedNodeElement._uiNode : null;
+}
+
+export function selectNodePath (o,path) {
+    let e = getTreeList(o);
+    if (e){
+        let n = e._uiRoot.findNode(path);
+        if (n) {
+            if (e._uiSelectedNodeElement) {
+                _removeClass(e._uiSelectedNodeElement, "selected");
+                e._uiSelectedNodeElement = null;
+            }
+
+            let ie = findNodeElement(e, n);
+            if (ie) { // it was already expanded
+                selectAndShow(e, ie);
+
+            } else {
+                let parents = n.parents(); // the nodes from n to root
+                let itemElements = e.children;
+                let j=0;
+                let selElem = null;
+                for (let i=1; i < parents.length; i++){
+                    let pn = parents[i];
+                    if (!pn.isExpanded){
+                        pn.isExpanded = true;
+                        while (!Object.is( itemElements[j]._uiNode, pn)) j++;
+
+                        let nextElem = j < itemElements.length-1 ? itemElements[j+1] : null; 
+                        for (let cn=pn.firstChild; cn; cn = cn.nextSibling) {
+                            let ie = _createNodeElement(e, cn);
+                            if (nextElem) { e.insertBefore( ie, nextElem) } else { e.appendChild( ie) }
+                            if (Object.is( cn, n)) selElem = ie;
+                        }
+                    }
+                }
+                selectAndShow(e, selElem);
+            }
+            return true;
+
+        } else {
+            clearSelectedListItem(e);
+        }
+    }
+    return false;
+}
+
+function findNodeElement (e, treeNode) {
+    let nodeList = e.childNodes;
+    for (let i=0; i<nodeList.length; i++) {
+        let ne = nodeList[i];
+        if (Object.is( treeNode, ne._uiNode)) return ne;
+    }
+    return null;
 }
 
 export function getTreeList (o) {
@@ -2559,7 +2647,7 @@ export function getSelectedListItem(o) {
     if (listBox) {
         let sel = listBox._uiSelectedItemElement;
         if (sel) {
-            return sel._uiItem;
+            return sel._uiNode ? sel._uiNode.data : sel._uiItem;
         } else return null;
 
     } else throw "not a list";
@@ -2637,45 +2725,51 @@ export function removeLastNListItems(o, n) {
     }
 }
 
+// NOTE if this is a tree item elements hava a node element as parent (both are 'selected')
 function _setSelectedItemElement(listBox, itemElement, srcEvent) {
     let prevItem = null;
     let nextItem = null;
 
     let prevItemElem = listBox._uiSelectedItemElement;
 
-    if (!Object.is( prevItemElem,itemElement)) {
-        if (prevItemElem) {
-            prevItem = prevItemElem._uiItem;
-            _removeClass(prevItemElem, "selected");
-            if (_containsClass(prevItemElem.parentElement, "ui_node")) _removeClass(prevItemElem.parentElement, "selected");
-        }
+    if (prevItemElem && itemElement && Object.is( prevItemElem,itemElement)) { // no changes of non-empty selection
+        prevItem = itemElement._uiNode ? itemElement._uiNode.data : itemElement._uiItem;
+        nextItem = prevItem;
 
-        if (itemElement) {
-            nextItem = itemElement._uiItem;
-            listBox._uiSelectedItemElement = itemElement;
-            _addClass(itemElement, "selected");
-            if (_containsClass(itemElement.parentElement, "ui_node")) _addClass(itemElement.parentElement, "selected");
+    } else {
+        // remove current selection attrs
+        if (prevItemElem) _removeClass( prevItemElem, "selected");
+        if (listBox._uiSelectedNodeElement) _removeClass( listBox._uiSelectedNodeElement, "selected");
 
-        } else {
-            listBox._uiSelectedItemElement = null;
-        }
+        if (!Object.is( prevItemElem,itemElement)) {
+            if (itemElement) {
+                nextItem = itemElement._uiNode ? itemElement._uiNode.data : itemElement._uiItem;
 
-        if (listBox._uiSelectAction) {
-            let event = new CustomEvent("selectionChanged", {
-                bubbles: true,
-                detail: {
-                    curSelection: nextItem,
-                    prevSelection: prevItem,
-                    src: srcEvent
+                listBox._uiSelectedItemElement = itemElement;
+                _addClass( itemElement, "selected");
+
+                if (_containsClass( itemElement.parentElement, "ui_node")) {
+                    listBox._uiSelectedNodeElement = itemElement.parentElement;
+                    _addClass( itemElement.parentElement, "selected");
                 }
-            });
-    
-            listBox.dispatchEvent(event);
+            } else {
+                listBox._uiSelectedItemElement = null;
+            }
         }
     }
 
-    // always perform the select action since it might have side effects outside the UI view (e.g. panning camera)
+    if (listBox._uiSelectAction) {
+        let event = new CustomEvent("selectionChanged", {
+            bubbles: true,
+            detail: {
+                curSelection: nextItem,
+                prevSelection: prevItem,
+                src: srcEvent
+            }
+        });
 
+        listBox.dispatchEvent(event);
+    }
 }
 
 function _selectListItem(event) {
@@ -2691,12 +2785,11 @@ function _selectListItem(event) {
 export function clearSelectedListItem(o) {
     let e = getList(o);
     if (e) {
-        _setSelectedItemElement(e, null);
-
         if (e._uiSelectedNodeElement) {
             _removeClass(e._uiSelectedNodeElement, "selected");
             e._uiSelectedNodeElement = undefined;
         }
+        _setSelectedItemElement(e, null);
     }
 }
 

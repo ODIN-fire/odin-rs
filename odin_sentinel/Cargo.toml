@@ -102,5 +102,9 @@ slack = {file="slack_alarm.ron", bins=["sentinel_alarm"] }
 smtp = { file="smtp.ron", bins=["sentinel_alarm"] }
 signal_cmd = { file="signal_cmd.ron", bins=["sentinel_alarm"] }
 
+# pass through build features to control how cesium libs are served (default is proxied)
+cesium_asset = ["odin_cesium/cesium_asset"]
+cesium_external = ["odin_cesium/cesium_external"]
+
 # [profile.release]
 # debug = 1  # better build with RUSTFLAGS=-g

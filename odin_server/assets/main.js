@@ -81,7 +81,7 @@ export function notifyShareHandlers (msg) {
 // called with the entered value when the editor is finished. This needs to use a callback
 // since most editors work async (e.g. for interactively entering of picking data)
 export function addShareEditor (dataType, label, editorFunc) {
-    let editorEntry = {label: label, editor: editorFunc};
+    let editorEntry = {label: label, editor: editorFunc, type: dataType};
     
     let editors = shareEditors.get(dataType);
     if (editors) {
@@ -122,6 +122,15 @@ export class GeoPoint {
     }
     static fromLonLatDegrees (lon, lat) { return new GeoPoint(lon,lat); }
     static fromLonLatRadians (lonRad, latRad) { return new GeoPoint(radToDeg(lonRad),radToDeg(latRad)); }
+
+    static checkType (o) {
+        return (
+            (o.lon != undefined && typeof o.lon == "number") && 
+            (o.lat != undefined && typeof o.lat == "number")
+        )
+    }
+
+    static template = '{ "lon": 0.0, "lat": 0.0 }'
 }
 
 // this is not in GeoJSON but required to represent camera positions etc.
@@ -134,6 +143,16 @@ export class GeoPoint3 {
     static fromLonLatDegreesMeters (lon, lat, alt) { return new GeoPoint3(lon,lat, alt); }
     static fromLonLatRadiansMeters (lonRad, latRad, altMeters) { return new GeoPoint3(radToDeg(lonRad),radToDeg(latRad), altMeters); }
     static fromGeoPoint (point) { return new GeoPoint3( point.lon, point.lat, 0.0); }
+
+    static checkType (o) {
+        return (
+            (o.lon != undefined && typeof o.lon == "number") && 
+            (o.lat != undefined && typeof o.lat == "number") &&
+            (o.alt != undefined && typeof o.alt == "number")
+        )
+    }
+
+    static template = '{ "lon": 0.0, "lat": 0.0, "alt": 0 }'
 }
 
 export class GeoLine {
@@ -141,18 +160,49 @@ export class GeoLine {
         this.start = start;
         this.end = end;
     }
+
+    static checkTypeConformance (o) {
+        return (
+            (o.start != undefined && GeoPoint.checkType(o.start)) && 
+            (o.end != undefined && GeoPoint.checkType(o.end))
+        )
+    }
+
+    static template = '{\n  "start": {"lon": 0.0, "lat": 0.0},\n  "end": {"lon": 0.0, "lat": 0.0}\n}'
 }
 
 export class GeoLineString {
     constructor (points) {
         this.points = points;
     }
+
+    static checkType (o) {
+        return (
+            (Array.isArray(o.points) && o.points.every( p=> GeoPoint.checkType(p)))
+        )
+    }
+
+    static template = '{\n  "points": [\n    {"lon": 0.0, "lat": 0.0},\n    {"lon": 0.0, "lat": 0.0},\n    {"lon": 0.0, "lat": 0.0}\n  ]\n}'
 }
 
 export class GeoPolygon {
-    constructor (vertices) {
-        this.vertices = vertices;
+    constructor (exterior,interiors=null) {
+        this.exterior = exterior;
+        this.interiors = interiors;
     }
+
+    static checkType (o) {
+        return (
+            (Array.isArray(o.exterior) && o.exterior.every( p=> GeoPoint.checkType(p))) &&
+            (o.interiors == undefined || 
+                (Array.isArray(o.interiors) && o.interiors.every( a=> {
+                    Array.isArray(a) && a.every( p=> GeoPoint.checkType(p))
+                }))
+            )
+        )
+    }
+
+    static template = '{\n  "exterior": [\n    {"lon": 0.0, "lat": 0.0},\n    {"lon": 0.0, "lat": 0.0},\n    {"lon": 0.0, "lat": 0.0}\n  ]\n}'
 }
 
 export class GeoRect {
@@ -163,10 +213,74 @@ export class GeoRect {
         this.north = north;
     }
     static fromWSENdeg (west,south,east,north) { return GeoRect(west,south,east,north); }
+
+    static checkType (o) {
+        return (
+            (o.west != undefined && GeoPoint.checkType(o.west)) && 
+            (o.south != undefined && GeoPoint.checkType(o.south)) && 
+            (o.east != undefined && GeoPoint.checkType(o.east)) && 
+            (o.north != undefined && GeoPoint.checkType(o.north))
+        )
+    }
+
+    static template = '{\n  "west": 0.0,\n  "south": 0.0,\n  "east": 0.0,\n  "north": 0.0\n}'
 }
 
 //... and eventually all of GeoJSON
 
+export const GEO_POINT = GeoPoint.name; // the type name
+export const GEO_POINT3 = GeoPoint3.name;
+export const GEO_LINE = GeoLine.name;
+export const GEO_LINE_STRING = GeoLineString.name;
+export const GEO_POLYGON = GeoPolygon.name;
+export const GEO_RECT = GeoRect.name;
+export const F64 = "F64";
+export const I64 = "I64";
+export const STRING = "String";
+export const JSON = "Json";
+
+export const ALL_TYPES = [JSON, STRING, F64, I64, GEO_POINT, GEO_POINT3, GEO_LINE, GEO_LINE_STRING, GEO_POLYGON, GEO_RECT];
+
+
+export function checkType (typeName, data, template=null) {
+    switch (typeName) {
+        case GEO_POINT: return GeoPoint.checkType(data);
+        case GEO_POINT3: return GeoPoint3.checkType(data);
+        case GEO_LINE: return GeoLine.checkType(data);
+        case GEO_LINE_STRING: return GeoLineString.checkType(data);
+        case GEO_POLYGON: return GeoPolygon.checkType(data);
+        case GEO_RECT: return GeoRect.checkType(data);
+
+        case STRING: return typeof data == "string";
+        case F64: return typeof data == "number";
+        case I64: return typeof data == "number";
+
+        default: 
+            if (template) {
+                let keys = Object.keys(template);
+                return keys.every( k=> (data[k] != undefined) && typeof data[k] == typeof template[k]);
+            } else { 
+                return true;
+            }        
+    }
+}
+
+export function typeTemplate (typeName) {
+    switch (typeName) {
+        case GEO_POINT: return GeoPoint.template;
+        case GEO_POINT3: return GeoPoint3.template;
+        case GEO_LINE: return GeoLine.template;
+        case GEO_LINE_STRING: return GeoLineString.template;
+        case GEO_POLYGON: return GeoPolygon.template;
+        case GEO_RECT: return GeoRect.template;
+
+        case STRING: return '""';
+        case F64: return "0.0";
+        case I64: return "0";
+
+        default: return "{\n}"
+    }
+}
 
 // a shared value (of the above types) with addition instance meta data
 export class SharedValue {

@@ -10,37 +10,42 @@ export const config = {
     // the top level shared item categories
     // keys are path-like strings composed of static prefix/suffix elements (e.g. "view") and one variable element (e.g. "CZU")
     // var elements can have both static prefixes and suffixes (e.g. "incidents/CZU/view")
-    categories: [
-        { key: "bbox" ,    type: "/ ⟨GeoRect⟩" }, // the Rust variant name of data under this category 
-        { key: "incident", type: "/ *"},
-        { key: "point",    type: "/ ⟨GeoPoint⟩" },
-        { key: "view",     type: "/ ⟨GeoPoint3⟩" }
+
+    // the toplevel nodes we always show even if they don't have child nodes
+    keyCategories: [
+        { key: "bbox" ,    type: "" }, 
+        { key: "incident", type: "" }, 
+        { key: "point",    type: "" },
+        { key: "view",     type: "" },
+        { key: "area",     type: "" }
     ],
 
-    completions: [
-        { pattern: "incident", completion: ["/◻/view", "/◻︎/origin", "/◻︎/bbox"] },
-        { pattern: "incident/*", completion: ["/view", "/origin", "/bbox"] },
+    // known suffixes for key patterns
+    keyCompletions: [
+        { pattern: "incident", completion: ["/◻/view", "/◻︎/cause", "/◻︎/bbox", "/◻︎/origin", "/◻︎/perimeter"] },
+        { pattern: "incident/*", completion: ["/view", "/cause", "/bbox", "/origin", "/perimeter"] },
         { pattern: "{bbox,point}", completion: ["/◻︎"] },
         { pattern: "view", completion: ["/globe/◻︎", "/region/◻︎", "/state/◻︎/◻︎"] },
         { pattern: "view/*", completion: ["/◻︎"] },
+        { pattern: "area", completion: ["/◻︎"] },
     ],
 
     // associates key glob patterns with (server) types tags and Javascript template objects
     // type tags can be empty (or omitted) in which case the server side just stores the data as JSON strings
     // template objects are used to generate JSON templates and check user input 
-    typeInfos: [
-        { pattern: "{point/**,**/point/**,**/point}", 
-            type: "GeoPoint", 
-            template: {lon: 0.0, lat: 0.0} 
-        },
-        { pattern: "{view/**,**/view/**,**/view}",    
-            type: "GeoPoint3", 
-            template: {lon: 0.0, lat: 0.0, alt: 0.0} 
-        },
-        { pattern: "{bbox/**,**/bbox/**,**/bbox}",    
-            type: "GeoRect", 
-            template: {west: 0.0, south: 0.0, east: 0.0, north: 0.0} 
-        }
+    keyTypes: [
+        { pattern: "{point/**,**/point/**,**/point}", type: "GeoPoint" },
+        { pattern: "{view/**,**/view/**,**/view}",    type: "GeoPoint3" },
+        { pattern: "{bbox/**,**/bbox/**,**/bbox}",    type: "GeoRect" },
+        { pattern: "{area/**,**/area/**,**/area}",    type: "GeoPolygon" },
+        { pattern: "**/cause",  type: "String"},
+        { pattern: "**/origin", type: "GeoPoint"},
+        { pattern: "{perimeter/**,**/perimeter/**,**/perimeter}", type: "GeoPolygon" }
+    ],
+
+    // JSON templates for known key patterns (overrides default type templates)
+    keyTemplates: [
+        { pattern: "**/origin",  template: JSON.stringify({lon: -121.0, lat: 37.0}) }
     ],
 
     maxMessages: 50,

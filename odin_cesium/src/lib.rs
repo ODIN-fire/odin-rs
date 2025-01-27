@@ -55,22 +55,27 @@ impl SpaService for CesiumService {
         spa.add_assets( self_crate!(), load_asset);
 
         //--- add Cesium
+        let cesium_version: &str = "1.125";
 
-        //.. from proxy
-        //spa.add_proxy( "cesium", "https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium");
-        //spa.add_script( proxy_uri!( "cesium", "Cesium.js"));
-        //spa.add_css( proxy_uri!( "cesium", "Widgets/widgets.css"));
-
-        //.. from local installation
-        // download *.zip from https://cesium.com/downloads/ and put it into ODIN_ROOT/assets/odin_cesium/
-        // rename Cesium/Cesium.js into Cesium/Cesium.min.js - it is already minified 
-        spa.add_script( asset_uri!("cesium_base_url.js")); // required since we renamed Cesium.js
-        spa.add_script( asset_uri!("cesiumjs/Cesium.min.js"));
-        spa.add_css( asset_uri!("cesiumjs/Widgets/widgets.css"));
-
-        //.. from external URL
-        //spa.add_script( "https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium/Cesium.js");
-        //spa.add_css( "https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium/Widgets/widgets.css");
+        #[cfg(feature="cesium_proxy")]
+        {
+            spa.add_proxy( "cesium", format!("https://cesium.com/downloads/cesiumjs/releases/{cesium_version}/Build/Cesium"));
+            spa.add_script( proxy_uri!( "cesium", "Cesium.js"));
+            spa.add_css( proxy_uri!( "cesium", "Widgets/widgets.css"));
+        }
+        #[cfg(feature="cesium_asset")]
+        {
+            // download *.zip from https://cesium.com/downloads/ and put it into ODIN_ROOT/assets/odin_cesium/
+            // rename Cesium/Cesium.js into Cesium/Cesium.min.js - it is already minified 
+            spa.add_script( asset_uri!("cesium_base_url.js")); // required since we renamed Cesium.js
+            spa.add_script( asset_uri!("cesiumjs/Cesium.min.js"));
+            spa.add_css( asset_uri!("cesiumjs/Widgets/widgets.css"));
+        }
+        #[cfg(feature="cesium_external")]
+        { 
+            spa.add_script( format!("https://cesium.com/downloads/cesiumjs/releases/{cesium_version}/Build/Cesium/Cesium.js"));
+            spa.add_css( format!("https://cesium.com/downloads/cesiumjs/releases/{cesium_version}/Build/Cesium/Widgets/widgets.css"));
+        }
 
         spa.add_css( asset_uri!("odin_cesium.css"));
 
@@ -122,9 +127,9 @@ impl SpaService for ImgLayerService {
         spa.add_module( asset_uri!("imglayer_config.js"));
         spa.add_module( asset_uri!("imglayer.js"));
 
-        spa.add_proxy("globe-natgeo", "https://services.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer", empty_vec(), empty_vec(), true, empty_vec());
-        spa.add_proxy("globe-osm", "https://tile.openstreetmap.org", to_string_vec(OSM_HDR), empty_vec(), true, empty_vec());
-        spa.add_proxy("globe-otm", "https://tile.opentopomap.org", to_string_vec(OSM_HDR), empty_vec(), true, empty_vec());
+        spa.add_proxy("globe-natgeo", "https://services.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer");
+        spa.add_modified_proxy("globe-osm", "https://tile.openstreetmap.org", to_string_vec(OSM_HDR), empty_vec(), true, empty_vec());
+        spa.add_modified_proxy("globe-otm", "https://tile.opentopomap.org", to_string_vec(OSM_HDR), empty_vec(), true, empty_vec());
 
         Ok(())
     }

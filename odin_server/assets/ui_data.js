@@ -102,6 +102,12 @@ export class TreeNode {
         return a.reverse();
     }
 
+    nodeList () {
+        let a = [this];
+        for (let n = this.parent; n; n = n.parent) a.push(n);
+        return a.reverse();
+    }
+
     siblings () {
         let a = [];
         for (let n = this.nextSibling; n; n = n.nextSibling) a.push(n);
@@ -118,6 +124,27 @@ export class TreeNode {
         return this.firstChild ? true : false;
     }
 
+    childIndexOf (childNode) {
+        let i=0;
+        let n = this.firstChild;
+        while (!Object.is( n, childNode)) {
+            i++;
+            n = n.nextSibling;
+        }
+        return n ? i : -1;
+    }
+
+    siblingIndex (){
+        let i=0;
+        let n = this.parent.firstChild;
+        while (n) {
+            if (Object.is(n, this)) return i;
+            i++;
+            n = n.nextSibling;
+        }
+        throw new Error("corrupted tree");
+    }
+
     //--- modifiers
 
     addChild (newNode) {
@@ -130,6 +157,27 @@ export class TreeNode {
         }
         newNode.parent = this;
         return newNode;
+    }
+
+    removeChild (delNode) {
+        if (Object.is(this.firstChild,delNode)) {
+            this.firstChild = delNode.nextSibling;
+        } else {
+            let nPrev = this.firstChild;
+            for (let n = nPrev.nextSibling; n; n = n.nextSibling) {
+                if (Object.is(n, delNode)) {
+                    nPrev.nextSibling = delNode.nextSibling;
+                    return;
+                }
+                nPrev = n;
+            }
+        }
+    }
+
+    remove () {
+        if (this.parent) {
+            this.parent.removeChild(this);
+        }
     }
 
     addSibling (newNode) {
@@ -169,6 +217,13 @@ export class TreeNode {
         f(this);
         if (this.firstChild) this.firstChild.depthFirst(f);
         if (this.nextSibling) this.nextSibling.depthFirst(f);
+    }
+
+    dumpTreeDepthFirst() {
+        this.depthFirst( n=>n.show());
+    }
+    show() {
+        console.log(this);
     }
 
     depthFirstChildren(f) {
@@ -221,9 +276,11 @@ export class TreeNode {
 //--- interactive tree lists
 
 export class ExpandableTreeNode extends TreeNode {
-    constructor(name,data,isExpanded) {
+
+    constructor( name, data, isExpanded, isSticky=false) {
         super(data);
         this.isExpanded = isExpanded;
+        this.isSticky = isSticky;
         this.name = name;
     }
 
@@ -231,17 +288,23 @@ export class ExpandableTreeNode extends TreeNode {
         return new ExpandableTreeNode("<root>", null, true);
     }
 
-    static from (items, pathExtractor = o=>o.pathName, expansionLevel=1) {
+    static from (items, pathExtractor = o=>o.pathName,  branchClassifier = o=>false,  stickyClassifier = o=>false, expansionLevel=1) {
         let root = ExpandableTreeNode.newRoot();
-        items.forEach( data=> {
-            let pathName = pathExtractor(data);
+        items.forEach( item=> {
+            let pathName = pathExtractor(item);
+            if (branchClassifier(item)) { item = null }
+            let isSticky = stickyClassifier(item);
             if (pathName) {
-                root.sortInPathName(pathName, data)
+                root.sortInPathName(pathName, item)
             }
         });
 
         root.expandToLevel(expansionLevel);
         return root;
+    }
+
+    show() {
+        console.log(this.collectNamesUp('/'), this);
     }
 
     findNode (pathName) {
@@ -264,32 +327,35 @@ export class ExpandableTreeNode extends TreeNode {
         return null; // not found
     }
 
-    sortInPathName(pathName, newData, expand=false) {
+    sortInPathName(pathName, newData, expand=false, isSticky=false) {
         let path = pathName.split('/');
-        let newNode = new ExpandableTreeNode( path[path.length-1], newData, expand);
-        this.#insert(0,path,newNode);
-        return newNode;
+        let newNode = new ExpandableTreeNode( path[path.length-1], newData, expand, isSticky);
+
+        return  this.#insert(0,path,newNode); // this returns all nodes that were added
     }
 
     removePathName(pathName) {
+        let removedNodes = [];
         let node = this.findNode(pathName);
         if (node) {
-            let parent = node.parent;
-            let prev = null;
-            for (let c=parent.firstChild; c; c = c.nextSibling) {
-                if (Object.is(node, c)) {
-                    if (prev == null) {
-                        parent.firstChild = c.nextSibling;
-                    } else {
-                        prev.nextSibling = c.nextSibling;
-                    }
-                    return node;
-                } else {
-                    prev = c;
-                }
+            node.remove();
+            removedNodes.push(node);
+            
+            node = node.parent;
+            while (node && !node.hasChildren() && !node.data && !node.isSticky){ 
+                node.remove();
+                removedNodes.push(node);
+                node = node.parent;
             }
         }
-        return null;
+        return removedNodes;
+    }
+
+    setPathNameSticky (pathName, isSticky=true) {
+        let node = this.findNode(pathName);
+        if (node) {
+            node.isSticky = isSticky;
+        }
     }
 
     isVisible () {
@@ -299,6 +365,43 @@ export class ExpandableTreeNode extends TreeNode {
             p = p.parent;
         }
         return true;
+    }
+
+    // the closest node with an expanded parent
+    nearestVisible () { 
+        let n = this;
+        let p = this.parent;
+        while (p) {
+            if (p.isExpanded) return n;
+            n = p;
+            p = p.parent;
+        }
+        return null;
+    }
+
+    visibleIndex () {
+        let n = this;
+        while (n.parent) {
+            n = n.parent;
+            if (!n.isExpanded) return -1; // collapsed parent means not visible
+        }
+
+        let res = {found:false, i: -1};
+        n.#countExpandedTo(this, res);
+
+        return res.found ? res.i : -1;
+    }
+
+    #countExpandedTo(endNode, res) {
+        if (Object.is(this, endNode)) { res.found = true; return; }
+        res.i++;
+
+        if (this.firstChild && this.isExpanded) {
+            for (let n = this.firstChild; n; n = n.nextSibling) {
+                n.#countExpandedTo(endNode, res);
+                if (res.found) return;
+            }
+        }
     }
 
     static fromPreOrdered (items, pathExtractor = o=>o.pathName, expansionLevel=1) {
@@ -349,29 +452,36 @@ export class ExpandableTreeNode extends TreeNode {
         else return '· '.repeat(lvl) + endChar;
     }
 
-    #insert(lvl, path, newNode) {
+    #insert(lvl, path, newNode, addedNodes=[]) {
         if (lvl == path.length-1) {
             this.sortInChild(newNode);
+            addedNodes.push(newNode);
+            return addedNodes;
 
         } else {
             let head = path[lvl];
             for (var c = this.firstChild; c; c = c.nextSibling) {
                 if (c.name == head) {
-                    c.#insert(lvl+1, path, newNode);
-                    return;
+                    return c.#insert(lvl+1, path, newNode, addedNodes);
                 }
             }
             // head does not match any of our children, sort in remaining chain
             let pn = new ExpandableTreeNode(head, null, this.isExpaned);
             this.sortInChild(pn);
+            addedNodes.push(pn);
+
             for (let i = lvl+1; i < path.length-1; i++) {
-                let cn = new ExpandableTreeNode(path[i], null, this.isExpaned);
+                let cn = new ExpandableTreeNode(path[i], null, newNode.isExpaned);
+                addedNodes.push( cn);
                 pn.firstChild = cn;
                 cn.parent = pn;
                 pn = cn;
             }
             pn.firstChild = newNode;
             newNode.parent = pn;
+            addedNodes.push(newNode);
+
+            return addedNodes;
         }
     }
 
@@ -403,6 +513,10 @@ export class ExpandableTreeNode extends TreeNode {
 
     expandChildren() {
         for (let n=this.firstChild; n; n = n.nextSibling) n.isExpanded = true;
+    }
+
+    expandParents() {
+        for (let n=this.parent; n; n = n.parent) n.isExpanded = true;
     }
 
     collapseAll() {
