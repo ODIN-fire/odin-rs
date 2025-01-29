@@ -217,7 +217,8 @@ At runtime, ODIN applications use the following optional environment variables:
 
 - `ODIN_HOME` - the ODIN root directory to use
 - `ODIN_EMBEDDED_ONLY` - use only embedded configs, no file system lookup
-- `ODIN_BIN_SUFFIX` - optional suffix for binary name (can be used to differentiate multiple concurrent ODIN_BIN_NAME/CARGO_BIN_NAME processes)
+- `ODIN_BIN_SUFFIX` - optional suffix for binary name (can be used to differentiate multiple concurrent 
+   `ODIN_BIN_NAME`/`CARGO_BIN_NAME` processes)
 - `ODIN_RELOAD_ASSETS` - if set asset lookup is not cached (useful for debugging javascript modules)
 
 At build-time, ODIN uses the following environment variables to provide build script input

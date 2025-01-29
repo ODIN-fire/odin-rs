@@ -288,9 +288,9 @@ export class ExpandableTreeNode extends TreeNode {
         return new ExpandableTreeNode("<root>", null, true);
     }
 
-    static from (items, pathExtractor = o=>o.pathName,  branchClassifier = o=>false,  stickyClassifier = o=>false, expansionLevel=1) {
+    static from (items, pathExtractor = (o)=>{return o.pathName;},  branchClassifier = (o)=>{return false;},  stickyClassifier = (o)=>{return false;}, expansionLevel=1) {
         let root = ExpandableTreeNode.newRoot();
-        items.forEach( item=> {
+        items.forEach( (item) => {
             let pathName = pathExtractor(item);
             if (branchClassifier(item)) { item = null }
             let isSticky = stickyClassifier(item);

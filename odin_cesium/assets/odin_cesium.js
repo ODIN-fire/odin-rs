@@ -110,12 +110,12 @@ const centerOrientation = {
     roll: Cesium.Math.toRadians(0.0)
 };
 
-export const ellipsoidTerrainProvider = new Cesium.EllipsoidTerrainProvider();
-var terrainProvider = ellipsoidTerrainProvider; // switched on demand
-
 if (Cesium.Ion.defaultAccessToken) {
     console.log("using configured Ion access token");
 }
+
+export const ellipsoidTerrainProvider = new Cesium.EllipsoidTerrainProvider();
+var terrainProvider = ellipsoidTerrainProvider; // switched on demand
 
 export const viewer = new Cesium.Viewer('cesiumContainer', {
     terrainProvider: terrainProvider,
@@ -585,7 +585,8 @@ function updateSharedViewPositions() {
 }
 
 function updatePositionsView() {
-    let tree = data.ExpandableTreeNode.from( positions.values(), e=>e.key );
+    let tree = data.ExpandableTreeNode.from( positions, e=>e.key );
+    //let tree = data.ExpandableTreeNode.from( positions.values(), e=>e.key );
     ui.setTree( positionsView, tree);
 }
 
@@ -1339,7 +1340,6 @@ function setCesiumContainerVisibility (isVisible) {
 var shareInitialized = false;
 
 function handleShareMessage (msg) {
-
     if (msg.SHARE_INITIALIZED) { // we get that no matter what the share implementation is
         shareInitialized = true;
         updateSharedViewPositions();
@@ -1389,6 +1389,7 @@ function withCurrentCameraPosition (callback) {
 // executed after all modules have been loaded and initialized
 export function postInitialize() {
     initModuleLayerViewData();    
+
     terrainProviderPromise = getTerrainProviderPromise();
     terrainProviderPromise.then( (tp) => { 
         console.log("topoTerrainProvider set");

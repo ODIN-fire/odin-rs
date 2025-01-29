@@ -16,7 +16,8 @@
 // { "mod": "<module-path>", "<msg>": <payload-object> }
 
 var ws = undefined;
-var wsUrl = "./ws";
+var wsUrl = getWsUrl();
+
 var isShutdown = false;
 
 // wsHandlers is a map object from module-names to handler functions.
@@ -26,6 +27,17 @@ var isShutdown = false;
 var wsHandlers = new Map();
 
 window.addEventListener('unload', shutdown);
+
+function getWsUrl() {
+    // firefox does reject the url if given as a relative path ("./ws"), probably because it doesn't handle the
+    // protocol replacement. We have to construct it explicitly from the document URL
+
+    let url = new URL(window.location.href);
+    let host = url.host;
+    let path = url.pathname;
+
+    return `ws://${host}${path}/ws`
+}
 
 export function addWsHandler(modName,newHandler) {
     wsHandlers.set( modName, newHandler);

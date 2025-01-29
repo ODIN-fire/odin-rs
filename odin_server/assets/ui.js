@@ -1325,7 +1325,11 @@ export function Slider (label, eid, changeAction, trackWidth=undefined) {
     if (eid) e.setAttribute("data-id", eid);
     if (label) e.setAttribute("data-label", label);
     if (trackWidth) e.setAttribute("data-width", trackWidth);
-    if (changeAction instanceof Function) e.addEventListener("change", changeAction); else e.onchange = changeAction;
+    if (changeAction instanceof Function) {
+        e.addEventListener("change", changeAction); 
+    } else {
+        e.onchange = changeAction;
+    }
 
     return e;
 }
@@ -1532,11 +1536,12 @@ export function setSliderValue(o, v) {
     let e = getSlider(o);
     if (e) {
         let newValue = _computeSliderValue(e, v);
-        e._uiValue = newValue;
-        if (e._uiNum) e._uiNum.innerText = _formattedNum(e._uiValue, e._uiNumFormatter);
         if (_hasDimensions(e)) _positionThumb(e);
 
         if (newValue != e._uiValue) {
+            e._uiValue = newValue;
+            if (e._uiNum) e._uiNum.innerText = _formattedNum(newValue, e._uiNumFormatter);
+
             let slider = e.parentElement;
             slider.dispatchEvent(new Event('change'));
         }

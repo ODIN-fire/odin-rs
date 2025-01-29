@@ -54,7 +54,7 @@ function createWindow() {
         ui.LayerPanel("imglayer", toggleShowImgLayer),
         ui.Panel("sources", true)(
           ui.TreeList("imglayer.source.list", 15, "25rem", selectImgLayerSrc),
-          ui.VarText( null, "imglayer.source.info", "25rem")
+          //ui.VarText( " ", "imglayer.source.info", "25rem")
         ),
         ui.Panel("color map", false)(
           ui.List("imglayer.cm.list", 15, selectImgCmapEntry),
@@ -224,11 +224,11 @@ function selectImgLayerSrc(event) {
     let src = ui.getSelectedListItem(sourceView);
     if (src) {
         selectedSrc = src;
-        ui.setTextContent("imglayer.source.info", src.info);
+        //ui.setTextContent("imglayer.source.info", src.info);
         setImgSliderValues(src);
         if (src.cm) ui.setListItems(cmView, src.cm); else ui.clearList(cmView);
     } else {
-        ui.clearTextContent("imglayer.source.info");
+        //ui.clearTextContent("imglayer.source.info");
         ui.clearList(cmView);
     }
 }

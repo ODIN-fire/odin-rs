@@ -4,7 +4,7 @@
 Cesium.Ion.defaultAccessToken = null; // replace with your Cesium Ion access token from https://ion.cesium.com/tokens?page=1
 
 export const config = {
-    terrainProvider: Cesium.createWorldTerrainAsync(),
+    //terrainProvider: Cesium.createWorldTerrainAsync(),
     showTerrain: true,
     requestRenderMode: true,
     targetFrameRate: -1,
