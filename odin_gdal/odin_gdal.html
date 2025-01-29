@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>producer_consumer - ODIN</title>
+        <title>odin-gdal - ODIN</title>
 
 
         <!-- Custom HTML head -->
@@ -12,31 +12,31 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
-        <link rel="icon" href="../../favicon.svg">
-        <link rel="shortcut icon" href="../../favicon.png">
-        <link rel="stylesheet" href="../../css/variables.css">
-        <link rel="stylesheet" href="../../css/general.css">
-        <link rel="stylesheet" href="../../css/chrome.css">
-        <link rel="stylesheet" href="../../css/print.css" media="print">
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
 
         <!-- Fonts -->
-        <link rel="stylesheet" href="../../FontAwesome/css/font-awesome.css">
-        <link rel="stylesheet" href="../../fonts/fonts.css">
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
 
         <!-- Highlight.js Stylesheets -->
-        <link rel="stylesheet" href="../../highlight.css">
-        <link rel="stylesheet" href="../../tomorrow-night.css">
-        <link rel="stylesheet" href="../../ayu-highlight.css">
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="../../odin.css">
+        <link rel="stylesheet" href="../odin.css">
 
     </head>
     <body class="sidebar-visible no-js">
     <div id="body-container">
         <!-- Provide site root to javascript -->
         <script>
-            var path_to_root = "../../";
+            var path_to_root = "../";
             var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
         </script>
 
@@ -89,7 +89,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="../../about.html">About this Document</a></li><li class="chapter-item expanded "><a href="../../install.html">Installation</a></li><li class="chapter-item expanded "><a href="../../intro.html">1. Introduction</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../../design_principles.html">Design Principles</a></li></ol></li><li class="chapter-item expanded "><a href="../../sys_crates.html">2. System Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../../odin_build/odin_build.html">odin_build</a></li><li class="chapter-item "><a href="../../odin_action/odin_action.html">odin_action</a></li><li class="chapter-item expanded "><a href="../../odin_actor/odin_actor.html">odin_actor</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../../odin_actor/actor_basics.html">Actor Programming Model</a></li><li class="chapter-item "><a href="../../odin_actor/actor_impl.html">Basic Design</a></li><li class="chapter-item "><a href="../../odin_actor/actor_communication.html">Actor Communication</a></li><li class="chapter-item expanded "><a href="../../odin_actor/examples/examples.html">Examples</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../../odin_actor/examples/hello_world.html">hello_world</a></li><li class="chapter-item "><a href="../../odin_actor/examples/sys_msgs.html">sys_msgs</a></li><li class="chapter-item "><a href="../../odin_actor/examples/spawn.html">spawn</a></li><li class="chapter-item "><a href="../../odin_actor/examples/spawn_blocking.html">spawn_blocking</a></li><li class="chapter-item "><a href="../../odin_actor/examples/exec.html">exec</a></li><li class="chapter-item "><a href="../../odin_actor/examples/jobs.html">jobs</a></li><li class="chapter-item expanded "><a href="../../odin_actor/examples/producer_consumer.html" class="active">producer_consumer</a></li><li class="chapter-item "><a href="../../odin_actor/examples/pub_sub.html">pub_sub</a></li><li class="chapter-item "><a href="../../odin_actor/examples/pin_pong.html">ping_pong</a></li><li class="chapter-item "><a href="../../odin_actor/examples/query.html">query</a></li><li class="chapter-item "><a href="../../odin_actor/examples/dyn_actor.html">dyn_actor</a></li><li class="chapter-item "><a href="../../odin_actor/examples/actions.html">actions</a></li><li class="chapter-item "><a href="../../odin_actor/examples/dyn_actions.html">dyn_actions</a></li><li class="chapter-item "><a href="../../odin_actor/examples/retry.html">retry</a></li><li class="chapter-item "><a href="../../odin_actor/examples/requests.html">requests</a></li><li class="chapter-item "><a href="../../odin_actor/examples/actor_config.html">actor_config</a></li><li class="chapter-item "><a href="../../odin_actor/examples/heartbeat.html">heartbeat</a></li></ol></li></ol></li><li class="chapter-item "><a href="../../odin_server/odin_server.html">odin_server</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../../odin_server/client.html">Server/Client Interaction</a></li><li class="chapter-item "><a href="../../odin_server/ui_library.html">Web Client UI Library</a></li></ol></li><li class="chapter-item "><a href="../../odin_cesium/odin_cesium.html">odin_cesium</a></li><li class="chapter-item "><a href="../../odin_share/odin_share.html">odin_share</a></li><li class="chapter-item "><a href="../../odin_dem/odin_dem.html">odin-dem</a></li><li class="chapter-item "><a href="../../odin_gdal/odin_gdal.html">odin-gdal</a></li></ol></li><li class="chapter-item expanded "><a href="../../app_crates.html">3. Application Domain Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../../odin_hrrr/odin_hrrr.html">odin_hrrr</a></li><li class="chapter-item "><a href="../../odin_sentinel/odin_sentinel.html">odin_sentinel</a></li><li class="chapter-item "><a href="../../odin_goesr/odin_goesr.html">odin_goesr</a></li></ol></li><li class="chapter-item expanded "><a href="../../glossary.html">Glossary</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../about.html">About this Document</a></li><li class="chapter-item expanded "><a href="../install.html">Installation</a></li><li class="chapter-item expanded "><a href="../intro.html">1. Introduction</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../design_principles.html">Design Principles</a></li></ol></li><li class="chapter-item expanded "><a href="../sys_crates.html">2. System Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../odin_build/odin_build.html">odin_build</a></li><li class="chapter-item "><a href="../odin_action/odin_action.html">odin_action</a></li><li class="chapter-item "><a href="../odin_actor/odin_actor.html">odin_actor</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../odin_actor/actor_basics.html">Actor Programming Model</a></li><li class="chapter-item "><a href="../odin_actor/actor_impl.html">Basic Design</a></li><li class="chapter-item "><a href="../odin_actor/actor_communication.html">Actor Communication</a></li><li class="chapter-item "><a href="../odin_actor/examples/examples.html">Examples</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../odin_actor/examples/hello_world.html">hello_world</a></li><li class="chapter-item "><a href="../odin_actor/examples/sys_msgs.html">sys_msgs</a></li><li class="chapter-item "><a href="../odin_actor/examples/spawn.html">spawn</a></li><li class="chapter-item "><a href="../odin_actor/examples/spawn_blocking.html">spawn_blocking</a></li><li class="chapter-item "><a href="../odin_actor/examples/exec.html">exec</a></li><li class="chapter-item "><a href="../odin_actor/examples/jobs.html">jobs</a></li><li class="chapter-item "><a href="../odin_actor/examples/producer_consumer.html">producer_consumer</a></li><li class="chapter-item "><a href="../odin_actor/examples/pub_sub.html">pub_sub</a></li><li class="chapter-item "><a href="../odin_actor/examples/pin_pong.html">ping_pong</a></li><li class="chapter-item "><a href="../odin_actor/examples/query.html">query</a></li><li class="chapter-item "><a href="../odin_actor/examples/dyn_actor.html">dyn_actor</a></li><li class="chapter-item "><a href="../odin_actor/examples/actions.html">actions</a></li><li class="chapter-item "><a href="../odin_actor/examples/dyn_actions.html">dyn_actions</a></li><li class="chapter-item "><a href="../odin_actor/examples/retry.html">retry</a></li><li class="chapter-item "><a href="../odin_actor/examples/requests.html">requests</a></li><li class="chapter-item "><a href="../odin_actor/examples/actor_config.html">actor_config</a></li><li class="chapter-item "><a href="../odin_actor/examples/heartbeat.html">heartbeat</a></li></ol></li></ol></li><li class="chapter-item "><a href="../odin_server/odin_server.html">odin_server</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../odin_server/client.html">Server/Client Interaction</a></li><li class="chapter-item "><a href="../odin_server/ui_library.html">Web Client UI Library</a></li></ol></li><li class="chapter-item "><a href="../odin_cesium/odin_cesium.html">odin_cesium</a></li><li class="chapter-item "><a href="../odin_share/odin_share.html">odin_share</a></li><li class="chapter-item "><a href="../odin_dem/odin_dem.html">odin-dem</a></li><li class="chapter-item expanded "><a href="../odin_gdal/odin_gdal.html" class="active">odin-gdal</a></li></ol></li><li class="chapter-item expanded "><a href="../app_crates.html">3. Application Domain Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="../odin_hrrr/odin_hrrr.html">odin_hrrr</a></li><li class="chapter-item "><a href="../odin_sentinel/odin_sentinel.html">odin_sentinel</a></li><li class="chapter-item "><a href="../odin_goesr/odin_goesr.html">odin_goesr</a></li></ol></li><li class="chapter-item expanded "><a href="../glossary.html">Glossary</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -145,7 +145,7 @@
                     <h1 class="menu-title">ODIN</h1>
 
                     <div class="right-buttons">
-                        <a href="../../print.html" title="Print this book" aria-label="Print this book">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
                             <i id="print-button" class="fa fa-print"></i>
                         </a>
 
@@ -174,17 +174,48 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="producer_consumer"><a class="header" href="#producer_consumer">producer_consumer</a></h1>
+                        <h1 id="odin_gdal"><a class="header" href="#odin_gdal"><code>odin_gdal</code></a></h1>
+<p><a href="https://gdal.org/en/stable/index.html">GDAL</a> is the prevalent native (<code>odin-rs</code>-external) library to read, translate and modify geospatial data sets, supporting a wide range of formats (NetCDF, hdf5, tiff, png, jpeg, webp and many more). It is one of the key dependencies of <code>odin-rs</code>.</p>
+<p>The role of <code>odin_gdal</code> is to simplify import and use of this complex library by means of adding utility functions and tools on top of
+the underlying <a href="https://crates.io/crates/gdal">gdal</a> crate that does the linking to the native gdal libraries.</p>
+<h3 id="building-gdal-from-source"><a class="header" href="#building-gdal-from-source">Building GDAL from Source</a></h3>
+<p>Although it is recommended to install GDAL through native platform package managers it is possible to build from source, which
+is available on https://github.com/OSGeo/gdal.git an documented <a href="https://gdal.org/en/stable/development/building_from_source.html">here</a>.</p>
+<p>You can either build a shared or a static gdal library, but keep in mind that a static build requires to add - depending on build configuration -
+all referenced sub-dependencies (tiff, netcdf, hdf5, jpeg etc.). This can be a daunting task.</p>
+<p>The procedure to do a shared library build follows this scheme:</p>
+<pre><code class="language-shell">mkdir ~/opt
+cd ~/opt
+git clone https://github.com/OSGeo/gdal.git
+...
+cd gdal
+mkdir build
+cd build
+cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=OFF -DBUILD_JAVA_BINDINGS=OFF -DBUILD_APPS=OFF -DCMAKE_INSTALL_PREFIX=install ..
+...
+cmake --build .
+...
+cmake --build . --target install
+...
+</code></pre>
+<p>Depending on the native package management that was used for installing GDAL dependencies you might have to add cmake build opts such
+as <code>-DCMAKE_CXX_FLAGS="-I/opt/homebrew/include</code>.</p>
+<p>To use the library in your <code>odin-rs</code> builds you need to set respective environment variables:</p>
+<pre><code class="language-shell">export GDAL_VERSION=...
+export GDAL_HOME=$HOME/opt/gdal/build/install # based on example above - adapt to your install location
+export DYLD_LIBRARY_PATH=$GDAL_HOME/lib
+</code></pre>
+<p>Since we change an external library it is recommended to run <code>cargo clean</code> before any subsequent <code>cargo build</code> or <code>cargo run</code>.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../../odin_actor/examples/jobs.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../odin_dem/odin_dem.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../../odin_actor/examples/pub_sub.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../app_crates.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -194,11 +225,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../../odin_actor/examples/jobs.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../odin_dem/odin_dem.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../../odin_actor/examples/pub_sub.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../app_crates.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>
@@ -213,13 +244,13 @@
         </script>
 
 
-        <script src="../../elasticlunr.min.js"></script>
-        <script src="../../mark.min.js"></script>
-        <script src="../../searcher.js"></script>
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
 
-        <script src="../../clipboard.min.js"></script>
-        <script src="../../highlight.js"></script>
-        <script src="../../book.js"></script>
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
 
         <!-- Custom JS scripts -->
 
