@@ -226,7 +226,7 @@ export class GeoRect {
     static template = '{\n  "west": 0.0,\n  "south": 0.0,\n  "east": 0.0,\n  "north": 0.0\n}'
 }
 
-//... and eventually all of GeoJSON
+//... TODO - add LineString3, GeoCircle, GeoCylinder 
 
 export const GEO_POINT = GeoPoint.name; // the type name
 export const GEO_POINT3 = GeoPoint3.name;

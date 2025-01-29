@@ -341,8 +341,8 @@ run_actor_system!( actor_system => {
 
 ## 3. Client Interaction
 
-Please refer to the [Server/ Client Interaction](odin_server/client.md) section for details of how to write
+Please refer to the [Server-Client Interaction](client.md) section for details of how to write
 client (browser side) code that interacts with the `SpaServer` and `SpaService` instances. 
 
-These clients are represented by Javascript modules (served as service specific assets) that do direct DOM manipulation and
-use JSON message sent over websockets to communicate with the server.
+These clients are represented by Javascript modules (served as service specific [**assets**](../odin_build/odin_build.md)) that do
+direct DOM manipulation and use JSON message sent over websockets to communicate with the server.

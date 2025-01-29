@@ -75,8 +75,14 @@ This is collected from the `SpaService::add_components()` implementations of the
          goesr_service.rs           the SpaService implementation that adds odin_goesr.js to the document
 ```
 
-The first included JS module is always the automatically added `main.js`, which mostly contains code to share data items 
-between all other modules. 
+The first included JS module is always the automatically added `main.js`, which is provided as an asset by the 
+`odin_server` crate, there is no need to add it to `add_dependencies()` implementations of `SpaServices`. Its 
+main purpose is to define types and access APIs for data that can be shared between Javascript modules and users
+(e.g. `GeoPoint`). 
+
+Please note `main.js` module only provides a local storing mechanism, i.e. if no other `SpaService` such as 
+[`odin_share`](../odin_share/odin_share.md)`::ShareService` is configured it will only allow to share data between micro 
+services (layers) running within the same browser document.
 
 The document construction ensures that each configured JS module is loaded just once in the order of first reference as 
 odin-rs modules normally depend on each other (specified by their `SpaService::add_dependencies()` implementation).
@@ -355,3 +361,71 @@ function handleWsMessages(msgType, msgObj) {
 }
 ```
 
+#### 3.3.3 main.js - shared types and operations
+
+The automatically included `main.js` module defines types and APIs for values that can be shared between JS modules (and potentially
+with other users if a service such as [`odin_share::ShareService`](../odin_share/odin_share.md) is included in the application). 
+
+JS modules using this functionality have to add a respective import:
+
+```javascript
+...
+import * as main from "../odin_server/main.js";
+...
+ ...main.getSharedItem(key)...
+```
+
+The shared types are 
+
+- `GeoPoint` and `GeoPoint3` for 2- and 3-dimensional geographic coordinates
+- `GeoLine` and `GeoLineString` for geographic polylines
+- `LineString3` for [ECEF](https://en.wikipedia.org/wiki/Earth-centered,_Earth-fixed_coordinate_system) (xyz) trajectories
+- `GeoRect` for parallel/meridian aligned rectangles of geographic coordinates
+- `GeoPolygon` for general geographic coordinate polygons
+- `GeoCircle` and `GeoCylinder` for geographic circles and cylinders
+- `String` for text data
+- `I64` and `F64` for numeric integer and float values
+- `Json` for text data that is supposed to be parsed as [JSON](https://en.wikipedia.org/wiki/JSON), i.e. is a 
+  "catch-all" format for arbitrary objects
+
+Each of these types has a respective type name constant (e.g. `GEO_LINE`) that can be used to identify the type.
+
+Instances of these types can be shared locally or globally, and are identified through an associated pathname (path elements
+separated by '/'). The basic abstraction for this is the `SharedItem(key,isLocal,value)`. Shared values can be further
+annotated by having a `comment` and an `owner`.
+
+The abstract storage model for shared items is a general key/value store, i.e. `SharedItems` are identified through their
+respective keys (pathnames). 
+
+The main API to access shared items is
+
+- `getSharedItem (key)` - to get a specific shared item with known key
+- `getAllMatchingSharedItems (regex)` - to get a set of shared items through key patterns
+- `setSharedItem (key, valType, data, isLocal=false, comment=null)` - to create, store and share a value
+- `removeSharedItem(key)` - to purge a shared value from the store
+
+Changes to the shared item store are broadcasted to registered listeners, i.e. if a JS module needs to know of such
+changes it has to register:
+
+```javascript
+...
+main.addShareHandler( handleShareMessage);
+...
+function handleShareMessage (msg) {
+    if (msg.SHARE_INITIALIZED) {...} 
+    else if (msg.setShared) {...}
+    else if (msg.removeShared) {...}
+}
+```
+
+The sharing mechanism can also be used to synchronize operations such as view changes between users. This is done through
+`addSyncHandler( handleSyncMessage)` registration, respective `handleSyncMessage` handlers implementations and
+`publichCmd(cmd)` calls for relevant state changes. Since those only make sense / have an effect in a context of a
+remote service such as `ShareService` please refer to details in [`odin_share`](../odin_share/odin_share.md).
+
+`main.js` also includes a `addShareEditor (dataType, label, editorFunc)` function that can be used by JS modules to 
+register interactove editors for share types such as 'GeoLineString` but this is more of a specialty.
+
+Apart from providing the basic sharing API and types `main.js` can also be used to define document global data through its
+`exportFunctionToMain(f)` and `exportObjectToMain(o)` functions, which make their arguments globally available in the DOM
+as `window.main.<name>`.

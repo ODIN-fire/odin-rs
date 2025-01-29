@@ -47,7 +47,8 @@ This Rust repository contains a [Cargo workspace](https://doc.rust-lang.org/carg
   
      * Linux: gdal packages are available for all major Linux distributions through their native package managers.
        Please note that Ubuntu 20.04 only supported old versions of GDAL which might require to [install/build from source](https://gdal.org/en/latest/development/building_from_source.html#building-from-source)
-     * macOS: [homebrew](https://brew.sh/): `brew install gdal`
+     * macOS: [homebrew](https://brew.sh/): `brew install gdal` - **make sure to install homebrew in its default location (`/opt/homebrew/`
+       on Apple silicon) to avoid build problems with various GDAL dependencies**
      * windows: [vcpkg](https://learn.microsoft.com/en-us/vcpkg/get_started/overview)
 
   4. odin-rs sources - downloadable via [Git](https://git-scm.com/) from [https://github.com/ODIN-fire/odin-rs](https://github.com/ODIN-fire/odin-rs):
@@ -101,7 +102,13 @@ $> cargo run --example hello_world
 hello world!
 ```
 
-For IDEs we recommend [Visual Studio Code with the Rust Analyzer extension](https://code.visualstudio.com/docs/languages/rust) - just choose "File->Open Folder" with the directory this repository was cloned to and you should be all set.
+For IDEs and editors we recommend:
+
+- [Visual Studio Code with the Rust Analyzer extension](https://code.visualstudio.com/docs/languages/rust) - just choose "File->Open Folder" 
+  with the directory this repository was cloned to and you should be all set
+- [Zed](https://zed.dev/) - as a more editor oriented but faster GUI alternative (Zed is implemented in Rust)
+- [Helix](https://helix-editor.com/) - is a text-mode editor (i.e. works over ssh) that is implemented in Rust and can be installed as part
+  of the Rust toolchain
 
 To build/browse this documentation you have to install the Rust [`mdbook`](https://rust-lang.github.io/mdBook/) tool:
 ```shell
@@ -200,4 +207,5 @@ The xtools command line tools can be installed as part of Xcode from the Apple A
 ##### native GDAL package install fails
 [GDAL](https://gdal.org/) is a native library for geospatial image processing with a huge dependency set (tiff, jpeg, png, hdf5, netcdf etc.) and hence is updated quite frequently. It should be installed and updated through a native package manager, e.g. [homebrew](https://brew.sh/).
 
-Since GDAL itself has a lot of dependencies it is highly recommended to use a standard [homebrew](https://brew.sh/) installation (which on Apple silicon is in `/opt/homebrew`). Non-standard locations might force buiding packages from source, which is prone to fail for complex packages such as python. While it is possible to build and install GDAL manually - and to configure `odin-rs` accordingly - we do not recommend this as it would still require a working `homebrew` for the GDAL dependencies.
+Since GDAL itself has a lot of dependencies it is highly recommended to use a standard [homebrew](https://brew.sh/) installation (which on Apple silicon is in `/opt/homebrew/`). Non-standard locations might force buiding packages from source, which is prone to fail for complex packages such as python. While it is possible to build and install GDAL manually - and to configure `odin-rs` accordingly - we do not recommend this as it would still require a working `homebrew` for the GDAL dependencies. Please refer to the [`odin_gdal`](odin_gdal/odin_gdal.md) documentation
+for how to build/use GDAL libraries from source.

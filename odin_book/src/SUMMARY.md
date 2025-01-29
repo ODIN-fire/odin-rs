@@ -37,6 +37,7 @@
   - [odin_cesium](odin_cesium/odin_cesium.md)
   - [odin_share](odin_share/odin_share.md)
   - [odin-dem](odin_dem/odin_dem.md)
+  - [odin-gdal](odin_gdal/odin_gdal.md)
 
 - [3. Application Domain Crates](app_crates.md)
   - [odin_hrrr](odin_hrrr/odin_hrrr.md)

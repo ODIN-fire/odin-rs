@@ -149,13 +149,58 @@ run_actor_system!( asys => {
 See the `enum_store.rs` example for further details.
 
 
+## Abstract Sharing Model
+
+TODO - explain SharedItem (pathname keys), owner, role, subscription
+
+
 ## Client-side `SharedStore` sharing via `ShareService`
 
-While the previous section was about how to use `SharedStore` *within* an ODIN server application, our primary goal is to
-provide a mechanism to share interactively entered data between users of such an ODIN server. Technically this means we
-need to provide a [`odin_server::SpaService`](../odin_server/odin_server.md) implementation that updates store values through
-incoming websocket message handlers and distributes the store changes to other users through outgoing websocket messages, which
-are then distributed on the client side to respective `SpaService` Javascript modules. This is the purpose of `ShareService` and
-its associated `share.js` Javascript module asset.
+While the previous section was about how to use `SharedStore` between components (actors) *within* an ODIN server, we
+also use this mechanism to share interactively entered data between *users* of such an ODIN server. Technically this means
+we need to provide a [`odin_server::SpaService`](../odin_server/odin_server.md) implementation that updates store values
+through incoming websocket message handlers and distributes the store changes to other users through outgoing websocket
+messages, which are then distributed on the client side to respective `SpaService` Javascript modules. This is the
+purpose of `ShareService` and its associated `odin_share.js` Javascript module asset, which in turn depends on and
+extends the general `main.js` module provided by [`odin_server`](../odin_server/client.md).
 
-TBD
+In addition to the sharing data values `SharedStore` also supports synchronizing operations between users. It is important 
+to note this is not unidirectional like screen sharing in video conferencing but allows to perform certain actions such as
+view selection remotely. Although such actions are confined to the browser sandbox this is of course security relevant and hence
+only takes place if the user explicitly allows it and specifies from whom such shared commands are accepted. This is based
+on the *role* concept - if not already taken a user can identify/register for a role and then - separately - choose to 
+publish under that role. Other users will automatically see new roles (with their publishing status) and then - through
+opt-in - subscribe to certain roles, at which point they will receive published commands from that role. A user can
+register for multiple roles.
+
+It is up to the JS modules of respective `SpaServices` which sync commands they support, both incoming through 
+
+```javascript
+import * as main from "../odin_server/main.js";
+...
+main.addSyncHandler( handleSyncMessage);
+...
+function handleSyncMessage (msg) {
+    if (msg.updateCamera) {...} // example: reaction to remote view changes (if subscribed)
+    ...
+}
+```
+
+or outgoing through 
+```javascript
+   ... 
+   main.publishCmd( { updateCamera: {lon, lat, alt} });  // example: execute view change remotely (if publishing)
+   ...
+```
+
+The general API for synchronized operations is provided by [`main.js](../odin_server/client.md) and consists of the
+following functions:
+
+- `requestRole (role)` - try to obtain a role (will fail if already registered on the server)
+- `releaseRole (role)` - the converse (will fail if this is not an own role)
+- `publishRole (role, isPublishing)` - start/stop publishing under specified role 
+- `subscribeToExtRole (role, isSubscribed)` - start/end subscription to an external role
+- `publishCmd (cmd)` - send command to other users if there is a publishing own role and at least one remote subscriber
+
+Only `publishCmd` is used by general JS modules, all other functions are just for speciality modules such as `odin_share.js`
+that implement remote sharing (normally through a dedicated UI).
