@@ -14,7 +14,7 @@
 pub use crate::{
     self_crate, asset_uri, proxy_uri, build_service,
     spa::{SpaServer, SpaServerMsg, SpaServerState, SpaComponents, SpaService, SpaConnection, SpaServiceList, DataAvailable, 
-        SendWsMsg, SendGroupWsMsg, SendAllOthersWsMsg, BroadcastWsMsg, WsMsgReaction
+        SendWsMsg, SendGroupWsMsg, SendAllOthersWsMsg, BroadcastWsMsg, WsMsgReaction, open
     }, 
     ui_service::UiService,
     errors::{OdinServerError,OdinServerResult},

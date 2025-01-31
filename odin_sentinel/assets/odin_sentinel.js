@@ -232,7 +232,7 @@ function createWindow() {
         ui.LayerPanel("sentinel", toggleShowSentinels),
         ui.List("sentinel.list", 10, selectSentinel,null,null,zoomToSentinel),
 
-        ui.VarText(null, "sentinel.name"),
+        ui.VarText(" ", "sentinel.name"),
         ui.Panel("data", true)(
             ui.TabbedContainer()(
                 ui.Tab("alarm", false)( ui.List("sentinel.alarm.list", maxDataRows)),

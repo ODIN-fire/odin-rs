@@ -241,6 +241,12 @@ impl SpaServer {
         }
     }
 
+    fn open (&self) {
+        let url = format!("{}/{}", self.config.url(), self.name);
+        println!("opening default browser on {}", url);
+        open::that( url);
+    }
+
     fn build_router (&self, hself: &ActorHandle<SpaServerMsg>)->OdinServerResult<Router> {
         let comps = SpaComponents::from_svcs( &self.services)?;
         let doc = Arc::new(comps.to_html( &self.name));
@@ -560,8 +566,12 @@ pub struct SendWsMsg {
     pub data: String
 }
 
+/// open the default web browser on the SpaServer document URL
+#[derive(Debug)]
+pub struct Open {}
+
 define_actor_msg_set! { pub SpaServerMsg =
-     AddConnection | DataAvailable | DispatchIncomingWsMsg | BroadcastWsMsg | SendAllOthersWsMsg | SendGroupWsMsg | SendWsMsg | RemoveConnection 
+     AddConnection | DataAvailable | DispatchIncomingWsMsg | BroadcastWsMsg | SendAllOthersWsMsg | SendGroupWsMsg | SendWsMsg | RemoveConnection | Open
 }
 
 impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
@@ -570,6 +580,9 @@ impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
         if let Err(e) = self.start_server( hself) {
             error!("failed to start server: {e:?}");
         }
+    }
+    Open => cont! {
+
     }
     AddConnection => cont! {
         let hself = self.hself.clone();
@@ -618,6 +631,10 @@ impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
     _Terminate_ => stop! {
         self.stop_server();
     }
+}
+
+pub fn open (hserver: &ActorHandle<SpaServerMsg>) {
+    hserver.try_send_msg( Open{});
 }
 
 /* #endregion actor */

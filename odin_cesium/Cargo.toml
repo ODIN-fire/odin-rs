@@ -19,6 +19,7 @@ odin_server = { workspace = true }
 anyhow = "*"
 tokio = { workspace = true }
 serde = { workspace = true }
+axum = { workspace = true }
 async-trait = "*"
 structopt = "0.3.26"
 lazy_static = { workspace = true }
