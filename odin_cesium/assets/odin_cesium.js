@@ -94,6 +94,7 @@ var layerHierarchyView = undefined;
 var mouseMoveHandlers = [];
 var mouseClickHandlers = [];
 var mouseDblClickHandlers = [];
+var keyDownHandlers = [];
 var terrainChangeHandlers = [];
 
 var homePosition = undefined;
@@ -176,6 +177,7 @@ registerMouseMoveHandler(updateMouseLocation);
 viewer.scene.canvas.addEventListener('mousemove', handleMouseMove);
 viewer.scene.canvas.addEventListener('click', handleMouseClick);
 viewer.scene.canvas.addEventListener('dblclick', handleMouseDblClick);
+document.addEventListener('keydown', handleKeyDown); // does not work on canvas
 
 
 // FIXME - this seems to be broken as of Cesium 105.1
@@ -665,20 +667,29 @@ export function lowerFrameRateFor(msec, lowFr) {
     }, msec);
 }
 
-export function setRequestRenderMode(cond) {
-    requestRenderMode = cond;
-    viewer.scene.requestRenderMode = cond;
-    ui.setCheckBox("view.rm", cond);
-}
-
 export function isRequestRenderMode() {
     return requestRenderMode;
 }
 
-export function toggleRequestRenderMode() {
-    requestRenderMode = !requestRenderMode;
-    viewer.scene.requestRenderMode = requestRenderMode;
-    ui.setCheckBox("view.rm", requestRenderMode);
+export function setRequestRenderMode (enable) {
+    if (enable != requestRenderMode) {
+        requestRenderMode = enable;
+        console.log("set requestRender mode: ", requestRenderMode);
+        viewer.scene.requestRenderMode = requestRenderMode;
+        ui.setCheckBox("view.rm", requestRenderMode);
+    }
+}
+
+function toggleRequestRenderMode(event) {
+    let cb = ui.getCheckBox("view.rm");
+    if (cb) {
+        let enable = ui.isCheckBoxSelected(cb);
+        if (enable != requestRenderMode) {
+            requestRenderMode = enable;
+            console.log("set requestRender mode: ", requestRenderMode);
+            viewer.scene.requestRenderMode = requestRenderMode;
+        }
+    }
 }
 
 export function requestRender() {
@@ -847,7 +858,7 @@ function updateCamera() {
 }
 
 
-//--- mouse event handlers
+//--- 2nd level event handlers
 
 export function registerMouseMoveHandler(handler) {
     mouseMoveHandlers.push(handler);
@@ -876,6 +887,15 @@ export function releaseMouseDblClickHandler(handler) {
     if (idx >= 0) mouseDblClickHandlers.splice(idx,1);
 }
 
+export function registerKeyDownHandler(handler) {
+    keyDownHandlers.push(handler);
+}
+
+export function releaseKeyDownHandler(handler) {
+    let idx = keyDownHandlers.findIndex(h => h === handler);
+    if (idx >= 0) keyDownHandlers.splice(idx,1);
+}
+
 function handleMouseMove(e) {
     mouseMoveHandlers.forEach( handler=> handler(e));
 }
@@ -888,7 +908,11 @@ function handleMouseDblClick(e) {
     mouseDblClickHandlers.forEach( handler=> handler(e));
 }
 
-function getCartographicMousePosition(e) {
+function handleKeyDown(e) {
+    keyDownHandlers.forEach( handler=> handler(e));
+}
+
+export function getCartographicMousePosition(e) {
     var ellipsoid = viewer.scene.globe.ellipsoid;
     var cartesian = viewer.camera.pickEllipsoid(new Cesium.Cartesian3(e.clientX, e.clientY), ellipsoid);
     if (cartesian) {
@@ -898,9 +922,18 @@ function getCartographicMousePosition(e) {
     }
 }
 
-function getCartesian3MousePosition(e) {
+const cp2 = new Cesium.Cartesian2();
+
+export function getCartesian3MousePosition(e, result=null) {
+    cp2.x = e.clientX;
+    cp2.y = e.clientY;
+
     var ellipsoid = viewer.scene.globe.ellipsoid;
-    return viewer.camera.pickEllipsoid(new Cesium.Cartesian3(e.clientX, e.clientY), ellipsoid);
+    return viewer.camera.pickEllipsoid( cp2, ellipsoid, result);
+}
+
+export function getWindowMousePosition(e) {
+    return new Cesium.Cartesian2( e.clientX, e.clientY);
 }
 
 var deferredMouseUpdate = undefined;

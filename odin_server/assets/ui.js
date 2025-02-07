@@ -192,7 +192,7 @@ function createWindowComponents(e, title, isPermanent, icon) {
         tb.appendChild(img);
     }
 
-    let cb = createElement("BUTTON", "ui_close_button", "\u2715");
+    let cb = createElement("BUTTON", "ui_close_button", "⛌"); 
     cb.onclick = (event) => {
         let w = event.target.closest('.ui_window');
         if (w) {
@@ -712,6 +712,7 @@ function getIconBox() {
 export function Button (text, action, minWidth=null) {
     let e = createElement("INPUT", "ui_button");
     e.type = "button";
+    e.tabIndex = 0; // make button tab-traversable (not default on Safari)
     e.value = text;
 
     if (minWidth) setWidthStyle(e,minWidth);

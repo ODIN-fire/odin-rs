@@ -469,6 +469,7 @@ div.ui_timer_value {
 
 input.ui_field.input {
     color: var(--input-color);
+    background: var(--data-background);
     font: var(--font);
 }
 
@@ -492,10 +493,12 @@ input.ui_field.input:focus {
     outline: var(--focus-outline);
 }
 
+/*
 input.ui_field.input:hover {
     color: var(--input-active-color);
     background: var(--input-active-background);
 }
+*/
 
 
 /* sliders */

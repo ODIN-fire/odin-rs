@@ -12,3 +12,5 @@ function start() {
     // trigger your real test here
 }
 main.exportFuncToMain(start);
+
+// your test functions/data goes here...

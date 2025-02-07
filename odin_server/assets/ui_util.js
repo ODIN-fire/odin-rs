@@ -569,6 +569,21 @@ export function distanceBetweenGeoPos(lat1Deg,lon1Deg, lat2Deg,lon2Deg) {
     return meanEarthRadius * c;
 }
 
+// law of cos  based on 2 Cartesian3 points on the surface
+// d^2 = 2 R^2 - 2R^2 cos 𝞪  -> 𝞪 = acos( 1 - d^2/2R^2)
+export function gcDistanceBetweenECEF (p1, p2) {
+    let dx = p2.x - p1.x;
+    let dy = p2.y - p1.y;
+    let dz = p2.z - p1.z;
+    let d = Math.sqrt( dx*dx + dy*dy + dz*dz );
+    
+    //let d = Cesium.Cartesian3.distance( p1, p2);
+    let r = meanEarthRadius; // mean earth radius in m
+    
+    let a = Math.acos( 1 - (d*d)/(2*r*r) );
+    return a * r;
+  }
+
 // naive center
 export function centerLonLat (geoPoints) {
     let lon = 0;
