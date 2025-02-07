@@ -248,7 +248,7 @@ impl SpaServer {
     }
 
     fn build_router (&self, hself: &ActorHandle<SpaServerMsg>)->OdinServerResult<Router> {
-        let comps = SpaComponents::from_svcs( &self.services)?;
+        let comps = SpaComponents::from_svcs( self.name.clone(), &self.services)?;
         let doc = Arc::new(comps.to_html( &self.name));
         let proxies = comps.proxies;
         let assets = comps.assets;
@@ -663,6 +663,7 @@ impl HeaderItem {
 /// to serve it (including referenced assets and proxied urls). This data structure is our internal model of
 /// the SPA data
 define_struct! { pub SpaComponents =
+    pub name: String, // doc name of the server (in case SpaService impls need it)
 
     //--- static document components
     header_items: Vec<HeaderItem> = Vec::new(),
@@ -757,8 +758,8 @@ impl ProxySpec {
 
 impl SpaComponents {
 
-    fn from_svcs (services: &Vec<SpaSvc>)->OdinServerResult<SpaComponents> {
-        let mut comps = SpaComponents::new();
+    fn from_svcs (name: String, services: &Vec<SpaSvc>)->OdinServerResult<SpaComponents> {
+        let mut comps = SpaComponents::new(name);
         comps.add_intrinsics();
 
         for svc in services {
@@ -767,8 +768,8 @@ impl SpaComponents {
         Ok(comps)
     }
 
-    pub fn from (svc_list: &SpaServiceList)->OdinServerResult<SpaComponents> {
-        Self::from_svcs(  &svc_list.services)
+    pub fn from (name: String, svc_list: &SpaServiceList)->OdinServerResult<SpaComponents> {
+        Self::from_svcs( name, &svc_list.services)
     }
 
     fn add_intrinsics (&mut self) {

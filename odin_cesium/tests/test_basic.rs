@@ -20,7 +20,7 @@ fn test_doc_assembly()->OdinServerResult<()> {
     let services = SpaServiceList::new()
         .add( build_service!( => ImgLayerService::new()));
 
-    let spa_comps = SpaComponents::from( &services)?;
+    let spa_comps = SpaComponents::from( "basic_globe".to_string(), &services)?;
 
     let doc = spa_comps.to_html("basic_globe");
     println!("{doc}");

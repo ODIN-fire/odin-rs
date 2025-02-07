@@ -15,15 +15,7 @@
 /// module with CesiumJS and odin_server UI functions for interactive editing of
 /// points, lines, polylines / polygons, rects and circles
 
-//import { config } from "./editor_config.js";
-const config = {
-    color: Cesium.Color.RED,
-    fillColor: Cesium.Color.RED.withAlpha(0.2),
-    handleColor: Cesium.Color.ORANGE,
-    selectedHandleColor: Cesium.Color.YELLOW,
-    pointSize: 8
-}
-
+import { config } from "./editor_config.js";
 import * as main from "../odin_server/main.js";
 import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
@@ -107,6 +99,10 @@ class PolyEditorWindow {
     
         return p;
     }
+
+    showTotalDist (dist) {
+        ui.setField( this.editor.totalField, Math.round(dist));
+    }
 }
 
 /* #endregion editor window classes */
@@ -149,7 +145,7 @@ export class PolyEditor {
         this.onHandleKey = this._onHandleKey.bind(this);
     }
 
-    process (x,y) {
+    process (x, y, resultFunc) {
         this.editor.openAt( x, y);
     
         cesium.setRequestRenderMode(false);
@@ -250,7 +246,7 @@ export class PolyEditor {
             ui.setField( this.editor.legField, Math.round(p.dist));
         }
     
-        this._showTotalDist();
+        this.editor.showTotalDist( this._totalDist());
     }
 
     _insFieldPoint (){
@@ -445,7 +441,7 @@ export class PolyEditor {
         }
     
         ui.clearSelectedListItem( this.editor.pointList);
-        this._showTotalDist();
+        this.editor.showTotalDist( this._totalDist());
     }
 
     /// notification this point was deleted
@@ -474,7 +470,7 @@ export class PolyEditor {
             p.dist = util.gcDistanceBetweenECEF( prev, p);
             ui.setField( this.editor.legField, Math.round(p.dist));
         
-            this._showTotalDist();
+            this.editor.showTotalDist( this._totalDist());
         }
     }
 
@@ -482,13 +478,12 @@ export class PolyEditor {
         return 2; // 3 for polygon
     }
 
-    _showTotalDist () {
-        let points = this.points;
-        let total = 0;
-        for (let i=1; i<points.length; i++) {
-            total += points[i].dist;
+    _totalDist() {
+        let dist = 0;
+        for (let i=0; i<this.points.length; i++) {
+            dist += points[i].dist;
         }
-        ui.setField( this.editor.totalField, Math.round(total));
+        return dist;
     }
 
     _updatePointListFrom  (idx) {
@@ -573,14 +568,10 @@ export class PolyEditor {
     _onEntryComplete () { // entry is done, register handler to edit 
         this.inEntryMode = false;
     
-        //if (isPolygon) {
-        //    points.push(points[0]); // close the polygon so that we get half-handles on the closing segment
-        //}
-    
         this._setHalfPointHandles();
         cesium.registerMouseClickHandler( this.onHandleClick);
     
-        this._showTotalDist();
+        this.editor.showTotalDist( this._totalDist());
     }
     
     _onEntryCancel() {
@@ -612,7 +603,11 @@ export class PolygonEditor extends PolyEditor {
     
         this._setHalfPointHandles();
         cesium.registerMouseClickHandler( this.onHandleClick);
-        this._showTotalDist();
+        this.editor.showTotalDist( this._totalDist());
+    }
+
+    _minPoints() { 
+        return 3; 
     }
 }
 
