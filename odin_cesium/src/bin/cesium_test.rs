@@ -72,7 +72,7 @@ impl SpaService for TestService {
         spa.add_module( format!("./asset/odin_cesium/{}", mod_filename));
 
         spa.add_body_fragment(r#"
-            <input id="button" type="button" value="start" onclick="main.start()" style="position:absolute;top:5px;left:250px;height:28px;font-size:medium;z-index:1;">
+            <input id="button" type="button" value="start" onclick="main.test()" style="position:absolute;top:5px;left:250px;height:28px;font-size:medium;z-index:1;">
         "#);
 
 

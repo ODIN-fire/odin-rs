@@ -22,6 +22,8 @@ import * as ui from "../odin_server/ui.js";
 import * as cesium from "./odin_cesium.js";
 
 const viewer = cesium.viewer;
+const ellipsoid = Cesium.Ellipsoid.WGS84;
+
 
 /* #region editor Window classes ************************************************************/
 
@@ -101,7 +103,7 @@ class PolyEditorWindow {
     }
 
     showTotalDist (dist) {
-        ui.setField( this.editor.totalField, Math.round(dist));
+        ui.setField( this.totalField, Math.round(dist));
     }
 }
 
@@ -110,24 +112,45 @@ class PolyEditorWindow {
 /* #region editor classes *******************************************************************/
 
 /// cesium_test driver
-main.exportFuncToMain( function start() {
+main.exportFuncToMain( function test() {
+    function processResult (points) {
+        console.log("points entered:", points);
+    }
+
+    let points = [
+        { lon: -122.0, lat: 40.0 },
+        { lon: -119.0, lat: 38.0 },
+        { lon: -120.5, lat: 37.0 }
+    ];
+    //points = [];
+
     console.log("start editing");
-    let ed = new PolygonEditor([]);
-    ed.process( 100,100);
+    editPolygon( points, processResult);
 });
+
+// initial window position (updated upon close)
+var xLeft = 100;
+var yTop = 100;
+
+export function editPolyline (points, processResult) {
+    new PolyEditor( points, processResult).open();
+}
+
+export function editPolygon (points, processResult) {
+    new PolygonEditor( points, processResult).open();
+}
 
 /// the base class for PolylineEditor and PolygonEditor
 export class PolyEditor {
 
-    constructor (points) {
+    constructor (points, processResult) {
         this.cp = new Cesium.Cartesian3(); // cache so that we don't need to allocate on each mouseMove
-        this.inEntryMode = false;
         this.isMetric = true;
     
         this.points = points;
+        this.processResult = processResult;
     
         this.editor = this._createEditor();
-        ui.setListItems( this.editor.pointList, points);
     
         this.handles = new Cesium.PointPrimitiveCollection();
         viewer.scene.primitives.add( this.handles);
@@ -139,26 +162,30 @@ export class PolyEditor {
         this.selHandle = undefined;
         this.restorePos = undefined;
 
+        this.cancelEntry = null;
+
         //--- bind event handler methods to this (we need to be able to remove them)
         this.onHandleClick = this._onHandleClick.bind(this);
         this.onHandleMove = this._onHandleMove.bind(this);
         this.onHandleKey = this._onHandleKey.bind(this);
     }
 
-    process (x, y, resultFunc) {
-        this.editor.openAt( x, y);
+    open () {
+        this.editor.openAt( xLeft, yTop);
     
         cesium.setRequestRenderMode(false);
 
-        let points = this.points;
-        if (points.length) { // no enter mode - create assets and go straight to edit mode
-            this._inEntryMode = false;
-            this._createAssets(points);
+        if (this.points.length) { // no enter mode - create assets and go straight to edit mode
+            this._setPointAttributes(); // fill in lon/lat/alt or x/y/z, dist and idx
+            this._createAssets();
             cesium.registerMouseClickHandler( this.onHandleClick);
+            this._setPointList();
       
         } else {
             this._startEntryMode();
         }
+
+        //ui.setListItems( this.editor.pointList, this.points);
     }
 
     _createEditor () {
@@ -174,11 +201,11 @@ export class PolyEditor {
     }
 
     _startEntryMode () {
-        this._inEntryMode = true;
-        enterPolyline( this.points, {  // @override for polygon
+        this.cancelEntry = enterPolyline( this.points, {  // @override for polygon
             onEnter: this._onEntryComplete.bind(this),
             onCancel: this._onEntryCancel.bind(this), 
             onAddPoint: this._addHandle.bind(this), 
+            onDelPoint: this._delHandle.bind(this),
             onMouseMove: this._updateMovingPoint.bind(this)
         });
     }
@@ -188,13 +215,24 @@ export class PolyEditor {
     }
       
     _enter() {
-        //onFinished( points);
+        if (this.processResult) this.processResult(this.points);
         this._dispose();
     }
 
     _dispose() {
+        var viewportOffset = this.editor.window.getBoundingClientRect();
+        xLeft = viewportOffset.left;
+        yTop = viewportOffset.top;
+
+        if (this.cancelEntry) {
+            this.cancelEntry();
+            this.cancelEntry = null;
+        }
+
         this._releaseAssets();
         this.editor.close();
+
+        cesium.setDefaultCursor();
         cesium.setRequestRenderMode(true);
         cesium.requestRender();
     }
@@ -224,7 +262,7 @@ export class PolyEditor {
                 idx = points.length;
                 fp.idx = idx;
         
-                if (!this.inEntryMode) { // no mover, add new point
+                if (!this.cance) { // no mover, add new point
                     p = fp;
                     points.push(p);
             
@@ -247,6 +285,10 @@ export class PolyEditor {
         }
     
         this.editor.showTotalDist( this._totalDist());
+    }
+
+    _isInEntryMode() {
+        return (this.cancelEntry != null);
     }
 
     _insFieldPoint (){
@@ -299,6 +341,7 @@ export class PolyEditor {
         } else { // start tracking mouse
             let points = this.points;
             let picked = viewer.scene.pick(p);
+
             if (picked && picked.primitive instanceof Cesium.PointPrimitive) {
                 let prim = picked.primitive;
                 let idx = prim.__index + 1;
@@ -453,7 +496,7 @@ export class PolyEditor {
             ui.removeListItem( this.editor.pointList, p);
             this._updatePointListFrom( idx);
             ui.setField( this.editor.legField, null);
-            this._showTotalDist();
+            this.editor.showTotalDist( this._totalDist());
         }
     }
 
@@ -474,13 +517,14 @@ export class PolyEditor {
         }
     }
 
-    _minPoints() { // @override for polygon
-        return 2; // 3 for polygon
+    _minPoints() { 
+        return 2; 
     }
 
     _totalDist() {
         let dist = 0;
-        for (let i=0; i<this.points.length; i++) {
+        let points = this.points;
+        for (let i=0; i<points.length; i++) {
             dist += points[i].dist;
         }
         return dist;
@@ -488,7 +532,8 @@ export class PolyEditor {
 
     _updatePointListFrom  (idx) {
         let points = this.points;
-        for (var i=idx; i<points.length; i++) {
+        let maxIdx = this._maxHandleIndex();
+        for (var i=idx; i<=maxIdx; i++) {
             points[i].idx = i;
             ui.updateListItem( this.editor.pointList, points[i]);
         }
@@ -509,6 +554,12 @@ export class PolyEditor {
         this._pointAdded( idx, p);
     }
 
+    _delHandle (idx, p) {
+        let hp = this._findHandle(idx);
+        if (hp)  this.handles.remove(hp);
+        this._pointDeleted( idx, p);
+    }
+
     _findHandle (idx) {
         let handles = this.handles;
 
@@ -520,23 +571,51 @@ export class PolyEditor {
     }
 
     /* #region asset management **************************************************************/
-    // we already have points - create the entity and the handles from them
-    _createAssets(points) {
-        this.polyEntity = _createPolyEntity();
-        viewer.entities.add(polyEntity);
 
+    _setPointAttributes () {
+        let prev = null;
+
+        let points = this.points;
         for (let i=0; i<points.length; i++) {
             let p = points[i];
-            let hp = this.handles.add( handleOpts(p));
-            hp.__index = i;
-            p.idx = i;
-        }
 
+            if (p.x && p.lon === undefined) { // cartesian - set lon,lat
+                let cp = Cesium.Cartographic.fromCartesian( p, Cesium.Ellipsoid.default);
+                p.lon = Math.toDegrees( cp.longitude);
+                p.lat = Math.toDegrees( cp.latitude);
+
+            } else if (p.lon) { // geo - set x,y,z
+                if (!p.alt) p.alt = 0.0;
+                let cp = Cesium.Cartesian3.fromDegrees( p.lon, p.lat, p.alt);
+                p.x = cp.x;  p.y = cp.y;  p.z = cp.z;
+            }
+            p.dist = prev ?  util.gcDistanceBetweenECEF( prev, p) : 0.0;
+            p.idx = i;
+
+            prev = p;
+        }
+    }
+
+    // we already have points - create the entity and the handles from them
+    _createAssets() {
+        this.polyEntity = this._createPolyEntity();
+        viewer.entities.add( this.polyEntity);
+
+        this._setPointHandles();
         this._setHalfPointHandles();
     }
 
     _createPolyEntity () {
         return new Cesium.Entity( {polyline: polylineOpts( this.points), selectable: false} );
+    }
+
+    _setPointHandles () {
+        let points = this.points;
+        for (let i=0; i<=this._maxHandleIndex(); i++) {
+            let p = points[i];
+            let hp = this.handles.add( handleOpts(p));
+            hp.__index = i;
+        }
     }
 
     _setHalfPointHandles () {
@@ -549,6 +628,18 @@ export class PolyEditor {
           hp.__isHalf = true;
           hp.__index = i;
         }
+    }
+
+    _setPointList () {
+        let points = this.points;
+        let maxIdx = this._maxHandleIndex();
+        for (let i=0; i<= maxIdx; i++) {
+            ui.appendListItem( this.editor.pointList, points[i]);
+        }
+    }
+
+    _maxHandleIndex() {
+        return this.points.length-1;
     }
 
     _releaseAssets() {
@@ -566,7 +657,7 @@ export class PolyEditor {
     /* #region entry mode callbacks **********************************************************/
 
     _onEntryComplete () { // entry is done, register handler to edit 
-        this.inEntryMode = false;
+        this.cancelEntry = undefined;
     
         this._setHalfPointHandles();
         cesium.registerMouseClickHandler( this.onHandleClick);
@@ -575,7 +666,7 @@ export class PolyEditor {
     }
     
     _onEntryCancel() {
-        this.inEntryMode = false;
+        this.cancelEntry = undefined;
         this._cancel();
     }
 
@@ -584,22 +675,22 @@ export class PolyEditor {
 
 export class PolygonEditor extends PolyEditor {
 
-    constructor (points) {
-        super(points);
+    constructor (points, processResult) {
+        super(points, processResult);
     }
 
     _createPolyEntity () {
         return new Cesium.Entity( {
-            polyline: polylineOpts( this.points), 
+            polyline: polylineOpts( this.points),
             polygon: polygonOpts( this.points),
             selectable: false
         });
     }
 
     _onEntryComplete () { // entry is done, register handler to edit 
-        this.inEntryMode = false;
+        this.cancelEntry = null;
 
-        this.points.push( this.points[0]); // close the polygon so that we get half-handles on the closing segment
+        this.points.push( this.points[0]); // close the polygon outline (but don't add to pointList)
     
         this._setHalfPointHandles();
         cesium.registerMouseClickHandler( this.onHandleClick);
@@ -609,6 +700,17 @@ export class PolygonEditor extends PolyEditor {
     _minPoints() { 
         return 3; 
     }
+
+    _maxHandleIndex() {
+        return this.points.length-2; // account for the closing point
+    }
+
+    _setPointAttributes () {
+        super._setPointAttributes();
+
+        let points = this.points;
+        points.push( points[0]); // close outline
+    }
 }
 
 /* #endregion editor classes */
@@ -616,7 +718,6 @@ export class PolygonEditor extends PolyEditor {
 /* #region utility functions ******************************************************************/
 
 function getHalfPoints (points) {
-    var ellipsoid = Cesium.Ellipsoid.WGS84;
     let pts = [];
     let p0 = ellipsoid.cartesianToCartographic(points[0]);
   
@@ -633,7 +734,7 @@ function getHalfPoints (points) {
 const geoPoint = new Cesium.Cartographic();
 
 function setCartographicPos (p) {
-    Cesium.Cartographic.fromCartesian( p, Cesium.Ellipsoid.default, geoPoint);
+    Cesium.Cartographic.fromCartesian( p, ellipsoid, geoPoint);
     p.lon = util.toDegrees( geoPoint.longitude);
     p.lat = util.toDegrees( geoPoint.latitude);
     p.alt = 0.0;
@@ -646,7 +747,7 @@ function setCartographicPos (p) {
 /// Cesium resources. We do pass in onMouseMove so that we don't have to redundantly calculate
 /// a Cartesian3 mouse position. There is no onDelPoint since we can't delete points in enter
 /// mode - we can't set the pointer position in Javascript
-// callbacks: { onEnter, onCancel, onAddPoint, onMouseMove }
+// callbacks: { onEnter, onCancel, onAddPoint, onDelPoint, onMouseMove }
 export function enterPolyline (points, callbacks) {
     let cp = new Cesium.Cartesian3(); // cached point to save allocs
   
@@ -693,16 +794,24 @@ export function enterPolyline (points, callbacks) {
     }
   
     function onKeyDown(event) {
-      if (event.code == "Escape") { // exit edit alltogether
-        resetEnterPolyline();
-        if (callbacks.onCancel) callbacks.onCancel();
-      }
+        if (event.code == "Delete" || event.code == "Backspace") {
+            let idx = points.length-2;
+            let p = points[idx];
+            points.splice( idx, 1);
+            if (callbacks.onDelPoint) callbacks.onDelPoint( idx, p);
+
+        } else if (event.code == "Escape") { // exit edit alltogether
+            resetEnterPolyline();
+            if (callbacks.onCancel) callbacks.onCancel();
+        }
     }
   
     cesium.setCursor("copy");
     cesium.registerMouseClickHandler(onClick);
     cesium.registerMouseMoveHandler(onMouseMove);
     cesium.registerKeyDownHandler(onKeyDown);
+
+    return resetEnterPolyline; // so that we can cancel from the outside
 }
 
 /* #region Cesium asset options ***************************************************************/
@@ -742,10 +851,11 @@ function polylineOpts (points) {
 function polygonOpts (points) {
     return {
         hierarchy: new Cesium.CallbackProperty( () => new Cesium.PolygonHierarchy( points)),
-        material: config.fillColor
+        material: config.fillColor,
+        //height: 0,
         //outline: true,
         //outlineColor: Cesium.Color.RED,
-        //outlineWidth: 2
+        //outlineWidth: 2,
     };
 }
 
