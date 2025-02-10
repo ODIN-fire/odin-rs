@@ -77,11 +77,12 @@ export function notifyShareHandlers (msg) {
     }
 }
 
-// shareEditors are functions that take a single callback function as argument, which is
-// called with the entered value when the editor is finished. This needs to use a callback
-// since most editors work async (e.g. for interactively entering of picking data)
+/// shareEditors are functions that take two arguments: `edit( selValue, processEditResult(value))`
+/// - `selValue` is the (optional) value that is used to initialize the editor
+/// - the `processEditResult(value)` callback function is only called if the edit is not canceled
+///   and takes a single edit result value argument. 
 export function addShareEditor (dataType, label, editorFunc) {
-    let editorEntry = {label: label, editor: editorFunc, type: dataType};
+    let editorEntry = {type: dataType, label, editor: editorFunc};
     
     let editors = shareEditors.get(dataType);
     if (editors) {
@@ -101,8 +102,13 @@ export function notifySyncHandlers (msg) {
     }
 }
 
-export function getShareEditorForItemType (itemType) {
+export function getShareEditorEntriesForItemType (itemType) {
     return shareEditors.get(itemType);
+}
+
+export function getDefaultShareEditorForItemType (itemType) {
+    let editorEntries =  shareEditors.get(itemType);
+    return editorEntries ? editorEntries[0].editor : null;
 }
 
 
@@ -185,6 +191,20 @@ export class GeoLineString {
     static template = '{\n  "points": [\n    {"lon": 0.0, "lat": 0.0},\n    {"lon": 0.0, "lat": 0.0},\n    {"lon": 0.0, "lat": 0.0}\n  ]\n}'
 }
 
+export class GeoPolyline3 {
+    constructor (points) {
+        this.points = points;
+    }
+
+    static checkType (o) {
+        return (
+            (Array.isArray(o.points) && o.points.every( p=> GeoPoint3.checkType(p)))
+        )
+    }
+
+    static template = '{\n  "points": [\n    {"lon": 0.0, "lat": 0.0, "alt": 0.0},\n    {"lon": 0.0, "lat": 0.0, "alt": 0.0},\n    {"lon": 0.0, "lat": 0.0, "alt": 0.0}\n  ]\n}'
+}
+
 export class GeoPolygon {
     constructor (exterior,interiors=null) {
         this.exterior = exterior;
@@ -232,6 +252,7 @@ export const GEO_POINT = GeoPoint.name; // the type name
 export const GEO_POINT3 = GeoPoint3.name;
 export const GEO_LINE = GeoLine.name;
 export const GEO_LINE_STRING = GeoLineString.name;
+export const GEO_POLYLINE3 = GeoPolyline3.name;
 export const GEO_POLYGON = GeoPolygon.name;
 export const GEO_RECT = GeoRect.name;
 export const F64 = "F64";
@@ -239,7 +260,7 @@ export const I64 = "I64";
 export const STRING = "String";
 export const JSON = "Json";
 
-export const ALL_TYPES = [JSON, STRING, F64, I64, GEO_POINT, GEO_POINT3, GEO_LINE, GEO_LINE_STRING, GEO_POLYGON, GEO_RECT];
+export const ALL_TYPES = [JSON, STRING, F64, I64, GEO_POINT, GEO_POINT3, GEO_LINE, GEO_LINE_STRING, GEO_POLYLINE3, GEO_POLYGON, GEO_RECT];
 
 
 export function checkType (typeName, data, template=null) {
@@ -421,6 +442,10 @@ export class Share {
 
     getSharedItem (key) {
         return this._sharedItems.get( key);
+    }
+
+    hasSharedItem (key) {
+        return this._sharedItems.get( key) != undefined;
     }
     
     // this returns a list of SharedItem objects

@@ -591,6 +591,7 @@ div.ui_choice_value {
     width: var(--choice-value-width);
     height: var(--field-height);
     vertical-align: middle;
+    overflow: hidden;
 }
 
 div.ui_choice_value::before {

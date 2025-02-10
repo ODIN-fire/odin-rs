@@ -219,7 +219,9 @@ export function getWindowContent (o) {
 
 function setWindowEventHandlers(e) {
     makeWindowDraggable(e);
-    e.onclick = function() { raiseWindowToTop(e); };
+    e.onmousedown = function (event) { 
+        raiseWindowToTop(e); 
+    };
 }
 
 function makeWindowDraggable(e) {
@@ -1568,12 +1570,18 @@ export function getSlider(o) {
 
 //--- choices
 
-export function Choice (label,eid,changeAction) {
+export function Choice (label, eid, changeAction, width=null) {
     let e = createElement("DIV", "ui_choice");
 
     e.setAttribute("data-label", label);
     if (eid) e.setAttribute("data-id", eid);
-    if (changeAction instanceof Function) e.addEventListener("change", changeAction); else e.onchange= changeAction;
+    if (width) e.setAttribute("data-width", width);
+
+    if (changeAction instanceof Function) {
+        e.addEventListener("change", changeAction);
+    } else {
+        e.onclick = changeAction; // expr.
+    }
 
     return e;
 }
@@ -1589,6 +1597,7 @@ function initializeChoice (e) {
         }
 
         let field = createElement("DIV", "ui_choice_value");
+        if (e.dataset.width) field.style.width = e.dataset.width;
         field.id = id;
         field._uiSelIndex = -1;
         field._uiItems = [];

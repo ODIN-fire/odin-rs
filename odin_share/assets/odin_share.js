@@ -61,6 +61,8 @@ var ownRoleList = initOwnRoleList();
 var extRoleList = initExtRoleList();
 var msgList = initMsgList();
 
+var selItem = undefined; // the (interactively) selected item
+
 // we don't have other direct layer manager dependencies (e.g. odin_cesium) so we go through the main interface here
 odinCesium.initLayerPanel("share", config, showShareLayer);
 console.log("share layer initialized.");
@@ -172,14 +174,14 @@ function createWindow() {
             ui.RowContainer("start")(
                 ui.ColumnContainer()(
                     (ownRoleList = ui.List("share.own-role.list", 3)),
-                    (addRoleEntry = ui.TextInput("new", "share.own-role.entry", "8rem", {placeHolder: "enter new role", changeAction: addOwnRole})),
                     ui.RowContainer()(
-                        ui.Button("add", addOwnRole), 
-                        ui.Button("del", deleteRole),
-                        ui.Button("clear", clearRoleSelection)
+                        (addRoleEntry = ui.TextInput(null, "share.own-role.entry", "8.5rem", {placeHolder: "enter new role", changeAction: addOwnRole})),
+                        ui.Button("+", addOwnRole), 
+                        ui.Button("−", deleteRole),
+                        ui.Button("∅", clearRoleSelection)
                     )
                 ),
-                ui.HorizontalSpacer(2),
+                ui.HorizontalSpacer(1),
                 ui.ColumnContainer()(
                     (extRoleList = ui.List("share.ext-role.list", 8)),
                     ui.RowContainer()(
@@ -190,41 +192,42 @@ function createWindow() {
             ),
             ui.ColumnContainer() (
                 (msgList = ui.List("share.msg.list", 8)),
-                (msgEntry = ui.TextInput("send", "share.msg.entry", "25rem", {placeHolder: "enter message text", changeAction: sendMsg})),
                 ui.RowContainer()(
+                    ui.Button("clear all", clearMsgList),
+                    ui.HorizontalSpacer(1),
                     ui.Button("send", sendMsg), 
-                    ui.Button("clear all", clearMsgList)
+                    (msgEntry = ui.TextInput(null, "share.msg.entry", "23rem", {placeHolder: "enter message text", changeAction: sendMsg}))
                 )
             )
         ),
         ui.Panel("item directory", true)(
-                ui.RowContainer("start")(
-                    ui.TreeList("share.dir.list", 15, "32rem", selectShareEntry),
-                    ui.ColumnContainer("end")(
-                        ui.Button("clear local", clearLocalItems, "6rem"),
-                        ui.Button("store local", saveLocalItems, "6rem"),
-                        ui.Button("load local", loadLocalItems, "6rem"),
-                    )
+            ui.ColumnContainer()(
+                ui.TreeList("share.dir.list", 17, "33rem", selectShareEntry),
+                ui.RowContainer("end")(
+                    ui.Button("clear local", clearLocalItems, "6rem"),
+                    ui.Button("store local", saveLocalItems, "6rem"),
+                    ui.Button("load local", loadLocalItems, "6rem"),
                 )
+            )
         ),
-        ui.Panel("item editor", false)(
+        ui.Panel("item", false)(
             ui.RowContainer()(
-                ui.ColumnContainer()(
-                    (keyEntry = ui.TextInput( "key","share.obj.key", "24rem", {isFixed: true, placeHolder: "enter item key", changeAction: keyChanged})),
-                    (commentEntry = ui.TextInput( "comment", "share.obj.cmt", "24rem", {isFixed: true, placeHolder: "enter (optional) item comment"}))
-                ),
-                ui.ColumnContainer()(
-                    (complChoice = ui.Choice( "compl", "share.obj.compl", completeKey)),
-                    (typeChoice = ui.Choice( "type", "share.obj.type", selectType))
-                )
+                (keyEntry = ui.TextInput( "key","share.obj.key", "20rem", {isFixed: true, placeHolder: "enter item key", changeAction: keyChanged})),
+                (complChoice = ui.Choice( "compl", "share.obj.compl", completeKey, "8rem")),
             ),
-            (dataEntry = ui.TextArea("share.obj.text", "35.4rem", "8lh", {isFixed: true, changeAction: dataChanged})),
             ui.RowContainer()(
+                (editorChoice = ui.Choice("editor", "share.editor", null, "12rem")),
+                ui.Button( "run", runSelectedEditor),
+                ui.HorizontalSpacer(0.6),
                 (localCb = ui.CheckBox("local", null, "share.obj.cb-local")),
-                ui.HorizontalSpacer(4),
-                (editorChoice = ui.Choice("editor")),
-                ui.Button("run", runSelectedEditor),
-                ui.HorizontalSpacer(4),
+                ui.HorizontalSpacer(0.4),
+                (typeChoice = ui.Choice( "type", "share.obj.type", selectType, "8rem"))
+            )
+        ),
+        ui.Panel("item source")(
+            (commentEntry = ui.TextInput( "comment", "share.obj.cmt", "28.5rem", {isFixed: true, placeHolder: "enter (optional) item comment"})),
+            (dataEntry = ui.TextArea("share.obj.text", "33rem", "8lh", {isFixed: true, changeAction: dataChanged})),
+            ui.RowContainer("end")(
                 (deleteBtn = ui.Button("del", removeItem)),
                 (saveBtn = ui.Button("save", saveItem))
             )
@@ -238,7 +241,7 @@ function initDirView() {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "show", tip: "render selected item", width: "2.5rem", attrs:[], map: e=> itemRenderCb(e) },
             { name: "loc", tip: "item is local", width: "2rem", attrs: [], map: e => itemScope(e) },
-            { name: "owner", tip: "owner of item", width: "6rem", attrs: [], map: e => itemOwner(e) },
+            { name: "owner", tip: "owner of item", width: "7rem", attrs: [], map: e => itemOwner(e) },
             { name: "type", tip: "item type", width: "6rem", attrs: ["small"], map: e=> itemType(e) }
         ]);
     }
@@ -258,7 +261,7 @@ function initOwnRoleList() {
         }
 
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "own role", tip: "", width: "8rem", attrs: ["alignLeft", "small"], map: e=>e.role },
+            { name: "own role", tip: "", width: "9rem", attrs: ["alignLeft", "small"], map: e=>e.role },
             { name: "sub", tip: "number of external subscribers", width: "2.5rem", attrs: ["alignRight", "fixed"], map: e=> e.nSubscribers },
             ui.listItemSpacerColumn(),
             { name: "pub", tip: "is this role publishing", width: "2.5rem", attrs: [], map: e => ui.createCheckBox( e.isPublishing, togglePublish) }
@@ -279,7 +282,7 @@ function initExtRoleList() {
         }
 
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "ext role", tip: "", width: "8rem", attrs: ["alignLeft", "small"], map: e=>e.role },
+            { name: "ext role", tip: "", width: "9rem", attrs: ["alignLeft", "small"], map: e=>e.role },
             { name: "pub", tip: "is role currently published", width: "2.5rem", attrs: [], map: e=> e.isPublishing ? '✓' : '' },
             { name: "sub", tip: "are we subscribed to role", width: "2.5rem", attrs: [], map: e => ui.createCheckBox( e.isSubscribed, toggleSubscription) }
         ]);
@@ -294,7 +297,7 @@ function initMsgList() {
             { name: "time", tip: "time of send", width: "5rem", attrs:["small", "fixed"], map: e=> util.toLocalTimeString(e.date) },
             { name: "role", tip: "role of msg sender", width: "4rem", attrs: ["alignLeft", "small"], map: e=>e.role },
             { name: "", tip:"", width: "1rem", attrs: [], map: e=> share._getOwnRole(e.role) ? '>' : '' },
-            { name: "message", tip: "message text", width: "24rem", attrs: [], map: e=>e.msg },
+            { name: "message", tip: "message text", width: "22rem", attrs: [], map: e=>e.msg },
         ]);
     }
     return view;
@@ -423,8 +426,11 @@ function clearMsgList (event) {
 function selectShareEntry(event) {
     let e = ui.getSelectedListItem(dirView);
     if (e) { // data item selected
-        let key = e.key;
         if (e.value) {
+            let key = e.key;
+
+            selItem = e;
+
             ui.setField( keyEntry, key);
             ui.clearChoiceItems( complChoice); // nothing to complete
             ui.setChoiceItems( typeChoice, typeCandidates, 0);
@@ -434,6 +440,8 @@ function selectShareEntry(event) {
             return;
         }
     } 
+
+    selItem = null;
 
     let node = ui.getSelectedTreeNode( dirView);
     if (node) { // parent (non-data) node selected
@@ -512,7 +520,7 @@ function completeKey (event) {
 function selectType (event){
     let type = ui.getSelectedChoiceValue( typeChoice);
     let key = ui.getFieldValue( keyEntry);
-    if (type) setTemplate( key, type);
+    if (!selItem && type) setTemplate( key, type);
     updateEditorChoices();
 }
 
@@ -563,7 +571,7 @@ function keyChanged (event) {
 function updateEditorChoices () {
     let selType = ui.getSelectedChoiceValue( typeChoice);
     if (selType) { // we only set editors once we know the type
-        let editors = main.getShareEditorForItemType( selType);
+        let editors = main.getShareEditorEntriesForItemType( selType);
         if (editors && editors.length > 0)  {
             ui.setChoiceItems( editorChoice, editors, 0);
             return;
@@ -695,13 +703,18 @@ function handleInitSharedItems(sharedItems) {
 function handleSetShared (msg, isLocal) {
     let key = msg.key;
     let value = msg.value;
+    let updatedItem = share.getSharedItem(key);
 
     if (value.type == main.JSON) { value.data = JSON.parse( value.data) }
-
+    
     let sharedItem = new main.SharedItem(key,isLocal,value);
     share._set( sharedItem.key, sharedItem);
 
-    ui.sortInTreeItem( dirView, sharedItem, sharedItem.key);
+    if (updatedItem) {
+        ui.updateListItem( dirView, updatedItem);
+    } else {
+        ui.sortInTreeItem( dirView, sharedItem, sharedItem.key);
+    }
 
     if (pendingSavedKeys.has(key)) {
         pendingSavedKeys.delete(key);
@@ -796,6 +809,7 @@ function runSelectedEditor(event) {
     function valueCallback (data) {
         let src = JSON.stringify(data, 0, 2);
         setDataEntry( src);
+        saveItem(null);
     }
 
     let e = ui.getSelectedChoiceValue(editorChoice);
@@ -803,7 +817,8 @@ function runSelectedEditor(event) {
         let key = ui.getNonEmptyFieldValue(keyEntry);
         if (isValidItemKey(key)) {
             ui.selectChoiceItem( typeChoice, e.type); // if we run the editor we select a type
-            e.editor( valueCallback);
+            e.editor( selItem ? selItem.value.data : null, valueCallback);
+
         } else {
             window.alert("no valid item key to edit");
         }

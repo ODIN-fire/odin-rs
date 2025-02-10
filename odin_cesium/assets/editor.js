@@ -49,7 +49,7 @@ class PolyEditorWindow {
                 ui.CheckBox("metric", setMetric),
                 ui.HorizontalSpacer(5),
                 ui.Button("cancel", cancel),
-                ui.Button("enter", enter)
+                ui.Button("save", enter)
             )
         );
         
@@ -114,7 +114,7 @@ class PolyEditorWindow {
 /// cesium_test driver
 main.exportFuncToMain( function test() {
     function processResult (points) {
-        console.log("points entered:", points);
+        console.log("edit result:", points);
     }
 
     let points = [
@@ -125,7 +125,34 @@ main.exportFuncToMain( function test() {
     //points = [];
 
     console.log("start editing");
-    editPolygon( points, processResult);
+    //editPolygon( points, processResult);
+    /*
+    let editor = main.getDefaultShareEditorForItemType( main.GEO_LINE_STRING);
+    if (editor) {
+        let input = new main.GeoLineString( points);
+        editor( input, processResult);
+    } else console.log("no editor");
+     */
+
+    /*
+    let editor = main.getDefaultShareEditorForItemType( main.GEO_POLYGON);
+    if (editor) {
+        let input = new main.GeoPolygon( points);
+        editor( input, processResult);
+    } else console.log("no editor");
+    */
+
+    /*
+    let editor = main.getDefaultShareEditorForItemType( main.GEO_LINE);
+    if (editor) {
+        editor( null, processResult);
+    } else console.log("no editor");
+    */
+
+    let editor = editGeoPoint;
+    if (editor) {
+        editor( null, processResult);
+    } else console.log("no editor");
 });
 
 // initial window position (updated upon close)
@@ -136,9 +163,80 @@ export function editPolyline (points, processResult) {
     new PolyEditor( points, processResult).open();
 }
 
+
+/// shared item editor func for GeoLine
+export function editGeoPoint (geoPoint, processResult) {
+    function procRes (editedPoints) {
+        if (geoPoint) {
+            geoPoint.lon = editedPoints[0].lon;
+            geoPoint.lat = editedPoints[0].lat;
+            processResult( geoPoint);
+        } else {
+            processResult( new main.GeoPoint(editedPoints[0].lon, editedPoints[0].lat));
+        }
+    }
+
+    let init = geoPoint ? [Object.assign({}, geoPoint)] : [];
+    new PointEditor( init, procRes).open();
+}
+main.addShareEditor( main.GEO_POINT, "2D point", editGeoPoint);
+
+/// shared item editor func for GeoLine
+export function editGeoLine (geoLine, processResult) {
+    function procRes (editedPoints) {
+        let resultPoints = editedPoints.map( (p)=> new main.GeoPoint(p.lon, p.lat) );
+        if (geoLine) {
+            geoLine.start = resultPoints[0];
+            geoLine.end = resultPoints[1];
+            processResult( geoLine);
+        } else {
+            processResult( new main.GeoLine(resultPoints[0], resultPoints[1]));
+        }
+    }
+
+    let init = geoLine ? [Object.assign({}, geoLine.start), Object.assign({}, geoLine.end)] : [];
+    new LineEditor( init, procRes).open();
+}
+main.addShareEditor( main.GEO_LINE, "2D line", editGeoLine);
+
+/// shared item editor func for GeoLineString
+export function editGeoLineString (geoLineString, processResult) {
+    function procRes (editedPoints) {
+        let resultPoints = editedPoints.map( (p)=> new main.GeoPoint(p.lon, p.lat) );
+        if (geoLineString) {
+            geoLineString.points = resultPoints;
+            processResult( geoLineString);
+        } else {
+            processResult( new GeoLineString(resultPoints));
+        }
+    }
+
+    let init = geoLineString ? geoLineString.points.map( (p)=>Object.assign({}, p) ) : [];
+    new PolyEditor( init, procRes).open();
+}
+main.addShareEditor( main.GEO_LINE_STRING, "2D polyline", editGeoLineString);
+
 export function editPolygon (points, processResult) {
     new PolygonEditor( points, processResult).open();
 }
+
+/// shared item editor func for GeoPolygon
+export function editGeoPolygonExterior (geoPolygon, processResult) {
+    function procRes (editedPoints) {
+        let resultPoints = editedPoints.map( (p)=> new main.GeoPoint(p.lon, p.lat) );
+        if (geoPolygon) {
+            geoPolygon.exterior = resultPoints;
+            processResult( geoPolygon);
+        } else {
+            processResult( new GeoPolygon(resultPoints));
+        }
+    }
+
+    let init = geoPolygon ? geoPolygon.exterior.map( (p)=>Object.assign({}, p)) : [];
+    new PolygonEditor( init, procRes).open();
+}
+main.addShareEditor( main.GEO_POLYGON, "2D polygon exterior", editGeoPolygonExterior);
+
 
 /// the base class for PolylineEditor and PolygonEditor
 export class PolyEditor {
@@ -201,7 +299,7 @@ export class PolyEditor {
     }
 
     _startEntryMode () {
-        this.cancelEntry = enterPolyline( this.points, {  // @override for polygon
+        this.cancelEntry = enterPolyline( this.points, this.maxPoints, {  // @override for polygon
             onEnter: this._onEntryComplete.bind(this),
             onCancel: this._onEntryCancel.bind(this), 
             onAddPoint: this._addHandle.bind(this), 
@@ -621,12 +719,14 @@ export class PolyEditor {
     _setHalfPointHandles () {
         this.halfHandles.removeAll();
     
-        let halfPoints = getHalfPoints( this.points);
-    
-        for (let i = 0; i < halfPoints.length; i++){
-          let hp = this.halfHandles.add( halfHandleOpts(halfPoints[i]));
-          hp.__isHalf = true;
-          hp.__index = i;
+        if (this.maxPoints === undefined || this.points.length < this.maxPoints) { // otherwise we can't create more points
+            let halfPoints = getHalfPoints( this.points);
+        
+            for (let i = 0; i < halfPoints.length; i++){
+                let hp = this.halfHandles.add( halfHandleOpts(halfPoints[i]));
+                hp.__isHalf = true;
+                hp.__index = i;
+            }
         }
     }
 
@@ -711,6 +811,26 @@ export class PolygonEditor extends PolyEditor {
         let points = this.points;
         points.push( points[0]); // close outline
     }
+
+    _enter() {
+        this.points.pop(); // remove the closing point (was only for the outline)
+        if (this.processResult) this.processResult(this.points);
+        this._dispose();
+    }
+}
+
+export class LineEditor extends PolyEditor {
+    constructor (points, processResult) {
+        super(points, processResult);
+        this.maxPoints = 2;
+    }
+}
+
+export class PointEditor extends PolyEditor {
+    constructor (points, processResult) {
+        super(points, processResult);
+        this.maxPoints = 1;
+    }
 }
 
 /* #endregion editor classes */
@@ -748,7 +868,7 @@ function setCartographicPos (p) {
 /// a Cartesian3 mouse position. There is no onDelPoint since we can't delete points in enter
 /// mode - we can't set the pointer position in Javascript
 // callbacks: { onEnter, onCancel, onAddPoint, onDelPoint, onMouseMove }
-export function enterPolyline (points, callbacks) {
+export function enterPolyline (points, maxPoints, callbacks) {
     let cp = new Cesium.Cartesian3(); // cached point to save allocs
   
     points.push( new Cesium.Cartesian3()); // add the mover point
@@ -766,7 +886,7 @@ export function enterPolyline (points, callbacks) {
     function onClick(event) {
       if (event.detail == 2) { // double click -> done entering
         event.preventDefault(); // Cesium likes to zoom in on double clicks
-        resetEnterPolyline()
+        resetEnterPolyline();
   
         points.pop();  // remove the mover
         if (points.length > 1) {
@@ -781,8 +901,13 @@ export function enterPolyline (points, callbacks) {
   
         if (callbacks.onAddPoint) { callbacks.onAddPoint(p); }
   
-        let pMover = { ...p };
-        points.push( pMover); 
+        if (maxPoints && points.length >= maxPoints) {
+            resetEnterPolyline();
+            if (callbacks.onEnter) callbacks.onEnter();
+        } else {
+            let pMover = { ...p };
+            points.push( pMover); 
+        }
       }
     }
   
