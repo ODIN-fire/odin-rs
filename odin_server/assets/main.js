@@ -234,6 +234,38 @@ export class GeoRect {
     }
     static fromWSENdeg (west,south,east,north) { return GeoRect(west,south,east,north); }
 
+    static fromPoints (p1, p2) {
+        let rect = new GeoRect(0,0,0,0);
+        rect.setFromPoints( p1, p2);
+        return rect; 
+    }
+
+    toRectangle() {
+        return { west: Math.toRadians(this.west), south: Math.toRadians(this.south), east: Math.toRadians(this.east), north: Math.toRadians(this.north) };
+    }
+
+    setFromPoints(p1,p2) {
+        if (p1.lon < p2.lon) {
+            this.west = p1.lon;
+            this.east = p2.lon;
+        } else {
+            this.west = p2.lon;
+            this.east = p1.lon;      
+        }
+
+        if (p1.lat < p2.lat) {
+            this.south = p1.lat;
+            this.north = p2.lat;
+        } else {
+            this.south = p2.lat;
+            this.north = p1.lat;
+        }
+    }
+
+    toPoints () {
+        return [ new GeoPoint( this.west, this.south), new GeoPoint( this.east, this.north) ];
+    }
+
     static checkType (o) {
         return (
             (o.west != undefined && GeoPoint.checkType(o.west)) && 

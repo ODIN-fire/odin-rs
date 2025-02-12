@@ -103,6 +103,11 @@ div.ui_window {
     background: var(--window-background);
 }
 
+div.ui_window.spotlight {
+    border: var(--window-spotlight-border);
+    background: var(--window-spotlight-background);
+}
+
 div.ui_window.show {
     display: block;
 }

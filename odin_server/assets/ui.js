@@ -297,6 +297,14 @@ function removeWindowFromStack(w) {
     }
 }
 
+export function setWindowSpotlight(o,isSpotlight) {
+    let w = getWindow(o);
+    if (w) {
+        if (isSpotlight) _addClass(w, "spotlight");
+        else _removeClass( w, "spotlight");
+    }
+}
+
 export function showWindow(o) {
     let e = getWindow(o);
     if (e) {

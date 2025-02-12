@@ -912,28 +912,32 @@ function handleKeyDown(e) {
     keyDownHandlers.forEach( handler=> handler(e));
 }
 
-export function getCartographicMousePosition(e) {
-    var ellipsoid = viewer.scene.globe.ellipsoid;
-    var cartesian = viewer.camera.pickEllipsoid(new Cesium.Cartesian3(e.clientX, e.clientY), ellipsoid);
-    if (cartesian) {
-        return ellipsoid.cartesianToCartographic(cartesian);
-    } else {
-        return undefined;
-    }
-}
+// mouse query cached positions
+const cp2 = new Cesium.Cartesian2(); // screen
+const cp3 = new Cesium.Cartesian3(); // ecef
 
-const cp2 = new Cesium.Cartesian2();
+export function getCartographicMousePosition(e, result=null) {
+    cp2.x = e.clientX;
+    cp2.y = e.clientY;
+
+    let ellipsoid = viewer.scene.globe.ellipsoid;
+    let cartesian = viewer.camera.pickEllipsoid( cp2, ellipsoid, cp3); // mouse might be outside globe
+    return cartesian ? ellipsoid.cartesianToCartographic( cartesian, result) : undefined;
+}
 
 export function getCartesian3MousePosition(e, result=null) {
     cp2.x = e.clientX;
     cp2.y = e.clientY;
 
-    var ellipsoid = viewer.scene.globe.ellipsoid;
+    let ellipsoid = viewer.scene.globe.ellipsoid;
     return viewer.camera.pickEllipsoid( cp2, ellipsoid, result);
 }
 
 export function getWindowMousePosition(e) {
-    return new Cesium.Cartesian2( e.clientX, e.clientY);
+    cp2.x = e.clientX;
+    cp2.y = e.clientY;
+
+    return cp2;
 }
 
 var deferredMouseUpdate = undefined;
