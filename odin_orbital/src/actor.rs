@@ -21,7 +21,7 @@ use std::time::Duration;
 use odin_common::geo::{GeoCoord, GeoRect};
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
-use crate::orekit::{OrbitalTrajectory, OverpassList};
+use crate::orekit::OverpassList;
 use crate::{RawHotspots, ViirsHotspot, ViirsHotspotSet, ViirsHotspotStore};
 use crate::errors::OdinOrbitalSatError;
 use crate::errors::Result;
@@ -115,9 +115,7 @@ impl <T, InitAction, HotspotUpdateAction, OverpassUpdateAction> OrbitalSatImport
     }
 
     pub async fn process_initial_hotspots(&mut self, init_hotspots: RawHotspots) -> Result<()> {
-        println!("in process initial hotspots");
         let hotspots = process_hotspots( init_hotspots, &self.overpass_list, self.satellite.clone(), self.source.clone())?;
-        println!("in process initial hotspots: {} hotspot sets", hotspots.len());
         for hs in hotspots.into_iter() {
           self.hotspots.update(hs, self.max_age);
         }
@@ -156,14 +154,12 @@ impl_actor! { match msg for Actor< OrbitalSatImportActor<T, InitAction, HotspotU
     ExecOverpassSnapshotAction => cont! { msg.0.execute( &self.overpass_list ).await; }
 
     OrbitsReady => cont! { 
-        println!("got orbits ready");
         let hself = self.hself.clone();
         let orbit_calculator =  self.orbit_calculator.clone() ;
         self.orbital_importer.start( hself, orbit_calculator ); 
     }
 
-    InitialHotspots => cont! { println!("got init hotspots");
-        self.process_initial_hotspots(msg.0).await; }
+    InitialHotspots => cont! { self.process_initial_hotspots(msg.0).await; }
 
     UpdateRawHotspots => cont! { 
         match self.process_raw_hotspots(msg.0) {

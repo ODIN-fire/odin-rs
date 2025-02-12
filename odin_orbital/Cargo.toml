@@ -36,7 +36,7 @@ http = "*"
 tempfile = "*"
 csv = "*"
 sgp4 = "*"
-satkit = "*"
+satkit = "0.5.5"
 structopt = "*"
 lazy_static = "*"
 nalgebra = "0.33.1"
@@ -45,6 +45,7 @@ geo = "*"
 thiserror = "*"
 tracing = "*"
 itertools = "*"
+argminmax = "0.6.2"
 
 [build-dependencies]
 odin_build = { workspace = true }

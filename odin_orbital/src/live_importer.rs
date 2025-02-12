@@ -41,7 +41,7 @@ use crate::actor::*;
     }
  }
 
- #[derive(Debug,Clone)]
+ #[derive(Debug,Clone, Deserialize)]
  pub struct LiveOrbitalSatImporterConfig {
     pub server: String,
     pub map_key: String,
@@ -168,18 +168,16 @@ pub fn get_overpass_request(config: LiveOrbitalSatImporterConfig, hself: ActorHa
 }
 
 async fn run_init_data_acquisition (hself: ActorHandle<OrbitalSatImportActorMsg>, config: LiveOrbitalSatImporterConfig, cache_dir:Arc<PathBuf>) -> Result<()> {
-    println!("in run init data aquisition");
     let query_bounds = get_query_bounds(&config.region);
     let url = format!("{}/usfs/api/area/csv/{}/{}/{}/3", &config.server, &config.map_key, &config.source, &query_bounds); // update date to match history
     let filename = get_latest_hotspot_download( &cache_dir, &url, &config.source).await?;
     let hs = read_hotspots(&filename)?;
-    println!("got raw hotspots: {:?}", hs.hotspots.len());
     hself.try_send_msg(InitialHotspots(hs))?;
     Ok(())
    
 }
 
-async fn run_data_acquisition (hself: ActorHandle<OrbitalSatImportActorMsg>, config: LiveOrbitalSatImporterConfig, cache_dir:Arc<PathBuf>, overpass: OrbitalTrajectory) -> Result<()> {
+async fn run_data_acquisition (hself: ActorHandle<OrbitalSatImportActorMsg>, config: LiveOrbitalSatImporterConfig, cache_dir:Arc<PathBuf>, overpass: Overpass) -> Result<()> {
     // set up schedule for next acquisition 
     let schedule = get_data_request_schedule(overpass, config.request_delay)?;
     let query_bounds = get_query_bounds(&config.region);
@@ -256,10 +254,10 @@ async fn run_file_cleanup (cache_dir: Arc<PathBuf>, interval: Duration, max_age:
     }
 }
 
-fn get_data_request_schedule (overpass: OrbitalTrajectory, request_delays: Vec<Duration>) -> Result<Vec<DateTime<Utc>>> {
+fn get_data_request_schedule (overpass: Overpass, request_delays: Vec<Duration>) -> Result<Vec<DateTime<Utc>>> {
     let mut schedule = Vec::new();
     for delay in request_delays.into_iter() {
-        let d = overpass.t_end + delay;
+        let d = Utc.timestamp_millis_opt(overpass.last_date).unwrap() + delay;
         if d > Utc::now() {
             schedule.push(d)
         }
@@ -299,10 +297,8 @@ impl LiveOrbitCalculator {
     }
 
     async fn calc_init_overpasses(&mut self, hself: ActorHandle<OrbitActorMsg>) -> Result<()> {
-        println!("calculating init overpasses");
         let tle = get_tles_celestrak(self.config.satellite).await?;
-        println!("got tles");
-        let overpass = compute_initial_orbits(tle, self.config.max_scan_angle, chrono::Duration::from_std(self.config.history)?)?;
+        let overpass = compute_initial_orbits(tle, self.config.max_scan_angle, chrono::Duration::from_std(self.config.history)?, &self.config.full_region)?;
         hself.try_send_msg(InitOverpassList(overpass))?;
         Ok(())
     }
@@ -311,7 +307,6 @@ impl LiveOrbitCalculator {
  impl OrbitCalculator for LiveOrbitCalculator {
     fn calc_overpass_list (&self, overpass_request: &OverpassRequest, current_overpasses: &OverpassList ) -> Result<OverpassList> {
         let overpasses = get_overpasses_for_small_region(&overpass_request.region, current_overpasses, overpass_request.scan_angle);
-        println!("overpass calc for request: {:?}; {:?}", overpasses.get_start_dates(), overpasses.get_end_dates());
         Ok(overpasses)
     }
 
@@ -330,7 +325,7 @@ impl LiveOrbitCalculator {
     loop {
         sleep(config.calculation_interval).await;
         let tle = get_tles_celestrak(config.satellite).await?;
-        let overpass = compute_full_orbits(tle, config.max_scan_angle)?;
+        let overpass = compute_full_orbits(tle, config.max_scan_angle, &config.full_region)?;
         hself.try_send_msg(UpdateOverpassList(overpass))?;
     }
     Ok(())

@@ -13,7 +13,7 @@
  */
 
 use std::sync::Arc;
-use std::any::type_name;
+use chrono::Utc;
 use odin_orbital::live_importer::{LiveOrbitalSatImporterConfig, LiveOrbitalSatConfig, LiveOrbitalSatOrbitCalculatorConfig, LiveOrbitalSatImporter, LiveOrbitCalculator};
 use tokio;
 use anyhow::Result;
@@ -22,7 +22,7 @@ use odin_build;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_orbital::actor::{OrbitalSatConfig, OrbitalSatImporterConfig, OrbitalSatOrbitCalculatorConfig, OrbitalSatImportActor, OrbitalSatImportActorMsg, OrbitActor, OrbitActorMsg, OrbitsReady};
-use odin_orbital::{load_config, OrbitalSat, OrbitalSatelliteInfo, ViirsHotspotSet, ViirsHotspotStore};
+use odin_orbital::{load_config, OrbitalSat, ViirsHotspotSet, ViirsHotspotStore};
 use odin_orbital::orekit::OverpassList;
 use odin_orbital::orbital_service::OrbitalSatService;
 
@@ -54,7 +54,7 @@ async fn main() -> Result<()>{
     ))?;
 
     let horbit: ActorHandle<OrbitActorMsg> = spawn_orbital_sat_orbit_calculator(&mut actor_system, noaa20_name, hnoaa20.to_actor_handle(), live_orbit_config_noaa20)?;
-    let _hnoaa20: ActorHandle<OrbitalSatImportActorMsg> = spawn_orbital_sat_importer(&mut actor_system, noaa20_name, hnoaa20, horbit, actor_config, live_importer_config_noaa20, &hserver)?;
+    let _hnoaa20: ActorHandle<OrbitalSatImportActorMsg> = spawn_orbital_sat_importer(&mut actor_system, hnoaa20, horbit, actor_config, live_importer_config_noaa20, &hserver)?;
 
     // run actors
     actor_system.start_all().await?;
@@ -79,40 +79,38 @@ fn spawn_orbital_sat_orbit_calculator (
 }
 fn spawn_orbital_sat_importer (
     actor_system: &mut ActorSystem,
-    name: &'static str, 
     pre_handle: PreActorHandle<OrbitalSatImportActorMsg>, 
     orbit_handle: ActorHandle<OrbitActorMsg>,
     actor_config: OrbitalSatConfig,
     config: LiveOrbitalSatImporterConfig,
     hserver: &ActorHandle<SpaServerMsg>
 ) -> OdinActorResult<ActorHandle<OrbitalSatImportActorMsg>> {
+    let init_action = dataref_action!{ 
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone(), 
+        let sender_id: Arc<String> = pre_handle.get_id().clone() => 
+        |_store:&ViirsHotspotStore| {
+            Ok( hserver.try_send_msg( DataAvailable::new::<ViirsHotspotStore>(sender_id) )? )
+        }
+    };
+    let overpass_update_action = data_action!{ 
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |data:OverpassList| {
+            for overpass in data.overpasses.iter(){
+                let data = WsMsg::json( OrbitalSatService::mod_path(), "overpass", overpass)?;
+                hserver.try_send_msg( BroadcastWsMsg{data})?;
+            }
+            Ok(())
+    }};
+    let hotspot_update_action = data_action!{ 
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |data:ViirsHotspotSet| {
+            let data = WsMsg::json( OrbitalSatService::mod_path(), "hotspots", data)?;
+            Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
+    }};
     spawn_pre_actor!( actor_system, pre_handle,  OrbitalSatImportActor::new(
         actor_config, 
         LiveOrbitalSatImporter::new( config ),
-        dataref_action!{ 
-            let hserver: ActorHandle<SpaServerMsg> = hserver.clone(), 
-            let name: &'static str = name => 
-            |_store:&ViirsHotspotStore| {
-                println!("in init action for hs");
-                Ok( hserver.try_send_msg( DataAvailable{ sender_id: name, data_type: type_name::<ViirsHotspotStore>()} )? )
-            }
-        },
-        data_action!{ 
-            let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |data:ViirsHotspotSet| {
-                println!("data action for hs");
-            let data = WsMsg::json( OrbitalSatService::mod_path(), "hotspots", data)?;
-            Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
-        }},
-        data_action!{ 
-            let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |data:OverpassList| {
-                println!("data action for overpass");
-                for overpass in data.overpasses.iter(){
-                    println!("overpass date: {:?}", overpass.t_start);
-                    let data = WsMsg::json( OrbitalSatService::mod_path(), "overpass", overpass.to_overpass()?)?;
-                    hserver.try_send_msg( BroadcastWsMsg{data})?;
-                }
-                Ok(())
-        }},
+        init_action,
+        hotspot_update_action,
+        overpass_update_action,
         orbit_handle
     ))
 }

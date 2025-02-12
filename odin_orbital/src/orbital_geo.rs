@@ -18,7 +18,7 @@ use odin_common::{geo::GeoPoint, sqrt};
 use odin_common::geo::GeoCoord;
 use std::ops::{Add, AddAssign, Mul, MulAssign};
 use nav_types::{ECEF, WGS84};
-use geo::{GeodesicBearing, GeodesicDestination, Point};
+use geo::{GeodesicBearing, Point};
 
 pub struct Cartesian3D {
     pub x: f64,

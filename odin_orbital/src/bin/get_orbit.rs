@@ -21,6 +21,7 @@ use std::{fs::File, io::Write};
 use tokio;
 use anyhow::{Result, Ok};
 use odin_orbital::orekit::{get_tles_celestrak, compute_full_orbits};
+use odin_common::{angle::{Latitude, Longitude}, geo::GeoRect};
 
  /// structopt command line arguments
 #[derive(StructOpt,Debug)]
@@ -40,8 +41,9 @@ lazy_static! {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let region = GeoRect::from_wsen(Longitude::from_degrees(-125.0), Latitude::from_degrees(31.0), Longitude::from_degrees(-104.0), Latitude::from_degrees(50.0));
     let tle = get_tles_celestrak(ARGS.sat_id).await?;
-    let overpass = compute_full_orbits(tle, ARGS.max_scan)?;
+    let overpass = compute_full_orbits(tle, ARGS.max_scan, &region)?;
     let j = serde_json::to_string(&overpass)?;
     let fname = &ARGS.filename;
     let mut file = File::create(fname).expect("Could not create file!");

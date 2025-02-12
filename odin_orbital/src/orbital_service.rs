@@ -80,15 +80,12 @@ impl SpaService for OrbitalSatService {
 
     async fn data_available (&mut self, hself: &ActorHandle<SpaServerMsg>, has_connections: bool, sender_id: &str, data_type: &str) -> OdinServerResult<bool> {
         let mut is_our_data = false;
-        println!("in data available");
         if let Some(hupdater) = self.satellites.iter().find( |s| *s.hupdater.id == sender_id).map( |s| &s.hupdater) {
             if data_type == type_name::<ViirsHotspotStore>() {
                 if has_connections {
                     let action = dyn_dataref_action!( let hself: ActorHandle<SpaServerMsg> = hself.clone() => |store: &ViirsHotspotStore| {
                         // update for jpss
-                        println!("exec action hs");
                         for hotspots in store.to_hotspots().into_iter(){
-                            println!("exec action hs iter");
                             let data = WsMsg::json( OrbitalSatService::mod_path(), "hotspots", hotspots)?;
                             hself.try_send_msg( BroadcastWsMsg{data})?;
                         }
@@ -102,9 +99,8 @@ impl SpaService for OrbitalSatService {
                 if has_connections {
                     let action = dyn_dataref_action!( let hself: ActorHandle<SpaServerMsg> = hself.clone() => |overpasses: &OverpassList| {
                         // update for jpss
-                        println!("exec action overpasses");
                         for overpass in overpasses.overpasses.iter(){
-                            let data = WsMsg::json( OrbitalSatService::mod_path(), "overpass", overpass.to_overpass()?)?;
+                            let data = WsMsg::json( OrbitalSatService::mod_path(), "overpass", overpass)?;
                             hself.try_send_msg( BroadcastWsMsg{data})?;
                         }
                         Ok(())
@@ -114,7 +110,6 @@ impl SpaService for OrbitalSatService {
                 is_our_data = true;
             }
         }
-        println!("exiting data available");
         Ok(is_our_data)
     }
 
@@ -124,14 +119,13 @@ impl SpaService for OrbitalSatService {
         conn.send(msg).await;
 
         if is_data_available {
-            println!("data available in init");
             let remote_addr = conn.remote_addr;
             for sat in &self.satellites {
                 let op_action = dyn_dataref_action!( let hself: ActorHandle<SpaServerMsg> = hself.clone(), 
                     let remote_addr: SocketAddr = remote_addr => |overpass_list: &OverpassList| {
                         for overpass in overpass_list.overpasses.iter(){
                             let remote_addr = remote_addr.clone();
-                            let data = WsMsg::json( OrbitalSatService::mod_path(), "overpass", overpass.to_overpass()?)?;
+                            let data = WsMsg::json( OrbitalSatService::mod_path(), "overpass", overpass)?;
                             hself.try_send_msg( SendWsMsg{remote_addr,data} )?;
                         }
                         Ok(())
@@ -140,7 +134,6 @@ impl SpaService for OrbitalSatService {
                 let action = dyn_dataref_action!( let hself: ActorHandle<SpaServerMsg> = hself.clone(), 
                     let remote_addr: SocketAddr = remote_addr => |store: &ViirsHotspotStore| {
                     for hotspots in store.to_hotspots().into_iter() {
-                        println!("iterating over init hs");
                         let remote_addr = remote_addr.clone();
                         let data =  WsMsg::json( OrbitalSatService::mod_path(), "hotspots", hotspots)?;
                         hself.try_send_msg( SendWsMsg{remote_addr,data})?;

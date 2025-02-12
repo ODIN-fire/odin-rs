@@ -20,14 +20,14 @@ use std::vec::Vec;
 use chrono::TimeDelta;
 use chrono::TimeZone;
 use chrono::{DateTime, NaiveDate, NaiveTime};
-use geo::{GeodesicBearing, GeodesicDestination};
+use geo::{Geodesic, Bearing, Destination};
 use nav_types::{ECEF, WGS84};
 use odin_common::angle::Latitude;
 use odin_common::angle::Longitude;
 use odin_common::geo::GeoPoint;
 use odin_common::geo::GeoPolygon;
 use odin_common::geo::GeoRect;
-use orekit::{get_trajectory_point, OrbitalTrajectory};
+use orekit::get_trajectory_point;
 use serde::{Serialize, Deserialize};
 use uom::si::f32::{Power,ThermodynamicTemperature};
 use odin_common::fs::ensure_writable_dir;
@@ -171,7 +171,6 @@ impl ViirsHotspotStore {
     }
     pub fn update(&mut self, hs_set: ViirsHotspotSet, max_age: Duration) { // function to update the hotspot store primarily for handling duplicate hotspots/nrt corrections
         // --- step 1: identify hs that are past max_age
-        println!("in update hotspot store: {} hotspot sets", self.hotspots.len());
         let mut old_dates = vec![];
         for dt in self.hotspots.keys() {
             if Utc::now() > (dt.clone() + max_age) {
@@ -182,7 +181,6 @@ impl ViirsHotspotStore {
         for dt in old_dates.into_iter() {
             self.hotspots.remove(&dt);
         }
-        println!("in update hotspot store: {} hotspot sets", self.hotspots.len());
         // --- step 3: add new hotspots based on date, latlon - check for existing hs with latlon rounded to 4 decimal
         let hs_date = Utc.timestamp_millis_opt(hs_set.date).unwrap();
         if let Some(date_map) = self.hotspots.get_mut(&hs_date ) {
@@ -201,16 +199,8 @@ impl ViirsHotspotStore {
             }
             self.hotspots.insert(hs_date, date_map);
         }
-        println!("in update hotspot store: {} hotspot sets", self.hotspots.len());
     }   
     pub fn to_hotspots(&self) -> Vec<ViirsHotspotSet> { // this should be to a vec of hotspot sets
-        // for each hs map date, build a hs set from the 
-        // let hs_list: Vec<HashMap<String, ViirsHotspot>> = self.hotspots.clone().into_values().collect();
-        // let mut hs: Vec<ViirsHotspot> = vec![];
-        // for latlon_map in hs_list.into_iter() { // to do: write this cleaner
-        //     let vals: Vec<ViirsHotspot> = latlon_map.into_iter().map(|(latlon, hs_val)| hs_val).collect();
-        //     hs.extend(vals);
-        // }
         let mut hs_sets = Vec::new(); 
         for dt in self.hotspots.keys(){
             let hs_map_op = self.hotspots.get(dt);
@@ -220,7 +210,6 @@ impl ViirsHotspotStore {
                 hs_sets.push(hs_set);
             }
         }
-        println!("in to_hotspots: {} hotspot sets", hs_sets.len());
         hs_sets
     }
 }
@@ -275,7 +264,7 @@ pub fn get_hs_bounds(hs: &RawHotspot, overpass_list: &OverpassList) -> Result<Ve
     let hs_loc = WGS84::from_degrees_and_meters(hs.latitude.degrees(), hs.longitude.degrees(), 0.0);
     let hs_loc_ecef = Cartesian3D::from_ecef(ECEF::from(hs_loc));
     // get trajectory point - get overpass for corresponding date, get closest ground track
-    let ground_point = get_trajectory_point(&hs_loc_ecef, &hs.get_datetime(), overpass_list);
+    let ground_point = get_trajectory_point(&hs_loc_ecef, &hs.get_datetime(), overpass_list)?;
     if let Some(gp) = ground_point {
         // covert traj point to lat lon
         let sat_pos = gp.to_wgs84();
@@ -283,22 +272,23 @@ pub fn get_hs_bounds(hs: &RawHotspot, overpass_list: &OverpassList) -> Result<Ve
         let hs_loc_geo = geo::geometry::Point::new(hs_loc.longitude_degrees(), hs_loc.latitude_degrees());
         let scan_dist = (hs.scan*1000.0)/2.0; // needs to be in m
         let track_dist = (hs.track*1000.0)/2.0; // needs to be in m
-        let bearing = sat_pos_geo.geodesic_bearing(hs_loc_geo);
+        let bearing = Geodesic::bearing(sat_pos_geo, hs_loc_geo);
         let track_bearing = bearing + 90.0; // satellite track (perp to scanAngle)
         let opp_track_bearing = track_bearing + 180.0; // oppositional satellite track
         // get dist from center to edges using scan/track
-        let p_scan_0 = hs_loc_geo.geodesic_destination(bearing, scan_dist);// towards satellite on GC
-        let p_scan_1 = hs_loc_geo.geodesic_destination(bearing+180.0, scan_dist);// away from satellite on GC
+        let p_scan_0 = Geodesic::destination(hs_loc_geo, bearing, scan_dist);// towards satellite on GC
+        let p_scan_1 = Geodesic::destination(hs_loc_geo, bearing+180.0, scan_dist);// away from satellite on GC
         // get coords using https://docs.rs/geo/latest/geo/algorithm/geodesic_distance/trait.GeodesicDistance.html
-        let bounds = vec![p_scan_0.geodesic_destination(track_bearing, track_dist),
-                                    p_scan_1.geodesic_destination(track_bearing, track_dist),
-                                    p_scan_1.geodesic_destination(opp_track_bearing, track_dist),
-                                    p_scan_0.geodesic_destination(opp_track_bearing, track_dist)];
+        let bounds = vec![ Geodesic::destination(p_scan_0, track_bearing, track_dist),
+                                    Geodesic::destination(p_scan_1,track_bearing, track_dist),
+                                    Geodesic::destination(p_scan_1,opp_track_bearing, track_dist),
+                                    Geodesic::destination(p_scan_0,opp_track_bearing, track_dist)];
         let b:Vec<GeoPoint> = bounds.into_iter().map(|x| GeoPoint::from_point(x)).collect();
         Ok(b)
     } else {
-        println!("no traj ground point");
-        Err(OdinOrbitalSatError::BoundsError(String::from("Error: no trajectory ground point")))
+        let overpass_first_dates: Vec<i64> = overpass_list.overpasses.iter().map(|x| x.first_date).collect();
+        let overpass_last_dates: Vec<i64> = overpass_list.overpasses.iter().map(|x| x.last_date).collect();
+         Err(OdinOrbitalSatError::BoundsError(String::from("Error: no trajectory ground point")))
     }   
 }
 
@@ -319,21 +309,17 @@ pub fn process_hotspots(raw_hotspots: RawHotspots, overpass_list: &OverpassList,
     let hotspot_res: Vec<Result<ViirsHotspot>> = raw_hotspots.hotspots.iter().map(|x| process_hotspot(x, overpass_list)).collect();
     let hs_res: Result<Vec<ViirsHotspot>> = hotspot_res.into_iter().collect();
     let hs = hs_res?;
-    println!("in process hotspots: {}", hs.len());
     let sorted_hs = partition_hotspots(hs, overpass_list, satellite, source.clone())?;
     Ok(sorted_hs)
 }
 
 pub fn partition_hotspots(hotspots: Vec<ViirsHotspot>, overpass_list: &OverpassList, satellite: u32, source: String) -> Result<Vec<ViirsHotspotSet>>{
-    println!("in partition hotspots: {}", hotspots.len());
     let mut parts: BTreeMap<DateTime<Utc>, Vec<ViirsHotspot>> = BTreeMap::new();
-    let start = overpass_list.get_start()?;
-    let end = overpass_list.get_end()?;
-    let overpasses = overpass_list.get_end_dates();
     //--- step 1: sort into bins
     for hs in hotspots.into_iter() {
         let hs_d = Utc.timestamp_millis_opt(hs.date).unwrap();
-        let overpass_d = get_overpass(&hs_d, &start, &end, &overpasses);
+        let overpass = get_overpass_for_date(&hs_d, overpass_list)?;
+        let overpass_d = Utc.timestamp_millis_opt(overpass.last_date).unwrap();
         match parts.get_mut(&overpass_d) {
             Some(hs_vec) => {hs_vec.push(hs)}
             None => {parts.insert(overpass_d, vec![hs]);}
@@ -344,7 +330,6 @@ pub fn partition_hotspots(hotspots: Vec<ViirsHotspot>, overpass_list: &OverpassL
     //--- step 3: turn into date sorted ViirsHotspotSet sequence
     let mut sorted_hotspot_sets = Vec::new();
     for (od, hs_vec) in parts.into_iter() {
-        println!("partitioned hs vec: {}", hs_vec.len());
         let mut sorted_hotspots = Vec::new();
         for mut hs in hs_vec.into_iter() {
             hs.set_date(od.timestamp_millis());
@@ -357,17 +342,19 @@ pub fn partition_hotspots(hotspots: Vec<ViirsHotspot>, overpass_list: &OverpassL
     Ok(sorted_hotspot_sets)
 }
 
-pub fn get_overpass(d: &DateTime<Utc>, start: &DateTime<Utc>, end: &DateTime<Utc>, overpasses: &Vec<DateTime<Utc>>) -> DateTime<Utc> {
-    let mut date = d.clone();
-    if (d >= start) & (d <= end) {
-        for overpass_d in overpasses.iter() {
-            if overpass_d > d {
-                date = overpass_d.clone();
-            }
-        }
-    } 
-    date
-}
+// pub fn get_overpass(d: &DateTime<Utc>, start: &DateTime<Utc>, end: &DateTime<Utc>, overpasses: &Vec<DateTime<Utc>>) -> DateTime<Utc> {
+//     let overpass = get_overpass_for_date(d, overpasses)?;
+
+//     let mut date = d.clone();
+//     if (d >= start) & (d <= end) {
+//         for overpass_d in overpasses.iter() {
+//             if overpass_d > d {
+//                 date = overpass_d.clone();
+//             }
+//         }
+//     } 
+//     date 
+// }
 
 /* #endregion hotspot parsing */
 
