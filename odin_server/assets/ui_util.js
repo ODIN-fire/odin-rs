@@ -184,6 +184,16 @@ export const f_5 = new Intl.NumberFormat('en-US', { notation: 'standard', maximu
 
 const f_N = [f_0, f_1, f_2, f_3, f_4, f_5];
 
+export const fg_0 = new Intl.NumberFormat('en-US', { notation: 'standard', useGrouping: 'always', maximumFractionDigits: 0, minimumFractionDigits: 0 });
+export const fg_1 = new Intl.NumberFormat('en-US', { notation: 'standard', useGrouping: 'always', maximumFractionDigits: 1, minimumFractionDigits: 1 });
+export const fg_2 = new Intl.NumberFormat('en-US', { notation: 'standard', useGrouping: 'always', maximumFractionDigits: 2, minimumFractionDigits: 2 });
+export const fg_3 = new Intl.NumberFormat('en-US', { notation: 'standard', useGrouping: 'always', maximumFractionDigits: 3, minimumFractionDigits: 3 });
+export const fg_4 = new Intl.NumberFormat('en-US', { notation: 'standard', useGrouping: 'always', maximumFractionDigits: 4, minimumFractionDigits: 4 });
+export const fg_5 = new Intl.NumberFormat('en-US', { notation: 'standard', useGrouping: 'always', maximumFractionDigits: 5, minimumFractionDigits: 5 });
+
+const fg_N = [fg_0, fg_1, fg_2, fg_3, fg_4, fg_5];
+
+
 export const fmax_0 = new Intl.NumberFormat('en-US', { notation: 'standard', maximumFractionDigits: 0 });
 export const fmax_1 = new Intl.NumberFormat('en-US', { notation: 'standard', maximumFractionDigits: 1 });
 export const fmax_2 = new Intl.NumberFormat('en-US', { notation: 'standard', maximumFractionDigits: 2 });
@@ -512,6 +522,38 @@ export function toDegrees(rad) {
     return rad * rad2deg;
 }
 
+export function rectToRadians (rect) {
+    rect.west = toRadians(rect.west);
+    rect.south = toRadians(rect.south);
+    rect.east = toRadians(rect.east);
+    rect.north = toRadians(rect.north);
+}
+
+export function toRadiansRect (rect) {
+    return {
+        west:  toRadians(rect.west),
+        south: toRadians(rect.south),
+        east:  toRadians(rect.east),
+        north: toRadians(rect.north)
+    };
+}
+
+export function rectToDegrees (rect) {
+    rect.west  = toDegrees(rect.west);
+    rect.south = toDegrees(rect.south);
+    rect.east  = toDegrees(rect.east);
+    rect.north = toDegrees(rect.north);
+}
+
+export function toDegreesRect (rect) {
+    return {
+        west:  toDegrees(rect.west),
+        south: toDegrees(rect.south),
+        east:  toDegrees(rect.east),
+        north: toDegrees(rect.north)
+    };
+}
+
 const sin = Math.sin;
 const cos = Math.cos;
 const tan = Math.tan;
@@ -531,7 +573,13 @@ export function tan2(rad) {
     return x * x;
 }
 
+export function checkLat (deg) {
+    return (!Number.isNaN(deg) && deg >= -90.0 && deg <= 90.0);
+}
 
+export function checkLon (deg) {
+    return (!Number.isNaN(deg) && deg >= -180.0 && deg <= 180.0);
+}
 
 export function meanRadiusOfCurvature(latDeg) {
     return mrcNom_wgs84 / Math.pow(1.0 - e2_wgs84 * sin2(toRadians(latDeg)), 1.5);
@@ -552,6 +600,11 @@ export function formatLatLon(latDeg, lonDeg, digits) {
 
 export function formatFloat(v, digits) {
     let fmt = f_N[digits];
+    return fmt.format(v);
+}
+
+export function formatGroupedFloat(v, digits) {
+    let fmt = fg_N[digits];
     return fmt.format(v);
 }
 
@@ -582,7 +635,67 @@ export function gcDistanceBetweenECEF (p1, p2) {
     
     let a = Math.acos( 1 - (d*d)/(2*r*r) );
     return a * r;
-  }
+}
+
+/**
+ * calculate area of spherical polygon given as geodetic coordinates
+ * see Chamberlain, R.G., Duquette W.H.
+ * Some Algorithms for Polygons on a Sphere,
+ * AGU 2007
+ */
+export function geoPolygonArea (geoPoints) {
+    const c = -20294820500000; // - R^2/2
+
+    // account for potential closing point
+    const iMax = (geoPoints[0] == geoPoints[geoPoints.length-1]) ? geoPoints.length - 2 : geoPoints.length-1;
+
+    let sum = 0.0;
+    let pPrev = geoPoints[iMax];
+    for (let i=0; i<=iMax; i++) {
+        let p = geoPoints[i];
+        let pNext = (i==iMax) ? geoPoints[0] : geoPoints[i+1];
+        sum += (pNext.lon - pPrev.lon) * Math.sin(p.lat);
+        pPrev = p;
+    }
+    return Math.abs(c * sum);
+}
+
+export function ecefPolygonArea (points) {
+    const c = -20294820500000; // - R^2/2
+
+    // account for potential closing point
+    const iMax = (points[0] == points[points.length-1]) ? points.length - 2 : points.length-1;
+
+    let u = points[0];
+    let p0 = ecefToGeo( u.x, u.y, u.z);
+
+    u = points[iMax];
+    let pPrev = ecefToGeo( u.x, u.y, u.z);
+
+    let pNext;
+    let sum = 0.0;
+
+    for (let i=0; i<=iMax; i++) {
+        let p = (i==0) ? p0 : pNext;
+
+        if (i == iMax) {
+            pNext = p0;
+        } else {
+            u = points[i+1];
+            pNext = ecefToGeo( u.x, u.y, u.z);
+        }
+
+        sum += (pNext.lon - pPrev.lon) * Math.sin(p.lat);
+        pPrev = p;
+    }
+    return Math.abs(c * sum);
+}
+
+// rect is west,south,east,north in radians
+export function geoRectArea(rect) {
+    const r2 = 40589641000000;
+    return Math.abs(r2 * (Math.sin(rect.north) - Math.sin(rect.south)) * (rect.east - rect.west));
+} 
 
 // naive center
 export function centerLonLat (geoPoints) {
@@ -598,6 +711,106 @@ export function centerLonLat (geoPoints) {
     lat /= geoPoints.length;
 
     return { lon, lat };
+}
+
+export function toGeoArray (points) {
+    return points.map( (p)=> ecefToGeo( p.x, p.y, p.z));
+}
+
+ /**
+   * Olson, D. K. (1996).
+   * "Converting Earth-Centered, Earth-Fixed Coordinates to Geodetic Coordinates"
+   * IEEE Transactions on Aerospace and Electronic Systems, 32(1), 473–476. https://doi.org/10.1109/7.481290
+   *
+   * this is ~1.4x faster than Osen and roundtrip errors are still below 1e-10 so we pick this as default
+   * ECEF in meters, lat,lon in radians, alt in meters 
+   */
+export function ecefToGeo (x,y,z, result=null) {
+    const a  = 6378137.0;
+    const e2 = 6.6943799901377997e-3;
+    const a1 = 4.2697672707157535e+4;
+    const a2 = 1.8230912546075455e+9;
+    const a3 = 1.4291722289812413e+2;
+    const a4 = 4.5577281365188637e+9;
+    const a5 = 4.2840589930055659e+4;
+    const a6 = 9.9330562000986220e-1;
+
+    const zp = Math.abs(z);
+    const w2 = x*x + y*y;
+    const w = Math.sqrt(w2);
+    const z2 = z*z;
+    const r2 = w2 + z2;
+    const r = Math.sqrt(r2);
+
+    if (!result) result = {};
+
+    if (r >= 100000) {
+        const lon = Math.atan2(y,x);
+        const s2 = z2 / r2;
+        const c2 = w2 / r2;
+        let u = a2 / r;
+        let v = a3 - a4 / r;
+
+        let c = 0.0;
+        let s = 0.0;
+        let ss = 0.0;
+        let lat = 0.0;
+
+        if (c2 > 0.3) {
+            s = (zp/r)*(1.0 + c2*(a1 + u + s2*v)/r);
+            lat = Math.asin(s);
+            ss = s*s;
+            c = Math.sqrt(1.0 - ss);
+        } else {
+            c = (w/r)*(1.0 - s2*(a5 - u - c2*v)/r);
+            lat = Math.acos(c);
+            ss = 1.0 - c*c;
+            s = Math.sqrt(ss);
+        }
+        const g = 1.0 - e2*ss;
+        const rg = a / Math.sqrt(g);
+        const rf = a6 * rg;
+        u = w - rg * c;
+        v = zp - rf * s;
+        const f = c * u + s * v;
+        const m = c * v - s * u;
+        const p = m / (rf / g + f);
+
+        lat += p;
+        const alt = f + m*p/2.0;
+        if (z < 0.0) lat = -lat;
+
+        result.lon = lon;  
+        result.lat = lat;  
+        result.alt = alt;
+
+    } else {
+        result.lon = 0.0;
+        result.lat = 0.0;
+        result.alt = 0.0;
+    }
+
+    return result;
+}
+
+/// convert geodetic longitude and latitude (in radians) to ECEF (m)
+export function geoToECEF (lon, lat, alt, result=null) {
+    const a = 6378137.0;
+    const e2 = 0.006694379990197619; // e²
+    const b2a2 = 9.93305620009858682943e-1; // `b²/a² 
+
+    const sin_lat = Math.sin(lat);
+    const cos_lat = Math.cos(lat);
+
+    const v = a / Math.sqrt( 1.0 - e2 * sin_lat * sin_lat);
+    const u = (v + alt) * cos_lat;
+
+    if (!result) result = {};
+    result.x = u *  Math.cos( lon);
+    result.y = u *  Math.sin( lon);
+    result.z = (b2a2 * v + alt) * sin_lat;
+
+    return result;
 }
 
 //--- array utilities

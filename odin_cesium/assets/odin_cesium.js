@@ -784,6 +784,10 @@ export function removePrimitives(primitives) {
     requestRender();
 }
 
+export function showSelectionIndicator (cond) {
+    let vis = cond ? 'visible' : 'hidden';
+    viewer.selectionIndicator.viewModel.selectionIndicatorElement.style.visibility = vis;
+}
 
 export function clearSelectedEntity() {
     viewer.selectedEntity = null;
@@ -1334,11 +1338,11 @@ export function cartographicToDegrees (p) {
 export function cartesian3ArrayFromRadiansRect (rect, arr=null) {
     let a = arr ? arr : new Array(5);
 
-    a[0] = Cesium.Cartesian3.fromRadians( rect.west, rect.north);
-    a[1] = Cesium.Cartesian3.fromRadians( rect.east, rect.north);
-    a[2] = Cesium.Cartesian3.fromRadians( rect.east, rect.south);
-    a[3] = Cesium.Cartesian3.fromRadians( rect.west, rect.south);
-    a[4] = Cesium.Cartesian3.fromRadians( rect.west, rect.north);
+    a[0] = Cesium.Cartesian3.fromRadians( rect.west, rect.south);
+    a[1] = Cesium.Cartesian3.fromRadians( rect.east, rect.south);
+    a[2] = Cesium.Cartesian3.fromRadians( rect.east, rect.north);
+    a[3] = Cesium.Cartesian3.fromRadians( rect.west, rect.north);
+    a[4] = a[0];
 
     return a;
 }
@@ -1346,11 +1350,11 @@ export function cartesian3ArrayFromRadiansRect (rect, arr=null) {
 export function cartesian3ArrayFromDegreesRect (rect, arr=null) {
     let a = arr ? arr : new Array(5);
 
-    a[0] = Cesium.Cartesian3.fromDegrees( rect.west, rect.north);
-    a[1] = Cesium.Cartesian3.fromDegrees( rect.east, rect.north);
-    a[2] = Cesium.Cartesian3.fromDegrees( rect.east, rect.south);
-    a[3] = Cesium.Cartesian3.fromDegrees( rect.west, rect.south);
-    a[4] = Cesium.Cartesian3.fromDegrees( rect.west, rect.north);
+    a[0] = Cesium.Cartesian3.fromDegrees( rect.west, rect.south);
+    a[1] = Cesium.Cartesian3.fromDegrees( rect.east, rect.south);
+    a[2] = Cesium.Cartesian3.fromDegrees( rect.east, rect.north);
+    a[3] = Cesium.Cartesian3.fromDegrees( rect.west, rect.north);
+    a[4] = a[0];
 
     return a;
 }

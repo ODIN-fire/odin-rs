@@ -28,8 +28,8 @@ const ellipsoid = Cesium.Ellipsoid.WGS84;
 
 /// cesium_test driver
 main.exportFuncToMain( function test() {
-    function processResult (points) {
-        console.log("edit result:", points);
+    function processResult (res) {
+        console.log("edit result:", res);
     }
 
     let points = [
@@ -132,12 +132,10 @@ class PolyEditorWindow {
 
     getPointFromFields() {
         let lat = Number.parseFloat( ui.getFieldValue( this.latField));
-        if (Number.isNaN(lat)) { alert("missing latitude"); return null; }
-        if (lat < -90.0 || lat > 90.0) { alert("invalid latitude [-90..90]", lat); return null; }
+        if (!util.checkLat(lat)) { alert("missing of invalid latitude degrees"); return null; }
     
         let lon = Number.parseFloat( ui.getFieldValue( this.lonField));
-        if (Number.isNaN(lon)){ alert("missing longitude"); return null; }
-        if (lon < -180.0 || lon > 180.0) { alert("invalid longitude [-180..180]", lon); return null; }
+        if (!util.checkLon(lon)) { alert("missing of invalid longitude degrees"); return null; }
     
         let alt = Number.parseFloat( ui.getFieldValue( this.altField));
         if (Number.isNaN(alt)) {
@@ -261,19 +259,12 @@ main.addShareEditor( main.GEO_POLYGON, "2D polygon exterior", editGeoPolygonExte
 
 /// shared item editor func for GeoPolygon
 export function editGeoRect (geoRect, processResult) {
-    function procRes (editedPoints) {
-        if (editedPoints.length == 2) {
-            if (geoRect) {
-                geoRect.setFromPoints( editedPoints[0], editedPoints[1]);
-                processResult( geoRect);
-            } else {
-                processResult( GeoRect.fromPoints( editedPoints[0], editedPoints[1]));
-            }
-        }
+    function procRes (rect) {
+        let geoRect = new main.GeoRect( rect.west, rect.south, rect.east, rect.north);
+        processResult( geoRect);
     }
 
-    let init = geoRect ? geoRect.toRadians() : null;
-    new RectEditor( "Edit GeoRect", init, procRes).open();
+    new RectEditor( "Edit GeoRect", geoRect, true, procRes).open();
 }
 main.addShareEditor( main.GEO_POLYGON, "2D polygon exterior", editGeoPolygonExterior)
 
@@ -996,7 +987,8 @@ function handleOpts (pos) {
         outlineColor: config.color,
         outlineWidth: 1,
         pixelSize: config.pointSize,
-        allowPicking: true
+        //allowPicking: true, // requires PointPrimitive (which does not support clamp-to-ground)
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND  // requires Entity point
     };
 }
 
@@ -1008,7 +1000,8 @@ function halfHandleOpts (pos) {
         //outlineColor: Cesium.Color.RED,
         //outlineWidth: 1,
         pixelSize: config.pointSize,
-        allowPicking: true
+        //allowPicking: true
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND  // requires Entity point
     };
 }
 
@@ -1038,9 +1031,8 @@ function polygonOpts (points) {
 
 
 class RectEditorWindow {
-    constructor (title, enter, cancel, setPoint, delPoint, selPoint, setMetric) {
+    constructor (title, enter, cancel, setPoints, setMetric) {
         let fieldOpts = { alignRight: true, isFixed: true, placeHolder: "0.0" };
-        let fieldAttrs = ["fixed","alignRight"];
 
         this.window = ui.Window( title, "editor", "./asset/odin_cesium/editor.svg")(
             ui.RowContainer()(
@@ -1053,27 +1045,20 @@ class RectEditorWindow {
                     (this.northField = ui.TextInput("north", "editor.north", "6.5rem", fieldOpts))
                 ),
                 ui.ColumnContainer()(
-                    (this.widthField = ui.TextInput("width", "editor.width", "6rem", {isDisabled: true, isFixed: true, alignRight: true} )),
+                    (this.widthField = ui.TextInput("~width", "editor.width", "6rem", {isDisabled: true, isFixed: true, alignRight: true} )),
                     (this.heightField = ui.TextInput("height", "editor.height", "6rem", {isDisabled: true, isFixed: true, alignRight: true} ))
                 )
             ),
-            ui.RowContainer("end")(
-                (this.areaField = ui.TextInput("area", "editor.area", "6rem", {isDisabled: true, isFixed: true, alignRight: true} )),
+            ui.RowContainer("center")(
+                ui.Button("set", setPoints),
                 ui.CheckBox("metric", setMetric),
-                ui.HorizontalSpacer(5),
+                (this.areaField = ui.TextInput("area", "editor.area", "9rem", {isDisabled: true, isFixed: true, alignRight: true} )),
+                ui.HorizontalSpacer(0.5),
                 ui.Button("cancel", cancel),
                 ui.Button("save", enter)
             )
         )
     }
-
-
-    _statsContainer() {
-        return ui.RowContainer("start")(
-            (this.legField = ui.TextInput("leg dist", "editor.leg", "6rem", {isDisabled: true, isFixed: true, alignRight: true} )),
-            (this.totalField = ui.TextInput("total dist", "editor.total", "6rem", {isDisabled: true, isFixed: true, alignRight: true} ))
-        );
-    } 
 
     openAt (x, y) {
         ui.addWindow( this.window);
@@ -1096,25 +1081,28 @@ class RectEditorWindow {
 /// changes the rect
 export class RectEditor {
 
-    constructor (title, rect, processResult) {
-        this.rect = rect;
+    constructor (title, rect, isDegrees, processResult) {
+        this.title = title;
+        this.isDegrees = isDegrees;
+        this.processResult = processResult;
 
         this.cp = new Cesium.Cartesian3(); // cartesian move point cache
         this.cpGeo = new Cesium.Cartographic(); // geo move point cache
 
         this.editor = this._createEditor();
         this.points = Cesium.Cartesian3.fromDegreesArray([0,0, 0,0, 0,0, 0,0, 0,0]); // 5 point (closed) rect corners
-        this.handles = new Cesium.PointPrimitiveCollection();
-        viewer.scene.primitives.add( this.handles);
 
         this.cancelEntry = null;
+        this.isMetric = false;
 
         //--- bind event handler methods to this (we need to be able to remove them)
         this.onHandleClick = this._onHandleClick.bind(this);
         this.onHandleMove = this._onHandleMove.bind(this);
-        //this.onHandleKey = this._onHandleKey.bind(this);
+        this.onKeyDown = this._onKeyDown.bind(this);
 
-        if (rect) {
+        if (rect) {        
+            this.rect = isDegrees ? util.toRadiansRect(rect) : {...rect};
+
             this._setPointsFromRect();
             this.rectEntity = this._createRectEntity();
 
@@ -1137,16 +1125,21 @@ export class RectEditor {
     }
 
     _createEditor() {
-        return new RectEditorWindow("Edit Rectangle", this._enter, this._cancel, null,null,null,null);
+        return new RectEditorWindow( this.title, 
+            this._enter.bind(this), 
+            this._cancel.bind(this), 
+            this._setPoints.bind(this),
+            this._setMetric.bind(this)
+        );
     }
 
     _setPointsFromRect () {
         let points = this.points;
         let rect = this.rect;
         points[0] = Cesium.Cartesian3.fromRadians( rect.west, rect.south, 0, ellipsoid, points[0]);        
-        points[1] = Cesium.Cartesian3.fromRadians( rect.west, rect.north, 0, ellipsoid, points[1]);        
+        points[1] = Cesium.Cartesian3.fromRadians( rect.east, rect.south, 0, ellipsoid, points[1]);        
         points[2] = Cesium.Cartesian3.fromRadians( rect.east, rect.north, 0, ellipsoid, points[2]);        
-        points[3] = Cesium.Cartesian3.fromRadians( rect.east, rect.south, 0, ellipsoid, points[3]);        
+        points[3] = Cesium.Cartesian3.fromRadians( rect.west, rect.north, 0, ellipsoid, points[3]);        
         points[4] = points[0]; // close
     }
 
@@ -1156,6 +1149,14 @@ export class RectEditor {
             polygon: polygonOpts( this.points), // we could use rectangle but with polygon we can keep a single source
             selectable: false
         } );
+    }
+
+    _createHandleEntity (pos) {
+        return new Cesium.Entity( {
+            position: pos,
+            point: handleOpts(),
+            selectable: false
+        });
     }
 
     _startEntryMode () {
@@ -1177,7 +1178,9 @@ export class RectEditor {
       
     _enter() {
         if (this.processResult && this.rect) {
-            this.processResult(this.rect);
+            let rect = this.rect;
+            if (this.isDegrees) util.rectToDegrees(this.rect);
+            this.processResult(rect);
         }
         this._dispose();
     }
@@ -1201,17 +1204,86 @@ export class RectEditor {
     }
 
     _releaseAssets() {
-        cesium.releaseMouseMoveHandler( this._onHandleMove);
-        cesium.releaseKeyDownHandler( this._onHandleKey);
-        cesium.releaseMouseClickHandler( this._onHandleClick);
+        cesium.releaseMouseClickHandler( this.onHandleClick);
+        cesium.releaseMouseMoveHandler( this.onHandleMove);
+        cesium.releaseKeyDownHandler( this.onKeyDown);
     
-        viewer.entities.remove( this.rectEntity);
-        viewer.scene.primitives.remove( this.handles);
+        let entities = viewer.entities;
+        if (this.rectEntity) entities.remove(this.rectEntity);
+        if (this.hp0) entities.remove(this.hp0);
+        if (this.hp1) entities.remove(this.hp1);
+    }
+
+    // set from window fields
+    _setPoints() {
+        let west  = Number.parseFloat( ui.getFieldValue( this.editor.westField));
+        if (!util.checkLon(west)) { alert("missing of invalid west longitude"); return; }
+
+        let south = Number.parseFloat( ui.getFieldValue( this.editor.southField));
+        if (!util.checkLat(south)) { alert("missing of invalid south latitude"); return; }
+
+        let east  = Number.parseFloat( ui.getFieldValue( this.editor.eastField));
+        if (!util.checkLon(east)) { alert("missing of invalid east longitude"); return; }
+
+        let north = Number.parseFloat( ui.getFieldValue( this.editor.northField));
+        if (!util.checkLat(north)) { alert("missing of invalid north latitude"); return; }
+
+        if (this.cancelEntry) {
+            this.cancelEntry();
+            this.cancelEntry = undefined;
+        }
+
+        let rect = this.rect;
+        rect.west = util.toRadians(west);
+        rect.south = util.toRadians(south);
+        rect.east = util.toRadians(east);
+        rect.north = util.toRadians(north);
+        this._setPointsFromRect();
+
+        let pGeoWS = new Cesium.Cartographic(rect.west, rect.south);
+        let pGeoEN = new Cesium.Cartographic(rect.east, rect.north);
+        let pWS = Cesium.Cartesian3.fromDegrees(west,south);
+        let pEN = Cesium.Cartesian3.fromDegrees(east,north);
+
+        if (this.hp0 === undefined) {
+            this.hp0 = _createHandleEntity( pWS);
+            viewer.entities.add(this.hp0);
+        } else {
+            this.hp0.position = pWS;
+        }
+        this.hp0.__geo = pGeoWS;
+
+        if (this.hp1 === undefined) {
+            this.hp1 =  _createHandleEntity( pEN);
+            viewer.entities.add(this.hp1);
+        } else {
+            this.hp1.position = pEN;
+        }
+        this.hp1.__geo = pGeoEN;
+
+        if (this.rectEntity === undefined) {
+            this.rectEntity = this._createRectEntity();
+            viewer.entities.add( this.rectEntity);
+        }
+
+        this._setStatsFields();
+
+        cesium.registerMouseClickHandler( this.onHandleClick);
+    }
+
+    // set dimensional units
+    _setMetric(event) {
+        let cb = ui.getCheckBox(event.target);
+        if (cb) {
+            this.isMetric = ui.isCheckBoxSelected(cb);
+            this._setStatsFields();
+        }
     }
 
     _onEntryComplete () { // entry is done, register handler to edit 
         this.cancelEntry = undefined;
         cesium.registerMouseClickHandler( this.onHandleClick);
+        cesium.registerKeyDownHandler( this.onKeyDown);
     }
     
     _onEntryCancel() {
@@ -1228,12 +1300,12 @@ export class RectEditor {
                 if (pGeo) {
                     let p = Cesium.Cartographic.toCartesian( pGeo, ellipsoid);
                     selHandle.position = p;
-                    selHandle.geo = pGeo;
+                    selHandle.__geo = pGeo;
                     this._updateFromSelHandle();
 
                     cesium.releaseMouseMoveHandler( this.onHandleMove);
                     cesium.setDefaultCursor();
-                    selHandle.color = config.handleColor;
+                    selHandle.point.color = config.handleColor;
 
                     this.selHandle = undefined;
                 }
@@ -1241,14 +1313,14 @@ export class RectEditor {
             } else { // start move handle
                 let p = cesium.getWindowMousePosition(event);
                 let picked = viewer.scene.pick(p);
-                if (picked && picked.primitive instanceof Cesium.PointPrimitive) {
-                    if (Object.is( picked.primitive, this.hp0) || Object.is( picked.primitive, this.hp1)) {
-                        this.selHandle = picked.primitive;
-
-                        this.selHandle.color = config.selectedHandleColor;
+                if (picked && picked.id) {
+                    let e = picked.id;
+                    if (Object.is( e, this.hp0) || Object.is( e, this.hp1)) {
+                        cesium.showSelectionIndicator(false); // get rid of this pesky green marker
+                        this.selHandle = e;
+                        e.point.color = config.selectedHandleColor;
                         cesium.setCursor("crosshair");
                         cesium.registerMouseMoveHandler( this.onHandleMove);
-                        //cesium.registerKeyDownHandler( this.onHandleKey);
                     }
                 }
             }
@@ -1260,7 +1332,7 @@ export class RectEditor {
         let selHandle = this.selHandle;
         if (selHandle) {
             let cp = cesium.getCartesian3MousePosition( event, this.cp);
-            let pGeo = Cesium.Cartographic.fromCartesian(cp, ellipsoid, selHandle.geo);
+            let pGeo = Cesium.Cartographic.fromCartesian(cp, ellipsoid, selHandle.__geo);
             if (pGeo) {
                 selHandle.position = cp;
                 this._updateFromSelHandle();
@@ -1268,11 +1340,19 @@ export class RectEditor {
         }
     }
 
+    _onKeyDown(event) {
+        if (event.code == "Escape") { // exit edit alltogether
+            this._cancel();
+        } else if (event.code == "Enter") {
+            this._enter();
+        }
+    }
+
     _updateFromSelHandle () {
         let selHandle = this.selHandle;
         if (selHandle) {
-            let pOther = Object.is(selHandle, this.hp0) ? this.hp1.geo : this.hp0.geo;
-            setRectFromCornerPoints( this.rect, selHandle.geo, pOther);
+            let pOther = Object.is(selHandle, this.hp0) ? this.hp1.__geo : this.hp0.__geo;
+            setRectFromCornerPoints( this.rect, selHandle.__geo, pOther);
             this._setPointsFromRect();
             this._updateFields(null);
         }
@@ -1283,15 +1363,17 @@ export class RectEditor {
         let p = Cesium.Cartographic.toCartesian(pGeo, ellipsoid);
 
         if (this.hp0 === undefined) { // 1st corner
-            this.hp0 = this.handles.add( handleOpts( p));
-            this.hp0.geo = pGeo.clone();
+            this.hp0 = this._createHandleEntity( p);
+            viewer.entities.add(this.hp0);
+            this.hp0.__geo = pGeo.clone();
 
             this.rectEntity = this._createRectEntity();
             viewer.entities.add( this.rectEntity);
 
         } else { // 2nd corner
-            this.hp1 = this.handles.add( handleOpts( p));
-            this.hp1.geo = pGeo.clone();
+            this.hp1 = this._createHandleEntity( p);
+            viewer.entities.add(this.hp1);
+            this.hp1.__geo = pGeo.clone();
         }
 
         this._updateFields( pGeo);
@@ -1306,10 +1388,40 @@ export class RectEditor {
             ui.setField( this.editor.southField, util.formatFloat( util.toDegrees(rect.south), 5));
             ui.setField( this.editor.eastField, util.formatFloat( util.toDegrees(rect.east), 5));
             ui.setField( this.editor.northField, util.formatFloat( util.toDegrees(rect.north), 5));
+            this._setStatsFields();
 
         } else { // we don't have a handle yet - just track cartographic pos as (west,south)
             ui.setField( this.editor.westField, util.formatFloat( util.toDegrees(pGeo.longitude), 5));
             ui.setField( this.editor.southField, util.formatFloat( util.toDegrees(pGeo.latitude), 5));
+        }
+    }
+
+    _setStatsFields () {
+        let points = this.points;
+        let rect = this.rect;
+
+        // points are always counter-clockwise starting at WS
+        let latDist = util.gcDistanceBetweenECEF( points[0], points[3]);
+        let lonDistN = util.gcDistanceBetweenECEF( points[2], points[3]);
+        let lonDistS = util.gcDistanceBetweenECEF( points[0], points[1]);
+        let lonDist = (lonDistN + lonDistS) / 2.0; 
+
+       //let area1 = util.ecefPolygonArea(points);
+       let area = util.geoRectArea(this.rect);
+
+        if (!this.isMetric) {
+            latDist = util.metersToUsMiles(latDist);
+            lonDist = util.metersToUsMiles(lonDist);
+            area = util.squareMetersToAcres(area);
+
+            ui.setField( this.editor.widthField, util.formatGroupedFloat( lonDist, 2));
+            ui.setField( this.editor.heightField, util.formatGroupedFloat( latDist, 2));
+            ui.setField( this.editor.areaField, util.formatGroupedFloat( area, 1));
+
+        } else {
+            ui.setField( this.editor.widthField, util.formatGroupedFloat( lonDist, 0));
+            ui.setField( this.editor.heightField, util.formatGroupedFloat( latDist, 0));
+            ui.setField( this.editor.areaField, util.formatGroupedFloat( area, 0));
         }
     }
 }
