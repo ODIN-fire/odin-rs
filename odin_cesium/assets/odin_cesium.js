@@ -30,8 +30,6 @@ ws.addWsHandler( MOD_PATH, handleWsMessages);
 // initialize share interface of this module
 main.addShareHandler( handleShareMessage);
 main.addShareEditor( "GeoPoint3", "current view", withCurrentCameraPosition);
-main.addShareEditor( "GeoPoint", "pick point", pickSurfacePoint);
-main.addShareEditor( "GeoRect", "pick bbox", pickSurfaceRectangle);
 main.addSyncHandler( handleSyncMessage);
 
 setCesiumContainerVisibility(false); // don't render before everybody is initialized
@@ -468,17 +466,14 @@ function pickPoint() {
     setTimeout( ()=> {
         let key = ui.getFieldValue( cameraName);
         if (key && isValidViewKey(key)) {
-            pickSurfacePoint( (cp) => {
+            enterGeoPoint( (cp) => {
                 if (cp) {
-                    let lat = util.toDegrees(cp.latitude);
-                    let lon = util.toDegrees(cp.longitude);
-                    let alt = Number.parseFloat( ui.getFieldValue("view.camera.altitude"));
+                    cp.alt = Number.parseFloat( ui.getFieldValue("view.camera.altitude"));
                     
-                    ui.setField("view.pointer.latitude", lat);
-                    ui.setField("view.pointer.longitude", lon);
+                    ui.setField("view.pointer.latitude", cp.lat);
+                    ui.setField("view.pointer.longitude", cp.lon);
                     
-                    let p = new main.GeoPoint3(lon, lat, alt);
-                    main.setSharedItem( key, "GeoPoint3", p, true);
+                    main.setSharedItem( key, "GeoPoint3", cp, true);
 
                 }
                 ui.resetElementColors(btn);
@@ -1186,158 +1181,318 @@ function lowerModuleLayer(event){
 }
 
 //--- interactive geo input
+/// the low level entry function - no handles, just cartesian points. Handles for subsequent editing
+/// have to be added through the provided callbacks. This function does not create any
+/// Cesium resources. We support a onMouseMove callback so that we don't have to redundantly calculate
+/// the Cartesian3 mouse position. There is no onDelPoint since we can't delete points in enter
+/// mode - we can't set the pointer position in Javascript
+/// callbacks: { onEnter, onCancel, onAddPoint, onDelPoint, onMouseMove }
+export function enterPolyline (points, maxPoints, callbacks) {
+    let cp = new Cesium.Cartesian3(); // cached point to save allocs
+    let dblClickAction = getInputAction( Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 
-export function pickSurfacePoint (callback) {
-    let cancel = false;
-
-    function onKeydown(event) {
-        if (event.key == "Escape") {
-            cancel = true;
-            viewer.scene.canvas.click();
-        }
+    points.push( new Cesium.Cartesian3()); // add the mover point
+  
+    function onMouseMove(event) { // update the last point position (will redraw polyline using points)    
+        let idx = points.length-1;
+        let p = points[idx];
+    
+        getCartesian3MousePosition(event, cp);
+        p.x = cp.x;   p.y = cp.y;   p.z = cp.z;
+    
+        if (callbacks.onMouseMove) { callbacks.onMouseMove( idx, p); }
     }
-
+  
     function onClick(event) {
-        let p = getCartographicMousePosition(event);
-        if (p) { 
-            callback( cancel ? null : p)
-        }
-        setDefaultCursor();
-        releaseMouseClickHandler(onClick);
-        document.removeEventListener( 'keydown', onKeydown);
-    }
-
-    document.addEventListener('keydown', onKeydown);
-    setCursor("crosshair");
-    registerMouseClickHandler(onClick);
-}
-
-// this should normally use a ScreenSpaceEventHandler but that fails for some reason if
-// sceneModePicker is enabled (positions are off). This one does not correctly handle terrain but is close enough
-export function pickSurfaceRectangle (callback) {
-    var asset = undefined;
-    var p0 = undefined;
-    var rect = undefined;
-    let poly = Cesium.Cartesian3.fromDegreesArray([0,0, 0,0, 0,0, 0,0, 0,0]);
-
-    function onMouseMove(event) {
-        let p = getCartographicMousePosition(event);
-        if (p) {
-            rect.west = Math.min( p0.longitude, p.longitude);
-            rect.south = Math.min( p0.latitude, p.latitude);
-            rect.east = Math.max( p0.longitude, p.longitude);
-            rect.north = Math.max( p0.latitude, p.latitude);
-            // FIXME - we can do better than to convert back to where we came from. just rotate
-            cartesian3ArrayFromRadiansRect(rect, poly);
-        }
-        requestRender();
-    }
-
-    function onClick(event) {
-        let p = getCartographicMousePosition(event);
-        if (p) { 
-            if (!rect) {
-                p0 = p;
-                rect = new Cesium.Rectangle(p0.longitude, p0.latitude, p0.longitude, p0.latitude);
-
-                asset = new Cesium.Entity({
-                    polyline: {
-                        positions: new Cesium.CallbackProperty( () => poly, false),
-                        clampToGround: true,
-                        width: 2,
-                        material: Cesium.Color.RED
-                    },
-                    selectable: false
-                });
-                viewer.entities.add(asset);
-                requestRender();
-
-                registerMouseMoveHandler(onMouseMove);
-
+        if (event.detail == 2) { // double click -> done entering
+            clearSelectedEntity(); // Cesium likes to zoom in on double clicks
+            event.preventDefault(); 
+            resetEnterPolyline();
+    
+            if (points.length >= 1) {
+                if (points.length > 1) points.pop();  // remove the mover
+                if (callbacks.onEnter) callbacks.onEnter();
+            }
+  
+        } else if (event.detail == 1) { // single click (but also before double click)
+            getCartesian3MousePosition(event, cp);
+    
+            let p = points[points.length-1];
+            p.x = cp.x;   p.y = cp.y;   p.z = cp.z;
+    
+            if (callbacks.onAddPoint) { callbacks.onAddPoint(p); }
+    
+            if (maxPoints && points.length >= maxPoints) {
+                resetEnterPolyline();
+                if (callbacks.onEnter) callbacks.onEnter();
             } else {
-                setDefaultCursor();
-                releaseMouseMoveHandler(onMouseMove);
-                releaseMouseClickHandler(onClick);
-                viewer.entities.remove(asset);
-
-                rect.west = Cesium.Math.toDegrees(rect.west);
-                rect.south = Cesium.Math.toDegrees(rect.south);
-                rect.east = Cesium.Math.toDegrees(rect.east);
-                rect.north = Cesium.Math.toDegrees(rect.north);
-
-                callback(rect);
-                requestRender();
+                let pMover = { ...p };
+                points.push( pMover); 
             }
         }
     }
+  
+    function resetEnterPolyline() {
+        setDefaultCursor();
+        releaseMouseClickHandler( onClick);
+        releaseMouseMoveHandler( onMouseMove);
+        releaseKeyDownHandler( onKeyDown);
 
-    setCursor("crosshair");
-    registerMouseClickHandler(onClick);
+        // we have to defer this or an ending double click still selects the handle entity 
+        setTimeout( ()=> setInputAction( dblClickAction, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK), 200);
+    }
+  
+    function onKeyDown(event) {
+        if (event.code == "Delete" || event.code == "Backspace") {
+            let idx = points.length-2;
+            let p = points[idx];
+            points.splice( idx, 1);
+            if (callbacks.onDelPoint) callbacks.onDelPoint( idx, p);
+
+        } else if (event.code == "Escape") { // exit edit alltogether
+            resetEnterPolyline();
+            if (callbacks.onCancel) callbacks.onCancel();
+        }
+    }
+  
+    setCursor( "copy");
+    registerMouseClickHandler( onClick);
+    registerMouseMoveHandler( onMouseMove);
+    registerKeyDownHandler( onKeyDown);
+
+    removeInputAction( Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK); // avoid selection on double click
+
+    return resetEnterPolyline; // so that we can cancel from the outside
 }
 
-export function pickSurfacePolyline (pointCallback,polylineCallback) {
-    let points = []; // Cartesian3 positions
+export function enterGeoPoint (processResult) {
+    let points = [];
+    enterPolyline( points, 1, { onEnter: ()=> {
+        let geo = Cesium.Cartographic.fromCartesian(points[0]);
+        processResult( main.GeoPoint.fromLonLatRadians( geo.longitude, geo.latitude));
+    } });
+}
+
+/*** TODO - these need a enterPolyline environment that creates/removes an entity to draw the shape */
+export function enterGeoLine (processResult) {
+    let points = [];
     let polyEntity = undefined;
 
-    function onMouseMove(event) {
-        let lastIdx = points.length-1;
-        if (lastIdx > 0) {
-            let p = getCartesian3MousePosition(event);
-            if (p) {
-                points[lastIdx] = p;
-                requestRender();
-            }
+    function onAddPoint (idx, p) {
+        if (polyEntity === undefined) {
+            setRequestRenderMode(false); // we track the mouse
+            polyEntity = new Cesium.Entity( {
+                polyline: polylineOpts( points),
+                selectable: false
+            });
+            viewer.entities.add( polyEntity);
         }
+    }
+
+    function onEnter () {
+        cleanUpEnter(polyEntity);
+
+        if (points.length == 2) {
+            let c0 = Cesium.Cartographic.fromCartesian(points[0]);
+            let c1 = Cesium.Cartographic.fromCartesian(points[1]);
+
+            let start = main.GeoPoint.fromLonLatRadians( c0.longitude, c0.latitude);
+            let end = main.GeoPoint.fromLonLatRadians( c1.longitude, c1.latitude);
+
+            processResult( new main.GeoLine(start, end));
+        }
+    }
+
+    function onCancel () { cleanUpEnter(polyEntity); }
+
+    enterPolyline( points, 2, {onEnter, onCancel, onAddPoint});
+}
+
+function cleanUpEnter(entity) {
+    if (entity) viewer.entities.remove(entity);
+    setRequestRenderMode(true);
+    requestRender();
+}
+
+export function enterGeoLineString (processResult) {
+    let points = [];
+    let polyEntity = undefined;
+
+    function onAddPoint (idx, p) {
+        if (polyEntity === undefined) {
+            setRequestRenderMode(false); // we track the mouse
+            polyEntity = new Cesium.Entity( {
+                polyline: polylineOpts( points),
+                selectable: false
+            });
+            viewer.entities.add( polyEntity);
+        }
+    }
+
+    function onEnter () {
+        cleanUpEnter(polyEntity);
+
+        let pts = points.map( (p)=> {
+            let c = Cesium.Cartographic.fromCartesian(p);
+            return main.GeoPoint.fromLonLatRadians( c.longitude, c.latitude);
+        });
+        processResult( new main.GeoLineString(pts));
+    }
+
+    function onCancel () { cleanUpEnter(polyEntity); }
+
+    enterPolyline( points, 0, {onEnter, onCancel, onAddPoint});
+}
+
+export function enterGeoPolygon (processResult) {
+    let points = [];
+    let polyEntity = undefined;
+
+    function onAddPoint (idx, p) {
+        if (polyEntity === undefined) {
+            setRequestRenderMode(false); // we track the mouse
+            polyEntity = new Cesium.Entity( {
+                polyline: polylineOpts( points),
+                polygon: polygonOpts( points),
+                selectable: false
+            });
+            viewer.entities.add( polyEntity);
+        }
+    }
+
+    function onEnter () {
+        cleanUpEnter(polyEntity);
+
+        let pts = points.map( (p)=> {
+            let c = Cesium.Cartographic.fromCartesian(p);
+            return main.GeoPoint.fromLonLatRadians( c.longitude, c.latitude);
+        });
+        processResult( new main.GeoPolygon(pts));
+    }
+
+    function onCancel () { cleanUpEnter(polyEntity); }
+
+    enterPolyline( points, 0, {onEnter, onCancel, onAddPoint});
+}
+
+// minimal environment to enter a GeoRect with outline&fill rendering (no editing/handles)
+export function enterGeoRect (processResult) {
+    let rect = new Cesium.Rectangle();
+    let points = [];
+    let rectEntity = undefined;
+
+    function onAddPoint (pGeo) {
+        cleanUpEnter(rectEntity);
+
+        if (rectEntity === undefined) {
+            setRequestRenderMode(false); // we track the mouse
+            rectEntity = new Cesium.Entity( {
+                polyline: polylineOpts( points),
+                polygon: polygonOpts( points),
+                selectable: false
+            });
+            viewer.entities.add( rectEntity);
+        }
+    }
+
+    function onEnter () {
+        if (rectEntity) viewer.entities.remove(rectEntity);
+        util.rectToDegrees(rect);
+        processResult( main.GeoRect.fromWSENdeg( rect.west, rect.south, rect.east, rect.north));
+    }
+
+    function onCancel () { cleanUpEnter(rectEntity); }
+
+    enterRect( rect, points, { onEnter, onCancel, onAddPoint });
+}
+
+function polylineOpts (points) {
+    return {
+        positions: new Cesium.CallbackProperty( () => points, false),
+        clampToGround: true,
+        width: 2,
+        material: Cesium.Color.RED
+    };
+}
+
+function polygonOpts (points) {
+    return {
+        hierarchy: new Cesium.CallbackProperty( () => new Cesium.PolygonHierarchy( points)),
+        material: Cesium.Color.RED.withAlpha(0.2)
+    };
+}
+
+/// low level Rectangle entry - no Cesium assets, just entering two points and updating a cartographic rectangle
+/// and the 5 element cartesian point array.
+/// callbacks { onEnter, onCancel, onAddPoint, onMouseMove }
+export function enterRect (rect, points, callbacks) {
+    let cp2 = new Cesium.Cartographic();
+    let p0 = undefined;  // 1st corner of rect
+    if (points === undefined) points = Cesium.Cartesian3.fromDegreesArray([0,0, 0,0, 0,0, 0,0, 0,0]);
+    if (rect == undefined) rect = new Cesium.Rectangle();
+
+    function onMouseMove(event) {
+        let p = getCartographicMousePosition(event, cp2);
+        if (p0) {
+            setRectFromCornerPoints( rect, p0, p);
+            cartesian3ArrayFromRadiansRect(rect, points);
+        }
+        
+        if (callbacks.onMouseMove) callbacks.onMouseMove( p);
     }
 
     function onClick(event) {
-        if (event.detail == 2) { // double click -> terminate
-            event.preventDefault(); // Cesium likes to zoom in on double clicks
+        let p = getCartographicMousePosition(event);
+        if (p) { 
+            if (event.detail == 1) { // ignore double click
+                if (p0 === undefined) { // first corner
+                    p0 = p;
 
-            setDefaultCursor();
-            releaseMouseMoveHandler(onMouseMove);
-            releaseMouseClickHandler(onClick);
-    
-            if (polyEntity) {
-                viewer.entities.remove(polyEntity);
-            }
-    
-            if (points.length > 1) {
-                //let poly = points.map( p => Cesium.Cartographic.fromCartesian(p));
-                let poly = points.map( p=> cartesianToCartographicDegrees(p));
-                polylineCallback(poly);
-            }
+                    setRectFromCornerPoints( rect, p0, p0);
+                    cartesian3ArrayFromRadiansRect( rect, points);
+                    if (callbacks.onAddPoint) callbacks.onAddPoint( p);
 
-        } else if (event.detail == 1) {
-            let p = getCartesian3MousePosition(event);
-            if (p) { 
-                points.push( p);
-                points.push( p); // the moving one
+                } else { // 2nd corner - this terminates the entry
+                    setRectFromCornerPoints( rect, p0, p);
+                    cartesian3ArrayFromRadiansRect( rect, points);
+                    if (callbacks.onAddPoint) callbacks.onAddPoint( p);
 
-                if (!polyEntity) {
-                    polyEntity = new Cesium.Entity( {
-                        polyline: {
-                            positions: new Cesium.CallbackProperty( () => points, false),
-                            clampToGround: true,
-                            width: 2,
-                            material: Cesium.Color.RED
-                        },
-                        selectable: false
-                    });
-                    viewer.entities.add(polyEntity);
-                    requestRender();
-
-                    registerMouseMoveHandler(onMouseMove);
+                    resetEnterRect();
+                    if (callbacks.onEnter) callbacks.onEnter();
                 }
-
-                pointCallback( cartesianToCartographicDegrees(p));
             }
         }
     }
 
-    setCursor("crosshair");
-    registerMouseClickHandler(onClick);
+    function onKeyDown(event) {
+        if (event.code == "Escape") { // exit edit alltogether
+            resetEnterRect();
+            if (callbacks.onCancel) callbacks.onCancel();
+        }
+    }
+
+    function resetEnterRect() {
+        setDefaultCursor();
+        releaseMouseMoveHandler( onMouseMove);
+        releaseMouseClickHandler( onClick);
+        releaseKeyDownHandler( onKeyDown);
+    }
+
+    setCursor("copy");
+    registerMouseMoveHandler( onMouseMove);
+    registerMouseClickHandler( onClick);
+    registerKeyDownHandler( onKeyDown);
+
+    return resetEnterRect;
 }
+
+export function setRectFromCornerPoints (rect, p0, p1) {
+    rect.west = Math.min( p0.longitude, p1.longitude);
+    rect.south = Math.min( p0.latitude, p1.latitude);
+    rect.east = Math.max( p0.longitude, p1.longitude);
+    rect.north = Math.max( p0.latitude, p1.latitude);
+}
+
 
 export function cartesianToCartographicDegrees (p) {
     return cartographicToDegrees( Cesium.Cartographic.fromCartesian(p));

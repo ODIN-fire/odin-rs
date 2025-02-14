@@ -37,11 +37,16 @@ main.exportFuncToMain( function test() {
         { lon: -119.0, lat: 38.0 },
         { lon: -120.5, lat: 37.0 }
     ];
-    points = [];
+    //points = [];
 
     console.log("start editing");
-    //editPolygon( points, processResult);
-    
+
+    //cesium.enterGeoPoint(processResult);
+    //cesium.enterGeoLine(processResult);
+    //cesium.enterGeoLineString(processResult);
+    //cesium.enterGeoPolygon(processResult);
+    //cesium.enterGeoRect(processResult);
+
     /*
     let editor = main.getDefaultShareEditorForItemType( main.GEO_LINE_STRING);
     if (editor) {
@@ -50,14 +55,12 @@ main.exportFuncToMain( function test() {
     } else console.log("no editor");
     */
 
-    
     let editor = main.getDefaultShareEditorForItemType( main.GEO_POLYGON);
     if (editor) {
         let input = new main.GeoPolygon( points);
         editor( input, processResult);
     } else console.log("no editor");
     
-
     /*
     let editor = main.getDefaultShareEditorForItemType( main.GEO_LINE);
     if (editor) {
@@ -212,7 +215,8 @@ export function editGeoPoint (geoPoint, processResult) {
     let init = geoPoint ? [Object.assign({}, geoPoint)] : [];
     new PointEditor( "Edit GeoPoint", init, procRes).open();
 }
-main.addShareEditor( main.GEO_POINT, "2D point", editGeoPoint);
+main.addShareEditor( main.GEO_POINT, "edit 2D point", editGeoPoint);
+
 
 /// shared item editor func for GeoLine
 export function editGeoLine (geoLine, processResult) {
@@ -280,7 +284,7 @@ export function editGeoRect (geoRect, processResult) {
 
     new RectEditor( "Edit GeoRect", geoRect, true, procRes).open();
 }
-main.addShareEditor( main.GEO_POLYGON, "2D polygon exterior", editGeoPolygonExterior)
+main.addShareEditor( main.GEO_POLYGON, "2D polygon exterior", editGeoPolygonExterior);
 
 /// the base class for PolylineEditor and PolygonEditor
 export class PolyEditor {
@@ -343,7 +347,7 @@ export class PolyEditor {
     }
 
     _startEntryMode () {
-        this.cancelEntry = enterPolyline( this.points, this.maxPoints, {  // @override for polygon
+        this.cancelEntry = cesium.enterPolyline( this.points, this.maxPoints, {  // @override for polygon
             onEnter: this._onEntryComplete.bind(this),
             onCancel: this._onEntryCancel.bind(this), 
             onAddPoint: this._addHandle.bind(this), 
@@ -1028,89 +1032,6 @@ function setCartographicPos (p) {
 
 /* #endregion utility functions */
 
-/// the low level entry function - no handles, just points. Handles for subsequent editing
-/// have to be added through the provided callbacks. This function does not create any
-/// Cesium resources. We do pass in onMouseMove so that we don't have to redundantly calculate
-/// a Cartesian3 mouse position. There is no onDelPoint since we can't delete points in enter
-/// mode - we can't set the pointer position in Javascript
-// callbacks: { onEnter, onCancel, onAddPoint, onDelPoint, onMouseMove }
-export function enterPolyline (points, maxPoints, callbacks) {
-    let cp = new Cesium.Cartesian3(); // cached point to save allocs
-    let dblClickAction = cesium.getInputAction( Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
-
-    points.push( new Cesium.Cartesian3()); // add the mover point
-  
-    function onMouseMove(event) { // update the last point position (will redraw polyline using points)    
-      let idx = points.length-1;
-      let p = points[idx];
-  
-      cesium.getCartesian3MousePosition(event, cp);
-      p.x = cp.x;   p.y = cp.y;   p.z = cp.z;
-  
-      if (callbacks.onMouseMove) { callbacks.onMouseMove( idx, p); }
-    }
-  
-    function onClick(event) {
-      if (event.detail == 2) { // double click -> done entering
-        cesium.clearSelectedEntity(); // Cesium likes to zoom in on double clicks
-        event.preventDefault(); 
-        resetEnterPolyline();
-  
-        points.pop();  // remove the mover
-        if (points.length > 1) {
-          if (callbacks.onEnter) callbacks.onEnter();
-        }
-  
-      } else if (event.detail == 1) { // single click (but also before double click)
-        cesium.getCartesian3MousePosition(event, cp);
-  
-        let p = points[points.length-1];
-        p.x = cp.x;   p.y = cp.y;   p.z = cp.z;
-  
-        if (callbacks.onAddPoint) { callbacks.onAddPoint(p); }
-  
-        if (maxPoints && points.length >= maxPoints) {
-            resetEnterPolyline();
-            if (callbacks.onEnter) callbacks.onEnter();
-        } else {
-            let pMover = { ...p };
-            points.push( pMover); 
-        }
-      }
-    }
-  
-    function resetEnterPolyline() {
-      cesium.setDefaultCursor();
-      cesium.releaseMouseClickHandler(onClick);
-      cesium.releaseMouseMoveHandler(onMouseMove);
-      cesium.releaseKeyDownHandler(onKeyDown);
-
-      // we have to defer this or an ending double click still selects the handle entity 
-      setTimeout( ()=> cesium.setInputAction( dblClickAction, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK),200);
-    }
-  
-    function onKeyDown(event) {
-        if (event.code == "Delete" || event.code == "Backspace") {
-            let idx = points.length-2;
-            let p = points[idx];
-            points.splice( idx, 1);
-            if (callbacks.onDelPoint) callbacks.onDelPoint( idx, p);
-
-        } else if (event.code == "Escape") { // exit edit alltogether
-            resetEnterPolyline();
-            if (callbacks.onCancel) callbacks.onCancel();
-        }
-    }
-  
-    cesium.setCursor("copy");
-    cesium.registerMouseClickHandler(onClick);
-    cesium.registerMouseMoveHandler(onMouseMove);
-    cesium.registerKeyDownHandler(onKeyDown);
-
-    cesium.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK); // avoid selection on double click
-
-    return resetEnterPolyline; // so that we can cancel from the outside
-}
 
 /* #region Cesium asset options ***************************************************************/
 
@@ -1294,7 +1215,7 @@ export class RectEditor {
     }
 
     _startEntryMode () {
-        this.cancelEntry = enterRect( this.rect, this.points, { 
+        this.cancelEntry = cesium.enterRect( this.rect, this.points, { 
             onEnter: this._onEntryComplete.bind(this),
             onCancel: this._onEntryCancel.bind(this), 
             onAddPoint: this._addHandle.bind(this), 
@@ -1486,7 +1407,7 @@ export class RectEditor {
         let selHandle = this.selHandle;
         if (selHandle) {
             let pOther = Object.is(selHandle, this.hp0) ? this.hp1.__geo : this.hp0.__geo;
-            setRectFromCornerPoints( this.rect, selHandle.__geo, pOther);
+            cesium.setRectFromCornerPoints( this.rect, selHandle.__geo, pOther);
             this._setPointsFromRect();
             this._updateFields(null);
         }
@@ -1562,76 +1483,5 @@ export class RectEditor {
     }
 }
 
-
-/// low level Rectangle entry - no Cesium assets, just entering two points and updating a cartographic rectangle
-/// and the 5 element cartesian point array.
-/// callbacks { onEnter, onCancel, onAddPoint, onMouseMove }
-export function enterRect (rect, points, callbacks) {
-    let cp2 = new Cesium.Cartographic();
-    let p0 = undefined;  // 1st corner of rect
-    if (points === undefined) points = Cesium.Cartesian3.fromDegreesArray([0,0, 0,0, 0,0, 0,0, 0,0]);
-    if (rect == undefined) rect = new Cesium.Rectangle();
-
-    function onMouseMove(event) {
-        let p = cesium.getCartographicMousePosition(event, cp2);
-        if (p0) {
-            setRectFromCornerPoints( rect, p0, p);
-            cesium.cartesian3ArrayFromRadiansRect(rect, points);
-        }
-        
-        if (callbacks.onMouseMove) callbacks.onMouseMove( p);
-    }
-
-    function onClick(event) {
-        let p = cesium.getCartographicMousePosition(event);
-        if (p) { 
-            if (event.detail == 1) { // ignore double click
-                if (p0 === undefined) { // first corner
-                    p0 = p;
-
-                    setRectFromCornerPoints( rect, p0, p0);
-                    cesium.cartesian3ArrayFromRadiansRect(rect, points);
-                    if (callbacks.onAddPoint) callbacks.onAddPoint( p);
-
-                } else { // 2nd corner - this terminates the entry
-                    setRectFromCornerPoints( rect, p0, p);
-                    cesium.cartesian3ArrayFromRadiansRect(rect, points);
-                    if (callbacks.onAddPoint) callbacks.onAddPoint( p);
-
-                    resetEnterRect();
-                    if (callbacks.onEnter) callbacks.onEnter();
-                }
-            }
-        }
-    }
-
-    function onKeyDown(event) {
-        if (event.code == "Escape") { // exit edit alltogether
-            resetEnterRect();
-            if (callbacks.onCancel) callbacks.onCancel();
-        }
-    }
-
-    function resetEnterRect() {
-        cesium.setDefaultCursor();
-        cesium.releaseMouseMoveHandler(onMouseMove);
-        cesium.releaseMouseClickHandler(onClick);
-        cesium.releaseKeyDownHandler(onKeyDown);
-    }
-
-    cesium.setCursor("copy");
-    cesium.registerMouseMoveHandler(onMouseMove);
-    cesium.registerMouseClickHandler(onClick);
-    cesium.registerKeyDownHandler(onKeyDown);
-
-    return resetEnterRect;
-}
-
-function setRectFromCornerPoints (rect, p0, p1) {
-    rect.west = Math.min( p0.longitude, p1.longitude);
-    rect.south = Math.min( p0.latitude, p1.latitude);
-    rect.east = Math.max( p0.longitude, p1.longitude);
-    rect.north = Math.max( p0.latitude, p1.latitude);
-}
 
 /* #endregion RectEditor */

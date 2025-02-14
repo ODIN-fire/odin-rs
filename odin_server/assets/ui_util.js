@@ -526,6 +526,27 @@ const mrcNom_wgs84 = a_wgs84 * (1.0 - e2_wgs84);
 
 const rad2deg = 180.0 / Math.PI;
 
+export function degrees360 (deg) {
+    let x = deg % 360.0;
+    return (x < 0.0) ?  360.0 + x : x;
+}
+
+export function degrees180 (deg) {
+    let x = deg % 360.0;
+    
+    if (x < -180.0) { return 360.0 + x; }
+    else if (x > 180.0) { return x - 360.0; }
+    else { return x; }
+}
+
+export function degrees90 (deg) {
+    let x = deg % 360.0;
+
+    if (x < -90.0) { return -180.0 - x; }
+    else if (x > 90.0) { return 180.0 - x; }
+    else { return x; }
+}
+
 export function toRadians(deg) {
     return deg / rad2deg;
 }

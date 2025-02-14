@@ -187,7 +187,7 @@ class SentinelEntry {
     windDirection() {
         let anemo = this.sentinel.anemometer;
         if (anemo && anemo.length > 0) {
-            return anemo[0].anemometer.angle;
+            return util.degrees360( anemo[0].anemometer.angle);
         }
     }
 }
@@ -320,7 +320,7 @@ function initSentinelThermoView() {
 function initSentinelAnemoView() {
     return initListView( "sentinel.anemo.list", [
         { name: "sen", tip: "sensor number", width: "2rem", attrs: [], map: e => e.sensorNo },
-        { name: "dir", tip: "wind direction [°]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_0.format(e.anemometer.angle) },
+        { name: "dir", tip: "wind direction [°]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_0.format( util.degrees360(e.anemometer.angle)) },
         { name: "spd", tip: "wind speed [m/s]", width: "6rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.anemometer.speed) },
         ui.listItemSpacerColumn(),
         { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.timeRecorded) }

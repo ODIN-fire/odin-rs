@@ -232,7 +232,7 @@ export class GeoRect {
         this.east = east;
         this.north = north;
     }
-    static fromWSENdeg (west,south,east,north) { return GeoRect(west,south,east,north); }
+    static fromWSENdeg (west,south,east,north) { return new GeoRect(west,south,east,north); }
 
     static fromPoints (p1, p2) {
         let rect = new GeoRect(0,0,0,0);
