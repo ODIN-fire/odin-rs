@@ -713,6 +713,18 @@ export function createScreenSpaceEventHandler() {
     return new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
 }
 
+export function getInputAction(type,mod=null) {
+    return viewer.screenSpaceEventHandler.getInputAction(type,mod);
+}
+
+export function removeInputAction(type,mod=null) {
+    return viewer.screenSpaceEventHandler.removeInputAction(type,mod);
+}
+
+export function setInputAction(action,type,mod=null) {
+    return viewer.screenSpaceEventHandler.setInputAction(action,type,mod);
+}
+
 export function setCursor(cssCursorSpec) {
     viewer.scene.canvas.style.cursor = cssCursorSpec;
 }

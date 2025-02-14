@@ -2730,6 +2730,13 @@ export function updateListItem(o, item) {
     } else throw "not a list";
 }
 
+export function updateListItems(o) {
+    let e = getList(o);
+    if (e) {
+        e._uiItemMap.forEach( (ie,item) => _setListItem(e, ie, item));
+    }
+}
+
 export function removeListItem(o, item) {
     let e = getList(o);
     if (e) {

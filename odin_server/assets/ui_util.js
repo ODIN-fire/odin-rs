@@ -247,8 +247,20 @@ export function squareKilometersToAcres(area) {
     return (area * 247.105381);
 }
 
+export function squareMetersToHectares(area) {
+    return area/10000.0;
+}
+
 export function metersToUsMiles (len) {
     return len / 1609.344;
+}
+
+export function metersToFeet (len) {
+    return len / 0.3048;
+}
+
+export function feetToMeters (len){
+    return len * 0.3048;
 }
 
 export function metersToNauticalMiles (len) {
