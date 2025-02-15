@@ -15,15 +15,14 @@
 //#![allow(unused)]
 
 use nalgebra::{distance, Const, Dyn, Matrix, Rotation3, VecStorage, Vector, Vector3};
-use geo::{geodesic_destination, Destination, Geodesic, HausdorffDistance, Point, Contains};
+use geo::{geodesic_destination, Contains, Destination, Geodesic, GeodesicArea, HausdorffDistance, Point};
+use geo::algorithm::BooleanOps;
 use chrono::{DateTime, Datelike, Duration, SubsecRound, TimeDelta, TimeZone, Timelike, Utc, NaiveDateTime, NaiveDate};
 use odin_common::angle::{Longitude, Latitude};
 use odin_common::datetime::naive_utc_date_to_utc_datetime;
-use odin_common::geo::{GeoCoord, GeoPoint, GeoPoint3, GeoRect};
+use odin_common::geo::{GeoCoord, GeoPoint, GeoPoint3, GeoPolygon, GeoRect};
 use sgp4::{Constants, Elements};
-use satkit::frametransform::{gmst, qteme2itrf};
-use satkit::{Instant, TLE};
-use satkit::ITRFCoord;
+use satkit::{Instant, TLE, ITRFCoord, frametransform::{gmst, qteme2itrf}};
 use satkit;
 use nav_types::{WGS84, ECEF};
 use serde_json::Value;
@@ -49,6 +48,7 @@ pub struct Overpass {
     pub first_date: i64, //unix timestamp,
     pub last_date: i64, //unix timestamp,
     pub coverage: f32,
+    pub swath: f64,
     pub max_scan: f64,
     pub trajectory: Vec<Trajectory>
 }
@@ -58,13 +58,38 @@ impl Overpass {
         let last_date = trajectory[trajectory.len()-1].time;
         let first_date = trajectory[0].time;
         let coverage = 0.0;
+        let swath = get_swath_for_orbit(&trajectory, max_scan).value;
         Overpass {
-            sat_id, first_date, last_date, coverage, max_scan, trajectory
+            sat_id, first_date, last_date, coverage, swath, max_scan, trajectory
         }
     }
 
-    pub fn set_coverage (&mut self, region: &GeoRect) {
-        // calculate coverage of overpass over region
+    pub fn set_coverage (&mut self, region: &GeoRect) {// calculate coverage of overpass over region
+        // get polygon of overpass+swath
+        let overpass = self.get_overpass_bounds().to_polygon();
+        // get intersection of region and overpass+swath
+        let intersections = &overpass.intersection(&region.to_polygon()).0;
+        if intersections.len()>0 {
+            let intersection = &overpass.intersection(&region.to_polygon()).0[0];
+            // area of intersection/ area of region
+            self.coverage = (((intersection.geodesic_area_unsigned()/ region.area().value)*100.0).round()/100.0) as f32;
+        }
+    }
+
+    pub fn set_swath (&mut self) {
+        let swath = get_swath_for_orbit(&self.trajectory, self.max_scan);
+        self.swath = swath.value;
+    }
+
+    pub fn get_overpass_bounds(&self ) -> GeoRect {
+        // n,s,e,w
+        let first_geo_pt3 = self.trajectory[0].as_wgs84();
+        let first_geo_pt = GeoPoint::from_lon_lat(first_geo_pt3.longitude(), first_geo_pt3.latitude());
+        let n = self.trajectory[0].as_wgs84().latitude();
+        let s =  self.trajectory[self.trajectory.len()-1].as_wgs84().latitude();
+        let w = Longitude::from_degrees(Geodesic::destination(first_geo_pt.point().clone(), 270.0, self.swath).x());
+        let e = Longitude::from_degrees(Geodesic::destination(first_geo_pt.point().clone(), 90.0, self.swath).x());
+        GeoRect::from_wsen(w, s, e, n)
     }
 
     pub fn update(&mut self, i: usize, vec3:Vector3<f64>) {
@@ -81,11 +106,20 @@ impl Overpass {
 
     pub fn find_closest_orbit_point(&self, p: &Cartesian3D) -> Cartesian3D {
         let i = self.find_closest_index(p);
-        let p1 = Cartesian3D{x: self.trajectory[i-1].x, y: self.trajectory[i-1].y, z: self.trajectory[i-1].z};
-        let p2 = Cartesian3D{x: self.trajectory[i+1].x, y: self.trajectory[i+1].y, z: self.trajectory[i+1].z};
-        let mut gp = Cartesian3D::new();
-        gp.set_to_intersection_with_plane(&p1, &p2, p); // set pt to intersection w/ plane
-        gp
+        if i < self.trajectory.len() { // not the last point
+            let p1 = Cartesian3D{x: self.trajectory[i-1].x, y: self.trajectory[i-1].y, z: self.trajectory[i-1].z};
+            let p2 = Cartesian3D{x: self.trajectory[i+1].x, y: self.trajectory[i+1].y, z: self.trajectory[i+1].z};
+            let mut gp = Cartesian3D::new();
+            gp.set_to_intersection_with_plane(&p1, &p2, p); // set pt to intersection w/ plane
+            gp
+        } else { // last point in trajectory, edge case that causes panicking if not handled
+            let p1 = Cartesian3D{x: self.trajectory[i-1].x, y: self.trajectory[i-1].y, z: self.trajectory[i-1].z};
+            let p2 = Cartesian3D{x: self.trajectory[i].x, y: self.trajectory[i].y, z: self.trajectory[i+1].z};
+            let mut gp = Cartesian3D::new();
+            gp.set_to_intersection_with_plane(&p1, &p2, p); // set pt to intersection w/ plane
+            gp
+        }
+        
     }
 
     pub fn dist2(&self, i:usize, p: &Cartesian3D) -> f64 {
@@ -94,9 +128,9 @@ impl Overpass {
 
     pub fn find_closest_index(&self, p: &Cartesian3D) -> usize {
         let mut l = 1;
-        let mut r = self.trajectory.len()-2;
+        let mut r = self.trajectory.len()-2; // can cause panicking if len<2
         let mut i = r/2; // sets up binary search
-        let mut dl = self.dist2(i, p) - self.dist2(i-1, p);
+        let mut dl = self.dist2(i, p) - self.dist2(i-1, p); // cause panicking if len<3
         let mut dr = self.dist2(i+1, p) - self.dist2(i, p);
         let mut di = 0.0;
         let mut i_last = i;
@@ -153,6 +187,12 @@ impl Trajectory {
             y: ecef.y(),
             z: ecef.z()
         }
+    }
+    pub fn as_ecef(&self) -> ECEF<f64> {
+        ECEF::new(self.x, self.y, self.z)
+    }
+    pub fn as_wgs84(&self) -> GeoPoint3 {
+        GeoPoint3::from(self.as_ecef())
     }
 }
 
@@ -259,15 +299,6 @@ pub async fn get_celestrak_response(sat_id: u32) -> Result<Response> {
             .query(&query).send().await?;
     Ok(response)
 }
-// pub async fn get_tles_celestrak_sgp4(sat_id: u32) -> Result<Vec<Elements>>{
-//     let response = get_celestrak_response(sat_id).await?;
-//     if response.status().is_success() { 
-//         let tles: Vec<Elements> = response.json::<Vec<Elements>>().await?;
-//         Ok(tles)
-//     } else {
-//         Err(OdinOrbitalSatError::FileDownloadError(format!("TLE download failed: {:?}", response.status())))
-//     } 
-// }
 
 pub async fn get_tles_celestrak(sat_id: u32) -> Result<TLE>{
     let client = Client::new();
@@ -316,16 +347,6 @@ pub async fn get_spacetrack_request(sat_id: u32, username: &str, password:&str) 
     Ok(response)
 }
 
-// pub async fn get_tles_spacetrack_sgp4(sat_id: u32, username: &str, password:&str) -> Result<Vec<Elements>>{
-//     let response = get_spacetrack_request(sat_id, username, password).await?;
-//     if response.status().is_success() { 
-//         let tles: Vec<Elements> = response.json::<Vec<Elements>>().await?;
-//         Ok(tles)
-//     } else {
-//         Err(OdinOrbitalSatError::FileDownloadError(format!("TLE download failed: {:?}", response.status())))
-//     } 
-// }
-
 pub async fn get_tles_spacetrack(sat_id: u32, username: &str, password:&str) -> Result<TLE>{
     let response = get_spacetrack_request(sat_id, username, password).await?;
     if response.status().is_success() { 
@@ -368,20 +389,6 @@ pub async fn get_tles_spacetrack(sat_id: u32, username: &str, password:&str) -> 
 /* #endregion TLE import functions */
 
 /* #region overpass calculation functions  ***************************************************************************/
-
-
-// pub fn compute_full_orbits_sgp4_from_times(tle: &Elements, max_scan: f64, times: Vec<DateTime<Utc>>) -> Result<OverpassList>{ //todo: take in region
-//     let constants = Constants::from_elements(tle)?;
-//     let mut preds: Vec<[f64;3]> = vec![];
-//     for time in times.iter() { 
-//         let t = tle.datetime_to_minutes_since_epoch(&time.naive_utc())?;
-//         let prediction = constants.propagate(t)?;
-//         let position: [f64;3]  = prediction.position.map(|f| f*1000.0); // slows it way down
-//         preds.push(position);
-//     }
-//     let overpass = format_prediction_sgp4(preds, times, tle, max_scan)?;
-//     Ok(overpass)
-// }
 
 pub fn compute_full_orbits(mut tle: TLE, max_scan: f64, region: &GeoRect) -> Result<OverpassList> {
     let times = get_time_vector();
@@ -426,26 +433,27 @@ pub fn compute_initial_orbits(mut tle: TLE, max_scan: f64, history: Duration, re
 }
 
 pub fn compute_approximate_swath_width(altitude: Length, max_scan: f64) -> Length {
+    let scan = max_scan*PI/180.0;
     let earth = Length::new::<meter>(6371000.0);
     let d = earth + altitude;
-    let c0 = f64::sin(max_scan)/earth; 
+    let c0 = f64::sin(scan)/earth; 
     let c1 = earth.value.powf(2.0) - d.value.powf(2.0);
     // val c1 = squared(r) - squared(d)
-    let c2 = d*f64::cos(max_scan);
+    let c2 = d*f64::cos(scan);
     let a = c2.value - (c2.value.powf(2.0)+c1).sqrt();
     let alpha = (c0.value*a).asin();
     Length::new::<meter>(earth.value*alpha)
 }
 
-fn get_average_altitude(x: &Vec<f64>, y: &Vec<f64>, z: &Vec<f64>) -> f64{
-    let p1 = Cartesian3D::from_ecef(ECEF::new(x[0], y[0], z[0])).to_wgs84();
-    let p2_ind = x.len()-1;
-    let p2 = Cartesian3D::from_ecef(ECEF::new(x[p2_ind], y[p2_ind], z[p2_ind])).to_wgs84();
+fn get_average_altitude(traj: &Vec<Trajectory>) -> f64{
+    let p1 = Cartesian3D::from_ecef(ECEF::new(traj[0].x, traj[0].y, traj[0].z)).to_wgs84();
+    let p2_ind = traj.len()-1;
+    let p2 = Cartesian3D::from_ecef(ECEF::new(traj[p2_ind].x, traj[p2_ind].y, traj[p2_ind].z)).to_wgs84();
     (p1.altitude() + p2.altitude()) / 2.0
 }
 
-fn get_swath_for_orbit(x: &Vec<f64>, y: &Vec<f64>, z: &Vec<f64>, max_scan: f64) -> Length {
-    let altitude = get_average_altitude(x, y, z);
+fn get_swath_for_orbit(traj: &Vec<Trajectory>, max_scan: f64) -> Length {
+    let altitude = get_average_altitude(traj);
     compute_approximate_swath_width(Length::new::<meter>(altitude), max_scan)
 }
 
@@ -508,7 +516,8 @@ pub fn filter_orbits(overpass_list: &OverpassList,  region: &GeoRect, max_scan: 
         //     }
         // } else {
             if covers_region_partial(&overpass, region, max_scan) { // need to actually reduce orbit 
-                overpass.filter_orbit_points(region);
+                overpass.set_coverage(&region);
+                //overpass.filter_orbit_points(region);
                 filtered_orbits.push(overpass);
             }
         //}
@@ -575,46 +584,6 @@ pub fn covers_region_partial(overpass: &Overpass, region: &GeoRect, max_scan: f6
     covers
 }
 
-// pub fn format_prediction_sgp4(preds: Vec<[f64;3]>, times: Vec<DateTime<Utc>>, tle: &Elements, max_scan: f64) -> Result<OverpassList> {
-//     let max_z = GeoPoint::from_lon_lat_degrees(0.0, 85.0).as_ecef().z();
-//     let min_z = GeoPoint::from_lon_lat_degrees(0.0, -85.0).as_ecef().z();
-//     let mut trajectories = vec![];
-//     let mut overpasses: Vec<Overpass> = vec![];
-//     let mut in_current_trajectory = false;
-//     let mut first_time = times[0].clone();
-//     let mut last_time = times[times.len()-1].clone();
-//     for (pred, time) in preds.into_iter().zip(times.iter()) {
-//         let ecef = convert_pred(pred, time);
-//         if (ecef.z() < max_z) & (ecef.z() > min_z) {
-//             if (in_current_trajectory == false) { // first point in new trajectory
-//                 in_current_trajectory = true;
-//                 first_time = time.clone();
-//             }// check if it is in region, if in region then save
-//             let traj = Trajectory{
-//                 time: time.timestamp_millis(), 
-//                 x: ecef.x(),
-//                 y: ecef.y(),
-//                 z: ecef.z()
-//             };
-//             trajectories.push(traj);
-//         } else {
-//             if in_current_trajectory { // first point outside of trajectory
-//                 // convert to overpass
-//                 let overpass = Overpass::new(tle.norad_id as i32, max_scan, trajectories);
-//                 overpasses.push(overpass);;
-//                 // reset trajectories
-//                 trajectories = vec![];
-
-//             }
-//             in_current_trajectory = false
-//         }
-//     }
-//     // save remaining trajectory to an overpass
-//     let overpass = Overpass::new(tle.norad_id as i32, max_scan, trajectories);
-//     overpasses.push(overpass);    
-//     let overpass_list = OverpassList::from_overpasses(overpasses);
-//     Ok(overpass_list)
-// }
 
 pub fn convert_preds(preds:Matrix<f64, Const<3>, Dyn, VecStorage<f64, Const<3>, Dyn>> , ats: Vec<Instant>) -> Result<Vec<ECEF<f64>>> {
     let now = Utc::now();
@@ -634,8 +603,8 @@ pub fn in_region(ecef: ECEF<f64>, region: &GeoRect, max_scan: f64) -> bool {
     let pt_wgs84 = GeoPoint3::from(ecef);
     let pt_lat_lon = Point::new( pt_wgs84.longitude().degrees(),pt_wgs84.latitude().degrees());
     let swath = compute_approximate_swath_width(pt_wgs84.altitude(), max_scan);
-    let west_edge = Geodesic::destination(pt_lat_lon, 270.0, swath.value/2.0);
-    let east_edge =  Geodesic::destination(pt_lat_lon, 90.0, swath.value/2.0);
+    let west_edge = Geodesic::destination(pt_lat_lon, 270.0, swath.value);
+    let east_edge =  Geodesic::destination(pt_lat_lon, 90.0, swath.value);
     (region_poly.contains(&pt_lat_lon)) |(region_poly.contains(&west_edge)) |(region_poly.contains(&east_edge))
 }
 pub fn format_prediction(preds: Matrix<f64, Const<3>, Dyn, VecStorage<f64, Const<3>, Dyn>>, times: Vec<DateTime<Utc>>, ats:Vec<Instant>, tle: TLE, max_scan: f64, region: &GeoRect) -> Result<OverpassList> {
@@ -685,14 +654,5 @@ pub fn get_overpasses_for_small_region(region:&GeoRect, overpass_list: &Overpass
     let filtered_overpasses = filter_orbits(overpass_list, region, max_scan);
     filtered_overpasses
 }
-// idea: every day, for each satellite:
-// X 1. pull tle
-// X 2. calculate the full orbits for the next 24 hours using propagate and tle
-// X 3. convert the trajectories into individual orbit segments for large area https://rhodesmill.org/skyfield/earth-satellites.html
-// X 4. convert orbits into ECEF coordiates - could swap with 3
-// 5. calculate swath of each orbit from scan angle  + orbit - store as an overpass list
-// orbit trajectory request:
-// 1. for each orbit segment, check if region falls inside swath - use same covers region function
-// 2. store and return relevant orbit segments in overpasslist
 
 /* #endregion overpass calculation functions */

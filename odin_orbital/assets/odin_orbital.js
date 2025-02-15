@@ -18,7 +18,7 @@ import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
-console.log("testing reload");
+
 const MODULE_PATH ="odin_orbital::orbital_service::OrbitalSatService";
 
 ws.addWsHandler( MODULE_PATH, handleWsMessages);
@@ -249,7 +249,7 @@ function initHotspotView() {
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "sat", tip: "satellite name", width: "3rem", attrs: [], map: e => satName(e.satId) },
-            { name: "conf", tip: "hotspot confidence [0:low,1:med,2:high]", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.conf },
+            { name: "conf", tip: "hotspot confidence [0:low,1:med,2:high]", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.confidence },
             { name: "bright", tip: "hotspot brightness [K]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_0.format(e.bright) },
             { name: "frp", tip: "hotspot fire radiative power [MW]", width: "4.5rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.frp) },
             { name: "pos", tip: "position", width:  "11rem", attrs: ["fixed", "alignRight"], map: e => util.formatLatLon(e.lat,e.lon,3)},
@@ -415,8 +415,8 @@ function pastClassifier (he) {
 }
 
 function hotspotClassifier (he) {
-    if (he.conf > 1) return ui.createImage("jpss-asset/fire");
-    else if (he.conf > 0) return "";
+    if (he.confidence > 1) return ui.createImage("jpss-asset/fire");
+    else if (he.confidence > 0) return "";
     else return "";
 }
 
@@ -432,7 +432,6 @@ function updateUpcoming() {
 }
 
 function updatePast() {
-    console.log("! updating past overpasses");
     let candidates = pastEntries;
     candidates = candidates.filter( e=> isSatShowing(e.satId));
 
@@ -470,8 +469,7 @@ function updateHotspots() {
 }
 
 function handleWsMessages(msgType, msg) {
-    console.log("! in handle ws message");
-    console.log(msgType);
+    
     switch (msgType) {
         case "satellites":
             handleSatelliteMessage(msg);
@@ -491,7 +489,6 @@ function handleWsMessages(msgType, msg) {
 }
 
 function handleSatelliteMessage(jpssSatellites) {
-    console.log("! in handle satellite message");
     jpssSatellites.forEach( s=> satelliteEntries.push( new SatelliteEntry(s)));
     ui.setListItems( satelliteView, satelliteEntries);
 }
@@ -504,8 +501,6 @@ function handleRegionMessage(jpssRegion) {
 }
 
 function handleOverpassMessage(ops) {
-    console.log("! in handle overpass message");
-    console.log("!", ops);
     upcoming.push(ops); // earliest upcoming on top
     upcoming.sort( (a,b) => (a,b) => a.lastDate - b.lastDate);
     updateUpcoming();
@@ -513,8 +508,6 @@ function handleOverpassMessage(ops) {
 }
 
 function handleHotspotMessage(hs) {
-    console.log("! in handle hotspot message");
-    console.log("! ", hs);
 
     let pe = new PastEntry(hs);
 

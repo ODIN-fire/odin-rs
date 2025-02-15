@@ -60,7 +60,6 @@ pub use orbital_service::*;
 define_load_config!{}
 define_load_asset!{}
 
-
 /* #region VIIRS data structures  ***************************************************************************/
 
 // raw viirs hotspot - used for easy parsing of CSV file
@@ -114,12 +113,13 @@ impl RawHotspots {
 #[derive(Serialize,Deserialize,Debug,Clone)]
 #[serde(rename_all="camelCase")]
 pub struct ViirsHotspot {
+    pub sat_id: u32,
     pub date: i64, // batched
     pub lat: Latitude,
     pub lon: Longitude,
     pub bright: ThermodynamicTemperature,
     pub frp: Power,
-    pub confidence: char,
+    pub confidence: i32,
     pub version: String,
     pub bounds: Vec<GeoPoint>
 }
@@ -292,21 +292,24 @@ pub fn get_hs_bounds(hs: &RawHotspot, overpass_list: &OverpassList) -> Result<Ve
     }   
 }
 
-pub fn process_hotspot(raw_hs: &RawHotspot, overpass_list: &OverpassList) -> Result<ViirsHotspot> {
+pub fn process_hotspot(raw_hs: &RawHotspot, overpass_list: &OverpassList, sat_id: u32) -> Result<ViirsHotspot> {
     let bounds = get_hs_bounds(&raw_hs, overpass_list)?;
+    let conf_map= HashMap::from([('l', 0), ('n', 1), ('h', 2)]);
+    let confidence = conf_map.get(&raw_hs.confidence).unwrap_or_else(|| &0).clone(); // default to 0 if no confidence code
     Ok(ViirsHotspot { // add bounds as optional?
+        sat_id: sat_id,
         date: raw_hs.get_datetime().timestamp_millis(),
         lat: raw_hs.latitude,
         lon: raw_hs.longitude,
         bright: raw_hs.bright_ti4,
         frp: raw_hs.frp,
-        confidence: raw_hs.confidence,
+        confidence: confidence,
         version: raw_hs.version.clone(),
         bounds: bounds
     })
 }
 pub fn process_hotspots(raw_hotspots: RawHotspots, overpass_list: &OverpassList, satellite: u32, source: String) -> Result<Vec<ViirsHotspotSet>> {
-    let hotspot_res: Vec<Result<ViirsHotspot>> = raw_hotspots.hotspots.iter().map(|x| process_hotspot(x, overpass_list)).collect();
+    let hotspot_res: Vec<Result<ViirsHotspot>> = raw_hotspots.hotspots.iter().map(|x| process_hotspot(x, overpass_list, satellite.clone())).collect();
     let hs_res: Result<Vec<ViirsHotspot>> = hotspot_res.into_iter().collect();
     let hs = hs_res?;
     let sorted_hs = partition_hotspots(hs, overpass_list, satellite, source.clone())?;
@@ -341,20 +344,6 @@ pub fn partition_hotspots(hotspots: Vec<ViirsHotspot>, overpass_list: &OverpassL
     
     Ok(sorted_hotspot_sets)
 }
-
-// pub fn get_overpass(d: &DateTime<Utc>, start: &DateTime<Utc>, end: &DateTime<Utc>, overpasses: &Vec<DateTime<Utc>>) -> DateTime<Utc> {
-//     let overpass = get_overpass_for_date(d, overpasses)?;
-
-//     let mut date = d.clone();
-//     if (d >= start) & (d <= end) {
-//         for overpass_d in overpasses.iter() {
-//             if overpass_d > d {
-//                 date = overpass_d.clone();
-//             }
-//         }
-//     } 
-//     date 
-// }
 
 /* #endregion hotspot parsing */
 
