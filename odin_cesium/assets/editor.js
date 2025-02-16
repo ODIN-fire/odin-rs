@@ -284,7 +284,7 @@ export function editGeoRect (geoRect, processResult) {
 
     new RectEditor( "Edit GeoRect", geoRect, true, procRes).open();
 }
-main.addShareEditor( main.GEO_POLYGON, "2D polygon exterior", editGeoPolygonExterior);
+main.addShareEditor( main.GEO_RECT, "2D rectangle", editGeoRect);
 
 /// the base class for PolylineEditor and PolygonEditor
 export class PolyEditor {

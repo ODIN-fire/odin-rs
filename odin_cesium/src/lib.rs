@@ -55,7 +55,7 @@ impl SpaService for CesiumService {
         spa.add_assets( self_crate!(), load_asset);
 
         //--- add Cesium
-        let cesium_version: &str = "1.125";
+        let cesium_version: &str = "1.126";
 
         #[cfg(feature="cesium_proxy")]
         {

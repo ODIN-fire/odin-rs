@@ -22,7 +22,7 @@ use http::Uri;
 use zip::read::ZipArchive;
 
 define_cli! { ARGS [about="install_cesium - utility to install CesiumJS within given asset dir"] =
-    version: String [help="cesium version to install",long,short,default_value="1.125"],
+    version: String [help="cesium version to install",long,short,default_value="1.126"],
     target_dir: String [help="target directory",long,short, default_value="../../assets/odin_cesium"]
 }
 
