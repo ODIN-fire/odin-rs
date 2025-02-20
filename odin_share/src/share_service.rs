@@ -26,7 +26,7 @@ use odin_server::{ errors::op_failed, prelude::*};
 use async_trait::async_trait;
 use odin_actor::prelude::*;
 use odin_build::prelude::*;
-use odin_common::{define_serde_struct, geo::{GeoPoint, GeoPoint3, GeoLine, GeoLineString, GeoRect, GeoPolygon}};
+use odin_common::{define_serde_struct, geo::{GeoPoint, GeoPoint3, GeoLine, GeoLineString, GeoRect, GeoPolygon, GeoCircle}};
 use core::str;
 use std::{any::type_name, collections::HashMap, fmt::Debug, fs::File, io::BufReader, net::SocketAddr, ops::Index, path::{Path, PathBuf}, sync::Arc};
 use serde::{Serialize,Deserialize};
@@ -50,6 +50,7 @@ pub enum SharedItemType {
     GeoLineString ( SharedItemValue<GeoLineString> ),
     GeoRect ( SharedItemValue<GeoRect> ),
     GeoPolygon (SharedItemValue<GeoPolygon> ),
+    GeoCircle (SharedItemValue<GeoCircle> ),
 
     // primitive types
     U64 ( SharedItemValue<u64> ),

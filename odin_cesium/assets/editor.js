@@ -46,6 +46,7 @@ main.exportFuncToMain( function test() {
     //cesium.enterGeoLineString(processResult);
     //cesium.enterGeoPolygon(processResult);
     //cesium.enterGeoRect(processResult);
+    //cesium.enterGeoCircle(processResult)
 
     /*
     let editor = main.getDefaultShareEditorForItemType( main.GEO_LINE_STRING);
@@ -55,12 +56,14 @@ main.exportFuncToMain( function test() {
     } else console.log("no editor");
     */
 
+    /*
     let editor = main.getDefaultShareEditorForItemType( main.GEO_POLYGON);
     if (editor) {
         let input = new main.GeoPolygon( points);
         editor( input, processResult);
     } else console.log("no editor");
-    
+    */
+
     /*
     let editor = main.getDefaultShareEditorForItemType( main.GEO_LINE);
     if (editor) {
@@ -77,6 +80,9 @@ main.exportFuncToMain( function test() {
     let editor = editGeoRect;
     editor( null, processResult);
     */
+
+    let editor = editGeoCircle;
+    editor( null, processResult);
 });
 /* #endregion test */
 
@@ -244,7 +250,7 @@ export function editGeoLineString (geoLineString, processResult) {
             geoLineString.points = resultPoints;
             processResult( geoLineString);
         } else {
-            processResult( new GeoLineString(resultPoints));
+            processResult( new main.GeoLineString(resultPoints));
         }
     }
 
@@ -265,7 +271,7 @@ export function editGeoPolygonExterior (geoPolygon, processResult) {
             geoPolygon.exterior = resultPoints;
             processResult( geoPolygon);
         } else {
-            processResult( new GeoPolygon(resultPoints));
+            processResult( new main.GeoPolygon(resultPoints));
         }
     }
 
@@ -275,7 +281,7 @@ export function editGeoPolygonExterior (geoPolygon, processResult) {
 main.addShareEditor( main.GEO_POLYGON, "2D polygon exterior", editGeoPolygonExterior);
 
 
-/// shared item editor func for GeoPolygon
+/// shared item editor func for GeoRect
 export function editGeoRect (geoRect, processResult) {
     function procRes (rect) {
         let geoRect = new main.GeoRect( rect.west, rect.south, rect.east, rect.north);
@@ -285,6 +291,9 @@ export function editGeoRect (geoRect, processResult) {
     new RectEditor( "Edit GeoRect", geoRect, true, procRes).open();
 }
 main.addShareEditor( main.GEO_RECT, "2D rectangle", editGeoRect);
+
+
+
 
 /// the base class for PolylineEditor and PolygonEditor
 export class PolyEditor {
@@ -663,7 +672,7 @@ export class PolyEditor {
     }
 
     _setStatsFields() {
-        this.setTotalField( this._totalDist());
+        this._setTotalField( this._totalDist());
     }
 
     _setTotalField(dist) {
@@ -1160,9 +1169,18 @@ export class RectEditor {
 
             this._setPointsFromRect();
             this.rectEntity = this._createRectEntity();
+            viewer.entities.add(this.rectEntity);
 
-            this.hp0 = this.handles.add( handleOpts( this.points[0].clone()));  // initially WS - corner might change when edited
-            this.hp1 = this.handles.add( handleOpts( this.points[2].clone()));  // initially NE
+            this.hp0 = this._createHandleEntity( this.points[0]);  // initially WS - corner might change when edited
+            this.hp0.__geo = Cesium.Cartographic.fromCartesian(this.points[0]);
+            viewer.entities.add(this.hp0);
+
+            this.hp1 = this._createHandleEntity( this.points[2]);  // initially NE
+            this.hp1.__geo = Cesium.Cartographic.fromCartesian(this.points[2]);
+            viewer.entities.add(this.hp1);
+
+            this._updateFields(null);
+            this._setStatsFields();
         }
     }
 
@@ -1483,5 +1501,442 @@ export class RectEditor {
     }
 }
 
-
 /* #endregion RectEditor */
+
+/* #region CircleEditor *********************************************************************************/
+
+export function editGeoCircle (geoCircle, processResult) {
+    function procRes (circle) {
+        let geoCircle = main.GeoCircle.fromRadians( circle.longitude, circle.latitude, circle.radius);
+        processResult( geoCircle);
+    }
+
+    new CircleEditor( "Edit GeoCircle", geoCircle, true, procRes).open();
+}
+main.addShareEditor( main.GEO_CIRCLE, "circle", editGeoCircle);
+
+
+class CircleEditorWindow {
+    constructor (title, enter, cancel, setPoints, setMetric) {
+        let fieldOpts = { alignRight: true, isFixed: true, placeHolder: "0.0" };
+
+        this.window = ui.Window( title, "editor", "./asset/odin_cesium/editor.svg")(
+            ui.RowContainer()(
+                (this.lonField = ui.TextInput("lon", "editor.clon", "6.5rem", fieldOpts)),
+                (this.latField = ui.TextInput("lat", "editor.clat", "6.5rem", fieldOpts)),
+                (this.radiusField = ui.TextInput("radius", "editor.radius", "6rem", fieldOpts))
+            ),
+            ui.RowContainer("center")(
+                ui.Button("set", setPoints),
+                ui.CheckBox("metric", setMetric),
+                (this.areaField = ui.TextInput("area", "editor.area", "9rem", {isDisabled: true, isFixed: true, alignRight: true} )),
+                ui.HorizontalSpacer(0.5),
+                ui.Button("cancel", cancel),
+                ui.Button("save", enter)
+            )
+        );
+    }
+
+    openAt (x, y) {
+        ui.addWindow( this.window);
+        ui.placeWindow( this.window, x, y);
+        ui.setWindowSpotlight( this.window, true);
+        ui.showWindow( this.window);
+    }
+  
+    close () {
+        ui.closeWindow( this.window);
+    }
+}
+
+export class CircleEditor {
+
+    /// circle: { lon, lat, radius } 
+    constructor (title, circle, isDegrees, processResult) {
+        this.title = title;
+        this.processResult = processResult;
+
+        // caches so that we don't have to continuously create points
+        this.cp = new Cesium.Cartesian3();
+        this.cp1 = new Cesium.Cartesian3();
+        this.diff = new Cesium.Cartesian3();
+        this.cpGeo = new Cesium.Cartographic();
+
+        this.points = [];
+        let circleEntity = undefined;
+
+        this.editor = this._createEditor();
+
+        // the edit input handlers
+        this.onMouseClick = this._onMouseClick.bind(this);
+        this.onMouseMove = this._onMouseMove.bind(this);
+        this.onKeyDown = this._onKeyDown.bind(this);
+
+        let pGeo0, pGeo1;
+        if (circle) {
+            let longitude = circle.lon;
+            let latitude = circle.lat;    
+            if (isDegrees) {
+                longitude = util.toRadians(longitude);
+                latitude  = util.toRadians(latitude);
+            }
+
+            pGeo0 = { longitude, latitude };
+            pGeo1 = util.gcEndPosRadians( longitude, latitude, Math.PI/2, circle.radius);
+
+            this.radius = circle.radius;
+            this.points.push( Cesium.Cartesian3.fromRadians( pGeo0.longitude, pGeo0.latitude));
+            this.points.push( Cesium.Cartesian3.fromRadians( pGeo1.longitude, pGeo1.latitude));
+
+            this.hp0 = this._createHandleEntity( this.points[0]);
+            this.hp0.__geo = pGeo0;
+            viewer.entities.add(this.hp0);
+
+            this.hp1 = this._createHandleEntity( this.points[1]);
+            this.hp1.__geo = pGeo1;
+            viewer.entities.add(this.hp1);
+
+            this.circleEntity = this._createCircleEntity();
+            viewer.entities.add( this.circleEntity);
+
+            this._updateCenter(pGeo0);
+            this._updateRadius();
+        }
+    }
+
+    open () {
+        this.editor.openAt( xLeft, yTop);
+    
+        cesium.setRequestRenderMode(false);
+        if (this.circleEntity) { // go straight to edit mode
+            cesium.registerMouseClickHandler( this.onMouseClick);
+            cesium.registerKeyDownHandler( this.onKeyDown);
+
+        } else { // start in entry mode
+            this._startEntryMode();
+        }
+    }
+
+    _createEditor() {
+        return new CircleEditorWindow( this.title, 
+            this._enter.bind(this), 
+            this._cancel.bind(this), 
+            this._setPoints.bind(this),
+            this._setMetric.bind(this)
+        );
+    }
+
+    _startEntryMode () {
+        this.cancelEntry = cesium.enterPolyline( this.points, 2, { 
+            onEnter: this._onEntryComplete.bind(this),
+            onCancel: this._onEntryCancel.bind(this), 
+            onAddPoint: this._addHandle.bind(this), 
+            onMouseMove: this._mouseMoved.bind(this)
+        });
+    }
+
+    _isInEntryMode() {
+        return (this.cancelEntry != null);
+    }
+
+    _cancel() {
+        this._dispose();
+    }
+      
+    _enter() {
+        if (this.processResult ) {
+            let pGeo = this.hp0.__geo;
+            this.processResult( {longitude: pGeo.longitude, latitude: pGeo.latitude, radius: this.radius});
+        }
+        this._dispose();
+    }
+
+    _dispose() {
+        var viewportOffset = this.editor.window.getBoundingClientRect();
+        xLeft = viewportOffset.left;
+        yTop = viewportOffset.top;
+
+        if (this.cancelEntry) {
+            this.cancelEntry();
+            this.cancelEntry = null;
+        }
+
+        this._releaseAssets();
+        this.editor.close();
+
+        cesium.setDefaultCursor();
+        cesium.setRequestRenderMode(true);
+        cesium.requestRender();
+    }
+
+    _releaseAssets() {
+        cesium.releaseMouseClickHandler( this.onMouseClick);
+        cesium.releaseMouseMoveHandler( this.onMouseMove);
+        cesium.releaseKeyDownHandler( this.onKeyDown);
+    
+        let entities = viewer.entities;
+        if (this.circleEntity) entities.remove(this.circleEntity);
+        if (this.hp0) entities.remove(this.hp0);
+        if (this.hp1) entities.remove(this.hp1);
+    }
+
+    _setMetric(event) {
+        let cb = ui.getCheckBox(event.target);
+        if (cb) {
+            this.isMetric = ui.isCheckBoxSelected(cb);
+            this._updateRadius();
+        }
+    }
+
+    _setPoints (event) {
+        let lon = Number.parseFloat( ui.getFieldValue( this.editor.lonField));
+        if (!util.checkLon(lon)) { alert("missing of invalid longitude degrees"); return null; }
+
+        let lat = Number.parseFloat( ui.getFieldValue( this.editor.latField));
+        if (!util.checkLat(lat)) { alert("missing of invalid latitude degrees"); return null; }
+    
+        let radius = Number.parseFloat( ui.getFieldValue( this.editor.radiusField));
+        if (Number.isNaN(radius)) { alert("missing or invalid radius"); return null; }
+        if (!this.isMetric) radius = util.usMilesToMeters( radius);
+        let area = Math.PI * radius * radius;
+
+        this.radius = radius;
+
+        let p0 = new Cesium.Cartesian3.fromDegrees(lon,lat);
+
+        let rp = util.gcEndPosDegrees(lon,lat,90,radius);
+        let p1 = new Cesium.Cartesian3.fromDegrees(rp.lon, rp.lat);
+
+        this.points[0] = p0;
+        if (this.hp0) {
+            this.hp0.position = p0;
+        } else {
+            this.hp0 = this._createHandleEntity(p0);
+            this.hp0.__geo = new Cesium.Cartographic.fromDegrees(lon,lat);
+            viewer.entities.add(this.hp0);
+        }
+
+        this.points[1] = p1;
+        if (this.hp1) {
+            this.hp1.position = p1;
+        } else {
+            this.hp1 = this._createHandleEntity(p1);
+            this.hp1.__geo = new Cesium.Cartographic.fromDegrees(rp.lon, rp.lat);
+            viewer.entities.add(this.hp1);
+        }
+
+        if (this.circleEntity) {
+            this.circleEntity.ellipse.semiMajorAxis = radius;
+            this.circleEntity.ellipse.semiMinorAxis = radius;
+        } else {
+            this.circleEntity = this._createCircleEntity();
+            viewer.entities.add(this.circleEntity);
+        }
+
+        if (this.isMetric) {
+            ui.setField( this.editor.areaField, util.formatGroupedFloat( util.squareMetersToHectares(area), 1))
+        } else {
+            ui.setField( this.editor.areaField, util.formatGroupedFloat( util.squareMetersToAcres(area), 1))
+        }
+
+        if (this.cancelEntry){
+            this.cancelEntry();
+            this._onEntryComplete();
+        }
+    }
+
+    _onEntryComplete () { // entry is done, register handler to edit 
+        this.cancelEntry = undefined;
+        cesium.registerMouseClickHandler( this.onMouseClick);
+        cesium.registerKeyDownHandler( this.onKeyDown);
+    }
+    
+    _onEntryCancel() {
+        this.cancelEntry = undefined;
+        this._cancel();
+    }
+
+    // entry mode callback (upon click)
+    _addHandle (p) {
+        let pGeo = Cesium.Cartographic.fromCartesian(p);
+
+        if (this.hp0 === undefined) { // center point
+            this.circleEntity = this._createCircleEntity();
+            viewer.entities.add( this.circleEntity);
+
+            this.hp0 = this._createHandleEntity( this.points[0]);
+            viewer.entities.add(this.hp0);
+            this.hp0.__geo = pGeo;
+
+            this._updateCenter( pGeo);
+
+        } else { // radius point
+            cesium.clearSelectedEntity();
+
+            this.hp1 = this._createHandleEntity( this.points[1]);
+            viewer.entities.add(this.hp1);
+            this.hp1.__geo = pGeo;
+
+            this._updateRadius();
+        }
+    }
+
+    _mouseMoved (idx, p){
+        if (this.hp0) { // radius point moved
+            this._updateRadius();
+            this.circleEntity.ellipse.semiMajorAxis = this.radius;
+            this.circleEntity.ellipse.semiMinorAxis = this.radius;
+
+        } else { // center point moved
+            let pGeo = this.cpGeo;
+            Cesium.Cartographic.fromCartesian( p, ellipsoid, pGeo);
+            this._updateCenter(pGeo)
+        }
+    }
+
+    _onMouseClick (event) {
+        cesium.showSelectionIndicator(false);
+        //event.preventDefault();
+        if (event.detail == 2) return; // don't process double click
+
+        let selHandle = this.selHandle;
+        if (selHandle) { // end move handle
+            let pGeo = cesium.getCartographicMousePosition(event);
+            if (pGeo) {
+                let p = Cesium.Cartographic.toCartesian( pGeo, ellipsoid);
+                selHandle.position = p;
+                selHandle.__geo = pGeo;
+                
+                if (selHandle == this.hp0) {
+                    this.points[0] = p;
+                    this._updateCenter(pGeo);
+                } else {
+                    this.points[1] = p;
+                    this._updateRadius(); 
+                }
+
+                cesium.releaseMouseMoveHandler( this.onHandleMove);
+                cesium.setDefaultCursor();
+                selHandle.point.color = config.handleColor;
+            }
+
+            this.selHandle = undefined;
+
+        } else { // start move handle
+            let p = cesium.getWindowMousePosition(event);
+            let picked = viewer.scene.pick(p);
+            if (picked && picked.id) {
+                let e = picked.id;
+                if (Object.is( e, this.hp0) || Object.is( e, this.hp1)) {
+                    cesium.showSelectionIndicator(false); // get rid of this pesky green marker
+                    this.selHandle = e;
+                    e.point.color = config.selectedHandleColor;
+                    cesium.setCursor("crosshair");
+                    cesium.registerMouseMoveHandler( this.onMouseMove);
+                }
+            }
+        }
+    }
+
+    _onMouseMove (event) { 
+        let selHandle = this.selHandle;
+        if (selHandle) {
+            let newPos = cesium.getCartesian3MousePosition( event);
+            let pGeo = Cesium.Cartographic.fromCartesian(newPos, ellipsoid, selHandle.__geo);
+            if (pGeo) {
+                let p0 = this.points[0];
+                selHandle.position = newPos;
+
+                if (Object.is( selHandle, this.hp0)) {
+                    this.points[0] = newPos;
+                    Cesium.Cartesian3.subtract( newPos, p0, this.diff);
+                    let p1 = Cesium.Cartesian3.add( this.points[1], this.diff, this.cp1);
+
+                    this.points[1] = p1; 
+                    this.hp1.position = p1;
+                    this.hp1.__geo = Cesium.Cartographic.fromCartesian(newPos);
+                    this._updateCenter(pGeo);
+
+                } else {
+                    this.points[1] = newPos;
+                    this._updateRadius();
+                    this.circleEntity.ellipse.semiMajorAxis = this.radius;
+                    this.circleEntity.ellipse.semiMinorAxis = this.radius;
+                }
+            }
+        }
+    }
+
+    _onKeyDown(event) {
+        if (event.code == "Escape") { // exit edit alltogether
+            this._cancel();
+        } else if (event.code == "Enter") {
+            this._enter();
+        }
+    }
+
+    _updateRadius () {
+        let radius = util.gcDistanceBetweenECEF (this.points[0], this.points[1]);
+        this.radius = radius;
+        let area = Math.PI * radius * radius;
+
+        if (this.isMetric) {
+            ui.setField( this.editor.radiusField, util.formatGroupedFloat( radius, 0));
+            ui.setField( this.editor.areaField, util.formatGroupedFloat( util.squareMetersToHectares(area), 1))
+
+        } else {
+            ui.setField( this.editor.radiusField, util.formatGroupedFloat( util.metersToUsMiles(radius), 2));
+            ui.setField( this.editor.areaField, util.formatGroupedFloat( util.squareMetersToAcres(area), 1))
+        }
+    }
+
+    _updateCenter(pGeo) {
+        ui.setField( this.editor.lonField, util.formatFloat( util.degrees180( util.toDegrees (pGeo.longitude)), 5));
+        ui.setField( this.editor.latField, util.formatFloat( util.degrees90( util.toDegrees( pGeo.latitude)), 5));
+    }
+
+
+    _createCircleEntity() {
+        let points = this.points;
+        let radius = this.radius;
+        let radiusProperty = new Cesium.CallbackProperty( () =>radius, false);
+
+        return new Cesium.Entity( {
+            position: new Cesium.CallbackProperty( () => points[0], false),
+            ellipse: {
+                semiMajorAxis: radiusProperty,
+                semiMinorAxis: radiusProperty,
+                fill: true,
+                material: Cesium.Color.RED.withAlpha(0.2),
+                //outline: true,
+                //outlineColor: Cesium.Color.RED,
+                //outlineWidth: 5,
+                //height: 0.0
+            },
+            polyline: polylineOpts( points),
+            selectable: false
+        });
+    }
+
+    _createHandleEntity (pos) {
+        return new Cesium.Entity( {
+            position: pos,
+            point: handleOpts(),
+            selectable: false
+        });
+    }
+
+    updateRadius (pGeo){
+        if (pCenter) {
+            this.radius = util.gcDistanceBetweenECEF (points[0], points[1]);
+
+            let circleEntity = this.circleEntity;
+            if (circleEntity) {
+                circleEntity.ellipse.semiMajorAxis = radius;
+                circleEntity.ellipse.semiMinorAxis = radius;
+            }
+        }
+    }
+}
+
+/* #endregion CircleEditor */

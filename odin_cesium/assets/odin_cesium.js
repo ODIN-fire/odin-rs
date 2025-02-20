@@ -90,6 +90,8 @@ var layerHierarchy = [];
 var layerHierarchyView = undefined;
 
 var mouseMoveHandlers = [];
+var mouseDownHandlers = [];
+var mouseUpHandlers = [];
 var mouseClickHandlers = [];
 var mouseDblClickHandlers = [];
 var keyDownHandlers = [];
@@ -173,6 +175,8 @@ viewer.camera.moveEnd.addEventListener(updateCamera);
 
 registerMouseMoveHandler(updateMouseLocation);
 viewer.scene.canvas.addEventListener('mousemove', handleMouseMove);
+viewer.scene.canvas.addEventListener('mousedown', handleMouseDown);
+viewer.scene.canvas.addEventListener('mouseup', handleMouseUp);
 viewer.scene.canvas.addEventListener('click', handleMouseClick);
 viewer.scene.canvas.addEventListener('dblclick', handleMouseDblClick);
 document.addEventListener('keydown', handleKeyDown); // does not work on canvas
@@ -694,6 +698,10 @@ export function requestRender() {
     }
 }
 
+export function requestImmediateRender() {
+    viewer.scene.requestRender();
+}
+
 export function withSampledTerrain(positions, level, action) {
     const promise = Cesium.sampleTerrain(viewer.terrainProvider, level, positions);
     Promise.resolve(promise).then(action);
@@ -889,6 +897,24 @@ export function releaseMouseClickHandler(handler) {
     if (idx >= 0) mouseClickHandlers.splice(idx,1);
 }
 
+export function registerMouseDownHandler(handler) {
+    mouseDownHandlers.push(handler);
+}
+
+export function releaseMouseDownHandler(handler) {
+    let idx = mouseDownHandlers.findIndex(h => h === handler);
+    if (idx >= 0) mouseDownHandlers.splice(idx,1);
+}
+
+export function registerMouseUpHandler(handler) {
+    mouseUpHandlers.push(handler);
+}
+
+export function releaseMouseUpHandler(handler) {
+    let idx = mouseUpHandlers.findIndex(h => h === handler);
+    if (idx >= 0) mouseUpHandlers.splice(idx,1);
+}
+
 export function registerMouseDblClickHandler(handler) {
     mouseDblClickHandlers.push(handler);
 }
@@ -913,6 +939,14 @@ function handleMouseMove(e) {
 
 function handleMouseClick(e) {
     mouseClickHandlers.forEach( handler=> handler(e));
+}
+
+function handleMouseDown(e) {
+    mouseDownHandlers.forEach( handler=> handler(e));
+}
+
+function handleMouseUp(e) {
+    mouseUpHandlers.forEach( handler=> handler(e));
 }
 
 function handleMouseDblClick(e) {
@@ -1493,6 +1527,67 @@ export function setRectFromCornerPoints (rect, p0, p1) {
     rect.north = Math.max( p0.latitude, p1.latitude);
 }
 
+export function enterGeoCircle (processResult) {
+    let pCenter = undefined;
+    let radius = 0.0;
+
+    let circleEntity = undefined;
+    let points = [];
+
+    function cleanUp() {
+        if (circleEntity) viewer.entities.remove(circleEntity);
+    }
+
+    function onAddPoint (pGeo) {
+        //cleanUpEnter(circleEntity);
+
+        if (circleEntity === undefined) {
+            pCenter = pGeo.clone();
+            setRequestRenderMode(false); // we track the mouse
+
+            circleEntity = new Cesium.Entity( {
+                position: new Cesium.CallbackProperty( () => points[0], false),
+                ellipse: {
+                    semiMajorAxis: new Cesium.CallbackProperty( () => radius, false),
+                    semiMinorAxis: new Cesium.CallbackProperty( () => radius, false),
+                    fill: true,
+                    material: Cesium.Color.RED.withAlpha(0.2),
+                    //outline: true,
+                    //outlineColor: Cesium.Color.RED,
+                    //outlineWidth: 5,
+                    //height: 0.0
+                },
+                polyline: polylineOpts( points),
+                selectable: false
+            });
+            viewer.entities.add( circleEntity);
+
+
+        } else {
+            updateRadius(pGeo);  // update radius
+        }
+    }
+
+    function updateRadius (pGeo){
+        if (pCenter) {
+            radius = util.gcDistanceBetweenECEF (points[0], points[1]);
+            if (circleEntity) {
+                circleEntity.ellipse.semiMajorAxis = radius;
+                circleEntity.ellipse.semiMinorAxis = radius;
+            }
+        }
+    }
+
+    function onEnter () {
+        //if (circleEntity) viewer.entities.remove(circleEntity);
+        cleanUp();
+        processResult( new main.GeoCircle( util.toDegrees(pCenter.longitude), util.toDegrees(pCenter.latitude), radius));
+    }
+
+    function onCancel () { cleanUp(); }
+
+    enterPolyline( points, 2, { onEnter, onCancel, onAddPoint, onMouseMove: updateRadius });
+}
 
 export function cartesianToCartographicDegrees (p) {
     return cartographicToDegrees( Cesium.Cartographic.fromCartesian(p));
@@ -1594,6 +1689,20 @@ function withCurrentCameraPosition (callback) {
     });
 }
 
+// a hack to prevent rendering delays when reloading polyline workers
+function keepPolylineWorkersAlive () {
+    viewer.entities.add(
+        new Cesium.Entity({
+            name: 'dummy line to keep polyline web worker alive',
+            polyline: {
+                positions: [new Cesium.Cartesian3(0, 0, 0), new Cesium.Cartesian3(1, 1, 1)],
+                arcType: Cesium.ArcType.NONE, // required, or runtime error
+                material: new Cesium.PolylineDashMaterialProperty({color: Cesium.Color.CYAN}), // required, or else no worker!
+            },
+        }),
+    );
+}
+
 // executed after all modules have been loaded and initialized
 export function postInitialize() {
     initModuleLayerViewData();    
@@ -1615,6 +1724,10 @@ export function postInitialize() {
     viewer.creditDisplay.addStaticCredit(credit);
 
     setCesiumContainerVisibility(true);
+    keepPolylineWorkersAlive();
 
     console.log("odin_cesium.postInitialize complete.");
 }
+
+//console.log("ground primitive support:", Cesium.GroundPrimitive.isSupported(viewer.scene));
+//await Cesium.GroundPrimitive.initializeTerrainHeights();

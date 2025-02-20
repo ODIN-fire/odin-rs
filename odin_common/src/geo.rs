@@ -215,6 +215,31 @@ impl_deserialize_struct!{ GeoRect::from_wsen(west, south, east, north) }
 
 /* #endregion GeoRect */
 
+/* #region GeoCircle**** ***********************************************************************************************/
+
+#[derive(Debug,Clone, Serialize, Deserialize)]
+pub struct GeoCircle {
+    lon: Longitude,
+    lat: Latitude,
+    radius: Length
+}
+
+impl GeoCircle {
+    pub fn new (lon: Longitude, lat: Latitude, radius: Length)->Self {
+        GeoCircle { lon, lat, radius }
+    }
+
+    pub fn area (&self) -> Area {
+        use std::f64::consts::PI;
+        let radius = self.radius.get::<meter>();
+        let a = PI * radius * radius;
+        Area::new::<square_meter>(a)
+    }
+}
+
+
+/* #endregion GeoCircle */
+
 
 /* #region GeoLineString ***********************************************************************************************/
 

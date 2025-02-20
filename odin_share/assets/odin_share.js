@@ -343,6 +343,7 @@ function getItemEntity (e) {
             case "GeoLineString": return createLineStringEntity(e);
             case "GeoRect": return createRectEntity(e);
             case "GeoPolygon": return createPolygonEntity(e);
+            case "GeoCircle": return createCircleEntity(e);
             default: return null;
         }
     }  
@@ -581,8 +582,6 @@ function updateEditorChoices () {
     ui.clearChoiceItems( editorChoice);
 }
 
-
-
 // triggered when pressing "delete" button
 function removeItem(event) {
     let key = ui.getNonEmptyFieldValue(keyEntry);
@@ -703,7 +702,7 @@ function handleInitSharedItems(sharedItems) {
 function handleSetShared (msg, isLocal) {
     let key = msg.key;
     let value = msg.value;
-    let updatedItem = share.getSharedItem(key);
+    let updatedItem = share.getSharedItem(key); // this is the old item (if any)
 
     if (value.type == main.JSON) { value.data = JSON.parse( value.data) }
     
@@ -711,7 +710,8 @@ function handleSetShared (msg, isLocal) {
     share._set( sharedItem.key, sharedItem);
 
     if (updatedItem) {
-        ui.updateListItem( dirView, updatedItem);
+       // ui.updateListItem( dirView, updatedItem);
+       ui.replaceNodeItem( dirView, updatedItem, sharedItem);
     } else {
         ui.sortInTreeItem( dirView, sharedItem, sharedItem.key);
     }
@@ -722,6 +722,10 @@ function handleSetShared (msg, isLocal) {
     }
 
     main.notifyShareHandlers( {setShared: sharedItem} );
+
+    if (selItem && selItem.key == sharedItem.key) {
+        selItem = sharedItem;
+    }
 }
 
 function handleRemoveShared (msg) {
@@ -891,12 +895,8 @@ function createLineStringEntity(e){
 
 function createRectEntity(e) {
     let d = e.value.data;
-    let vertices = [
-        Cesium.Cartesian3.fromDegrees( d.west, d.south),
-        Cesium.Cartesian3.fromDegrees( d.west, d.north),
-        Cesium.Cartesian3.fromDegrees( d.east, d.north),
-        Cesium.Cartesian3.fromDegrees( d.east, d.south)
-    ];
+
+    let rect = new Cesium.Rectangle( util.toRadians(d.west), util.toRadians(d.south), util.toRadians(d.east), util.toRadians(d.north));
     let center =  Cesium.Cartesian3.fromDegrees( (d.east + d.west)/2, (d.north + d.south)/2);
 
     return new Cesium.Entity({
@@ -904,13 +904,29 @@ function createRectEntity(e) {
         name: e.key,
         position: center,
         label: entityLabel(e.key),
-        polygon: {
-            hierarchy: vertices,
-            heightReference: Cesium.CLAMP_TO_GROUND,
+        rectangle: {
+            coordinates: rect,
             fill: true,
             material: config.fillColor,
-            outlineColor: config.outlineColor,
-            outlineWidth: config.outlineWidth,
+        }
+    });
+}
+
+function createCircleEntity(e) {
+    let d = e.value.data;
+
+    let center = Cesium.Cartesian3.fromDegrees( d.lon, d.lat);
+
+    return new Cesium.Entity( {
+        id: e.key,
+        name: e.key,
+        position: center,
+        label: entityLabel(e.key),
+        ellipse: {
+            fill: true,
+            material: config.fillColor,
+            semiMajorAxis: d.radius,
+            semiMinorAxis: d.radius
         }
     });
 }

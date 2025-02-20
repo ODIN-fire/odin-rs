@@ -255,6 +255,10 @@ export function metersToUsMiles (len) {
     return len / 1609.344;
 }
 
+export function usMilesToMeters (len) {
+    return len * 1609.344;
+}
+
 export function metersToFeet (len) {
     return len / 0.3048;
 }
@@ -265,6 +269,10 @@ export function feetToMeters (len){
 
 export function metersToNauticalMiles (len) {
     return len / 1852;
+}
+
+export function nauticalMilesToMeters (len) {
+    return len * 1852;
 }
 
 //--- date utilities
@@ -590,6 +598,8 @@ export function toDegreesRect (rect) {
 const sin = Math.sin;
 const cos = Math.cos;
 const tan = Math.tan;
+const asin = Math.asin;
+const acos = Math.acos;
 const sqrt = Math.sqrt;
 const atan2 = Math.atan2;
 
@@ -647,7 +657,10 @@ export function distanceBetweenGeoPos(lat1Deg,lon1Deg, lat2Deg,lon2Deg) {
     let lon1 = toRadians(lon1Deg);
     let lat2 = toRadians(lat2Deg);
     let lon2 = toRadians(lon2Deg);
+    return distanceBetweenGeoPosRadians(lat1,lon1, lat2,lon2);
+}
 
+export function distanceBetweenGeoPosRadians(lat1,lon1, lat2,lon2) {
     let dLat = lat2 - lat1;
     let dLon = lon2 - lon1;
     let a = sin2(dLat/2.0) + cos(lat1) * cos(lat2) * sin2(dLon/2.0);
@@ -661,13 +674,34 @@ export function gcDistanceBetweenECEF (p1, p2) {
     let dx = p2.x - p1.x;
     let dy = p2.y - p1.y;
     let dz = p2.z - p1.z;
-    let d = Math.sqrt( dx*dx + dy*dy + dz*dz );
+    let d = sqrt( dx*dx + dy*dy + dz*dz );
     
     //let d = Cesium.Cartesian3.distance( p1, p2);
     let r = meanEarthRadius; // mean earth radius in m
     
-    let a = Math.acos( 1 - (d*d)/(2*r*r) );
+    let a = acos( 1 - (d*d)/(2*r*r) );
     return a * r;
+}
+
+export function gcEndPosDegrees (lonDeg, latDeg, initialBearingDeg, dist) {
+    let p = gcEndPosRadians( toRadians(lonDeg), toRadians(latDeg), toRadians(initialBearingDeg), dist);
+    return {lon: degrees180( toDegrees( p.longitude)), lat: degrees90( toDegrees( p.latitude))};
+}
+
+export function gcEndPosRadians (longitude, latitude, initialBearing, dist) {
+    let λ1 = longitude;
+    let φ1 = latitude;
+    let θ = (dist > 0.0) ? initialBearing : initialBearing + Math.PI;
+    let δ = dist / meanEarthRadius;
+
+    let sin_φ1 = sin(φ1);
+    let cos_δ = cos(δ);
+    let cos_φ1sin_δ = cos(φ1) * sin(δ);
+  
+    let φ2 = asin( sin_φ1 * cos_δ + cos_φ1sin_δ * cos(θ));
+    let λ2 = λ1 + atan2( sin(θ) * cos_φ1sin_δ, cos_δ - sin_φ1 * sin(φ2));
+
+    return {longitude: λ2, latitude: φ2};
 }
 
 /**

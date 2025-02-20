@@ -114,7 +114,10 @@ export function getDefaultShareEditorForItemType (itemType) {
 
 //--- basic share value types
 
-export function radToDeg (rad) { return (rad * 180.0)/Math.PI; }
+const rad2deg = 180.0 / Math.PI;
+
+export function toRadians(deg) { return deg / rad2deg; }
+export function toDegrees(rad) { return rad * rad2deg; }
 export function ftToMeters (ft) { return (ft * 0.3048); }
 
 // the basic share-able data value types (note these should *not* depend on any other module)
@@ -127,7 +130,7 @@ export class GeoPoint {
         this.lat = lat;
     }
     static fromLonLatDegrees (lon, lat) { return new GeoPoint(lon,lat); }
-    static fromLonLatRadians (lonRad, latRad) { return new GeoPoint(radToDeg(lonRad),radToDeg(latRad)); }
+    static fromLonLatRadians (lonRad, latRad) { return new GeoPoint(toDegrees(lonRad),toDegrees(latRad)); }
 
     static checkType (o) {
         return (
@@ -147,7 +150,7 @@ export class GeoPoint3 {
         this.alt = alt;
     }
     static fromLonLatDegreesMeters (lon, lat, alt) { return new GeoPoint3(lon,lat, alt); }
-    static fromLonLatRadiansMeters (lonRad, latRad, altMeters) { return new GeoPoint3(radToDeg(lonRad),radToDeg(latRad), altMeters); }
+    static fromLonLatRadiansMeters (lonRad, latRad, altMeters) { return new GeoPoint3(toDegrees(lonRad),toDegrees(latRad), altMeters); }
     static fromGeoPoint (point) { return new GeoPoint3( point.lon, point.lat, 0.0); }
 
     static checkType (o) {
@@ -268,17 +271,47 @@ export class GeoRect {
 
     static checkType (o) {
         return (
-            (o.west != undefined && GeoPoint.checkType(o.west)) && 
-            (o.south != undefined && GeoPoint.checkType(o.south)) && 
-            (o.east != undefined && GeoPoint.checkType(o.east)) && 
-            (o.north != undefined && GeoPoint.checkType(o.north))
+            (o.west != undefined && typeof o.west == 'number') && 
+            (o.south != undefined && typeof o.south == 'number') && 
+            (o.east != undefined && typeof o.east == 'number') && 
+            (o.north != undefined && typeof o.north == 'number')
         )
     }
 
     static template = '{\n  "west": 0.0,\n  "south": 0.0,\n  "east": 0.0,\n  "north": 0.0\n}'
 }
 
-//... TODO - add LineString3, GeoCircle, GeoCylinder 
+
+export class GeoCircle {
+    constructor (lon,lat,radius){
+        this.lon = lon; // degrees
+        this.lat = lat; // degrees
+        this.radius = radius; // meters
+    }
+
+    static fromRadians( lon, lat, radius) {
+        return new GeoCircle( toDegrees(lon), toDegrees(lat), radius);
+    }
+
+    toCircle () {
+        return { 
+            lon: toRadians(this.lon), 
+            lat: toRadians(this.lat), 
+            radius: this.radius 
+        };
+    }
+
+    static checkType (o) {
+        return (
+            (o.lon != undefined && typeof o.lon == "number") && 
+            (o.lat != undefined && typeof o.lat == "number") &&
+            (o.radius != undefined && typeof o.radius == "number")
+        )
+    }
+
+    static template = '{\n  "lon": 0.0,\n  "lat": 0.0,\n  "radius": 0.0\n}'
+}
+
 
 export const GEO_POINT = GeoPoint.name; // the type name
 export const GEO_POINT3 = GeoPoint3.name;
@@ -287,12 +320,14 @@ export const GEO_LINE_STRING = GeoLineString.name;
 export const GEO_POLYLINE3 = GeoPolyline3.name;
 export const GEO_POLYGON = GeoPolygon.name;
 export const GEO_RECT = GeoRect.name;
+export const GEO_CIRCLE = GeoCircle.name;
+
 export const F64 = "F64";
 export const I64 = "I64";
 export const STRING = "String";
 export const JSON = "Json";
 
-export const ALL_TYPES = [JSON, STRING, F64, I64, GEO_POINT, GEO_POINT3, GEO_LINE, GEO_LINE_STRING, GEO_POLYLINE3, GEO_POLYGON, GEO_RECT];
+export const ALL_TYPES = [JSON, STRING, F64, I64, GEO_POINT, GEO_POINT3, GEO_LINE, GEO_LINE_STRING, GEO_POLYLINE3, GEO_POLYGON, GEO_RECT, GEO_CIRCLE];
 
 
 export function checkType (typeName, data, template=null) {
@@ -303,6 +338,7 @@ export function checkType (typeName, data, template=null) {
         case GEO_LINE_STRING: return GeoLineString.checkType(data);
         case GEO_POLYGON: return GeoPolygon.checkType(data);
         case GEO_RECT: return GeoRect.checkType(data);
+        case GEO_CIRCLE: return GeoCircle.checkType(data);
 
         case STRING: return typeof data == "string";
         case F64: return typeof data == "number";

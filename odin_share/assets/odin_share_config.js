@@ -22,8 +22,8 @@ export const config = {
 
     // known suffixes for key patterns
     keyCompletions: [
-        { pattern: "incident", completion: ["/◻/view", "/◻︎/cause", "/◻︎/bbox", "/◻︎/origin", "/◻︎/perimeter"] },
-        { pattern: "incident/*", completion: ["/view", "/cause", "/bbox", "/origin", "/perimeter"] },
+        { pattern: "incident", completion: ["/◻/view", "/◻︎/cause", "/◻︎/bbox", "/◻︎/origin", "/◻︎/perimeter", "/◻︎/line", "/◻︎/fta"] },
+        { pattern: "incident/*", completion: ["/view", "/cause", "/bbox", "/origin", "/perimeter", "/line", "/fta"] },
         { pattern: "{bbox,point}", completion: ["/◻︎"] },
         { pattern: "view", completion: ["/globe/◻︎", "/region/◻︎", "/state/◻︎/◻︎"] },
         { pattern: "view/*", completion: ["/◻︎"] },
@@ -38,6 +38,8 @@ export const config = {
         { pattern: "{view/**,**/view/**,**/view}",    type: "GeoPoint3" },
         { pattern: "{bbox/**,**/bbox/**,**/bbox}",    type: "GeoRect" },
         { pattern: "{area/**,**/area/**,**/area}",    type: "GeoPolygon" },
+        { pattern: "{line/**,**/line/**,**/line}",    type: "GeoLineString" },
+        { pattern: "{fta/**,**/fta/**,**/fta}",       type: "GeoCircle" },
         { pattern: "**/cause",  type: "String"},
         { pattern: "**/origin", type: "GeoPoint"},
         { pattern: "{perimeter/**,**/perimeter/**,**/perimeter}", type: "GeoPolygon" }

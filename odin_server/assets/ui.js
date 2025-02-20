@@ -2568,6 +2568,31 @@ function findNodeElement (e, treeNode) {
     return null;
 }
 
+export function findNodeElementOfItem (e, item) {
+    let nodeList = e.childNodes;
+    for (let i=0; i<nodeList.length; i++) {
+        let ne = nodeList[i];
+        if (Object.is( item, ne._uiNode.data)) return ne;
+    }
+    return null;
+}
+
+export function replaceNodeItem (o, oldItem, newItem) {
+    let e = getTreeList(o);
+    if (e){
+        let ne = findNodeElementOfItem(e, oldItem);
+        if (ne) {
+            ne._uiNode.data = newItem;
+
+            let ie = ne.firstChild.nextElementSibling;
+            if (ie && _containsClass(ie, "ui_list_item")) {
+                e._uiItemMap.delete( oldItem);
+                _setListItem(e, ie, newItem);
+            }
+        }
+    }
+}
+
 export function getTreeList (o) {
     let e = getList(o);
     return (e && e.classList.contains("ui_tree")) ? e : null;
@@ -2709,13 +2734,30 @@ export function insertListItem(o, item, idx) {
     }
 }
 
-export function replaceListItem(o, item, idx) {
+
+export function replaceListItemIndex(o, idx, item) {
     let e = getList(o);
     if (e) {
         if (idx >= 0 && idx < e.childElementCount) {
             let ie = e.children[idx];
             e._uiItemMap.delete(ie._uiItem);
             _setListItem(e, ie, item);
+        }
+    }
+}
+
+export function replaceListItem(o, oldItem, newItem) {
+    let e = getList(o);
+    if (e) {
+        let ie = getElementOfListItem(oldItem);
+        if (ie) {
+            e._uiItemMap.delete(ie._uiItem);
+            _setListItem(e, ie, newItem);
+
+            if (Object.is( ie, e._uiSelectedItemElement)){
+                clearSelectedListItem(e);
+                setSelectedListItem(e, newItem); // this fires change events
+            }
         }
     }
 }
