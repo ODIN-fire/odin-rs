@@ -1,0 +1,8 @@
+LiveOrbitalSatConfig(
+    satellite: 43013, 
+    source: "VIIRS_NOAA20_NRT",
+    history: Duration(secs:259200, nanos:0),
+    max_scan_angle: 56.2,
+    max_age: Duration(secs:259200, nanos:0),
+    cleanup_interval: Duration(secs:43200, nanos:0),
+)

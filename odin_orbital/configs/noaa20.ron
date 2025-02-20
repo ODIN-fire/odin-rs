@@ -1,0 +1,6 @@
+OrbitalSatelliteInfo(
+    sat_id: 43013,
+    name: "J-1",
+    description: "VIIRS NOAA 20",
+    show: true,
+)
