@@ -67,13 +67,14 @@
     --titlebar-height: 1.4rem;
     --titlebar-color: var(--color);
     --titlebar-background: rgb(32, 32, 64);
+    --titlebar-spotlight-background: var(--titlebar-background);
     --titlebar-font: var(--font);
     --titlebar-padding: 5px;
     --window-color: var(--color);
     --window-background: var(--background);
     --window-border: 1px solid var(--border-color);
     --window-spotlight-border: 2px solid rgb(10,10,60);
-    --window-spotlight-background: var(--background);
+    --window-spotlight-background: var(--window-background);
     --window-shadow: var(--box-shadow);
     --window-padding: 0.8rem;
     --window-gap: var(--gap);

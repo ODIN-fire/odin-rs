@@ -43,5 +43,6 @@
   - [odin_hrrr](odin_hrrr/odin_hrrr.md)
   - [odin_sentinel](odin_sentinel/odin_sentinel.md)
   - [odin_goesr](odin_goesr/odin_goesr.md)
+  - [odin_orbital](odin_orbital/odin_orbital.md)
 
 - [Glossary](glossary.md)

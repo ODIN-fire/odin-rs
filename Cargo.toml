@@ -42,6 +42,7 @@ odin_server = { version = "*", path = "odin_server" }
 odin_share  = { version = "*", path = "odin_share" }
 odin_cesium = { version = "*", path = "odin_cesium" }
 odin_goesr  = { version = "*", path = "odin_goesr" }
+odin_orbital = { version = "*", path = "odin_orbital" }
 odin_sentinel = { version = "*", path = "odin_sentinel" }
 
 # external crates for which we have to ensure the same version

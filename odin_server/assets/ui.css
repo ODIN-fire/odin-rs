@@ -131,6 +131,10 @@ div.ui_titlebar {
     height: var(--titlebar-height);
 }
 
+div.ui_titlebar.spotlight {
+    background: var(--titlebar-spotlight-background);
+}
+
 img.ui_titlebar_icon {
     position: absolute;
     top: 3px;
@@ -155,7 +159,7 @@ div.ui_window_content {
     gap: var(--window-gap);
     padding: var(--window-padding);
     color: var(--window-color);
-    background: var(--window-background);
+    background: inherit;
     border: none;
     font: var(--font);
     cursor: default;
