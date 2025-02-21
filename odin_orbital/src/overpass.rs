@@ -98,15 +98,19 @@ impl Overpass {
         self.trajectory[i].z = vec3.z;
     }
 
-    pub fn find_closest_ground_track_point(&self, p: &Cartesian3D) -> Cartesian3D {
-        let mut gp = self.find_closest_orbit_point(p);
-        gp.scale_to_earth_radius(); // scale to earth radius
-        gp
+    pub fn find_closest_ground_track_point(&self, p: &Cartesian3D) -> Option<Cartesian3D> {
+        if self.trajectory.len() > 0 {
+            let mut gp = self.find_closest_orbit_point(p);
+            gp.scale_to_earth_radius(); // scale to earth radius
+            Some(gp)
+        } else {
+            None
+        }
     }
 
     pub fn find_closest_orbit_point(&self, p: &Cartesian3D) -> Cartesian3D {
         let i = self.find_closest_index(p);
-        if i < self.trajectory.len() { // not the last point
+        if i < self.trajectory.len()-1 { // not the last point
             let p1 = Cartesian3D{x: self.trajectory[i-1].x, y: self.trajectory[i-1].y, z: self.trajectory[i-1].z};
             let p2 = Cartesian3D{x: self.trajectory[i+1].x, y: self.trajectory[i+1].y, z: self.trajectory[i+1].z};
             let mut gp = Cartesian3D::new();
@@ -123,12 +127,21 @@ impl Overpass {
     }
 
     pub fn dist2(&self, i:usize, p: &Cartesian3D) -> f64 {
-        ((self.trajectory[i].x-p.x).powf(2.0)) + ((self.trajectory[i].y-p.y).powf(2.0)) +((self.trajectory[i].z-p.z).powf(2.0))
+        ((self.trajectory[i].x - p.x).powi(2)) + ((self.trajectory[i].y - p.y).powi(2)) +((self.trajectory[i].z - p.z).powi(2))
     }
 
     pub fn find_closest_index(&self, p: &Cartesian3D) -> usize {
+        let t_len = self.trajectory.len();
+
+        // filter out the corner cases (we assume this only gets called for non-empty trajectories)
+        if t_len == 1 { 
+            return 0; 
+        } else if t_len <= 2 {
+            if self.dist2(0,p) < self.dist2(1,p) { return 0; } else { return 1; }
+        }
+
         let mut l = 1;
-        let mut r = self.trajectory.len()-2; // can cause panicking if len<2
+        let mut r = t_len-2; // can cause panicking if len<2
         let mut i = r/2; // sets up binary search
         let mut dl = self.dist2(i, p) - self.dist2(i-1, p); // cause panicking if len<3
         let mut dr = self.dist2(i+1, p) - self.dist2(i, p);
@@ -154,6 +167,7 @@ impl Overpass {
         }
         i
     }
+
     pub fn filter_orbit_points(&mut self, region:&GeoRect) {
         let max_north = GeoPoint::from_lon_lat(region.west(),region.north()).as_ecef().z();
         let min_south =  GeoPoint::from_lon_lat(region.west(),region.south()).as_ecef().z();
@@ -283,7 +297,7 @@ pub fn get_overpass_for_date(date:&DateTime<Utc>, overpass_list: &OverpassList) 
 
 pub fn get_trajectory_point(point: &Cartesian3D, date:&DateTime<Utc>, overpass_list: &OverpassList) -> Result<Option<Cartesian3D>> {
     let overpass = get_overpass_for_date(date, overpass_list)?;
-    let tp = Some(overpass.find_closest_ground_track_point(point));
+    let tp = overpass.find_closest_ground_track_point(point); // this might be None if trajectory is empty
     Ok(tp)
 }
 
@@ -575,10 +589,12 @@ pub fn covers_region_partial(overpass: &Overpass, region: &GeoRect, max_scan: f6
         let lon_mid = region.west().degrees().min(region.east().degrees()) + (region.west().degrees() - region.east().degrees()).abs()/2.0;
         // check if lat lon is contained in the region bounds
         let pt = GeoPoint::from_lon_lat(Longitude::from_degrees(lon_mid), Latitude::from_degrees(lat_mid));
-        let orbit_pt = overpass.find_closest_ground_track_point(&Cartesian3D::from_latlon(pt)).to_wgs84();
-        let orbit_lon = orbit_pt.longitude_degrees();        
-        if (orbit_lon <= lon_max) & (orbit_lon >= lon_min) {
-            covers = true; // orbit goes between the region lon bounds, do not need to worry about lat 
+        if let Some(gtp) = overpass.find_closest_ground_track_point(&Cartesian3D::from_latlon(pt)) {
+            let orbit_pt = gtp.to_wgs84();
+            let orbit_lon = orbit_pt.longitude_degrees();        
+            if (orbit_lon <= lon_max) & (orbit_lon >= lon_min) {
+                covers = true; // orbit goes between the region lon bounds, do not need to worry about lat 
+            }
         }
     }
     covers
