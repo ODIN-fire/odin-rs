@@ -46,6 +46,8 @@ var hsPointPrimitive = undefined;   // the brightness/frp points
 var utcClock = undefined;
 var now = 0;
 
+var areaInfoText = undefined;
+
 class SatelliteEntry {
     constructor(sat) {
         this.satId = sat.satId;
@@ -100,7 +102,7 @@ class PastEntry {
             h.xyzPos = Cesium.Cartographic.toCartesian(h.pos);
 
             if (h.bounds){
-                h.bounds = h.bounds.map( p=> Cesium.Cartographic.fromDegrees(p[1], p[0], 1));
+                h.bounds = h.bounds.map( p=> Cesium.Cartographic.fromDegrees(p.lon, p.lat));
                 h.xyzBounds = h.bounds.map( p=> Cesium.Cartographic.toCartesian(p));
             }
         });
@@ -116,9 +118,6 @@ var hotspotView = initHotspotView();
 
 var dataSource = new Cesium.CustomDataSource("jpss");
 odinCesium.addDataSource(dataSource);
-
-//var areaInfoLabel = ui.getVarText("jpss.bounds-info");
-//areaInfoLabel.classList.add( "align_right");
 
 var history = config.history;
 var timeSteps = config.timeSteps;
@@ -151,14 +150,12 @@ function createWindow() {
         ui.Panel("satellites", true)(
             ui.List("jpss.satellites", 5, selectJpssSatellite),
             ui.RowContainer()(
-              ui.ColumnContainer()(
-                ui.TextInput("area","jpss.bounds", setJpssBounds, true, "enter lat,lon bounds (WSEN order)", "20rem"),
-                ui.Label("jpss.bounds-info")
-              ),
+              ui.TextInput("area","jpss.bounds", "20rem", { placeHolder: "enter lat,lon bounds (WSEN order)", changeAction: setJpssBounds, isFixed: true }),
               ui.Button("pick", pickJpssBounds),
               ui.Button("clear", clearJpssBounds),
               ui.Button( "zoom", zoomToJpssBounds)
-            )
+            ),
+            (areaInfoText = ui.VarText("", "jpss.bounds-info"))
         ),
         ui.Panel("overpasses:", true)(
             ui.RowContainer()(
@@ -508,7 +505,6 @@ function handleOverpassMessage(ops) {
 }
 
 function handleHotspotMessage(hs) {
-
     let pe = new PastEntry(hs);
 
     let i = pastEntries.findIndex( e=> e.date == pe.date);  // replace ? could be any past entry
@@ -694,9 +690,10 @@ function createRegionEntity (se) {
 
 function getPixelColor(pixel, refDate) {
     let dt = util.hoursFromMillis(refDate - pixel.date);
+
     for (var i = 0; i < timeSteps.length; i++) {
         let ts = timeSteps[i];
-        if (dt < ts.value) {
+        if (dt < ts.hours) {
             return ts.color;
         }
     }
@@ -870,14 +867,16 @@ function clearArea() {
         odinCesium.removeEntity(areaAsset);
         areaAsset = undefined;
     }
-    ui.setLabelText(areaInfoLabel, null);
+
+    ui.setVarText(areaInfoText, null);
+
     updateHotspots();
     showPixels();
     odinCesium.requestRender();
 }
 
 function pickJpssBounds(event) { // mouse selection
-    odinCesium.pickSurfaceRectangle( setJpssArea);
+    odinCesium.enterGeoRect( setJpssArea);
 }
 
 function setJpssBounds(event) { // text field input (WSEN)
@@ -895,7 +894,7 @@ function setJpssArea (rect) {
     let sqAcres = util.fmax_0.format(util.squareMetersToAcres( du * dv));
     let duMi = util.fmax_1.format(util.metersToUsMiles(du));
     let dvMi = util.fmax_1.format(util.metersToUsMiles(dv));
-    ui.setLabelText(areaInfoLabel, `${duMi} × ${dvMi} miles, ${sqAcres} acres`);
+    ui.setVarText(areaInfoText, `${duMi} × ${dvMi} miles, ${sqAcres} acres`);
 
     areaAsset = new Cesium.Entity({
         polyline: {

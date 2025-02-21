@@ -2,8 +2,11 @@ OrbitalSatImporterConfig (
     server: "https://firms.modaps.eosdis.nasa.gov",
     map_key: "29076db5b8ed793093e89687a68818cc",
     request_delay: [ Duration(secs:300, nanos:0), Duration(secs:7200, nanos:0) ],
-    region: [ LatLon(lat_deg: 50.0, lon_deg: -138.0), 
-            LatLon(lat_deg: 50.0, lon_deg: -50.0), 
-            LatLon(lat_deg: 25.0, lon_deg: -50.0), 
-            LatLon(lat_deg: 25.0, lon_deg: -138.0), ],
+
+    region: GeoRect(
+        west: -138.0,
+        south: 25.0,
+        east: -50.0,
+        north: 50.0
+    )
 )

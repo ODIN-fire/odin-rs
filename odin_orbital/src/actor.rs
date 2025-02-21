@@ -21,7 +21,7 @@ use std::time::Duration;
 use odin_common::geo::{GeoCoord, GeoRect};
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
-use crate::orekit::OverpassList;
+use crate::overpass::OverpassList;
 use crate::{RawHotspots, ViirsHotspot, ViirsHotspotSet, ViirsHotspotStore};
 use crate::errors::OdinOrbitalSatError;
 use crate::errors::Result;

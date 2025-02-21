@@ -4,14 +4,22 @@ export const config = {
         description: "active fire detection using polar orbiting satellites",
         show: true,
     },
-    history: 3,//${hotspotMaxAge.toHours/24},
-    timeSteps: [{ "hours": 6, "color": "#ff0000" },
-            { "hours": 12, "color": "#c0000080" },
-            { "hours": 24, "color": "#80202080" },
-            { "hours": 48, "color": "#80404080" }] ,//${StringUtils.mkString(timeSteps,"[\n    ", ",\n    ", "  ]")(_.toConfigString())},
-    bright: 200,// ${brightThreshold.toConfigString()},
-    frp: 10,// ${frpThreshold.toConfigString()},
-    pixelSize: 3,
+    history: 14, // 3
+    timeSteps: [
+        { "hours":  6, "color": Cesium.Color.fromCssColorString("#ff0000") },
+        { "hours": 12, "color": Cesium.Color.fromCssColorString("#c0000080") },
+        { "hours": 24, "color": Cesium.Color.fromCssColorString("#80202080") },
+        { "hours": 48, "color": Cesium.Color.fromCssColorString("#80404080") }
+    ],
+    bright: {
+        value: 310, 
+        color: Cesium.Color.fromCssColorString('#ffff00')
+    },
+    frp: {
+        value: 10, 
+        color: Cesium.Color.fromCssColorString('#000000')
+    },
+    pixelSize: 4,
     outlineWidth: 1,
     resolution: 0.0,
     swathColor: Cesium.Color.fromCssColorString("#ff000040"),

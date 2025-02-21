@@ -27,7 +27,7 @@ use odin_common::angle::Longitude;
 use odin_common::geo::GeoPoint;
 use odin_common::geo::GeoPolygon;
 use odin_common::geo::GeoRect;
-use orekit::get_trajectory_point;
+use overpass::get_trajectory_point;
 use serde::{Serialize, Deserialize};
 use uom::si::f32::{Power,ThermodynamicTemperature};
 use odin_common::fs::ensure_writable_dir;
@@ -42,8 +42,8 @@ use csv::Reader;
 mod errors;
 use errors::*;
 
-pub mod orekit;
-use orekit::*;
+pub mod overpass;
+use overpass::*;
 
 pub mod actor;
 use actor::*;

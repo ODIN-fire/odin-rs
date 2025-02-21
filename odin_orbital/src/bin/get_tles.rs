@@ -20,7 +20,7 @@ use structopt::StructOpt;
 use std::{fs::File, io::Write};
 use tokio;
 use anyhow::{Result, Ok};
-use odin_orbital::orekit::{get_tles_celestrak, compute_full_orbits};
+use odin_orbital::overpass::{get_tles_celestrak, compute_full_orbits};
 
  /// structopt command line arguments
 #[derive(StructOpt,Debug)]

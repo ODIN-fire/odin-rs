@@ -15,7 +15,7 @@
 //#![allow(unused)]
 
 use nalgebra::{distance, Const, Dyn, Matrix, Rotation3, VecStorage, Vector, Vector3};
-use geo::{geodesic_destination, Contains, Destination, Geodesic, GeodesicArea, HausdorffDistance, Point};
+use geo::{geodesic_destination, Contains, Destination, Geodesic, GeodesicArea, HausdorffDistance, Point, Polygon, Rect};
 use geo::algorithm::BooleanOps;
 use chrono::{DateTime, Datelike, Duration, SubsecRound, TimeDelta, TimeZone, Timelike, Utc, NaiveDateTime, NaiveDate};
 use odin_common::angle::{Longitude, Latitude};

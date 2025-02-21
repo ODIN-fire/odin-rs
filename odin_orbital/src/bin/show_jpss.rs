@@ -13,7 +13,6 @@
  */
 
 use std::sync::Arc;
-use chrono::Utc;
 use odin_orbital::live_importer::{LiveOrbitalSatImporterConfig, LiveOrbitalSatConfig, LiveOrbitalSatOrbitCalculatorConfig, LiveOrbitalSatImporter, LiveOrbitCalculator};
 use tokio;
 use anyhow::Result;
@@ -23,7 +22,7 @@ use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_orbital::actor::{OrbitalSatConfig, OrbitalSatImporterConfig, OrbitalSatOrbitCalculatorConfig, OrbitalSatImportActor, OrbitalSatImportActorMsg, OrbitActor, OrbitActorMsg, OrbitsReady};
 use odin_orbital::{load_config, OrbitalSat, ViirsHotspotSet, ViirsHotspotStore};
-use odin_orbital::orekit::OverpassList;
+use odin_orbital::overpass::OverpassList;
 use odin_orbital::orbital_service::OrbitalSatService;
 
 
@@ -58,7 +57,7 @@ async fn main() -> Result<()>{
 
     // run actors
     actor_system.start_all().await?;
-    actor_system.process_requests().await;
+    actor_system.process_requests().await?;
 
     Ok(())
 }

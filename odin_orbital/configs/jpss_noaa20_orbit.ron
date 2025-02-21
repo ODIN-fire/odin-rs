@@ -1,7 +1,11 @@
 OrbitalSatOrbitCalculatorConfig (
-    full_region: [ LatLon(lat_deg: 51.0, lon_deg: -140.0), 
-            LatLon(lat_deg: 51.0, lon_deg: -49.0), 
-            LatLon(lat_deg: 24.0, lon_deg: -49.0), 
-            LatLon(lat_deg: 24.0, lon_deg: -140.0), ],
+
+    full_region: GeoRect(
+        west: -140.0,
+        south: 24.0,
+        east: -49.0,
+        north: 51.0
+    ),
+
     calculation_interval: Duration(secs:86400, nanos:0)
 )

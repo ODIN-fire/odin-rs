@@ -199,7 +199,11 @@ impl GeoRect {
             GeoPoint::from_lon_lat(self.west(), self.south()),
             GeoPoint::from_lon_lat(self.east(), self.north()),
             GeoPoint::from_lon_lat(self.east(), self.south())]
-    } 
+    }
+
+    pub fn to_polygon(&self) -> Polygon {
+        self.0.clone().to_polygon()
+    }
 
     #[inline] pub fn west(&self)->Longitude { Longitude::from_degrees( self.0.min().x )}
     #[inline] pub fn east(&self)->Longitude { Longitude::from_degrees( self.0.max().x )}

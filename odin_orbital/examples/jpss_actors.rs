@@ -18,7 +18,7 @@
 
 use std::sync::Arc;
 use odin_orbital::live_importer::{LiveOrbitalSatConfig, LiveOrbitalSatImporter, LiveOrbitalSatImporterConfig, LiveOrbitalSatOrbitCalculatorConfig, LiveOrbitCalculator};
-use odin_orbital::orekit::OverpassList;
+use odin_orbital::overpass::OverpassList;
 use tokio;
 use anyhow::Result;
 use odin_actor::prelude::*;

@@ -1431,7 +1431,6 @@ export function enterGeoRect (processResult) {
 
     function onEnter () {
         if (rectEntity) viewer.entities.remove(rectEntity);
-        util.rectToDegrees(rect);
         processResult( main.GeoRect.fromWSENdeg( rect.west, rect.south, rect.east, rect.north));
     }
 
@@ -1492,7 +1491,7 @@ export function enterRect (rect, points, callbacks) {
                     if (callbacks.onAddPoint) callbacks.onAddPoint( p);
 
                     resetEnterRect();
-                    if (callbacks.onEnter) callbacks.onEnter();
+                    if (callbacks.onEnter) callbacks.onEnter( util.rectToDegrees(rect));
                 }
             }
         }
