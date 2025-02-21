@@ -2901,18 +2901,23 @@ export function ListControls (listId, first=null,up=null,down=null,last=null,cle
     if (down) e.setAttribute("data-down", down);
     if (last) e.setAttribute("data-last", last);
     if (clear) e.setAttribute("data-clear", clear);
+
     return e;
 }
 
 function initializeListControls(e) {
     if (e.tagName == "DIV" && _hasNoChildElements(e)) {
-        let le = getList( e.dataset.listid);
-        if (le) {
-            e.appendChild( createListControlButton("⊼", e.dataset.first ? e.dataset.first : ()=>selectFirstListItem(le)));
-            e.appendChild( createListControlButton("⋀︎", e.dataset.up ? e.dataset.up :()=>selectPrevListItem(le)));
-            e.appendChild( createListControlButton("⋁︎", e.dataset.down ? e.dataset.down :()=>selectNextListItem(le)));
-            e.appendChild( createListControlButton("⊻", e.dataset.last ? e.dataset.last :()=>selectLastListItem(le)));
-            e.appendChild( createListControlButton("∅", e.dataset.clear ? e.dataset.clear :()=>clearSelectedListItem(le))); // alternatives: ⌫ ∅ ⎚
+        // note that this window might not yet be linked into the document so we have to dig the list up from our parent
+        let w = getWindow(e); // this gets the nearest window
+        if (w) {
+            let le = _findChildWithId(w, e.dataset.listid);
+            if (le && le.classList.contains("ui_list")) {
+                e.appendChild( createListControlButton("⊼", e.dataset.first ? e.dataset.first : ()=>selectFirstListItem(le)));
+                e.appendChild( createListControlButton("⋀︎", e.dataset.up ? e.dataset.up :()=>selectPrevListItem(le)));
+                e.appendChild( createListControlButton("⋁︎", e.dataset.down ? e.dataset.down :()=>selectNextListItem(le)));
+                e.appendChild( createListControlButton("⊻", e.dataset.last ? e.dataset.last :()=>selectLastListItem(le)));
+                e.appendChild( createListControlButton("∅", e.dataset.clear ? e.dataset.clear :()=>clearSelectedListItem(le))); // alternatives: ⌫ ∅ ⎚
+            }
         }
     }
 }
@@ -3429,6 +3434,20 @@ function _firstChildWithClass(element, cls) {
         c = c.nextElementSibling;
     }
     return undefined;
+}
+
+function _findChildWithId (e, id) {
+    if (e.id == id) return e;
+
+    var ce = e.firstChild;
+    while (ce) {
+        let ee = _findChildWithId(ce, id);
+        if (ee) return ee;
+
+        ce = ce.nextElementSibling;
+    }
+
+    return null;
 }
 
 function _nthChildOf(element, n) {

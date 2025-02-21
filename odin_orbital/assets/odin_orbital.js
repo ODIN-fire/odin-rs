@@ -111,6 +111,7 @@ class PastEntry {
 
 createIcon();
 createWindow();
+
 var satelliteView = initSatelliteView();
 var upcomingView = initUpcomingView();
 var pastView = initPastView();
