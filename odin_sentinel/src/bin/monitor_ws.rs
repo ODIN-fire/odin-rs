@@ -74,6 +74,8 @@ async fn main()->Result<()> {
     println!("monitoring devices: {:?}", device_ids);
 
     let (mut ws,_) = connect( &config).await?;
+    println!("websocket connected");
+
     let resp = read_next_ws_msg(&mut ws).await?;
     log_ws_msg(&resp);
 
@@ -133,7 +135,7 @@ async fn run_with_ping (ws: &mut WsStream, interval: Duration) {
                 if let Some(ping) = ping {
                     log_ws_cmd(&ping);
                     if let Ok(json) = serde_json::to_string(&ping) {
-                        let ws_msg = Message::Text(json);
+                        let ws_msg = Message::text(json);
                         write.send(ws_msg).await;
                     }
                 }
