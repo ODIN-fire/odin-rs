@@ -246,7 +246,7 @@ impl LiveConnection {
                         maybe_cmd = recv(&ws_cmd_rx) => {
                             match maybe_cmd {
                                 Ok(cmd) => {
-                                    if let Err(e) = ws_stream.send( Message::Text(cmd)).await {
+                                    if let Err(e) = ws_stream.send( Message::text(cmd)).await {
                                         let msg = format!("reconnecting after failed websocket write: {}", e);
                                         admin::async_notify_severe(&msg).await;
                                         warn!("{}", msg);
@@ -265,7 +265,7 @@ impl LiveConnection {
                         _ = sleep( ping_interval), if config.ping_interval.is_some() => { 
                             let msg = WsCmd::new_ping("ping");
                             if let Ok(msg) = serde_json::to_string( &msg) {
-                                if let Err(e) = ws_stream.send(Message::Text(msg)).await {
+                                if let Err(e) = ws_stream.send(Message::text(msg)).await {
                                     let msg = format!("reconnecting after failed websocket write: {}", e);
                                     admin::async_notify_severe(&msg).await;
                                     warn!("{}", msg);

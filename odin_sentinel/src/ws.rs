@@ -86,7 +86,7 @@ pub async fn expect_connected_response (ws: &mut WsStream)->Result<()> {
 pub async fn request_join (ws: &mut WsStream, device_ids: Vec<String>, message_id: String)->Result<()> {
     let msg = WsMsg::Join{device_ids, message_id};
     let json = serde_json::to_string(&msg)?;
-    Ok(ws.send( Message::Text(json)).await?)
+    Ok(ws.send( Message::text(json)).await?)
 }
 
 pub async fn expect_join_response (ws: &mut WsStream)->Result<()> {
@@ -103,7 +103,7 @@ pub async fn expect_join_response (ws: &mut WsStream)->Result<()> {
 }
 
 pub async fn send_ws_text_msg (tx: &mut SplitSink<WsStream,Message>, msg: String)->Result<()> {
-    Ok(tx.send( Message::Text(msg)).await?)
+    Ok(tx.send( Message::text(msg)).await?)
 }
 
 pub async fn read_next_ws_msg (ws: &mut WsStream)->Result<WsMsg> {

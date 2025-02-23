@@ -21,15 +21,6 @@ use odin_common::{datetime::duration_since, geo::GeoPoint4};
 use crate::*;
 use crate::ws::WsCmd;
 
-/// message object to indicate a device hasn't reported within a configured amount of time
-#[derive(Debug,Clone,Serialize)]
-#[serde(rename_all="camelCase")]
-pub struct SentinelInactiveAlert {
-    pub device_id: String,
-    pub last_time_recorded: Option<DateTime<Utc>>,
-}
-
-const INACTIVE_TIMER: i64 = 1;
 
 //-- external messages (from other actors)
 
@@ -65,22 +56,21 @@ define_actor_msg_set! { pub SentinelActorMsg =
     ConnectorError
 }
 
-pub struct SentinelActor <C,I,U,IA> 
-    where C: SentinelConnector + Send,  I: DataRefAction<SentinelStore>,  U: DataAction<SentinelUpdate>, IA: DataAction<SentinelInactiveAlert>
+pub struct SentinelActor <C,I,U> 
+    where C: SentinelConnector + Send,  I: DataRefAction<SentinelStore>,  U: DataAction<SentinelUpdate>
 {
     connector: C,               // where we get the external data from
     sentinels: SentinelStore,   // our internal store
 
     init_action: I,             // initialized interaction (triggered by self)
     update_action: U,           // update interactions (triggered by self)
-    inactive_action: IA,        // inactive device alert interactions
 }
 
-impl<C,I,U,IA> SentinelActor <C,I,U,IA>
-    where C: SentinelConnector + Send, I: DataRefAction<SentinelStore>, U: DataAction<SentinelUpdate>, IA: DataAction<SentinelInactiveAlert>
+impl<C,I,U> SentinelActor <C,I,U>
+    where C: SentinelConnector + Send, I: DataRefAction<SentinelStore>, U: DataAction<SentinelUpdate>
 {
-    pub fn new (connector: C, init_action: I, update_action: U, inactive_action: IA)->Self {
-        SentinelActor { connector, sentinels: SentinelStore::new(), init_action, update_action, inactive_action }
+    pub fn new (connector: C, init_action: I, update_action: U)->Self {
+        SentinelActor { connector, sentinels: SentinelStore::new(), init_action, update_action }
     }
 
     async fn init_store (&mut self, sentinels: SentinelStore)->Result<()> {
@@ -114,32 +104,10 @@ impl<C,I,U,IA> SentinelActor <C,I,U,IA>
             query.respond(None).await.map_err(|_| op_failed("receiver closed"))
         }
     }
-
-    // note this is a server-side inactive check, i.e. new client connections won't see a status change until the
-    // next server check runs. If we want this instantly we should transmit the inactive_duration through the websocket
-    // during the init_action and then perform the check when receiving the sentinels on the client. Alternatively the SentinelService 
-    // could send another ExecSnapshotAction to the sentinel actor that triggers a server side check with the appropriate distribution
-    // (broadcast/send ws msg). This seems too expensive given that we frequently perform the status check anyways
-    async fn check_inactive (&self)->Result<()> {
-        let now = Utc::now();
-        let inactive_duration = self.connector.inactive_duration();
-        for sentinel in self.sentinels.values_iter() {
-            if sentinel.time_recorded.is_none() || (duration_since( &now, &sentinel.time_recorded.unwrap()) > inactive_duration) {
-                let alert = SentinelInactiveAlert { 
-                    device_id: sentinel.device_id.clone(), 
-                    last_time_recorded: sentinel.time_recorded
-                };
-                self.inactive_action.execute( alert).await.map_err(|e| op_failed(e))?
-            }
-        }
-        Ok(())
-    }
-
 }
 
-impl_actor! { match msg for Actor< SentinelActor<C,I,U,IA>, SentinelActorMsg> 
-    where C: SentinelConnector + Send + Sync,  I: DataRefAction<SentinelStore> + Sync,  
-          U: DataAction<SentinelUpdate> + Sync, IA: DataAction<SentinelInactiveAlert> + Sync
+impl_actor! { match msg for Actor< SentinelActor<C,I,U>, SentinelActorMsg> 
+    where C: SentinelConnector + Send + Sync,  I: DataRefAction<SentinelStore> + Sync,  U: DataAction<SentinelUpdate> + Sync
     as  
     //--- user messages
     ExecSnapshotAction => cont! {
@@ -170,14 +138,6 @@ impl_actor! { match msg for Actor< SentinelActor<C,I,U,IA>, SentinelActorMsg>
         let hself = self.hself.clone();
         if let Err(e) = self.connector.start( hself).await {  // this should eventually lead to an InitializeStore
             error!("failed to start connector: {:?}", e)
-        }
-        if let Err(e) = self.start_repeat_timer( INACTIVE_TIMER, self.connector.inactive_interval(), false) {
-            error!("failed to start inactive timer")
-        } 
-    }
-    _Timer_ => cont! {
-        if msg.id == INACTIVE_TIMER {
-            self.check_inactive().await;
         }
     }
     _Terminate_ => stop! { 

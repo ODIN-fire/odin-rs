@@ -19,7 +19,9 @@ use odin_build::define_load_config;
 use odin_actor::prelude::*;
 use odin_common::{define_cli,check_cli, admin, heap};
 use odin_sentinel::{
-    load_config, AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelActor, SentinelAlarmMonitor, SentinelAlarmMonitorConfig, SentinelAlarmMonitorMsg, SentinelInactiveAlert, SentinelUpdate, SignalCmdAlarmMessenger, SlackAlarmMessenger, SmtpAlarmMessenger
+    load_config, AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelStore, SentinelStates, SentinelState, SentinelActor, 
+    SentinelAlarmMonitor, SentinelAlarmMonitorConfig, SentinelAlarmMonitorMsg, SentinelInactiveAlert, 
+    SentinelUpdate, SignalCmdAlarmMessenger, SlackAlarmMessenger, SmtpAlarmMessenger
 };
 
 #[cfg(feature="dhat")] heap::use_dhat!{} 
@@ -56,9 +58,12 @@ async fn main ()->Result<()> {
 
     let hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
         LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
-        no_dataref_action(),
-        data_action!( let hmonitor: ActorHandle<SentinelAlarmMonitorMsg> = hmonitor.clone() => |data:SentinelUpdate| Ok( hmonitor.try_send_msg(data)? )),
-        data_action!( let hmonitor: ActorHandle<SentinelAlarmMonitorMsg> = hmonitor => |data:SentinelInactiveAlert| Ok( hmonitor.try_send_msg(data)? )),
+        dataref_action!( let hmonitor: ActorHandle<SentinelAlarmMonitorMsg> = hmonitor.clone() => |store: &SentinelStore| {
+            Ok( hmonitor.send_msg( SentinelStates( store.get_sentinel_states()?)).await? )
+        }),
+        data_action!( let hmonitor: ActorHandle<SentinelAlarmMonitorMsg> = hmonitor.clone() => |data:SentinelUpdate| {
+            Ok( hmonitor.try_send_msg(data)? )
+        })
     ))?;
 
     actor_system.timeout_start_all(millis(20)).await?;
