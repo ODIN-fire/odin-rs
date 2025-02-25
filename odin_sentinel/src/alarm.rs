@@ -345,8 +345,11 @@ impl SentinelAlarmMonitor {
     async fn check_inactive (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>) {
         let now = Utc::now();
         for ( device_id, time_recorded ) in &self.sentinel_states {
-            if time_recorded.is_none() || duration_since( &time_recorded.unwrap(), &now) >= self.config.inactive_duration {
+            let elapsed = if let Some(tr) = time_recorded { duration_since( &now, &time_recorded.unwrap()) } else { Duration::from_days(1) };
+
+            if time_recorded.is_none() || elapsed >= self.config.inactive_duration {
                 if self.inactive_alerts.iter().find( |alert| alert.device_id == *device_id).is_none() { // did we already report?
+
                     let alert = SentinelInactiveAlert {
                         device_id: device_id.clone(),
                         time_recorded: time_recorded.clone()
@@ -370,8 +373,10 @@ impl SentinelAlarmMonitor {
         }
     }
 
-    async fn update_inactive_alerts (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, device_id: &String, time_recorded: &DateTime<Utc>) {
-        if let Some(idx) = self.inactive_alerts.iter().position(|e| *device_id == e.device_id) {
+    async fn update_sentinel_states (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, device_id: &String, time_recorded: &DateTime<Utc>) {
+        self.sentinel_states.insert( device_id.clone(), Some(time_recorded.clone()));
+
+        if let Some(idx) = self.inactive_alerts.iter().position(|e| *device_id == e.device_id) { // device online again -> notify
             self.inactive_alerts.remove(idx);
 
             let time_recorded = Utc::now();
@@ -388,7 +393,6 @@ impl SentinelAlarmMonitor {
 impl_actor! { match msg for Actor<SentinelAlarmMonitor,SentinelAlarmMonitorMsg> as
     _Start_ => cont! {
         let hself = self.hself();
-        self.check_inactive( hself).await;
 
         if let Err(e) = self.start_repeat_timer( INACTIVE_TIMER, self.config.inactive_interval, false) {
             error!("failed to start inactive timer")
@@ -409,10 +413,10 @@ impl_actor! { match msg for Actor<SentinelAlarmMonitor,SentinelAlarmMonitorMsg> 
             Arc<SensorRecord<FireData>> => self.process_fire_alarm( hself, msg).await,
             Arc<SensorRecord<SmokeData>> => self.process_smoke_alarm( hself, msg).await,
 
-            Arc<SensorRecord<ImageData>>       => self.update_inactive_alerts( hself, &msg.device_id, &msg.time_recorded).await,
-            Arc<SensorRecord<PowerData>>       => self.update_inactive_alerts( hself, &msg.device_id, &msg.time_recorded).await,
-            Arc<SensorRecord<GasData>>         => self.update_inactive_alerts( hself, &msg.device_id, &msg.time_recorded).await,
-            Arc<SensorRecord<ThermometerData>> => self.update_inactive_alerts( hself, &msg.device_id, &msg.time_recorded).await,
+            Arc<SensorRecord<ImageData>>       => self.update_sentinel_states( hself, &msg.device_id, &msg.time_recorded).await,
+            Arc<SensorRecord<PowerData>>       => self.update_sentinel_states( hself, &msg.device_id, &msg.time_recorded).await,
+            Arc<SensorRecord<GasData>>         => self.update_sentinel_states( hself, &msg.device_id, &msg.time_recorded).await,
+            Arc<SensorRecord<ThermometerData>> => self.update_sentinel_states( hself, &msg.device_id, &msg.time_recorded).await,
 
             // TODO - we should add a couple other SensorRecords here that are frequently updated
             _ => {} // the rest we ignore
@@ -420,7 +424,10 @@ impl_actor! { match msg for Actor<SentinelAlarmMonitor,SentinelAlarmMonitorMsg> 
     }
 
     SentinelStates => cont! {
+        let hself = self.hself();
+
         self.init_sentinel_states( msg);
+        self.check_inactive(hself).await;
     }
 
     Alarm => cont! { // internal message that we have to send out notifications  
