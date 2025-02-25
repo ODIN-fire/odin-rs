@@ -679,6 +679,8 @@ impl Sentinel {
     }
 
     pub fn update_with( &mut self, sentinel_update: SentinelUpdate)->(Option<RecordId>,Option<RecordId>) {
+        self.update_time( sentinel_update.time_recorded() );
+
         match_algebraic_type! { sentinel_update: SentinelUpdate as
             Arc<SensorRecord<AccelerometerData>> => sort_in_record( &mut self.accelerometer, sentinel_update, self.max_len),
             Arc<SensorRecord<AnemometerData>>    => sort_in_record( &mut self.anemometer,    sentinel_update, self.max_len),
@@ -697,6 +699,12 @@ impl Sentinel {
             Arc<SensorRecord<ThermometerData>>   => sort_in_record( &mut self.thermometer,   sentinel_update, self.max_len),
             Arc<SensorRecord<ValveData>>         => sort_in_record( &mut self.valve,         sentinel_update, self.max_len),
             Arc<SensorRecord<VocData>>           => sort_in_record( &mut self.voc,           sentinel_update, self.max_len)
+        }
+    }
+
+    pub fn update_time (&mut self, dt: DateTime<Utc>) {
+        if self.time_recorded.is_none() || self.time_recorded.unwrap() <  dt {
+            self.time_recorded = Some(dt)
         }
     }
 

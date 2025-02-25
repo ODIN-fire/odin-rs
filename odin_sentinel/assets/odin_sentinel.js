@@ -512,13 +512,13 @@ function handleSentinelsMessage(sentinels) {
     odinCesium.requestRender();
     
     if (sentinelInactiveMillis) {
-        setInterval( checkInactiveStatus, 60000); // run check every minute
+        checkInactiveStatus(); // check immediately
+        setInterval( checkInactiveStatus, 60000); // then run check every minute
     }
 }
 
 function addSentinelEntry(sentinel) {
     let e = new SentinelEntry(sentinel);
-
     sentinelEntries.set(sentinel.deviceId, e);
     let idx = sentinelList.insert(e);
     ui.insertListItem(sentinelView, e, idx);
