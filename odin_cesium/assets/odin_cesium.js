@@ -105,6 +105,9 @@ var positionsView = undefined;
 var isSelectedView = false;
 var utcClock;
 
+var mapScale; // canvas to show map scale
+var isMetric = true;
+
 const centerOrientation = {
     heading: Cesium.Math.toRadians(0.0),
     pitch: Cesium.Math.toRadians(-90.0),
@@ -140,6 +143,7 @@ addDataSource(dataSource);
 initTimeWindow();
 initViewWindow();
 initLayerWindow();
+initMapScale();
 
 
 // position fields
@@ -309,6 +313,7 @@ function createViewWindow() {
 
     return ui.Window("View", "view", "./asset/odin_cesium/camera.svg")(
         ui.RowContainer()(
+            ui.CheckBox("metric", toggleIsMetric, null, isMetric),
             ui.CheckBox("fullscreen", toggleFullScreen),
             ui.HorizontalSpacer(1),
             ui.CheckBox("terrain", toggleTerrain, "view.show_terrain"),
@@ -334,12 +339,15 @@ function createViewWindow() {
             ui.TextInput("", "view.camera.altitude", "5.5rem", {changeAction: setViewFromFields, isFixed: true}),
             ui.HorizontalSpacer(0.4)
           ),
-          ui.TreeList("view.positions", 10, "32rem", setCameraFromSelection, setCameraName),
+          ui.TreeList("view.positions", 10, "30rem", setCameraFromSelection, setCameraName),
           ui.RowContainer()(
             ui.TextInput("name", "view.camera.name", "15rem", {isFixed: true, placeHolder: 'enter pathname for position'}),
             ui.Button("pick", pickPoint),
             ui.Button("add", addPoint),
             ui.Button("del", removePoint)
+          ),
+          ui.Panel("measure", false)(
+
           ),
           ui.Panel("view parameters", false)(
             ui.CheckBox("render on-demand", toggleRequestRenderMode, "view.rm"),
@@ -651,6 +659,12 @@ function setTargetFrameRate(fr) {
     }
 }
 
+function toggleIsMetric (event) {
+    let cb = event.target;
+    isMetric = ui.isCheckBoxSelected(cb);
+    updateScale();
+}
+
 export function lowerFrameRateWhile(action, lowFr) {
     viewer.targetFrameRate = lowFr;
     action();
@@ -874,8 +888,95 @@ function updateCamera() {
     */
 
     //saveCamera();
+    updateScale();
 }
 
+//--- map scale
+
+const WGS84BoundingSphere = Cesium.BoundingSphere.fromEllipsoid(Cesium.Ellipsoid.WGS84);
+
+function initMapScale() {
+    mapScale = ui.MoveableCanvas(["ui_mapscale"], {right: 50, bottom: 10});
+    mapScale.width = config.scale.width;
+    mapScale.height = config.scale.height;
+
+    ui.showMoveableCanvas(mapScale);
+}
+
+function updateScale () {
+    let styles = getComputedStyle(mapScale);
+    let clr = config.scale.cssColor;
+
+    let w = viewer.scene.canvas.clientWidth;
+    let h = viewer.scene.canvas.clientHeight;
+
+    let canvasWidth = mapScale.clientWidth;
+    let canvasHeight = mapScale.clientHeight;
+
+    let ctx = mapScale.getContext("2d");
+    ctx.clearRect(0,0,canvasWidth,canvasHeight);
+
+    let xMargin = 10;
+    let yMargin = 5;
+    let cw = canvasWidth - 2*xMargin;
+
+    let dPixel = viewer.scene.camera.getPixelSize( WGS84BoundingSphere, w, h);  // distance [m] per pixel
+
+    let nTicks = isMetric ? 5 : 4;
+    let base = getBaseDistance( cw, dPixel, metricBases, nTicks);
+    let basePx = Math.round(base / dPixel); // with of base in pixels
+
+    ctx.fillStyle = clr;
+    ctx.strokeStyle = clr;
+    ctx.textAlign = "center";
+
+    let y = canvasHeight / 2;
+
+    ctx.beginPath();
+    ctx.lineWidth = 2;
+    ctx.moveTo( xMargin, y);
+    ctx.lineTo( xMargin + (nTicks * basePx), y);
+    ctx.closePath();
+    ctx.stroke();
+
+    ctx.font = config.scale.smallFont;
+    ctx.beginPath();
+    for (let i = 0; i<=nTicks; i++) {
+        let x = xMargin + (i*basePx);
+        ctx.moveTo(x, y);
+        ctx.lineTo(x, y + 5);
+
+        ctx.fillText( lengthString(i * base, false), x, y+14);
+    }
+
+    ctx.closePath();
+    ctx.stroke();
+
+    ctx.font = config.scale.font;
+    let x = Math.round( xMargin + (nTicks * basePx) / 2);
+    ctx.fillText( lengthString(nTicks * base, true), x, y - 3);
+}
+
+const metricBases = [ 500000, 200000, 100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50, 20, 10 ];  // all in meters
+const usBases = [  ]; // in meters (for full, half and quarter miles)
+
+function getBaseDistance (canvasWidth, dPixel, bases, nBases) {
+    for (let i = 0; i< bases.length; i++) {
+        let d = bases[i] * nBases / dPixel;
+        if (d < canvasWidth) return bases[i];
+    }
+    return 0;
+}
+
+function lengthString (dist, showUnits) {
+    if (dist >= 100) {
+        let d = Math.round(dist) / 1000;
+        return showUnits ? d + "km" : d.toString();
+    } else {
+        let d = Math.round(dist);
+        return showUnits ? d + "m" : d.toString();
+    }
+}
 
 //--- 2nd level event handlers
 

@@ -104,6 +104,95 @@ export function notifyThemeChangeHandlers() {
     themeChangeHandlers.forEach(h => h())
 }
 
+//--- MoveableCanvas
+
+export function MoveableCanvas (extraCls, opts) {
+    let e = createElement("CANVAS", "ui_moveable_canvas");
+    extraCls.forEach( cls=> e.classList.add(cls));
+
+    if (opts.draw) e._uiDraw = opts.draw;
+    setStyle(e, opts);
+    makeMoveableCanvasDraggable(e);
+
+    document.body.appendChild(e);
+    return e;
+} 
+
+export function showMoveableCanvas (o) {
+    let e = getMoveableCanvas(o);
+    if (e)  {
+        if (e._uiDraw) e._uiDraw(e);
+        _addClass(e, "show");
+    }
+}
+
+export function hideMoveableCanvas (o) {
+    let e = getMoveableCanvas(o);
+    if (e)  _removeClass(e, "show");
+}
+
+export function closeMoveableCanvas (o) {
+    let e = getMoveableCanvas(o);
+    if (e) {
+        _removeClass(e, "show");
+        e.parentElement.removeChild(e);
+    }
+}
+
+function makeMoveableCanvasDraggable(e) {
+    var p1 = e.offsetLeft,
+        p2 = e.offsetTop,
+        p3 = p1,
+        p4 = p2;
+
+    e.addEventListener("mousedown", startDragCanvas);
+
+    function startDragCanvas(mouseEvent) {
+        e.style.cursor = "move";
+        p3 = mouseEvent.clientX;
+        p4 = mouseEvent.clientY;
+
+        document.onmouseup = stopDragCanvas;
+        document.onmousemove = dragCanvas;
+    }
+
+    function dragCanvas(mouseEvent) {
+        mouseEvent.preventDefault();
+
+        p1 = p3 - mouseEvent.clientX;
+        p2 = p4 - mouseEvent.clientY;
+        p3 = mouseEvent.clientX;
+        p4 = mouseEvent.clientY;
+
+        e._uiTop = e.offsetTop - p2;
+        e._uiLeft = e.offsetLeft - p1;
+
+        e.style.top = e._uiTop + "px";
+        e.style.left = e._uiLeft + "px";
+    }
+
+    function stopDragCanvas() {
+        e.style.cursor = "default";
+        document.onmouseup = null;
+        document.onmousemove = null;
+    }
+}
+
+export function updateMoveableCanvas (o) {
+    let e = getMoveableCanvas(o);
+    if (e && e._uiDraw) {
+        e._uiDraw(e);
+    }
+}
+
+export function getMoveableCanvas (o) {
+    let e = _elementOf(o);
+    if (e) {
+        if (e.classList.contains("ui_moveable_canvas")) return e;
+    }
+    return null;
+}
+
 //--- windows
 
 var topWindowZ = _rootVarInt('--window-z');
@@ -2152,6 +2241,10 @@ function listKeyDownHandler(event) {
     } else if (event.key === 'ArrowUp') {
         if (list._uiSelectedItemElement) selectPrevListItem(list); else selectLastListItem(list);
         stopAllOtherProcessing(event);
+    } else if (event.key === 'E') { // expand-all tree list only
+        if (list._uiRoot) expandAllNodes(list);
+    } else if (event.key === 'C') { // collapse-all tree list only
+        if (list._uiRoot) collapseAllNodes(list);
     }
 }
 
@@ -2484,7 +2577,52 @@ function selectNode (event) {
     }
 }
 
+export function expandAllNodes (o) {
+    let e = getTreeList(o);
+    if (e && e._uiRoot) {
+        e._uiRoot.firstChild.expandAll();
+        repopulateNodes(e);
+    }
+}
+
+export function collapseAllNodes (o) {
+    let e = getTreeList(o);
+    if (e && e._uiRoot) {
+        e._uiRoot.firstChild.collapseAll();
+        repopulateNodes(e);
+    }
+}
+
+function repopulateNodes (e) {
+    _setSelectedItemElement(e, null);
+    _removeChildrenOf(e);
+    e._uiRoot.expandedDescendants().forEach( node=>e.appendChild(_createNodeElement(e, node)));
+    _resetPanelMaxHeight(e);
+}
+
 function clickNodePrefix(event) {
+    function collapse (e, ne) {
+        let node = ne._uiNode;
+        let lvl = node.level();
+        for (let nne = ne.nextElementSibling; nne && nne._uiNode.level() > lvl; nne = ne.nextElementSibling) {
+            if (nne._uiNode.data) { e._uiItemMap.delete(nne._uiNode.data) }
+            if (Object.is(nne, e._uiSelectedItemElement)) { clearSelectedListItem(e) }
+            nne._uiNode.collapse();
+            e.removeChild(nne);
+        }
+        node.collapse();
+    }
+
+    function expand (e, ne) {
+        let node = ne._uiNode;
+        let nne = ne.nextElementSibling;
+        node.expandedDescendants().forEach( dn=> {
+            let dne = _createNodeElement(e, dn, e._uiRowPrototype);
+            if (nne) e.insertBefore(dne, nne);
+            else e.appendChild(dne);
+        });
+    }
+
     let ne = _nearestElementWithClass(event.target,"ui_node");
     let e = ne.parentElement;
     _consumeEvent(event);
@@ -2492,24 +2630,35 @@ function clickNodePrefix(event) {
     if (ne) {
         let node = ne._uiNode;
         if (node.hasChildren()){
-            if (node.isExpanded) { // collapse
-                let lvl = node.level();
-                for (let nne = ne.nextElementSibling; nne && nne._uiNode.level() > lvl; nne = ne.nextElementSibling) {
-                    if (nne._uiNode.data) { e._uiItemMap.delete(nne._uiNode.data) }
-                    if (Object.is(nne, e._uiSelectedItemElement)) { clearSelectedListItem(e) }
-                    nne._uiNode.collapse();
-                    e.removeChild(nne);
+            if (node.isExpanded) { 
+                if (event.shiftKey) { // expand all children
+                    for (let cnode = node.firstChild; cnode; cnode = cnode.nextSibling) {
+                        if (!cnode.isExpanded) {
+                            let nne = findNodeElement(e, cnode);
+                            cnode.expand();
+                            cnode.expandAll();
+                            expand(e, nne);
+                        }
+                    }
+                } else { // collapse
+                    if (event.metaKey) { // collapse all children
+                        for (let cnode = node.firstChild; cnode; cnode = cnode.nextSibling) {
+                            if (cnode.isExpanded) {
+                                let nne = findNodeElement(e, cnode);
+                                collapse( e, nne);
+                            }
+                        }
+                    } else { // collapse node
+                        collapse( e, ne);
+                    }
                 }
-                node.collapse();
-            } else { // expand
+
+            } else { // is collapsed -> expand
                 node.expand();
-                let nne = ne.nextElementSibling;
-                node.expandedDescendants().forEach( dn=> {
-                    let dne = _createNodeElement(e, dn, e._uiRowPrototype);
-                    if (nne) e.insertBefore(dne, nne);
-                    else e.appendChild(dne);
-                });
+                if (event.metaKey) node.expandAll(); // expand whole subtree
+                expand(e, ne);
             }
+
             let nPrefix = ne.firstElementChild.firstElementChild;
             nPrefix.innerText = node.nodePrefix();
         }
@@ -3331,6 +3480,23 @@ function _containsAnyClass(element, ...cls) {
         if (cl.contains(c)) return true;
     }
     return false;
+}
+
+function setStyle (e, opts) {
+    if (opts.color) e.style.color = opts.color;
+    if (opts.background) e.style.background = opts.background;
+    if (opts.border) e.style.border = opts.border;
+    if (opts.left) e.style.left = _numStyleValue( opts.left, "px");
+    if (opts.top) e.style.top = _numStyleValue( opts.top, "px");
+    if (opts.right) e.style.right = _numStyleValue( opts.right, "px");
+    if (opts.bottom) e.style.bottom = _numStyleValue( opts.bottom, "px");
+    if (opts.width) e.style.width = _numStyleValue(opts.width, "px");
+    if (opts.height) e.style.height = _numStyleValue(opts.height, "px");
+}
+
+function _numStyleValue (v, suffix) {
+    if (typeof v === 'number') return v +suffix;
+    else return v;
 }
 
 function setWidthStyle (e, minWidth=null, maxWidth=null) {
