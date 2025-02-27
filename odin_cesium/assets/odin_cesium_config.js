@@ -23,4 +23,15 @@ export const config = {
     font: '16px sans-serif',
     labelBackground: Cesium.Color.fromCssColorString('#00000060'),
     pointSize: 3,
+
+    isMetric: false,
+    scale: {
+      width: 250,
+      height: 30,
+      right: 30,
+      bottom: 5,
+      cssColor: "rgb(0,255,0)",
+      font: "14px sans-serif",
+      smallFont: "11px sans-serif"
+    }  
   };

@@ -73,7 +73,7 @@ run_actor_system!( actor_system => {
     let connector = LiveSentinelConnector::new( odin_sentinel::load_config( "sentinel.ron")?);
 
     let _hsentinel = spawn_pre_actor!( actor_system, pre_sentinel, 
-        SentinelActor::new( connector, init_action, update_action, no_data_action())
+        SentinelActor::new( connector, init_action, update_action)
     )?;
 
     Ok(())
