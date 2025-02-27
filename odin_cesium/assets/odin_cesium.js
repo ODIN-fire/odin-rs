@@ -705,15 +705,18 @@ function toggleRequestRenderMode(event) {
     }
 }
 
-export function requestRender() {
-    if (requestRenderMode && !pendingRenderRequest) {
+// if there is no pending scene rendering request issue one. Note this still is subject
+// to not exceeding the target framerate of Cesium, i.e. it might not result in rendering
+export function requestRender(force = false) {
+    if (force || requestRenderMode && !pendingRenderRequest) {
         pendingRenderRequest = true;
         viewer.scene.requestRender();
     }
 }
 
-export function requestImmediateRender() {
-    viewer.scene.requestRender();
+// imperative rendering
+export function render() {
+    viewer.scene.render();
 }
 
 export function withSampledTerrain(positions, level, action) {
