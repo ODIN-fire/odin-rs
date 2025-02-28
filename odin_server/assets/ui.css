@@ -896,6 +896,7 @@ div.ui_node_prefix {
     font: var(--mono-font);
     color: var(--dim-color);
     height: 100%;
+    user-select: none;
 }
 
 div.ui_node_name {

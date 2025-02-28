@@ -339,7 +339,9 @@ function toggleShowSwath (showIt, ops) {
         dataSource.entities.remove(ops.swathEntity);
         ops.swathEntity = undefined;
     }
-    odinCesium.requestRender();
+
+    odinCesium.requestRender(true);
+    setTimeout( odinCesium.render, 150);
 }
 
 function satEntry(satId) {
@@ -725,14 +727,11 @@ function createSwathEntity (ops) {
             material: cfg.swathColor,
             height: 0,
             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-            clampToGround: true,
             //distanceDisplayCondition: cfg.swathDC // Cesium BUG ? does not work correctly
         },
         polyline: {
             positions: pts,
             material: cfg.trackColor,
-            height: 0,
-            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
             clampToGround: true,
             //distanceDisplayCondition: cfg.swathDC
         },

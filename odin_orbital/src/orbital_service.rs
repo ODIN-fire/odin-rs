@@ -126,7 +126,7 @@ impl SpaService for OrbitalSatService {
                         for overpass in overpass_list.overpasses.iter(){
                             let remote_addr = remote_addr.clone();
                             let data = WsMsg::json( OrbitalSatService::mod_path(), "overpass", overpass)?;
-                            hself.try_send_msg( SendWsMsg{remote_addr,data} )?;
+                            hself.send_msg( SendWsMsg{remote_addr,data} ).await;
                         }
                         Ok(())
                 });
@@ -136,7 +136,7 @@ impl SpaService for OrbitalSatService {
                     for hotspots in store.to_hotspots().into_iter() {
                         let remote_addr = remote_addr.clone();
                         let data =  WsMsg::json( OrbitalSatService::mod_path(), "hotspots", hotspots)?;
-                        hself.try_send_msg( SendWsMsg{remote_addr,data})?;
+                        hself.send_msg( SendWsMsg{remote_addr,data}).await;
                     }
                     Ok(())
                 });

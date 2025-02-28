@@ -72,8 +72,9 @@ fn spawn_orbital_sat_orbit_calculator (
         LiveOrbitCalculator::new(config),
         data_action!( 
             let jpss_importer_handle: ActorHandle<OrbitalSatImportActorMsg>  = importer_handle => |data: OrbitsReady| {
-            Ok(jpss_importer_handle.try_send_msg(data)?)
-        }) // sends orbit ready to importer
+                Ok(jpss_importer_handle.send_msg(data).await?)
+            }
+        ) // sends orbit ready to importer
     ))
 }
 fn spawn_orbital_sat_importer (
@@ -86,23 +87,22 @@ fn spawn_orbital_sat_importer (
 ) -> OdinActorResult<ActorHandle<OrbitalSatImportActorMsg>> {
     let init_action = dataref_action!{ 
         let hserver: ActorHandle<SpaServerMsg> = hserver.clone(), 
-        let sender_id: Arc<String> = pre_handle.get_id().clone() => 
-        |_store:&ViirsHotspotStore| {
-            Ok( hserver.try_send_msg( DataAvailable::new::<ViirsHotspotStore>(sender_id) )? )
+        let sender_id: Arc<String> = pre_handle.get_id().clone() =>  |_store:&ViirsHotspotStore| {
+            Ok( hserver.send_msg( DataAvailable::new::<ViirsHotspotStore>(sender_id) ).await? )
         }
     };
     let overpass_update_action = data_action!{ 
         let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |data:OverpassList| {
             for overpass in data.overpasses.iter(){
                 let data = WsMsg::json( OrbitalSatService::mod_path(), "overpass", overpass)?;
-                hserver.try_send_msg( BroadcastWsMsg{data})?;
+                hserver.send_msg( BroadcastWsMsg{data}).await?;
             }
             Ok(())
     }};
     let hotspot_update_action = data_action!{ 
         let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |data:ViirsHotspotSet| {
             let data = WsMsg::json( OrbitalSatService::mod_path(), "hotspots", data)?;
-            Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
+            Ok( hserver.send_msg( BroadcastWsMsg{data}).await? )
     }};
     spawn_pre_actor!( actor_system, pre_handle,  OrbitalSatImportActor::new(
         actor_config, 
