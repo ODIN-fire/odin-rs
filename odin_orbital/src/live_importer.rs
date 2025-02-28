@@ -120,6 +120,7 @@ impl LiveOrbitalSatImporter {
 
     fn initialize (&mut self, hself: ActorHandle<OrbitalSatImportActorMsg>, orbit_handle: ActorHandle<OrbitActorMsg>) -> Result<()> {
         let cache_dir = &self.cache_dir;
+        println!("initializing");
         self.overpass_import_task = Some( self.spawn_overpass_import_task( hself.clone(), orbit_handle, cache_dir.clone() )? );
         self.file_cleanup_task = Some( self.spawn_file_cleanup_task()? );
         Ok(())
@@ -167,23 +168,34 @@ pub fn get_overpass_request(config: LiveOrbitalSatImporterConfig, hself: ActorHa
         requester: hself.into() }
 }
 
-async fn run_init_data_acquisition (hself: ActorHandle<OrbitalSatImportActorMsg>, config: LiveOrbitalSatImporterConfig, cache_dir:Arc<PathBuf>) -> Result<()> {
+async fn run_init_data_acquisition (hself: ActorHandle<OrbitalSatImportActorMsg>, config: LiveOrbitalSatImporterConfig, cache_dir:Arc<PathBuf>, last_overpass: Overpass) -> Result<()> {
+    println!("**running init data acq");
     let query_bounds = get_query_bounds(&config.region);
     let url = format!("{}/usfs/api/area/csv/{}/{}/{}/3", &config.server, &config.map_key, &config.source, &query_bounds); // update date to match history
     let filename = get_latest_hotspot_download( &cache_dir, &url, &config.source).await?;
     let hs = read_hotspots(&filename)?;
     hself.try_send_msg(InitialHotspots(hs))?;
+    // run schedule for most recent overpass
+    println!("got overpass end date init data acq: {:?}", Utc.timestamp_millis_opt(last_overpass.last_date).unwrap());
+    run_data_acquisition( hself, config,  cache_dir, last_overpass).await?;
     Ok(())
    
 }
 
 async fn run_data_acquisition (hself: ActorHandle<OrbitalSatImportActorMsg>, config: LiveOrbitalSatImporterConfig, cache_dir:Arc<PathBuf>, overpass: Overpass) -> Result<()> {
     // set up schedule for next acquisition 
-    let schedule = get_data_request_schedule(overpass, config.request_delay)?;
+    let schedule = get_data_request_schedule(overpass.clone(), config.request_delay)?;
+    println!("overpass end date data acq {:?}", Utc.timestamp_millis_opt(overpass.last_date).unwrap());
+    println!("schedule: {:?}", schedule);
+    
     let query_bounds = get_query_bounds(&config.region);
     for dt_next in schedule.into_iter() {
         //  sleep until next download
-        let sleep_time =  Utc::now() - dt_next;
+        let mut sleep_time = TimeDelta::zero();
+        if  (Utc::now() < dt_next) { // protect against zero
+            sleep_time =   dt_next - Utc::now();
+        }
+        println!("sleep time: {:?}", sleep_time.num_minutes());
         sleep( sleep_time.to_std()?).await;
         //  download
         let url = format!("{}/usfs/api/area/csv/{}/{}/{}/1", &config.server, &config.map_key, &config.source, &query_bounds);
@@ -199,11 +211,15 @@ async fn run_overpass_acquisition (hself: ActorHandle<OrbitalSatImportActorMsg>,
     let hself_id = hself.id.clone();
     // initial overpass download
     let mut last_overpass_date = Utc::now();
+    let mut last_overpass = None;
+    println!("**running overpass acq");
     match timeout_query_ref(&orbit_handle, AskOverpassRequest(get_overpass_request(config.clone(), hself.clone())), secs(60)).await {
         Ok(response) => { 
             // switch these two lines back to avoid clone
-            hself.try_send_msg(response.clone())?;
-            last_overpass_date = response.0.get_end()?; // causes error and exits thread if empty set of overpasses
+            hself.try_send_msg(response.clone())?; 
+            last_overpass_date = response.0.get_next_overpass_end()?; // causes error and exits thread if empty set of overpasses
+            last_overpass = response.0.get_most_recent_overpass();
+            println!("got overpass end date: {:?}", last_overpass_date);
         }, // send overpasses 
         Err(e) => match e {
             OdinActorError::ReceiverClosed => error!("{} : Orbit Actor not available", hself.id.clone()),
@@ -211,14 +227,23 @@ async fn run_overpass_acquisition (hself: ActorHandle<OrbitalSatImportActorMsg>,
         }
     }
     // initial data download
-    run_init_data_acquisition(hself.clone(), config.clone(), cache_dir.clone()).await?;
+    if let Some(overpass) = last_overpass {
+        println!("got overpass end date: {:?}", last_overpass_date);
+        run_init_data_acquisition(hself.clone(), config.clone(), cache_dir.clone(), overpass).await?;
+    } else {
+        OdinOrbitalSatError::MiscError(String::from("No overpasses during initial download"));
+    }
     // run update loop
     let mut dt_next = last_overpass_date;
     loop {
         let mut overpass_list = OverpassList::new();
         let hself_id_clone = hself_id.clone();
         // get last overpass datetime - need overpass list for this?
-        let sleep_time =  Utc::now() - dt_next;
+        let mut sleep_time = TimeDelta::zero();
+        if  (Utc::now() < dt_next) { // protect against negative time
+            sleep_time =  dt_next - Utc::now();
+        }
+        println!("sleep time:{:?}", sleep_time);
         // sleep until before last op dt
         sleep( sleep_time.to_std()?).await;
         // request new overpasses 
@@ -228,7 +253,8 @@ async fn run_overpass_acquisition (hself: ActorHandle<OrbitalSatImportActorMsg>,
                 dt_next = response.0.get_end()?;
                 overpass_list = response.0.clone();
                 // send overpasses 
-                hself.try_send_msg(response)?
+                hself.try_send_msg(response)?;
+                println!("got new overpasses")
             }, 
             Err(e) => match e {
                 OdinActorError::ReceiverClosed => error!("{} : Orbit Actor not available", hself_id_clone),
@@ -239,10 +265,10 @@ async fn run_overpass_acquisition (hself: ActorHandle<OrbitalSatImportActorMsg>,
             let cache_dir_clone = cache_dir.clone();
             let config_clone = config.clone();
             let hself_clone = hself.clone();
-            run_data_acquisition( hself_clone, config_clone,  cache_dir_clone, overpass).await?;
-            // spawn( &format!("orbital-{}-{}-data-acquisition", sat_id.clone(), overpass.t_end.clone()), async move {
-            //     run_data_acquisition( hself_clone, config_clone,  cache_dir_clone, overpass).await
-            // })?;
+            //run_data_acquisition( hself_clone, config_clone,  cache_dir_clone, overpass).await?; 
+            spawn( &format!("orbital-{}-{}-data-acquisition", config.satellite.clone(), Utc.timestamp_millis_opt(overpass.last_date.clone()).unwrap()), async move {
+                run_data_acquisition( hself_clone, config_clone,  cache_dir_clone, overpass).await 
+            })?; // orbits overlap with schcedule therefore we need to spawn
         }
     }
 }
@@ -256,6 +282,7 @@ async fn run_file_cleanup (cache_dir: Arc<PathBuf>, interval: Duration, max_age:
 
 fn get_data_request_schedule (overpass: Overpass, request_delays: Vec<Duration>) -> Result<Vec<DateTime<Utc>>> {
     let mut schedule = Vec::new();
+    schedule.push( Utc.timestamp_millis_opt(overpass.last_date).unwrap());
     for delay in request_delays.into_iter() {
         let d = Utc.timestamp_millis_opt(overpass.last_date).unwrap() + delay;
         if d > Utc::now() {
@@ -284,6 +311,7 @@ impl LiveOrbitCalculator {
     }
 
     fn initialize(&mut self,  hself: ActorHandle<OrbitActorMsg>) -> Result<()> {
+        println!("initializing orbit calc");
         self.orbit_calculation_task = Some( self.spawn_orbit_calculation_task( hself.clone(), self.cache_dir.clone() )? );
         Ok(())
     }
@@ -297,6 +325,7 @@ impl LiveOrbitCalculator {
     }
 
     async fn calc_init_overpasses(&mut self, hself: ActorHandle<OrbitActorMsg>) -> Result<()> {
+        println!("calc init overpasses");
         let tle = get_tles_celestrak(self.config.satellite).await?;
         let overpass = compute_initial_orbits(tle, self.config.max_scan_angle, chrono::Duration::from_std(self.config.history)?, &self.config.full_region)?;
         hself.try_send_msg(InitOverpassList(overpass))?;
