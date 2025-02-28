@@ -530,6 +530,7 @@ impl SentinelStore {
         self.updates.get(k)
     }
 
+    /// turn snapshot of all devices into JSON
     pub fn to_json (&self, pretty: bool)->Result<String> {
         let list = SentinelList { sentinels: self.values() };
         if pretty {
@@ -552,6 +553,12 @@ impl SentinelStore {
             Ok(ron::to_string(&list)?)
         }
     }
+
+    /// get list with status for each device
+    pub fn get_sentinel_states (&self)->Result<Vec<SentinelState>> {
+        let list: Vec<SentinelState> = self.values().iter().map( |sentinel| sentinel.get_status()).collect();
+        Ok(list)
+    } 
 
     // here our responsibility is to keep sentinels and updates in sync and report back what changed
     pub fn update_with (&mut self, sentinel_update: SentinelUpdate, max_len: usize)->SentinelChange {
@@ -596,6 +603,7 @@ impl SentinelStore {
 }
 
 pub struct SentinelChange { added: Option<SentinelUpdate>, removed: Option<SentinelUpdate> }
+
 
 /// helper type so that we can serialize the Sentinel values as a list
 #[derive(Serialize)]
@@ -671,6 +679,8 @@ impl Sentinel {
     }
 
     pub fn update_with( &mut self, sentinel_update: SentinelUpdate)->(Option<RecordId>,Option<RecordId>) {
+        self.update_time( sentinel_update.time_recorded() );
+
         match_algebraic_type! { sentinel_update: SentinelUpdate as
             Arc<SensorRecord<AccelerometerData>> => sort_in_record( &mut self.accelerometer, sentinel_update, self.max_len),
             Arc<SensorRecord<AnemometerData>>    => sort_in_record( &mut self.anemometer,    sentinel_update, self.max_len),
@@ -689,6 +699,12 @@ impl Sentinel {
             Arc<SensorRecord<ThermometerData>>   => sort_in_record( &mut self.thermometer,   sentinel_update, self.max_len),
             Arc<SensorRecord<ValveData>>         => sort_in_record( &mut self.valve,         sentinel_update, self.max_len),
             Arc<SensorRecord<VocData>>           => sort_in_record( &mut self.voc,           sentinel_update, self.max_len)
+        }
+    }
+
+    pub fn update_time (&mut self, dt: DateTime<Utc>) {
+        if self.time_recorded.is_none() || self.time_recorded.unwrap() <  dt {
+            self.time_recorded = Some(dt)
         }
     }
 
@@ -762,8 +778,27 @@ impl Sentinel {
         }
     }
 
-
+    pub fn get_status(&self)->SentinelState {
+        SentinelState {
+            device_id: self.device_id.clone(),
+            time_recorded: self.time_recorded.clone()
+        }
+    }
 }
+
+/// device id and last update of a Sentinel
+#[derive(Debug,Serialize,Deserialize)]
+pub struct SentinelState { 
+    device_id: DeviceId, 
+
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "odin_common::datetime::ser_epoch_millis_option")]
+    time_recorded: Option<DateTime<Utc>> 
+}
+
+/// non-generic type to send collection of SentinelState objects
+#[derive(Debug)]
+pub struct SentinelStates(pub Vec<SentinelState>);
+
 
 pub fn get_closest_record_idx<T> (dt: DateTime<Utc>, recs: &VecDeque< Arc<SensorRecord<T>> >)->Option<usize> 
     where T: RecordDataBounds

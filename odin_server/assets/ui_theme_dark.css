@@ -194,4 +194,6 @@
     --icon-box-background: rgba(0, 0, 0, 0);
     /* document */
     --document-background: black;
+    /* scale */
+    --scale-color: rgb(0, 255, 0);
 }

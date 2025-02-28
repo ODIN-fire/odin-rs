@@ -170,6 +170,17 @@ div.ui_window.resizable div.ui_window_content {
     overflow: auto;
 }
 
+/* moveable canvas */
+
+canvas.ui_moveable_canvas {
+    display: none;
+    position: absolute;
+}
+
+canvas.ui_moveable_canvas.show {
+    display: block;
+    background: transparent;
+}
 
 /* screen icons */
 

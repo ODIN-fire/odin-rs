@@ -15,6 +15,7 @@
 use std::collections::{VecDeque,HashMap};
 use std::{time::Duration,sync::Arc,future::Future, path::PathBuf, io::Write as IoWrite, fmt::Write as FmtWrite};
 use futures::SinkExt;
+use odin_common::datetime::duration_since;
 use odin_common::fs::get_filename_extension;
 use odin_common::geo::GeoPoint4;
 use odin_common::sim_clock;
@@ -27,7 +28,10 @@ use odin_actor::prelude::*;
 use odin_macro::{match_algebraic_type, define_struct};
 use uom::si::f32::Time;
 
-use crate::{op_failed, sentinel_cache_dir, ExternalImage, FireData, GetSentinelFile, GetSentinelPosition, RecordDataBounds, RecordRef, SensorRecord, SentinelDeviceInfo, SentinelDeviceInfos, SentinelFile, SentinelInactiveAlert, SentinelStore, SentinelUpdate, SmokeData
+use crate::{
+    op_failed, sentinel_cache_dir, 
+    ExternalImage, DeviceId, FireData, SmokeData, GetSentinelFile, GetSentinelPosition, RecordDataBounds, RecordRef, SensorRecord, 
+    SentinelDeviceInfo, SentinelDeviceInfos, SentinelFile, SentinelStore, SentinelState, SentinelStates, SentinelUpdate
 };
 use crate::actor::{SentinelActorMsg,GetSentinelUpdate};
 use crate::errors::{OdinSentinelError, Result};
@@ -91,7 +95,8 @@ macro_rules! create_messengers {
 pub struct SentinelAlarmMonitorConfig {
     pub new_alarm_duration: Duration, // after which we consider this to be a new alarm. Zero means every alarm is reported
     pub old_alarm_duration: Duration, // after which we purge a stored alarm, needs to be > new_alarm_duration
-
+    pub inactive_duration: Duration, // how long since last update until we assume device is inactive
+    pub inactive_interval: Duration, // how often do we check for inactive status
     pub attach_image: bool,
     pub image_timeout: Duration,
     pub fire_prob: f64,
@@ -103,6 +108,8 @@ impl Default for SentinelAlarmMonitorConfig {
         SentinelAlarmMonitorConfig {
             new_alarm_duration: minutes(10),
             old_alarm_duration: Duration::from_mins(60),
+            inactive_duration: Duration::from_mins(60),
+            inactive_interval: Duration::from_mins(5),
             attach_image: true,
             image_timeout: Duration::from_secs(20),
             fire_prob: 0.7,
@@ -120,7 +127,17 @@ struct ReportedAlarm<T> where T: RecordDataBounds{
 
 const ALARM_HISTORY: usize = 10;
 
-define_actor_msg_set! { pub SentinelAlarmMonitorMsg = SentinelUpdate | SentinelInactiveAlert | Alarm }
+/// alarm we raise ourselves if a device hasn't reported in a configured amount of time
+#[derive(Debug,Clone)]
+pub struct SentinelInactiveAlert {
+    pub device_id: String,
+    pub time_recorded: Option<DateTime<Utc>>,
+}
+
+const INACTIVE_TIMER: i64 = 1;
+
+
+define_actor_msg_set! { pub SentinelAlarmMonitorMsg = SentinelStates | SentinelUpdate | Alarm }
 
 /// the Sentinel Alarm Actor state
 define_struct! { pub SentinelAlarmMonitor =
@@ -129,12 +146,21 @@ define_struct! { pub SentinelAlarmMonitor =
     hupdater: ActorHandle<SentinelActorMsg>,
     messengers: Vec<Box<dyn AlarmMessenger>>,
 
+    sentinel_states: HashMap<DeviceId,Option<DateTime<Utc>>> = HashMap::new(),
+
     reported_fire_alarms: VecDeque<ReportedAlarm<FireData>> = VecDeque::with_capacity( ALARM_HISTORY),
     reported_smoke_alarms: VecDeque<ReportedAlarm<SmokeData>> = VecDeque::with_capacity( ALARM_HISTORY),
     inactive_alerts: Vec<SentinelInactiveAlert> = Vec::new()
 }
 
 impl SentinelAlarmMonitor {
+
+    fn init_sentinel_states (&mut self, states: SentinelStates) {
+        self.sentinel_states.clear();
+        for e in states.0 {
+            self.sentinel_states.insert( e.device_id, e.time_recorded);
+        }
+    }
 
     async fn process_fire_alarm (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, rec: Arc<SensorRecord<FireData>>) {
         if rec.data.fire_prob >= self.config.fire_prob {
@@ -147,7 +173,7 @@ impl SentinelAlarmMonitor {
                     rec.time_recorded.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %Z"), rec.device_id, info, rec.data.fire_prob);
                 let alarm_type = rec.capability().property_name().to_string();
                 let confidence = rec.data.fire_prob;
-                self.process_alarm( hself, &alarm_id, &rec.id, rec.device_id.clone(), descr, rec.time_recorded, alarm_type, confidence, evidence_info).await;
+                self.process_alarm( &hself, &alarm_id, &rec.id, rec.device_id.clone(), descr, rec.time_recorded, alarm_type, confidence, evidence_info).await;
             }
         }
     }
@@ -163,7 +189,7 @@ impl SentinelAlarmMonitor {
                     rec.time_recorded.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S %Z"), rec.device_id, info, rec.data.smoke_prob);
                 let alarm_type = rec.capability().property_name().to_string();
                 let confidence = rec.data.smoke_prob;
-                self.process_alarm( hself, &alarm_id, &rec.id, rec.device_id.clone(), descr, rec.time_recorded, alarm_type, confidence, evidence_info).await;
+                self.process_alarm( &hself, &alarm_id, &rec.id, rec.device_id.clone(), descr, rec.time_recorded, alarm_type, confidence, evidence_info).await;
             }
         }   
     }
@@ -206,7 +232,7 @@ impl SentinelAlarmMonitor {
         false
     }
 
-    async fn process_alarm (&self, hself: ActorHandle<SentinelAlarmMonitorMsg>, 
+    async fn process_alarm (&self, hself: &ActorHandle<SentinelAlarmMonitorMsg>, 
         alarm_id: &str, record_id: &str, device_id: String, 
         mut description: String, time_recorded: DateTime<Utc>, alarm_type: String, confidence: f64, mut evidence_info: Vec<EvidenceInfo>
     ) 
@@ -316,27 +342,41 @@ impl SentinelAlarmMonitor {
         };
     }
 
-    async fn process_inactive_alert (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, alert: SentinelInactiveAlert) {
-        if !self.inactive_alerts.iter().find(|e| e.device_id == alert.device_id).is_some(){
-            let device_id = alert.device_id.clone();
-            let time_recorded = Utc::now();
-            let alarm_type = "status".to_string();
-            let alarm_id = format!("🔴 inactive {}", alert.device_id);
-            let description = if let Some(last_rep) = alert.last_time_recorded {
-                format!("last reported: {}", last_rep.format("%Y-%m-%dT%H:%M:%S%Z"))
-            } else {
-                "never reported".to_string()
-            };
-            let evidences = Vec::with_capacity(0);
-            
-            self.process_alarm( hself, &alarm_id, "", device_id, description, time_recorded, alarm_type, 1.0, evidences).await;
+    async fn check_inactive (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>) {
+        let now = Utc::now();
+        for ( device_id, time_recorded ) in &self.sentinel_states {
+            let elapsed = if let Some(tr) = time_recorded { duration_since( &now, &time_recorded.unwrap()) } else { Duration::from_days(1) };
 
-            self.inactive_alerts.push(alert);
+            if time_recorded.is_none() || elapsed >= self.config.inactive_duration {
+                if self.inactive_alerts.iter().find( |alert| alert.device_id == *device_id).is_none() { // did we already report?
+
+                    let alert = SentinelInactiveAlert {
+                        device_id: device_id.clone(),
+                        time_recorded: time_recorded.clone()
+                    };
+                    self.inactive_alerts.push(alert);
+
+                    //--- send it to messengers
+                    let device_id = device_id.clone();
+                    let alarm_type = "status".to_string();
+                    let alarm_id = format!("🔴 inactive {}", device_id);
+                    let description = if let Some(last_rep) = time_recorded {
+                        format!("last reported: {}", last_rep.format("%Y-%m-%dT%H:%M:%S%Z"))
+                    } else {
+                        "never reported".to_string()
+                    };
+                    let evidences = Vec::with_capacity(0);
+                    
+                    self.process_alarm( &hself, &alarm_id, "", device_id, description, now, alarm_type, 1.0, evidences).await;
+                }
+            } 
         }
     }
 
-    async fn check_inactive_alerts (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, device_id: &String, time_recorded: &DateTime<Utc>) {
-        if let Some(idx) = self.inactive_alerts.iter().position(|e| *device_id == e.device_id) {
+    async fn update_sentinel_states (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>, device_id: &String, time_recorded: &DateTime<Utc>) {
+        self.sentinel_states.insert( device_id.clone(), Some(time_recorded.clone()));
+
+        if let Some(idx) = self.inactive_alerts.iter().position(|e| *device_id == e.device_id) { // device online again -> notify
             self.inactive_alerts.remove(idx);
 
             let time_recorded = Utc::now();
@@ -345,26 +385,51 @@ impl SentinelAlarmMonitor {
             let description = format!("reported again: {}", time_recorded.format("%Y-%m-%dT%H:%M:%S%Z"));
             let evidences = Vec::with_capacity(0);
             
-            self.process_alarm( hself, &alarm_id, "", device_id.clone(), description, time_recorded, alarm_type, 1.0, evidences).await
+            self.process_alarm( &hself, &alarm_id, "", device_id.clone(), description, time_recorded, alarm_type, 1.0, evidences).await
         }
     }
 }
 
 impl_actor! { match msg for Actor<SentinelAlarmMonitor,SentinelAlarmMonitorMsg> as
+    _Start_ => cont! {
+        let hself = self.hself();
+
+        if let Err(e) = self.start_repeat_timer( INACTIVE_TIMER, self.config.inactive_interval, false) {
+            error!("failed to start inactive timer")
+        } 
+    }
+
+    _Timer_ => cont! {
+        if msg.id == INACTIVE_TIMER {
+            let hself = self.hself();
+            self.check_inactive( hself).await;
+        }
+    }
+
     SentinelUpdate => cont! { // external - update notification
-        let hself = self.hself.clone();
+        let hself = self.hself();
+
         match_algebraic_type! { msg: SentinelUpdate as 
             Arc<SensorRecord<FireData>> => self.process_fire_alarm( hself, msg).await,
             Arc<SensorRecord<SmokeData>> => self.process_smoke_alarm( hself, msg).await,
-            Arc<SensorRecord<ImageData>> => self.check_inactive_alerts( hself, &msg.device_id, &msg.time_recorded).await,
+
+            Arc<SensorRecord<ImageData>>       => self.update_sentinel_states( hself, &msg.device_id, &msg.time_recorded).await,
+            Arc<SensorRecord<PowerData>>       => self.update_sentinel_states( hself, &msg.device_id, &msg.time_recorded).await,
+            Arc<SensorRecord<GasData>>         => self.update_sentinel_states( hself, &msg.device_id, &msg.time_recorded).await,
+            Arc<SensorRecord<ThermometerData>> => self.update_sentinel_states( hself, &msg.device_id, &msg.time_recorded).await,
+
             // TODO - we should add a couple other SensorRecords here that are frequently updated
             _ => {} // the rest we ignore
         }
     }
-    SentinelInactiveAlert => cont! {
+
+    SentinelStates => cont! {
         let hself = self.hself();
-        self.process_inactive_alert( hself, msg).await
+
+        self.init_sentinel_states( msg);
+        self.check_inactive(hself).await;
     }
+
     Alarm => cont! { // internal message that we have to send out notifications  
         for msgr in &self.messengers {
             if let Err(e) = msgr.send_alarm( &msg).await {

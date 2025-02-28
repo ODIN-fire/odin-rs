@@ -43,14 +43,13 @@ run_actor_system!( actor_system => {
     let update_action = data_action!( 
         let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
         |update:SentinelUpdate| {
-            //let data = ws_msg!("odin_sentinel/odin_sentinel.js",update).to_json()?;
             let data = WsMsg::json( SentinelService::mod_path(), "update", update)?;
             Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
         }
     );
 
     let _hsentinel = spawn_pre_actor!( actor_system, pre_sentinel, 
-        SentinelActor::new( LiveSentinelConnector::new( load_config( "sentinel.ron")?), init_action, update_action, no_data_action())
+        SentinelActor::new( LiveSentinelConnector::new( load_config( "sentinel.ron")?), init_action, update_action)
     )?;
     
     Ok(())

@@ -27,5 +27,6 @@ export const config = {
     imageWidth: 550,
     imageHeight: 470,
     maxHistory: 10,
-    zoomHeight: 20000
+    zoomHeight: 20000,
+    inactiveMinutes: 60
   };

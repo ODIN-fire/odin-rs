@@ -24,7 +24,7 @@ const MOD_PATH = "odin_sentinel::sentinel_service::SentinelService";
 
 ws.addWsHandler( MOD_PATH, handleWsMessages);
 
-var sentinelInactiveDuration = undefined;
+var sentinelInactiveMillis = (config.inactiveMinutes ? config.inactiveMinutes : 15) * 60000;
 var sentinelDataSource = new Cesium.CustomDataSource("sentinel");
 var sentinelView = undefined;
 var sentinelEntries = new Map();
@@ -271,7 +271,7 @@ function initSentinelView() {
             { name: "smoke", tip: "smoke probability [0..1]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => e.smokeStatus() },
             { name: "img", tip: "number of available images", width: "4rem", attrs: ["fixed", "alignRight"], map: e => e.imageStatus() },
             ui.listItemSpacerColumn(),
-            { name: "stat", tip: "inactive alert", width: "2rem", attrs:["alignRight"], map: e => e.inactive ? "⚠︎" : "" },
+            { name: "stat", tip: "inactive alert", width: "2rem", attrs:["alignRight"], map: e => e.inactive ? "🔺" : "" },
             { name: "last report", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.sentinel.timeRecorded) }
         ]);
     }
@@ -496,10 +496,8 @@ function sentinelSelection() {
 function handleWsMessages(msgType, msg) {
     switch (msgType) {
         case "device_infos": handleDeviceInfoMessage(msg); break;
-        case "inactive_duration": handleInactiveDurationMessage(msg); break;
         case "sentinels": handleSentinelsMessage(msg); break;
         case "update": handleSentinelUpdateMessage(msg); break;
-        case "alert": handleSentinelAlertMessage(msg); break;
         case "cmdResponse": logResponse(msg); break;
     }
 }
@@ -508,25 +506,19 @@ function handleDeviceInfoMessage(deviceInfos) {
     sentinelInfos = deviceInfos;
 }
 
-// this is for client side inactive checks
-function handleInactiveDurationMessage(millis) {
-    sentinelInactiveDuration = millis;
-}
-
 function handleSentinelsMessage(sentinels) {
     sentinelEntries.clear();
     sentinels.forEach(sentinel => addSentinelEntry(sentinel));
     odinCesium.requestRender();
     
-    if (sentinelInactiveDuration) {
-        checkInactiveStatus();
-        setTimeout( ()=> checkInactiveStatus(), 60000); // run this every minute
+    if (sentinelInactiveMillis) {
+        checkInactiveStatus(); // check immediately
+        setInterval( checkInactiveStatus, 60000); // then run check every minute
     }
 }
 
 function addSentinelEntry(sentinel) {
     let e = new SentinelEntry(sentinel);
-
     sentinelEntries.set(sentinel.deviceId, e);
     let idx = sentinelList.insert(e);
     ui.insertListItem(sentinelView, e, idx);
@@ -543,15 +535,6 @@ function addSentinelEntry(sentinel) {
 
     if (sentinel.gps) e.assets = createAssets(e);
     checkFireAsset(e);
-}
-
-function handleSentinelAlertMessage(alert) {
-    let id = alert.deviceId;
-    let e = sentinelEntries.get(id);
-    if (e) {
-        e.inactive = true;
-        ui.updateListItem(sentinelView, e);
-    }
 }
 
 function handleSentinelUpdateMessage(update) {
@@ -645,10 +628,11 @@ function setImageHpr (sentinel, image) {
 }
 
 function checkInactiveStatus() {
-    if (sentinelInactiveDuration) {
+    if (sentinelInactiveMillis) {
         let now = Date.now();
+
         sentinelEntries.values().forEach( e=> {
-            if (now - e.sentinel.timeRecorded >= sentinelInactiveDuration) {
+            if (now - e.sentinel.timeRecorded >= sentinelInactiveMillis) {
                 if (!e.inactive) {
                     e.inactive = true;
                     ui.updateListItem(sentinelView, e);
@@ -659,7 +643,7 @@ function checkInactiveStatus() {
                     ui.updateListItem(sentinelView, e);
                 }
             }
-        })
+        });
     }
 }
 

@@ -427,19 +427,19 @@ fn oneshot_timer_for<M> (ah: ActorHandle<M>, id: i64, delay: Duration)->Result<A
 fn repeat_timer_for<M> (ah: ActorHandle<M>, id: i64, timer_interval: Duration, instantly: bool)->Result<AbortHandle> where M: MsgTypeConstraints {
     let timer_name = format!("{}-timer-{}", ah.id(), id);
     let mut interval = interval(timer_interval);
-    let mut send_tick = instantly; 
+    let mut tick_count: i64 = if instantly { 1 } else { -1 };
 
     let th = spawn( &timer_name, async move {
         while ah.is_running() {
-            if send_tick {
+            if tick_count > 0 {
                 ah.try_send_actor_msg( _Timer_{id}.into() );
-            } else {
-                send_tick = true;
             }
 
-            interval.tick().await;
+            interval.tick().await; // the first tick is always immediately. If we don't want to fire instantly we have to filter
+            tick_count += 1;
         }
     })?;
+    
     Ok(th.abort_handle())
 }
 
