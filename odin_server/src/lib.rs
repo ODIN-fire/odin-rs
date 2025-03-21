@@ -120,7 +120,7 @@ pub async fn file_response<P: AsRef<Path>> (path: &P, with_content_disposition: 
             }
 
             if flen < STREAM_SIZE {
-                if let Ok(data) = fs::file_contents(path) {
+                if let Ok(data) = fs::filepath_contents(path) {
                     let body = Body::from(data);
                     (AxStatusCode::OK, headers, body)
 

@@ -4,13 +4,6 @@ version = "0.1.0"
 edition = "2021"
 build = "../build_resources.rs"
 
-[[bin]]
-name = "get_jpss"
-path = "src/bin/get_jpss.rs"
-
-[[bin]]
-name = "read_jpss"
-path = "src/bin/read_jpss.rs"
 
 [dependencies]
 # our ODIN crates
@@ -29,23 +22,15 @@ tokio = { workspace = true }
 async-trait = { workspace = true }
 uom = { workspace = true }
 chrono = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { workspace = true }
+nalgebra = { workspace = true }
+anyhow = { workspace = true }
+structopt = { workspace = true }
+lazy_static = { workspace = true }
 
-reqwest = {version="*", features = ["json"]}
-anyhow = "*"
-http = "*"
-tempfile = "*"
-csv = "*"
-sgp4 = "*"
+regex = "1.11.1"
 satkit = "0.5.5"
-structopt = "*"
-lazy_static = "*"
-nalgebra = "0.33.1"
-nav-types = "*"
-geo = "*"
-thiserror = "*"
-tracing = "*"
-itertools = "*"
-argminmax = "0.6.2"
 
 [build-dependencies]
 odin_build = { workspace = true }

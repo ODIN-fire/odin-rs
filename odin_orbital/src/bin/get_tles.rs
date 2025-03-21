@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of 
  * the National Aeronautics and Space Administration. All rights reserved.
  *
  * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
@@ -11,38 +11,33 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
-
 #![allow(unused)]
-#[macro_use]
-extern crate lazy_static;
+#![feature(duration_constructors)]
 
-use structopt::StructOpt;
-use std::{fs::File, io::Write};
-use tokio;
-use anyhow::{Result, Ok};
-use odin_orbital::overpass::{get_tles_celestrak, compute_full_orbits};
+use odin_build;
+use tokio::{self,time::sleep};
+use odin_common::define_cli;
+use odin_orbital::{load_config, tle_store::{SpaceTrackConfig,SpaceTrackTleStore, TleStore}};
+use anyhow::{Result};
 
- /// structopt command line arguments
-#[derive(StructOpt,Debug)]
-struct CliOpts {
-    /// satellite id 
-    sat_id: u32,
-    /// output filename
-    filename: String,
-
+define_cli! { ARGS [about="TLE retrieval tool"] =
+    satellites: Vec<u32> [help="list of NORAD_CAT_IDs for satellites to retrieve"]
 }
-
-lazy_static! {
-    static ref ARGS: CliOpts = CliOpts::from_args();
-}
-
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let tle = get_tles_celestrak(ARGS.sat_id).await?;
-    let j = serde_json::to_string(&tle.to_string())?;
-    let fname = ARGS.filename.clone();
-    let mut file = File::create(fname).expect("Could not create file!");
-    file.write(j.as_bytes()).expect("Cannot write to the file!");
+    odin_build::set_bin_context!();
+
+    let config = load_config("spacetrack.ron")?;
+    let cache_dir = odin_build::cache_dir().join("orbital");
+
+    let mut tle_store = SpaceTrackTleStore::new( config, Some(cache_dir));
+
+    for sat_id in &ARGS.satellites {
+        print!("pre-fetching TLEs for satellite {sat_id}..");
+        let n = tle_store.pre_fetch( *sat_id).await?;
+        println!("{n}.");
+    }
+
     Ok(())
 }

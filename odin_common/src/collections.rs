@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 
-use std::collections::HashMap;
+use std::collections::{HashMap,VecDeque};
 
 /// trait to get a snapshot Vec of cloned entries of the receiver collection.
 /// Useful to iterate over current entries of a mutable collection
@@ -52,3 +52,24 @@ pub fn empty_vec<T> ()->Vec<T> {
     Vec::with_capacity(0)
 }
 
+/// make sure a VecDeque used as a ringbuffer (i.e. with bounded size) has space for an additional element
+#[inline]
+pub fn ensure_ringbuffer_space<T> (v: &mut VecDeque<T>) {
+    if v.len() == v.capacity() {
+        v.pop_front();
+    }
+}
+
+/// push a new element to the end of a VecDeque used as a ringbuffer (i.e. in bounded space)
+#[inline]
+pub fn push_to_ringbuffer<T> (v: &mut VecDeque<T>, t: T) {
+    ensure_ringbuffer_space(v);
+    v.push_back(t)
+}
+
+/// push a new element to the end of a VecDeque used as a ringbuffer (i.e. in bounded space)
+#[inline]
+pub fn insert_into_ringbuffer<T> (v: &mut VecDeque<T>, idx: usize, t: T) {
+    ensure_ringbuffer_space(v);
+    v.insert( idx, t)
+}

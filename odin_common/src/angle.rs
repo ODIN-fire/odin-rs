@@ -53,10 +53,31 @@ impl AngleKind for LatitudeKind {
 }
 
 #[derive(Debug,Clone,Copy)]
+pub struct HalfPiKind {}
+impl AngleKind for HalfPiKind {
+    fn normalize(v: f64) -> f64 { normalize_90(v) }
+    fn fmt_debug(value: f64, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}deg", value) }
+}
+
+#[derive(Debug,Clone,Copy)]
 pub struct LongitudeKind {}
 impl AngleKind for LongitudeKind {
     fn normalize(v: f64) -> f64 { normalize_180(v) }
     fn fmt_debug(value: f64, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "Longitude({})", value) }
+}
+
+#[derive(Debug,Clone,Copy)]
+pub struct PiKind {}
+impl AngleKind for PiKind {
+    fn normalize(v: f64) -> f64 { normalize_180(v) }
+    fn fmt_debug(value: f64, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}deg", value) }
+}
+
+#[derive(Debug,Clone,Copy)]
+pub struct FullCircleKind {}
+impl AngleKind for FullCircleKind {
+    fn normalize(v: f64) -> f64 { normalize_360(v) }
+    fn fmt_debug(value: f64, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}deg", value) }
 }
 
 #[derive(Copy, Clone)]
@@ -145,60 +166,50 @@ impl<K> ops::Div<f64> for NormalizedAngle<K> where K: AngleKind {
 pub type Longitude = NormalizedAngle<LongitudeKind>;
 pub type Latitude = NormalizedAngle<LatitudeKind>;
 
+pub type Angle90 = NormalizedAngle<HalfPiKind>;
+pub type Angle180 = NormalizedAngle<PiKind>;
+pub type Angle360 = NormalizedAngle<FullCircleKind>;
+
 //--- serde support
 
 use serde::ser::{Serialize as SerializeTrait, Serializer, SerializeStruct};
 use serde::de::{self, Deserialize as DeserializeTrait, Deserializer, Visitor, SeqAccess, MapAccess};
 
-impl<'de> DeserializeTrait<'de> for Longitude {
-    fn deserialize<D>(deserializer: D) -> Result<Longitude, D::Error> where D: Deserializer<'de> {
-        struct LonVisitor;
-
-        impl<'de> Visitor<'de> for LonVisitor {
-            type Value = Longitude;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("expecting floating point degrees between [-180.0..180.0] ")
-            }
-
-            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E> where E: de::Error {
-                use std::f64;
-                if value >= -180.0 && value <= 180.0 {
-                    Ok(Longitude::from_degrees(value))
-                } else {
-                    Err(E::custom(format!("longitude out of range: {}", value)))
+macro_rules! define_angle_deserializer {
+    ($angle_type: ident, $min:literal, $max:literal) => {
+        impl<'de> DeserializeTrait<'de> for $angle_type {
+            fn deserialize<D>(deserializer: D) -> Result<$angle_type, D::Error> where D: Deserializer<'de> {
+                struct AngleVisitor;
+        
+                impl<'de> Visitor<'de> for AngleVisitor {
+                    type Value = $angle_type;
+        
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        let msg = format!("expecting floating point degrees between [{}..{}]", $min,  $max);
+                        formatter.write_str(&msg)
+                    }
+        
+                    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E> where E: de::Error {
+                        use std::f64;
+                        if value >= $min && value <= $max {
+                            Ok($angle_type::from_degrees(value))
+                        } else {
+                            Err(E::custom(format!("degrees out of range: {}", value)))
+                        }
+                    }
                 }
+        
+                deserializer.deserialize_f64( AngleVisitor)
             }
         }
-
-        deserializer.deserialize_f64( LonVisitor)
-    }
+    };
 }
 
-impl<'de> DeserializeTrait<'de> for Latitude {
-    fn deserialize<D>(deserializer: D) -> Result<Latitude, D::Error> where D: Deserializer<'de> {
-        struct LatVisitor;
-
-        impl<'de> Visitor<'de> for LatVisitor {
-            type Value = Latitude;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("expecting floating point degrees between [-90.0..90.0] ")
-            }
-
-            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E> where E: de::Error {
-                use std::f64;
-                if value >= -90.0 && value <= 90.0 {
-                    Ok(Latitude::from_degrees(value))
-                } else {
-                    Err(E::custom(format!("latitude out of range: {}", value)))
-                }
-            }
-        }
-
-        deserializer.deserialize_f64( LatVisitor)
-    }
-}
+define_angle_deserializer!{ Angle90, -90.0, 90.0 }
+define_angle_deserializer!{ Latitude, -90.0, 90.0 }
+define_angle_deserializer!{ Angle180, -180.0, 180.0 }
+define_angle_deserializer!{ Longitude, -180.0, 180.0 }
+define_angle_deserializer!{ Angle360, 0.0, 360.0 }
 
 impl<K> SerializeTrait for NormalizedAngle<K> where K: AngleKind {
 

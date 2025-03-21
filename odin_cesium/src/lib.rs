@@ -24,6 +24,8 @@ use odin_server::prelude::*;
 define_load_config!{}
 define_load_asset!{}
 
+pub const CESIUM_VERSION: &'static str = "1.127";
+
 /* #region CesiumService *************************************************************************************/
 
 define_ws_payload!{ SetClock =
@@ -55,11 +57,9 @@ impl SpaService for CesiumService {
         spa.add_assets( self_crate!(), load_asset);
 
         //--- add Cesium
-        let cesium_version: &str = "1.126";
-
         #[cfg(feature="cesium_proxy")]
         {
-            spa.add_proxy( "cesium", format!("https://cesium.com/downloads/cesiumjs/releases/{cesium_version}/Build/Cesium"));
+            spa.add_proxy( "cesium", format!("https://cesium.com/downloads/cesiumjs/releases/{CESIUM_VERSION}/Build/Cesium"));
             spa.add_script( proxy_uri!( "cesium", "Cesium.js"));
             spa.add_css( proxy_uri!( "cesium", "Widgets/widgets.css"));
         }
@@ -73,8 +73,8 @@ impl SpaService for CesiumService {
         }
         #[cfg(feature="cesium_external")]
         { 
-            spa.add_script( format!("https://cesium.com/downloads/cesiumjs/releases/{cesium_version}/Build/Cesium/Cesium.js"));
-            spa.add_css( format!("https://cesium.com/downloads/cesiumjs/releases/{cesium_version}/Build/Cesium/Widgets/widgets.css"));
+            spa.add_script( format!("https://cesium.com/downloads/cesiumjs/releases/{CESIUM_VERSION}/Build/Cesium/Cesium.js"));
+            spa.add_css( format!("https://cesium.com/downloads/cesiumjs/releases/{CESIUM_VERSION}/Build/Cesium/Widgets/widgets.css"));
         }
 
         spa.add_css( asset_uri!("odin_cesium.css"));

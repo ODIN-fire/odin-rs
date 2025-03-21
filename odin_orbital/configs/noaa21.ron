@@ -1,0 +1,25 @@
+// example configuration for OverpassCalculator
+
+OverpassCalculatorConfig (
+    macro_region: [                         // concave CONUS approximation
+        GeoPoint( lon: -129.8029, lat: 50.4250 ), 
+        GeoPoint( lon: -122.5463, lat: 32.3474 ),
+        GeoPoint( lon:  -97.6721, lat: 24.1709 ),
+        GeoPoint( lon:  -79.8117, lat: 24.1709 ),
+        GeoPoint( lon:  -62.8262, lat: 47.7229 )
+    ],
+    
+    satellites: [
+        OrbitalSatelliteInfo (
+            sat_id: 54234,                  // NOAA-21
+            instrument: "VIIRS",
+            max_scan_angle: 56.2
+        )
+    ],
+
+    n_past: 2,                                        // number of past overpasses to compute per satellite
+    past_cutoff: Duration( secs: 172800, nanos: 0),   // how far to reach back: 2d
+
+    n_future: 2,                                      // number of upcoming overpasses to compute per satellite
+    future_cutoff: Duration( secs: 172800, nanos: 0)  // how far to reach into the future: 2d
+)

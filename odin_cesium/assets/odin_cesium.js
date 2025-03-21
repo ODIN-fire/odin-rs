@@ -710,7 +710,9 @@ function toggleRequestRenderMode(event) {
 export function requestRender(force = false) {
     if (force || (requestRenderMode && !pendingRenderRequest)) {
         pendingRenderRequest = true;
-        viewer.scene.requestRender();
+        viewer.scene.render();
+        //viewer.scene.requestRender();
+        // TODO - this does not dependably trigger a redraw as of Cesium 1.126 (requires screen interaction - like moving mouse over canvas)
     }
 }
 

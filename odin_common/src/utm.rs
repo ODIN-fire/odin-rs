@@ -99,9 +99,9 @@ pub fn geo_to_utm_zone (geo: &GeoPoint, utm_zone: UtmZone) -> Option<UTM> {
     // let n3 = 4.7350339184131065E-9 // n2 * n
     // let n4 = 7.951165486017604E-12 // n2 * n2
     // let A = 6367.449145823416 // (a / (1.0 + n)) * (1 + n2/4.0 + n4/64.0)
-    let α1 = 8.377318188192541E-4; // n/2.0 - (2.0/3.0)*n2 + (5.0/16.0)*n3
-    let α2 = 7.608496958699166E-7; // (13.0/48.0)*n2 - (3.0/5.0)*n3
-    let α3 = 1.2034877875966646E-9; // (61.0/240.0)*n3
+    let a1 = 8.377318188192541E-4; // n/2.0 - (2.0/3.0)*n2 + (5.0/16.0)*n3
+    let a2 = 7.608496958699166E-7; // (13.0/48.0)*n2 - (3.0/5.0)*n3
+    let a3 = 1.2034877875966646E-9; // (61.0/240.0)*n3
     let C = 0.08181919084262149; // (2.0*sqrt(n)) / (1.0 + n)
     // let k0 = 0.9996
     let D = 6364.902166165087; // k0 * A
@@ -130,8 +130,8 @@ pub fn geo_to_utm_zone (geo: &GeoPoint, utm_zone: UtmZone) -> Option<UTM> {
     let η4 = η * 4.0;
     let η6 = η * 6.0;
 
-    let easting = (E0 + D*(η + (α1 * cos(ξ2)*sinh(η2)) + (α2 * cos(ξ4)*sinh(η4)) + (α3 * cos(ξ6)*sinh(η6)))) * 1000.0;
-    let northing = (N0 + D*(ξ + (α1 * sin(ξ2)*cosh(η2)) + (α2 * sin(ξ4)*cosh(η4)) + (α3 * sin(ξ6)*cosh(η6)))) * 1000.0;
+    let easting = (E0 + D*(η + (a1 * cos(ξ2)*sinh(η2)) + (a2 * cos(ξ4)*sinh(η4)) + (a3 * cos(ξ6)*sinh(η6)))) * 1000.0;
+    let northing = (N0 + D*(ξ + (a1 * sin(ξ2)*cosh(η2)) + (a2 * sin(ξ4)*cosh(η4)) + (a3 * sin(ξ6)*cosh(η6)))) * 1000.0;
 
     Some( UTM {easting, northing, utm_zone} )
 }

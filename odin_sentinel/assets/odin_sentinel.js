@@ -815,6 +815,7 @@ function createFovAsset (imageRec) {
                 outlineColor: config.fovOutlineColor,
                 outlineWidth: 1,
                 distanceDisplayCondition: config.fovDC,
+                zIndex: 1,
             }
         });
     } else {

@@ -24,7 +24,10 @@ pub mod macros;
 pub mod fs;
 pub mod datetime;
 pub mod angle;
-pub mod geo; 
+pub mod geo_constants;
+pub mod geo;
+pub mod cartesian3;
+pub mod cartographic; 
 pub mod utm;
 pub mod sim_clock;
 pub mod ranges;
@@ -97,4 +100,37 @@ impl <T: Num + Copy + ToPrimitive> BoundingBox<T> {
     pub fn center (&self) -> (f64,f64) {
         ( (self.west + self.east).to_f64().unwrap() / 2.0, (self.south + self.north).to_f64().unwrap() / 2.0 )
     }
+}
+
+/// a simple incremental min/max/avg accumulator
+#[derive(Debug)]
+pub struct MinMaxAvg {
+    n: usize,
+    min: f64,
+    max: f64,
+    avg: f64
+}
+
+impl MinMaxAvg {
+    pub fn new()->Self { MinMaxAvg { n: 0, min: f64::MAX, max: f64::MIN, avg: f64::NAN } }
+    
+    /// add a new observation
+    pub fn add (&mut self, x: f64) {
+        self.n += 1;
+
+        if self.n > 1 {
+            self.avg = self.avg + (x - self.avg) / self.n as f64;
+            if x < self.min { self.min = x }
+            if x > self.max { self.max = x }
+        } else {
+            self.min = x;
+            self.max = x;
+            self.avg = x;
+        }
+    }
+}
+
+#[inline]
+pub fn is_same_ref<T> (r1: &T, r2: &T) -> bool {
+    (r1 as *const _) == (r2 as *const _) 
 }
