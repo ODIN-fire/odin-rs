@@ -101,6 +101,7 @@ pub struct SentinelAlarmMonitorConfig {
     pub image_timeout: Duration,
     pub fire_prob: f64,
     pub smoke_prob: f64,
+    pub viewer_url: Option<String>, // the url for a sentinel viewer
 }
 
 impl Default for SentinelAlarmMonitorConfig {
@@ -114,6 +115,7 @@ impl Default for SentinelAlarmMonitorConfig {
             image_timeout: Duration::from_secs(20),
             fire_prob: 0.7,
             smoke_prob: 0.7,
+            viewer_url: None,
         }
     }
 }
@@ -241,9 +243,10 @@ impl SentinelAlarmMonitor {
         let hupdater = &self.hupdater;
         let pos = self.retrieve_pos( hupdater, &device_id, time_recorded).await;
         if let Some(p) = pos {
-            let alt_m = 180000.0; // [m] - we could use p.alt + x here
-            write!( description, "\nhttps://wildfireai.com/odin-fire/live?view={:.4},{:.4},{:.0}", 
-                    p.longitude().degrees(), p.latitude().degrees(), alt_m);
+            if let Some(viewer_url) = &self.config.viewer_url {
+                let alt_m = 180000.0; // [m] - we could use p.alt + x here
+                write!( description, "\n{}?view={:.4},{:.4},{:.0}", viewer_url, p.longitude().degrees(), p.latitude().degrees(), alt_m);
+            }
         }
 
         if !self.config.attach_image {  // we don't want images - send right away
