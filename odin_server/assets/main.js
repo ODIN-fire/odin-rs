@@ -209,7 +209,7 @@ export class GeoPolyline3 {
 }
 
 export class GeoPolygon {
-    constructor (exterior,interiors=null) {
+    constructor (exterior,interiors=[]) {
         this.exterior = exterior;
         this.interiors = interiors;
     }

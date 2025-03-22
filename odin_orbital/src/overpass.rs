@@ -86,9 +86,12 @@ impl <T: TleStore> OverpassCalculator<T> {
         OverpassCalculator { config, tle_store, regions: Vec::with_capacity( n_regions) }
     }
 
-    /// this obtains required TLEs, computes reference orbits with them and initializes OverpassRegions for each satellite entry
-    /// from them.
-    pub fn initialize (&mut self)->Result<()> {
+    /// this obtains required TLEs, computes reference orbits and OverpassRegionConstraints for each satellite
+    pub async fn initialize (&mut self)->Result<()> {
+        for sat in &self.config.satellites {
+            self.tle_store.pre_fetch(sat.sat_id).await?;
+        }
+
         Ok(())
     }
 }
