@@ -949,6 +949,7 @@ function createPolygonEntity(e){
             material: config.fillColor,
             outlineColor: config.outlineColor,
             outlineWidth: config.outlineWidth,
+            zIndex: 2,
         }
     });
 }

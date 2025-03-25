@@ -131,3 +131,18 @@ fn test_init_msg()->Result<(),OdinShareError> {
     Ok(())
 }
 
+#[test]
+fn test_incoming_set_shared()->Result<(),OdinShareError> {
+    let input = r#"{"key":"area/shasta","isLocal":false,"value":{"type":"GeoPolygon","comment":null,"data":{"exterior":[{"lon":-122.40993474782498,"lat":41.46462451680153},{"lon":-122.05586654505754,"lat":41.6270470485744},{"lon":-121.72314964200602,"lat":41.36294708580731},{"lon":-121.94957744237178,"lat":41.28915090544984},{"lon":-122.31724095539576,"lat":41.29856823986395}],"interiors":[]}}}"#;
+
+    match serde_json::from_str::<SetShared>(input) {
+        Ok(res) => {
+            println!("parsed result: {:?}", res);
+            Ok(())
+        }
+        Err(e) => {
+            println!("error: {}", e);
+            Err(op_failed("set_shared did not parse"))
+        }
+    }
+}

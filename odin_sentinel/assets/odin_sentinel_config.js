@@ -21,7 +21,7 @@ export const config = {
     fovColor: Cesium.Color.fromCssColorString('chartreuse').withAlpha(0.3),
     fovOutlineColor: Cesium.Color.fromCssColorString('chartreuse'),
     fovDC: new Cesium.DistanceDisplayCondition(0, 50000),
-    fovDist: 3000,
+    fovDist: 3000, // meters
     fovLeft: -35.0,
     fovRight: 35.0,
     imageWidth: 550,

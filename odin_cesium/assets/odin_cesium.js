@@ -708,9 +708,11 @@ function toggleRequestRenderMode(event) {
 // if there is no pending scene rendering request issue one. Note this still is subject
 // to not exceeding the target framerate of Cesium, i.e. it might not result in rendering
 export function requestRender(force = false) {
-    if (force || requestRenderMode && !pendingRenderRequest) {
+    if (force || (requestRenderMode && !pendingRenderRequest)) {
         pendingRenderRequest = true;
-        viewer.scene.requestRender();
+        viewer.scene.render();
+        //viewer.scene.requestRender();
+        // TODO - this does not dependably trigger a redraw as of Cesium 1.126 (requires screen interaction - like moving mouse over canvas)
     }
 }
 

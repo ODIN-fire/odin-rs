@@ -42,6 +42,9 @@ environments with minimal configuration this might cause reloading and should be
 To obtain, strip and store the requires cesium assets in `<ODIN-ROOT>/odin_cesium/cesiumjs/` we provide the
 `install_cesium` binary tool, which you can run like so: `cargo run --bin install_cesium -- --version=<cesium-version>`
 
+In all cases the Cesium version to use is specified as a `CESIUM_VERSION` constant in `odin_orbital/src/lib.rs`. If you use
+the `cesium_asset` option this has to correspond with the downloaded/installed version.
+
 To see the current CesiumJS version please visit https://cesium.com/downloads/.
 
 

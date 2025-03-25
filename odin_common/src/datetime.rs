@@ -58,6 +58,10 @@ pub fn to_epoch_millis<Tz> (date: DateTime<Tz>)->i64 where Tz: TimeZone {
     date.timestamp_millis()
 }
 
+pub fn from_epoch_millis(millis: i64)->DateTime<Utc> {
+    DateTime::<Utc>::from_timestamp_millis(millis).unwrap()
+}
+
 /// return the full hour for given DateTime (minutes, seconds and nanos all zeroed)
 pub fn full_hour<Tz:TimeZone> ( dt: &DateTime<Tz>)->DateTime<Tz> {
     dt.with_minute(0).unwrap().with_second(0).unwrap().with_nanosecond(0).unwrap()

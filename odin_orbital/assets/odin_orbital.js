@@ -339,7 +339,9 @@ function toggleShowSwath (showIt, ops) {
         dataSource.entities.remove(ops.swathEntity);
         ops.swathEntity = undefined;
     }
-    odinCesium.requestRender();
+
+    odinCesium.requestRender(true);
+    setTimeout( odinCesium.render, 150);
 }
 
 function satEntry(satId) {
@@ -432,12 +434,14 @@ function updateUpcoming() {
 function updatePast() {
     let candidates = pastEntries;
     candidates = candidates.filter( e=> isSatShowing(e.satId));
-
     displayPastEntries = candidates;
 
     let lastSel = selPast;
     if (lastSel && !candidates.includes(lastSel)) lastSel = undefined;
+
+    console.log("@@ update pastView: ", candidates);
     ui.setListItems(pastView, candidates);
+
     if (lastSel) ui.setSelectedListItem(pastView,lastSel);
 }
 
@@ -470,19 +474,16 @@ function handleWsMessages(msgType, msg) {
     
     switch (msgType) {
         case "satellites":
-            handleSatelliteMessage(msg);
-            return true;
+            handleSatelliteMessage(msg); break;
         case "region":
-            handleRegionMessage(msg);
-            return true;
+            handleRegionMessage(msg); break;
         case "overpass":
-            handleOverpassMessage(msg);
-            return true;
+            handleOverpassMessage(msg); break;
         case "hotspots":
-            handleHotspotMessage(msg);
-            return true;
+            handleHotspotMessage(msg); break;
         default:
-            return false;
+            console.log("unknown websock message ", msgType, " ignored");
+            break;
     }
 }
 
@@ -507,6 +508,7 @@ function handleOverpassMessage(ops) {
 
 function handleHotspotMessage(hs) {
     let pe = new PastEntry(hs);
+    console.log("@@ updateHotspots: ", hs);
 
     let i = pastEntries.findIndex( e=> e.date == pe.date);  // replace ? could be any past entry
     if (i >= 0) {
@@ -514,6 +516,7 @@ function handleHotspotMessage(hs) {
     } else { // sort in
         i = 0;
         while (i < pastEntries.length && pastEntries[i].date > pe.date) i++;
+        console.log("@@ insert new hotspots at ", i);
         pastEntries.splice(i, 0, pe); // insert
 
         let pFirst = pastEntries.find( e=> e.satId == pe.satId);
@@ -725,14 +728,11 @@ function createSwathEntity (ops) {
             material: cfg.swathColor,
             height: 0,
             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-            clampToGround: true,
             //distanceDisplayCondition: cfg.swathDC // Cesium BUG ? does not work correctly
         },
         polyline: {
             positions: pts,
             material: cfg.trackColor,
-            height: 0,
-            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
             clampToGround: true,
             //distanceDisplayCondition: cfg.swathDC
         },

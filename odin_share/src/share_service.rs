@@ -212,8 +212,13 @@ impl SpaService for ShareService {
         if ws_msg_parts.mod_path == ShareService::mod_path() {
             match ws_msg_parts.msg_type {
                 "setShared" => {
-                    if let Ok(set_shared) = serde_json::from_str::<SetShared>(ws_msg_parts.payload) {
-                        self.hstore.send_msg( SetSharedStoreEntry::from(set_shared)).await;
+                    match serde_json::from_str::<SetShared>(ws_msg_parts.payload) {
+                        Ok(set_shared) => {
+                            self.hstore.send_msg( SetSharedStoreEntry::from(set_shared)).await;
+                        }
+                        Err(e) => {
+                            println!("SetShared payload failed to parse: {e}");
+                        }
                     }
                 }
                 "removeShared" => {

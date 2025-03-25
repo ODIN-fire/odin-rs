@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of 
  * the National Aeronautics and Space Administration. All rights reserved.
  *
  * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
@@ -11,26 +11,28 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
-
 #![allow(unused)]
 
-//! tool to read VIIRS hotspots from a local csv file
+use odin_common::fs::matching_files_in_dir;
+use regex::Regex;
+use std::path::Path;
 
-use anyhow::{Result,anyhow};
-use std::path::PathBuf;
+// run with "cargo test test_xx -- --nocapture"
 
-use odin_common::define_cli;
-use odin_orbital::read_hotspots;
+#[test]
+fn test_matching_files() {
+    let re = Regex::new( r".*\.rs").unwrap();
+    let dir = Path::new("src");
+    let res = matching_files_in_dir( &dir, &re);
 
-define_cli! { ARGS [about="tool to extract hotspots from JPSS VIIRS data product files"] =
-    pathname: String [help="path to csv file"]
-}
+    assert!(res.is_ok());
 
-fn main() {
-    let path = PathBuf::from( &ARGS.pathname);
-    if path.is_file() { 
-        let hs = read_hotspots(&path).unwrap();
-        println!("{}", hs.to_json_pretty().unwrap());
-    } else { 
-        println!("file not found") }
+    if let Ok(files) = res {
+        assert!( !files.is_empty());
+        for f in files {
+            println!("{f:?}");
+        }
+    } else {
+        panic!("no matching files in src/ ?")
+    }
 }

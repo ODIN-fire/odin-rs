@@ -33,10 +33,11 @@ function getWsUrl() {
     // protocol replacement. We have to construct it explicitly from the document URL
 
     let url = new URL(window.location.href);
+    let protocol = url.protocol == "https:" ? "wss:" : "ws:";
     let host = url.host;
     let path = url.pathname;
 
-    return `ws://${host}${path}/ws`
+    return `${protocol}//${host}${path}/ws`
 }
 
 export function addWsHandler(modName,newHandler) {

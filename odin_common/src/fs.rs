@@ -18,6 +18,7 @@ use std::fs::{self,DirEntry,FileTimes,File,OpenOptions};
 use std::io::{self,Read, Write, Error as IOError,ErrorKind};
 use std::time::{SystemTime,Duration};
 use io::ErrorKind::*;
+use regex::Regex;
 use std::path::{Path,PathBuf};
 
 use crate::if_let;
@@ -99,12 +100,12 @@ pub fn file_contents_as_string (file: &mut fs::File) -> Result<String> {
     Ok(contents)
 }
 
-pub fn filepath_contents_as_string (dir: &str, filename: &str) -> Result<String> {
-    let mut file = readable_file(dir,filename)?;
+pub fn filepath_contents_as_string <P: AsRef<Path>> (path: &P) -> Result<String> {
+    let mut file = File::open(path)?;
     file_contents_as_string( &mut file)
 }
 
-pub fn file_contents <P: AsRef<Path>> (path: &P) -> Result<Vec<u8>> {
+pub fn filepath_contents <P: AsRef<Path>> (path: &P) -> Result<Vec<u8>> {
     let mut file = File::open(path)?;
     let md = file.metadata()?;
     let len = md.len();
@@ -264,6 +265,35 @@ pub fn visit_dirs (dir: &Path, recursive: bool, cb: &mut dyn FnMut(&DirEntry)) -
             }
         }
     }
+    Ok(())
+}
+
+pub fn matching_files_in_dir<P: AsRef<Path>> (dir: &P, fname_regex: &Regex) -> Result<Vec<PathBuf>> {
+    let dir: &Path = dir.as_ref();
+    let mut list: Vec<PathBuf> = Vec::new();
+
+    if dir.is_dir() {
+        for entry in fs::read_dir(dir)? {
+            if let Ok(entry) = entry {
+                if let Some(fname) = entry.file_name().to_str() {
+                    if fname_regex.is_match( fname) {
+                        list.push(entry.path())
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(list)
+}
+
+pub fn store_file_contents_in_dir<P: AsRef<Path>> (dir: &P, filename: &str, contents: &[u8]) -> Result<()> {
+    let dir: &Path = dir.as_ref();
+
+    let path = dir.join(filename);
+    let mut file = File::create(path)?;
+    file.write_all( contents);
+
     Ok(())
 }
 

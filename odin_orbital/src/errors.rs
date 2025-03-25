@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of 
  * the National Aeronautics and Space Administration. All rights reserved.
  *
  * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
@@ -12,68 +12,23 @@
  * and limitations under the License.
  */
 
- use thiserror::Error;
+use thiserror::Error;
 
- pub type Result<T> = std::result::Result<T, OdinOrbitalSatError>;
+pub type Result<T> = std::result::Result<T, OdinOrbitalError>;
  
- #[derive(Error, Debug)]
- pub enum OdinOrbitalSatError {
-   //  #[error("Tryinto error {0}")]
-   //  TryIntoError( #[from] std::ops::Try),
+#[derive(Error,Debug)]
+pub enum OdinOrbitalError {
 
-    #[error("IO error {0}")]
-    IOError( #[from] std::io::Error),
+   #[error("TLE error {0}")]
+   TleError( String ),
 
-    #[error("serde error {0}")]
-    SerdeError( #[from] serde_json::Error),
-
-    #[error("CSV error {0}")]
-    CsvError( #[from] csv::Error),
-
-    #[error("Reqwest error {0}")]
-    ReqwestError( #[from] reqwest::Error),
-
-    #[error("SPG4 error {0}")]
-    Spg4Error( #[from] sgp4::Error),
-
-    #[error("SPG4 elements error {0}")]
-    Spg4ElementsError( #[from] sgp4::ElementsError),
-    
-    #[error("SPG4 date time error {0}")]
-    Spg4DatetimeError( #[from] sgp4::DatetimeToMinutesSinceEpochError),
-    
-    // #[error("Misc error {0}")]
-    // StringError( #[from] std::string::String),
-
-    #[error("Misc error {0}")]
-    MiscError( String ),
-
-    #[error("Date error {0}")]
-    DateError( String ),
-
-    #[error("Time delta out of range error {0}")]
-    DurationError( #[from] chrono::OutOfRangeError),
-
-    #[error("Bounds error {0}")]
-    BoundsError( String ),
-
-    #[error("File download error {0}")]
-    FileDownloadError( String ),
-
-    #[error("TLE import failed: {0}")]
-    TleError( String ),
-
-    #[error("ODIN Actor error {0}")]
-    OdinActorError( #[from] odin_actor::errors::OdinActorError),
-
- }
- 
- pub fn date_error (msg: impl ToString)->OdinOrbitalSatError {
-    OdinOrbitalSatError::DateError(msg.to_string())
- }
-
- pub fn bounds_error (msg: impl ToString)->OdinOrbitalSatError {
-    OdinOrbitalSatError::BoundsError(msg.to_string())
+   #[error("IO error {0}")]
+   IOError( #[from] std::io::Error),
 }
 
- 
+macro_rules! tle_error {
+    ($fmt:literal $(, $arg:expr )* ) => {
+        OdinOrbitalError::TleError( format!( $fmt $(, $arg)* ))
+    };
+}
+pub (crate) use tle_error;
