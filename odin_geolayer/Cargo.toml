@@ -1,0 +1,54 @@
+[package]
+name = "odin_geolayer"
+version = "0.1.0"
+edition = "2024"
+build = "../build_resources.rs"
+
+[[bin]]
+name = "geolayer_dev"
+path = "src/bin/geolayer_dev.rs"
+
+[dependencies]
+# our ODIN crates
+odin_build = { workspace = true }
+odin_actor = { workspace = true }
+odin_common = { workspace = true, features = ["s3"] }
+odin_macro = { workspace = true }
+odin_server = { workspace = true }
+odin_cesium = { workspace = true }
+
+anyhow = "*"
+tokio = { workspace = true }
+serde = { workspace = true }
+axum = { workspace = true }
+async-trait = "*"
+structopt = "0.3.26"
+lazy_static = { workspace = true }
+reqwest = { workspace = true }
+http = "1.2.0"
+zip = "2.2.2"
+flate2 = "*"
+
+[build-dependencies]
+odin_build = { workspace = true }
+
+[package.metadata.odin_assets]
+odin_cesium_config = { file = "odin_cesium_config.js" }
+odin_cesium = { file = "odin_cesium.js" }
+view_icon = { file = "view.svg"}
+time_icon = { file = "time.svg"}
+layer_icon = { file = "layers.svg"}
+
+imglayer_config = { file = "imglayer_config.js"}
+imglayer = { file = "imglayer.js"}
+imglayer_icon = { file = "imglayer.svg"}
+
+[features]
+default = ["cesium_proxy"]
+
+trace_server = ["odin_server/trace_server"]
+embedded_resources = []
+
+cesium_external = []
+cesium_proxy = []
+cesium_asset = []
