@@ -12,15 +12,22 @@
  * and limitations under the License.
  */
 
-use std::ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign};
+use std::{f64::{consts::PI, NAN}, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign}};
 use nalgebra::{OMatrix,base::{Matrix,ArrayStorage,dimension::{Const,Dyn}}};
 use serde::{Serialize,Deserialize};
-use crate::geo_constants::{EARTH_RADIUS_RATIO_SQUARED, EQATORIAL_EARTH_RADIUS, E_EARTH_SQUARED, MEAN_EARTH_RADIUS, MER_SQUARED};
+use crate::geo_constants::{
+    EARTH_RADIUS_RATIO_SQUARED, EQUATORIAL_EARTH_RADIUS, POLAR_EARTH_RADIUS_SQUARED, EQUATORIAL_EARTH_RADIUS_SQUARED, 
+    E_EARTH_SQUARED, MEAN_EARTH_RADIUS, MER_SQUARED
+};
 use crate::cartographic::Cartographic;
+use crate::{pow2,sqrt,signum, atan, atan2};
 
 /// note that we do not use uom here to allow for abstract coordinate systems (although
 /// it mostly is used for ITRF sysemts)
 
+/// f64 based 3-dimensional cartesian
+/// This is used for geometric computations where we know units
+/// fields have to have the same names as Cesium.Cartesian3 so that we can serialize/deserialize JSON without additional objects
 #[derive(Debug,Clone,Copy,Serialize,Deserialize)]
 pub struct Cartesian3 {
     pub x: f64,
@@ -53,14 +60,22 @@ impl Cartesian3 {
         Cartesian3{x: 0.0, y: 0.0, z: 0.0}
     }
 
-    pub fn intersection_with_plane (p1: &Cartesian3, p2: &Cartesian3, p: &Cartesian3) -> Cartesian3 {
-        let mut r = Self::cross( &p1, &p2);
-        r.scale_to_unit_length();
+    pub fn undefined ()->Cartesian3 {
+        Cartesian3{ x: NAN, y: NAN, z: NAN }
+    }
 
-        let dot = - r.dot(&p);
-        r *= dot;
-        r += *p;
-        r
+    pub fn set_undefined (&mut self) {
+        self.x = NAN; self.y = NAN; self.z = NAN;
+    }
+
+    #[inline]
+    pub fn is_undefined (&self)->bool {
+        self.x.is_nan() || self.y.is_nan() || self.z.is_nan() 
+    }
+
+    #[inline]
+    pub fn is_defined (&self)->bool {
+        !self.is_undefined() 
     }
 
     /// return if p1 and p2 are on same side of plane given by normal
@@ -109,7 +124,18 @@ impl Cartesian3 {
 
     pub fn scaled_to_unit_length(&self)->Self {
         let length = self.length();
-        self * length
+        self / length
+    }
+
+    pub fn angle_between ( p1: &Cartesian3, p2: &Cartesian3) -> f64 {
+        let u1 = p1.scaled_to_unit_length();
+        let u2 = p2.scaled_to_unit_length();
+
+        if u1.dot( &u2) < 0.0 {
+            PI - 2.0 * ((u1 + u2).length()/2.0).asin()
+        } else {
+            2.0 * ((u1 - u2).length()/2.0).asin()
+        }
     }
 
     pub fn dot(&self, p: &Cartesian3) -> f64 {
@@ -120,24 +146,69 @@ impl Cartesian3 {
         ((self.x * self.x) + (self.y * self.y) + (self.z * self.z)).sqrt()
     }
 
+    /// round all fields (separately)
+    pub fn to_rounded_decimals (&self, n: u8)->Self {
+        if n > 0 {
+            let s = (10f64).powi(n as i32);
+            Cartesian3 { 
+                x: (self.x * s).round() / s, 
+                y: (self.y * s).round() / s, 
+                z: (self.z * s).round() / s
+            }
+        } else {
+            Cartesian3 {
+                x: self.x.round(),
+                y: self.y.round(),
+                z: self.z.round()    
+            }
+        }
+    }
+
+    /// the mutating version
+    pub fn round_to_decimals (&mut self, n: u8) {
+        if n > 0 {
+            let s = (10f64).powi(n as i32);
+            self.x = (self.x * s).round() / s;
+            self.y = (self.y * s).round() / s;
+            self.z = (self.z * s).round() / s;
+            
+        } else {
+            self.x = self.x.round();
+            self.y = self.y.round();
+            self.z = self.z.round();
+        }
+    }
+
     pub fn length_squared(&self) -> f64 {
         let len = self.length();
         len*len
     }
 
-    pub fn scale_to_earth_radius(&mut self) {
-        self.mul_assign (MEAN_EARTH_RADIUS/self.length());
+    pub fn scale_to_length(&mut self, len: f64) {
+        self.mul_assign (len/self.length());
+    } 
+
+    pub fn scale_to_mean_earth_radius(&mut self) {
+        self.scale_to_length(MEAN_EARTH_RADIUS);
+    }
+
+    pub fn to_mean_earth_radius (&self)->Self {
+        self * (MEAN_EARTH_RADIUS / self.length())
     }
 
     pub fn to_earth_radius (&self)->Self {
-        *self * (MEAN_EARTH_RADIUS/self.length())
+        self * (self.earth_radius()/self.length())
     }
+
+    pub fn to_length (&self, len: f64)->Self {
+        *self * (len/self.length())
+    } 
 
     /// return great circle distance of p1 and p2 projected to earth radius
     /// this uses a spherical approximation
     pub fn gc_distance (p1: &Cartesian3, p2: &Cartesian3) -> f64 {
-        let p1 = p1.to_earth_radius();
-        let p2 = p2.to_earth_radius();
+        let p1 = p1.to_mean_earth_radius();
+        let p2 = p2.to_mean_earth_radius();
 
         let dx = p2.x - p1.x;
         let dy = p2.y - p1.y;
@@ -164,6 +235,68 @@ impl Cartesian3 {
         }
         true
     }
+
+    pub fn earth_radius (&self)->f64 {
+        let d2 = self.length().powi(2);
+        let c0 = (self.z.powi(2)) / d2;
+        let c1 = ((self.x.powi(2)) + (self.y.powi(2))) / d2;
+        let c2 = c0 / POLAR_EARTH_RADIUS_SQUARED + c1 / EQUATORIAL_EARTH_RADIUS_SQUARED;
+    
+        sqrt(1.0/c2)
+    }
+
+    pub fn closest_point_on_plane (&self, p: &Cartesian3, q: &Cartesian3)->Self {
+        let mut r = p.cross(q);        
+        r.scale_to_unit_length();
+
+        let dist = r.dot(self); // project self onto normal
+        r *= dist;
+        self - r
+    }
+
+    /// use only as approximation if geodetic coordinates are required
+    pub fn cartesian_to_spherical (&self)->Cartographic {
+        let longitude = atan2(self.y, self.x);
+        let latitude = atan( self.z / sqrt( pow2(self.x) + pow2(self.y)));
+        Cartographic { longitude, latitude, height: 0.0 }
+    }
+}
+
+/// return closest and second closest index pair of vertices to given point
+/// note the second index can either be the same (exact match), lower (intersection to the left) or 
+/// higher (intersection to the right)  
+pub fn find_closest_index (ps: &[Cartesian3], p: &Cartesian3) -> usize {
+    let len = ps.len();
+    let mut l = 1;
+    let mut r = len-2;
+    let mut i = r/2;
+
+    let mut di = dist_squared( &ps[i], p);
+    let mut dl = di - dist_squared( &ps[i-1], p);
+    let mut dr = dist_squared( &ps[i+1], p) - di;
+
+    while signum(dl) == signum(dr) {
+        if dr < 0.0 {  // bisect right
+            l = i;
+          } else {  // bisect left
+            r = i;
+          }
+          let i_last = i;
+          i = (l + r)/2;
+          if i == i_last { break; }
+    
+          di = dist_squared( &ps[i], p);
+          dl = di - dist_squared( &ps[i-1], p);
+          dr = dist_squared( &ps[i+1], p) - di;
+    }
+
+    i
+}
+
+#[inline]
+pub fn dist_squared (p: &Cartesian3, q:&Cartesian3) -> f64 {
+    let d = p - q;
+    pow2(d.x) + pow2(d.y) + pow2(d.z)
 }
 
 impl std::fmt::Display for Cartesian3 {
@@ -172,11 +305,11 @@ impl std::fmt::Display for Cartesian3 {
     }
 }
 
-impl Add for Cartesian3 {
-    type Output = Self;
+impl Add<Cartesian3> for Cartesian3 {
+    type Output = Cartesian3;
 
-     fn add (self, rhs: Self) -> Self {
-        Self {
+     fn add (self, rhs: Cartesian3) -> Cartesian3 {
+        Cartesian3 {
             x: self.x + rhs.x,
             y: self.y + rhs.y,
             z: self.z + rhs.z
@@ -184,7 +317,7 @@ impl Add for Cartesian3 {
     }
 }
 
-impl Add for &Cartesian3 {
+impl Add<&Cartesian3> for Cartesian3 {
     type Output = Cartesian3;
 
      fn add (self, rhs: &Cartesian3) -> Cartesian3 {
@@ -196,19 +329,51 @@ impl Add for &Cartesian3 {
     }
 }
 
-impl AddAssign for Cartesian3 {
-     fn add_assign (&mut self, rhs: Self) {
+impl Add<&Cartesian3> for &Cartesian3 {
+    type Output = Cartesian3;
+
+     fn add (self, rhs: &Cartesian3) -> Cartesian3 {
+        Cartesian3 {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+            z: self.z + rhs.z
+        }
+    }
+}
+
+impl Add<Cartesian3> for &Cartesian3 {
+    type Output = Cartesian3;
+
+     fn add (self, rhs: Cartesian3) -> Cartesian3 {
+        Cartesian3 {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+            z: self.z + rhs.z
+        }
+    }
+}
+
+impl AddAssign<Cartesian3> for Cartesian3 {
+     fn add_assign (&mut self, rhs: Cartesian3) {
         self.x += rhs.x;
         self.y += rhs.y;
         self.z += rhs.z;
     }
 }
 
-impl Sub for Cartesian3 {
-    type Output = Self;
+impl AddAssign<&Cartesian3> for Cartesian3 {
+    fn add_assign (&mut self, rhs: &Cartesian3) {
+       self.x += rhs.x;
+       self.y += rhs.y;
+       self.z += rhs.z;
+   }
+}
 
-     fn sub (self, rhs: Self) -> Self {
-        Self {
+impl Sub<Cartesian3> for Cartesian3 {
+    type Output = Cartesian3;
+
+     fn sub (self, rhs: Cartesian3) -> Cartesian3 {
+        Cartesian3 {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
             z: self.z - rhs.z
@@ -216,10 +381,34 @@ impl Sub for Cartesian3 {
     }
 }
 
-impl Sub for &Cartesian3 {
+impl Sub<&Cartesian3> for Cartesian3 {
     type Output = Cartesian3;
 
      fn sub (self, rhs: &Cartesian3) -> Cartesian3 {
+        Cartesian3 {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+            z: self.z - rhs.z
+        }
+    }
+}
+
+impl Sub<&Cartesian3> for &Cartesian3 {
+    type Output = Cartesian3;
+
+     fn sub (self, rhs: &Cartesian3) -> Cartesian3 {
+        Cartesian3 {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+            z: self.z - rhs.z
+        }
+    }
+}
+
+impl Sub<Cartesian3> for &Cartesian3 {
+    type Output = Cartesian3;
+
+     fn sub (self, rhs: Cartesian3) -> Cartesian3 {
         Cartesian3 {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
@@ -268,6 +457,38 @@ impl MulAssign<f64> for Cartesian3 {
     }
 }
 
+impl Div<f64> for Cartesian3 {
+    type Output = Self;
+
+     fn div (self, rhs: f64) -> Self {
+        Self {
+            x: self.x / rhs,
+            y: self.y / rhs,
+            z: self.z / rhs
+        }
+    }
+}
+
+impl Div<f64> for &Cartesian3 {
+    type Output = Cartesian3;
+
+     fn div (self, rhs: f64) -> Cartesian3 {
+        Cartesian3 {
+            x: self.x / rhs,
+            y: self.y / rhs,
+            z: self.z / rhs
+        }
+    }
+}
+
+impl DivAssign<f64> for Cartesian3 {
+    fn div_assign (&mut self, rhs: f64) {
+        self.x /= rhs;
+        self.y /= rhs;
+        self.z /= rhs;
+    }
+}
+
 /// convert WGS84 into ECEF coordinates
 impl From<Cartographic> for Cartesian3 {
     fn from(p: Cartographic) -> Self {
@@ -284,7 +505,7 @@ impl From<&Cartographic> for Cartesian3 {
         let sin_φ = φ.sin();
         let cos_φ = φ.cos();
 
-        let b = EQATORIAL_EARTH_RADIUS / ( 1.0 - E_EARTH_SQUARED* (sin_φ * sin_φ)).sqrt();
+        let b = EQUATORIAL_EARTH_RADIUS / ( 1.0 - E_EARTH_SQUARED* (sin_φ * sin_φ)).sqrt();
         let c = (b + h)*cos_φ;
 
         let x = c *  λ.cos();
@@ -294,3 +515,31 @@ impl From<&Cartographic> for Cartesian3 {
         Cartesian3::new( x, y, z)
     }
 }
+
+/* 
+
+// while this would save bytes for transmitting serialized values it would increase memory in clients 
+// since JSON.parse() would have to first create arrays which we then have to translate into Cesium.Cartesian3 objects
+
+use serde::ser::{Serialize as SerializeTrait, SerializeSeq, Serializer, SerializeStruct};
+use serde::de::{Deserialize as DeserializeTrait, Deserializer};
+
+impl SerializeTrait for Cartesian3 {
+    // a tuple might be more axiomatic but could not be used for JSON
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_seq(Some(3))?;
+        state.serialize_element( &self.x)?;
+        state.serialize_element( &self.y)?;
+        state.serialize_element( &self.z)?;
+        state.end()
+    }
+}
+
+impl<'de> DeserializeTrait<'de> for Cartesian3 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+        let a = <[f64; 3]>::deserialize(deserializer)?;
+        Ok( Cartesian3::new( a[0], a[1], a[2]))
+    }
+}
+
+*/

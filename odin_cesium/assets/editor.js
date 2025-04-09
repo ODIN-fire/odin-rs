@@ -159,7 +159,8 @@ class PolyEditorWindow {
         let lon = Number.parseFloat( ui.getFieldValue( this.lonField));
         if (!util.checkLon(lon)) { alert("missing of invalid longitude degrees"); return null; }
     
-        let alt = Number.parseFloat( ui.getFieldValue( this.altField));
+        let v = ui.getNonEmptyFieldValue( this.altField);
+        let alt = v ? Number.parseFloat( v) : 0.0;
         if (Number.isNaN(alt)) {
             alt = 0.0;
         } else {
@@ -171,6 +172,18 @@ class PolyEditorWindow {
         p.lon = lon;  p.lat = lat;  p.alt = alt;
     
         return p;
+    }
+
+    getSelectedPoint() {
+        return ui.getSelectedListItem( this.pointList);
+    }
+
+    setPoints (points) {
+        ui.setListItems( this.pointList, points);
+    }
+
+    removePointIndex (idx) {
+        ui.removeListItemIndex( this.pointList, idx);
     }
 
     isMetric() {
@@ -371,6 +384,7 @@ export class PolyEditor {
       
     _enter() {
         if (this.points.length >= this.minPoints) {
+            console.log("@@ last point", this.points[this.points.length-1]);
             if (this.processResult) this.processResult(this.points);
         }
         this._dispose();
@@ -419,17 +433,22 @@ export class PolyEditor {
                 let e = this.handles.find( (e)=> e.__index == idx); // it has to be there
                 e.position = p;
 
-            } else { // no selection - append new point
+            } else { // no selection - append new point 
                 idx = points.length;
                 fp.idx = idx;
         
-                if (!this.cance) { // no mover, add new point
+                if (!this.cancelEntry) { // no mover, add new point
                     p = fp;
                     points.push(p);
             
                 } else { // in edit mode 
-                    p = points[points.length-1];
-                    p.x = fp.x;  p.y = fp.y;  p.z = fp.z;
+                    if (points.length > 0) {
+                        p = points[points.length-1];
+                        p.x = fp.x;  p.y = fp.y;  p.z = fp.z; 
+                        p.lon = fp.lon; p.lat = fp.lat;
+                    } else {
+                        p = fp;
+                    }
                     
                     let pMover = { ...p};
                     pMover.dist = 0;
@@ -453,7 +472,24 @@ export class PolyEditor {
     }
 
     _delSelectedPoint (){
-        // TODO
+        let p = this.editor.getSelectedPoint();
+        if (p) {
+            //let idx = this.points.indexOf(p);
+            let idx = p.idx;
+
+            if (idx == this.points.length-1) {
+                this.points.pop();
+            } else {
+                this.points.splice( idx, 1);
+                this._updatePointListFrom( idx);
+                this._setHalfPointHandles();
+            }
+            this._removeHandleIndex( idx);
+
+            this.editor.removePointIndex(idx);
+            //this.editor.setPoints( this.points);
+
+        }
     }
 
     _setMetric (event) {
@@ -603,15 +639,7 @@ export class PolyEditor {
                 } else {
                     let p = points[idx];
                     points.splice(idx, 1);
-
-                    let handles = this.handles;
-                    for (let e of handles) { // adjust handle indices
-                        if (e.__index > idx) { e.__index -= 1 }
-                    }
-                    handles.splice(handles.indexOf(selHandle), 1);
-                    viewer.entities.remove(selHandle);
-                    this._resetSelHandle();
-
+                    this._removeHandleIndex(idx);
                     this._pointDeleted( idx, p);
                 }
 
@@ -628,6 +656,19 @@ export class PolyEditor {
                     this._pointMoved( idx, p);
                 }
             }
+        }
+    }
+
+    _removeHandleIndex (idx) {
+        let handles = this.handles;
+        if (idx >= 0 && idx < handles.length) {
+            let h = handles[idx];
+            for (let e of handles) { // adjust handle indices
+                if (e.__index > idx) { e.__index -= 1 }
+            }
+            handles.splice(idx, 1);
+            viewer.entities.remove(h);
+            this._resetSelHandle();
         }
     }
 
@@ -1252,7 +1293,6 @@ export class RectEditor {
     _enter() {
         if (this.processResult && this.rect) {
             let rect = this.rect;
-            if (this.isDegrees) util.rectToDegrees(this.rect);
             this.processResult(rect);
         }
         this._dispose();

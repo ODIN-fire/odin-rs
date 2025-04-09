@@ -1,0 +1,24 @@
+
+FirmsConfig(
+    base_url: "https://firms.modaps.eosdis.nasa.gov",
+    map_key: "your-super-secret-map-key", // GET YOUR OWN FROM from https://firms.modaps.eosdis.nasa.gov/api/area/
+
+    bounds: GeoRect(
+        west: -126.1647,
+        south: 21.9189,
+        east: -66.0315,
+        north: 50.1831  
+    ),
+
+    satellites: [
+        FirmsSatelliteData(
+            sat_id: 54234,
+            sat_name: "NOAA-21",
+            data_source: "VIIRS_NOAA21_NRT",
+            download_schedule: [
+                Duration( secs: 180, nanos: 0), // initial download 3min after overpass
+                Duration( secs: 2700, nanos: 0) // 1st update after 45min (<orbital period)
+            ]
+        )
+    ]
+)

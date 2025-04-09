@@ -70,7 +70,7 @@ impl SpaService for SentinelService {
         spa.add_module( asset_uri!("odin_sentinel.js"));
 
         spa.add_route( |router, spa_server_state| {
-            router.route( &format!("/{}/sentinel-image/*unmatched", spa_server_state.name.as_str()), get(Self::image_handler))
+            router.route( &format!("/{}/sentinel-image/{{*unmatched}}", spa_server_state.name.as_str()), get(Self::image_handler))
         });
 
         Ok(())

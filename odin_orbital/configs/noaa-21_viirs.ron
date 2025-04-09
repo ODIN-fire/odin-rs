@@ -1,0 +1,8 @@
+// satellite info for NOAA-21 / VIIRS
+
+SatelliteInfo (
+    sat_id: 54234,
+    name: "NOAA-21",
+    instrument: "VIIRS",
+    max_scan_angle: 56.28
+)

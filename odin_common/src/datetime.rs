@@ -13,7 +13,7 @@
  */
 
 use chrono::{DateTime, TimeDelta, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
-use serde::{Serialize,Deserialize,Serializer,Deserializer};
+use serde::{Serialize,Deserialize,Serializer,Deserializer,de::{Error as DeError}};
 use std::time::{Duration, UNIX_EPOCH, SystemTime};
 use std::ffi::OsStr;
 use std::fmt;
@@ -45,6 +45,13 @@ impl<Tz> From<EpochMillis> for DateTime<Tz> where Tz: TimeZone, DateTime<Tz>: Fr
     fn from (millis: EpochMillis)->Self {
         DateTime::<Utc>::from_timestamp_millis(millis.0).unwrap().into()
     }
+}
+
+/// this should be used wherever we might have to use sim clock instead of wall clock
+/// TODO - support configured sim clock
+#[inline]
+pub fn utc_now()->DateTime<Utc> {
+    Utc::now()
 }
 
 #[inline]
@@ -113,6 +120,11 @@ pub fn ser_epoch_millis<S: Serializer> (dt: &DateTime<Utc>, s: S) -> Result<S::O
     s.serialize_i64(dt.timestamp_millis())
 }
 
+pub fn de_from_epoch_millis <'a,D>(deserializer: D) -> Result<DateTime<Utc>,D::Error> where D: Deserializer<'a> {
+    let millis: i64 = i64::deserialize(deserializer)?;
+    DateTime::from_timestamp_millis(millis).ok_or( DeError::custom("invalid timestamp value"))
+}
+
 /// NOTE if the option is None and this should not be serialized as 0 the field has to have a #[serde(skip_serializing_if="Options::is_none")] attribute
 pub fn ser_epoch_millis_option<S: Serializer> (opt: &Option<DateTime<Utc>>, s: S) -> Result<S::Ok, S::Error>  {
     if let Some(dt) = opt {
@@ -143,6 +155,16 @@ pub fn deserialize_optional_duration <'a,D>(deserializer: D) -> Result<Option<Du
     Ok(None)
 }
 
+pub fn ser_duration_as_fractional_secs<S: Serializer> (dur: &Duration, s: S) -> Result<S::Ok, S::Error>  {
+    let secs = dur.as_secs_f64();
+    s.serialize_f64( secs)
+}
+
+pub fn de_duration_from_fractional_secs <'a,D>(deserializer: D) -> Result<Duration,D::Error> where D: Deserializer<'a> {
+    let secs: f64 = f64::deserialize(deserializer)?;
+    Ok( Duration::from_secs_f64(secs) )
+}
+
 pub fn serialize_duration<S: Serializer> (dur: &Duration, s: S) -> Result<S::Ok, S::Error>  {
     let dfm = format!("{:?}", dur);
     s.serialize_str(&dfm)
@@ -167,11 +189,18 @@ pub fn parse_utc_datetime_from_os_str_date (s: &OsStr) -> DateTime<Utc> {
 
 //--- misc string format parsing
 
-fn parse_datetime (s: &str)->Option<DateTime<Utc>> {
+pub fn parse_datetime (s: &str)->Option<DateTime<Utc>> {
     match DateTime::parse_from_str(s, "%+") {
         Ok(dt) => Some(dt.to_utc()),
         Err(_) => None
     }
+}
+
+pub fn parse_optional_datetime_or<F> (spec: &Option<String>, f: F)->DateTime<Utc> where F: FnOnce()->DateTime<Utc> {
+    if let Some(date) = spec.as_ref().and_then(|s| parse_datetime(s)) { 
+        return date 
+    }
+    f()
 }
 
 /* #region dated objects ****************************************************************************************/

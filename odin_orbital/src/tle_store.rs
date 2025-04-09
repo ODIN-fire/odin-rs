@@ -16,7 +16,7 @@
 
 use std::{ffi::OsString, fs::{read_dir,File}, io::Write, path::{Path,PathBuf}, sync::LazyLock, time::Duration, collections::VecDeque};
 use odin_common::{
-    collections::{insert_into_ringbuffer, push_to_ringbuffer}, 
+    collections::RingDeque, 
     fs::{ensure_writable_dir, filepath_contents_as_string, matching_files_in_dir, store_file_contents_in_dir}, is_same_ref
 };
 use serde::{Serialize,Deserialize};
@@ -26,7 +26,7 @@ use chrono::{DateTime, Utc};
 use reqwest::{Client,Response};
 use async_trait::async_trait;
 use regex::Regex;
-use crate::errors::{Result,OdinOrbitalError,tle_error};
+use crate::{errors::{tle_error,Result,OdinOrbitalError}};
 
 /// obtaining GP data from celestrak
 
@@ -52,6 +52,9 @@ pub trait TleStore {
     fn latest_epoch (&self, sat_id: u32)->Option<Instant>;
 
     async fn pre_fetch (&mut self, sat_id: u32)->Result<usize>;
+
+    // get first-to-last sorted TLEs we already have
+    fn get_available_tles (&self, sat_id: u32)->Vec<TLE>;
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -223,7 +226,7 @@ impl TleStore for SpaceTrackTleStore {
     async fn pre_fetch (&mut self, sat_id: u32)->Result<usize> {
         if let Some(epoch) = self.latest_epoch(sat_id) {
             let td = Instant::now() - epoch;
-            if (td.as_seconds() as u64) < self.config.max_tle_age.as_secs() {
+            if (td.as_seconds() as u64) < self.config.max_tle_age.as_secs() { // most recent one within max age
                 return Ok( self.cache.get( &sat_id).unwrap().len() )
             }
 
@@ -235,6 +238,17 @@ impl TleStore for SpaceTrackTleStore {
         }
 
         self.cache.get( &sat_id).map(|tles| tles.len()).ok_or( tle_error!("no TLEs for satellite {sat_id}"))
+    }
+
+
+    fn get_available_tles (&self, sat_id: u32)->Vec<TLE> {
+        if let Some(tles) = self.cache.get( &sat_id) {
+            let mut list: Vec<TLE> = Vec::with_capacity(tles.len());
+            for tle in tles { list.push(tle.clone()) }
+            list
+        } else {
+            Vec::with_capacity(0)
+        }
     }
 }
 
@@ -283,12 +297,12 @@ fn add_tle (map: &mut HashMap<u32,VecDeque<TLE>>, tle: TLE) {
                 }
             } else { // stored TLE is newer than parsed one -> insert
                 if ((e - epoch).as_minutes() as i64) > SLOT_MINUTES {
-                    insert_into_ringbuffer( tles, i, tle);
+                    tles.insert_into_ringbuffer( i, tle);
                 } // otherwise we ignore the parsed TLE
                 return
             }
         }
-        push_to_ringbuffer( tles, tle); // latest one
+        tles.push_to_ringbuffer( tle); // latest one
 
     } else { // nothing stored yet for this satellite
         let mut tles: VecDeque<TLE> = VecDeque::with_capacity(32);

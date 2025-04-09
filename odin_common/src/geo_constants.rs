@@ -20,19 +20,22 @@ pub const MEAN_EARTH_RADIUS: f64 = 6371000.0;
 pub const MER_SQUARED: f64 = (MEAN_EARTH_RADIUS * MEAN_EARTH_RADIUS);
 
 /// semi major axis in meters
-pub const EQATORIAL_EARTH_RADIUS: f64 = 6378137.0; 
+pub const EQUATORIAL_EARTH_RADIUS: f64 = 6378137.0; 
+pub const EQUATORIAL_EARTH_RADIUS_SQUARED: f64 = EQUATORIAL_EARTH_RADIUS * EQUATORIAL_EARTH_RADIUS; 
 
 /// semi minor axis in meters
 pub const POLAR_EARTH_RADIUS: f64 = 6356752.3142; 
+pub const POLAR_EARTH_RADIUS_SQUARED: f64 = POLAR_EARTH_RADIUS * POLAR_EARTH_RADIUS;
 
-pub const EARTH_RADIUS_RATIO: f64 = POLAR_EARTH_RADIUS / EQATORIAL_EARTH_RADIUS;  // b / a
+pub const EARTH_RADIUS_RATIO: f64 = POLAR_EARTH_RADIUS / EQUATORIAL_EARTH_RADIUS;  // b / a
 
 /// b²/a² - squared ratio of minor/major axis
 pub const EARTH_RADIUS_RATIO_SQUARED: f64 = EARTH_RADIUS_RATIO*EARTH_RADIUS_RATIO;
 
-pub const F_EARTH: f64 = (EQATORIAL_EARTH_RADIUS - POLAR_EARTH_RADIUS) / EQATORIAL_EARTH_RADIUS;  
+pub const F_EARTH: f64 = (EQUATORIAL_EARTH_RADIUS - POLAR_EARTH_RADIUS) / EQUATORIAL_EARTH_RADIUS;  
 pub const INVERSE_F_EARTH: f64 = 1.0 / F_EARTH;
 
-/// first eccentricity of earth
-pub const E_EARTH: f64 = 0.08181919092890692; // (1.0 - B2A2).sqrt(); // f64::sqrt() not const
+/// eccentricity
+pub const E_EARTH: f64 = 0.08181919092890692; // first eccentricity of earth  sqrt( 1.0 - b²/a²)
 pub const E_EARTH_SQUARED: f64 = E_EARTH*E_EARTH;
+pub const ONE_MINUS_E_EARTH_SQUARED: f64 = 1.0 - E_EARTH_SQUARED;  // 1-e²

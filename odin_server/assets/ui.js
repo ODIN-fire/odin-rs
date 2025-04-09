@@ -2889,6 +2889,19 @@ export function insertListItem(o, item, idx) {
     }
 }
 
+export function removeListItemIndex (o, idx) {
+    let e = getList(o);
+    if (e) {
+        if (idx >= 0 && idx < e.childElementCount) {
+            let ie = e.children[idx];
+            if (Object.is( ie, e._uiSelectedItemElement)){
+                clearSelectedListItem(e);
+            }
+            e._uiItemMap.delete(ie._uiItem);
+            e.removeChild(ie);
+        }
+    }
+}
 
 export function replaceListItemIndex(o, idx, item) {
     let e = getList(o);

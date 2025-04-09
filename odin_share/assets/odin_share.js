@@ -210,7 +210,7 @@ function createWindow() {
                 )
             )
         ),
-        ui.Panel("item", false)(
+        ui.Panel("item", true)(
             ui.RowContainer()(
                 (keyEntry = ui.TextInput( "key","share.obj.key", "20rem", {isFixed: true, placeHolder: "enter item key", changeAction: keyChanged})),
                 (complChoice = ui.Choice( "compl", "share.obj.compl", completeKey, "8rem")),
@@ -224,7 +224,7 @@ function createWindow() {
                 (typeChoice = ui.Choice( "type", "share.obj.type", selectType, "8rem"))
             )
         ),
-        ui.Panel("item source")(
+        ui.Panel("item source", false)(
             (commentEntry = ui.TextInput( "comment", "share.obj.cmt", "28.5rem", {isFixed: true, placeHolder: "enter (optional) item comment"})),
             (dataEntry = ui.TextArea("share.obj.text", "33rem", "8lh", {isFixed: true, changeAction: dataChanged})),
             ui.RowContainer("end")(
@@ -587,7 +587,10 @@ function removeItem(event) {
     let key = ui.getNonEmptyFieldValue(keyEntry);
     let sharedItem = share.getSharedItem(key);
     if (sharedItem) {
-        share.removeSharedItem(sharedItem.key);
+        share.removeSharedItem( sharedItem.key);
+        shareDataSource.entities.removeById( sharedItem.key); // in case it is showing
+        odinCesium.requestRender();
+
     } else {
         window.alert("missing key or item not shared");
     }
@@ -847,6 +850,7 @@ function createPointEntity(e) {
             color: config.color,
             outlineColor: config.outlineColor,
             outlineWidth: config.outlineWidth,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
             //distanceDisplayCondition: config.pointDC, 
         }
     });
@@ -868,7 +872,7 @@ function createLineEntity(e) {
         polyline: {
             positions: points,
             clampToGround: true,
-            material: color,
+            material: config.color,
             width: config.lineWidth
         }
     });
@@ -887,7 +891,7 @@ function createLineStringEntity(e){
         polyline: {
             positions: points,
             clampToGround: true,
-            material: color,
+            material: config.color,
             width: config.lineWidth
         }
     });

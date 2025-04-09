@@ -377,7 +377,7 @@ macro_rules! assert_unique_feature {
 /// ```
 #[macro_export]
 macro_rules! define_cli {
-    ($name:ident [ $( $sopt:ident $(= $sx:expr)? ),* ] = $( $( #[$meta:meta] )? $fname:ident : $ftype:ty [ $( $fopt:ident $(= $fx:expr)? ),* ] ),* ) => {
+    ($name:ident [ $( $sopt:ident $(= $sx:expr)? ),* ] = $( $( #[$meta:meta] )? $fname:ident : $ftype:ty [ $( $fopt:ident $(= $fx:expr)?),* ] ),* ) => {
         use structopt::StructOpt;
         use lazy_static::lazy_static;
 

@@ -24,6 +24,15 @@ pub enum OdinOrbitalError {
 
    #[error("IO error {0}")]
    IOError( #[from] std::io::Error),
+
+   #[error("http error {0}")]
+   HttpError( #[from] reqwest::Error),
+   
+   #[error("Propagation error {0}")]
+   Sgp4Error( String ),
+
+   #[error("operation failed {0}")]
+   OpFailedError(String),
 }
 
 macro_rules! tle_error {
@@ -32,3 +41,10 @@ macro_rules! tle_error {
     };
 }
 pub (crate) use tle_error;
+
+macro_rules! op_failed {
+    ($fmt:literal $(, $arg:expr )* ) => {
+        OdinOrbitalError::OpFailedError( format!( $fmt $(, $arg)* ))
+    };
+}
+pub (crate) use op_failed;

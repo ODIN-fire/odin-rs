@@ -13,6 +13,7 @@ odin_actor = { workspace = true }
 odin_common = { workspace = true }
 odin_server = { workspace = true }
 odin_cesium = { workspace = true }
+odin_macro = { workspace = true }
 
 axum = { workspace = true }
 serde = { workspace = true }
@@ -20,6 +21,7 @@ serde_json = { workspace = true }
 ron = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
+geo = { workspace = true }
 uom = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
@@ -28,8 +30,9 @@ nalgebra = { workspace = true }
 anyhow = { workspace = true }
 structopt = { workspace = true }
 lazy_static = { workspace = true }
+regex = { workspace = true }
+hashbrown = { workspace = true }
 
-regex = "1.11.1"
 satkit = "0.5.5"
 
 [build-dependencies]

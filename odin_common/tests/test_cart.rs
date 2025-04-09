@@ -13,7 +13,7 @@
  */
 #![allow(unused)]
 
-use odin_common::{cartesian3::{self, Cartesian3}, cartographic::{self, Cartographic}};
+use odin_common::{cartesian3::{self, Cartesian3}, cartographic::{self, Cartographic,approximate_surface_centroid}};
 
 /// unit tests for cartesian3 and cartographic
 /// run with "cargo test test_inside -- --nocapture"
@@ -62,4 +62,72 @@ fn test_inside () {
         println!("✅");
     }
 
+}
+
+#[test]
+fn test_centroid () {
+    // CONUS
+    let input1: Vec<(f64,f64)> = vec![
+        (-129.8029, 50.4250 ), 
+        (-122.5463, 32.3474 ),
+        ( -97.6721, 24.1709 ),
+        ( -79.8117, 24.1709 ),
+        ( -62.8262, 47.7229 )
+    ];
+
+    let vs: Vec<Cartographic> = input1.iter().map( |p| Cartographic::from_degrees(p.0, p.1, 0.0)).collect();
+    let m = approximate_surface_centroid(&vs);
+    println!("centroid-approx CONUS: {m}");
+    let avg = Cartographic::mean(&vs);
+    println!("avg CONUS: {avg}");
+
+
+    // CZU bbox
+    let input2: Vec<(f64,f64)> = vec![
+        (-122.44855, 37.30877),
+        (-122.44855, 36.9546),
+        (-121.89434, 36.9546),
+        (-121.89434, 37.30877)
+    ];
+
+    let vs: Vec<Cartographic> = input2.iter().map( |p| Cartographic::from_degrees(p.0, p.1, 0.0)).collect();
+    let m = approximate_surface_centroid(&vs);
+    println!("centroid-approx CZU: {m}");
+    let avg = Cartographic::mean(&vs);
+    println!("avg CZU: {avg}");
+}
+
+#[test]
+fn test_spherical () {
+    let c = Cartographic::from_degrees( -122.0, 40.0, 0.0);
+    println!("spherical coords: {}  = {:?}", c, c);
+
+    let p = c.spherical_to_cartesian3( 730000.0);
+    println!("cartesian: {:?}", p);
+
+    let d = p.cartesian_to_spherical();
+    println!("spherical coords: {:?}", d);
+
+}
+
+#[test]
+fn test_conversion () {
+    let mut p = Cartesian3::new( -2458250.0, -5262107.0, 4259973.0);
+    let c: Cartographic = p.into();
+
+    println!("ecef:  {:?} : {}", p, p.length());
+    println!("wgs84: {}", c);
+
+    println!("\nscaled to mean Earth radius");
+    let q = p.to_mean_earth_radius();
+    let c: Cartographic = q.into();
+    println!("ecef:  {:?} : {}", q, q.length());
+    println!("wgs84: {}", c);
+
+    println!("\nscaled to Earth radius");
+    let q = p.to_earth_radius();
+    let c: Cartographic = q.into();
+    println!("ecef:  {:?} : {}", q, q.length());
+    println!("wgs84: {}", c);
+    
 }

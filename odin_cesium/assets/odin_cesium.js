@@ -1383,15 +1383,17 @@ export function enterPolyline (points, maxPoints, callbacks) {
     }
   
     function onKeyDown(event) {
-        if (event.code == "Delete" || event.code == "Backspace") {
-            let idx = points.length-2;
-            let p = points[idx];
-            points.splice( idx, 1);
-            if (callbacks.onDelPoint) callbacks.onDelPoint( idx, p);
+        if (event.target === document.body) { // otherwise this wasn't for us
+            if (event.code == "Delete" || event.code == "Backspace") {
+                let idx = points.length-2;
+                let p = points[idx];
+                points.splice( idx, 1);
+                if (callbacks.onDelPoint) callbacks.onDelPoint( idx, p);
 
-        } else if (event.code == "Escape") { // exit edit alltogether
-            resetEnterPolyline();
-            if (callbacks.onCancel) callbacks.onCancel();
+            } else if (event.code == "Escape") { // exit edit alltogether
+                resetEnterPolyline();
+                if (callbacks.onCancel) callbacks.onCancel();
+            }
         }
     }
   

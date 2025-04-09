@@ -178,7 +178,7 @@ pub struct SpaConnection {
 impl SpaConnection {
     // note this should not be used if we send multiple messages to the same connection (use feed() or send_all() in this case)
     pub async fn send (&mut self, msg: String)->OdinServerResult<()> {
-        Ok( self.ws_sender.send( Message::Text(msg)).await? )
+        Ok( self.ws_sender.send( Message::text(msg)).await? )
     }
 }
 
@@ -273,7 +273,7 @@ impl SpaServer {
 
         // now add the generic routes for proxies and assets
         router = router
-            .route( &format!("/{}/proxy/*unmatched", self.name), get({
+            .route( &format!("/{}/proxy/{{*unmatched}}", self.name), get({
                 let mode = CacheMode::Default;
                 let manager = CACacheManager { path: odin_build::cache_dir().join("proxies") };
                 let options = HttpCacheOptions::default();
@@ -285,7 +285,7 @@ impl SpaServer {
             }))
 
             // 'key' is the owning crate
-            .route( &format!("/{}/asset/:key/*unmatched", self.name), get({
+            .route( &format!("/{}/asset/{{key}}/{{*unmatched}}", self.name), get({
                 move |uri_elems: AxumPath<(String,String)>, req: Request| { Self::asset_handler(uri_elems, req, assets)}
             }));
 
@@ -367,7 +367,7 @@ impl SpaServer {
                     match msg.into_text() {
                         Ok(msg) => {
                             if !msg.is_empty() {
-                                hself.send_msg( DispatchIncomingWsMsg{remote_addr,ws_msg: msg}).await;
+                                hself.send_msg( DispatchIncomingWsMsg{remote_addr,ws_msg: msg.to_string()}).await;
                             }
                         }
                         Err(e) => println!("ignoring binary message")
@@ -445,7 +445,7 @@ impl SpaServer {
     /// this does not bail on message delivery failure
     async fn broadcast_ws_msg (&mut self, m: String)->OdinServerResult<()> {
         // TODO - use feed() or send_all() for batches
-        let ws_msg = Message::Text(m);
+        let ws_msg = Message::text(m);
         for conn in self.connections.values_mut() {
             if let Err(e) = conn.ws_sender.send(ws_msg.clone()).await {
                 error!("failed to broadcast ws message to {:?}: {}", conn.remote_addr, e);
@@ -457,7 +457,7 @@ impl SpaServer {
     /// send ws message to all but `except_addr`. Use this for messages that originate from `except_addr`
     /// and should only be distributed to other connections
     async fn send_all_others_ws_msg (&mut self, except_addr: SocketAddr, m: String)->OdinServerResult<()> {
-        let ws_msg = Message::Text(m);
+        let ws_msg = Message::text(m);
         for conn in self.connections.values_mut() {
             if conn.remote_addr != except_addr {
                 if let Err(e) = conn.ws_sender.send(ws_msg.clone()).await {
@@ -470,7 +470,7 @@ impl SpaServer {
 
     /// send ws message to the provided group of remote addresses
     async fn send_group_ws_msg (&mut self, addr_group: Vec<SocketAddr>, m: String)->OdinServerResult<()> {
-        let ws_msg = Message::Text(m);
+        let ws_msg = Message::text(m);
         for remote_addr in &addr_group {
             if let Some(conn) = self.connections.get_mut(remote_addr) {
                 if let Err(e) = conn.ws_sender.send(ws_msg.clone()).await {
@@ -484,7 +484,7 @@ impl SpaServer {
 
     /// send a ws message to `remote_addr`
     async fn send_ws_msg (&mut self, remote_addr: SocketAddr, m: String)->OdinServerResult<()> {
-        let ws_msg = Message::Text(m);
+        let ws_msg = Message::text(m);
         if let Some(conn) = self.connections.get_mut( &remote_addr) {
             if let Err(e) = conn.ws_sender.send( ws_msg).await {
                 error!("failed to send ws message to {:?}: {}", conn.remote_addr, e);

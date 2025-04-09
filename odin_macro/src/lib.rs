@@ -40,7 +40,7 @@ use proc_macro2::{
 };
 use quote::{format_ident, quote, ToTokens, TokenStreamExt};
 use syn::{ 
-	self, parse::{Lookahead1, Parse, ParseStream, Result}, 
+	self, parse::{Lookahead1, Parse, ParseStream, Result, Nothing}, parse_quote, 
     parse_macro_input, punctuated::{Punctuated}, visit::{self, Visit}, 
     token::{self, Mut, Ref, Where, Colon, Gt, Lt, Comma, Paren, PathSep, Use, For, In}, 
     Attribute, Block, Expr, ExprLit, ExprCall, ExprBlock, ExprMacro, ExprMethodCall, FnArg, Ident, ItemEnum, ItemFn, ItemStruct, Path, PathSegment, 
@@ -1145,6 +1145,40 @@ impl Parse for FnMutSpec {
 }
 
 /* #endregion fnmut */
+
+/* #region public_struct *********************************************************/
+
+/// syntactic sugar to make visibility of a struct and all its fields public
+/// use like so:
+/// ```
+/// #[public_struct]
+/// struct Foo {
+///   field: X,
+///   ....
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn public_struct (attr: TokenStream, tokens: TokenStream) -> TokenStream {
+    parse_macro_input!(attr as Nothing);
+    let mut item_struct = parse_macro_input!(tokens as ItemStruct);
+
+    item_struct.vis = match &item_struct.vis {
+        syn::Visibility::Public(p) => syn::Visibility::Public(*p),
+        syn::Visibility::Restricted(res) => syn::Visibility::Restricted(res.clone()),
+        syn::Visibility::Inherited => parse_quote!(pub),
+    };
+
+    for field in &mut item_struct.fields {
+        field.vis = match &field.vis {
+            syn::Visibility::Public(p) => syn::Visibility::Public(*p),
+            syn::Visibility::Restricted(res) => syn::Visibility::Restricted(res.clone()),
+            syn::Visibility::Inherited => parse_quote!(pub),
+        };
+    }
+    item_struct.to_token_stream().into()
+}
+
+/* #endregion public_struct */
 
 /* #region support funcs *********************************************************/
 

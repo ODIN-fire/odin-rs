@@ -73,7 +73,10 @@ impl GeoPoint {
     pub fn from_point(p:Point) -> Self { GeoPoint(p) } // TODO - should this be pub?
 
     pub fn longitude(&self) -> Longitude { Longitude::from_degrees( self.0.x()) }
+    pub fn longitude_deg(&self) -> f64 { self.0.x() }
+
     pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.0.y()) }
+    pub fn latitude_deg(&self) -> f64 { self.0.y() }
 
     pub fn point<'a> (&'a self) -> &'a Point { &self.0 }
     pub fn mut_point<'a> (&'a mut self) -> &'a mut Point { &mut self.0 }
@@ -134,13 +137,13 @@ impl GeoLine {
 
     pub fn haversine_distance (&self) -> Length {
         let (start,end) = self.0.points();
-        let dist = Haversine::distance( start, end);
+        let dist = Haversine.distance( start, end);
         Length::new::<meter>(dist)
     }
 
     pub fn geodesic_distance (&self) -> Length {
         let (start,end) = self.0.points();
-        let dist = Geodesic::distance( start, end);
+        let dist = Geodesic.distance( start, end);
         Length::new::<meter>(dist)
     }
 
@@ -285,6 +288,7 @@ impl_deserialize_struct!{ GeoLineString::from_geo_points( points) }
 
 /* #region GeoPolygon **********************************************************************************************/
 
+/// note this is closed (i.e. first and last vertex have to be the same)
 #[derive(Debug,Clone)]
 pub struct GeoPolygon(Polygon);
 

@@ -8,26 +8,26 @@ build = "../build_resources.rs"
 doctest = false
 
 [dependencies]
-axum-server = { version = "*", features = ["tls-rustls"] }
-bytes = "*"
-anyhow = "*"
-headers = "*"
-futures-util = { version = "*", features = ["sink"] }
-minify-html = "*"
+axum-server = { version = "0.7.2", features = ["tls-rustls"] }
+bytes = "1.10.1"
+anyhow = { workspace = true }
+headers = "0.4.0"
+futures-util = { workspace = true }
+minify-html = "0.16.4"
 http-body = "1.0.1"
 http-body-util = "0.1.2"
-tokio-util = "0.7.12"
-tower = { version = "*", features = ["full"] }
-tower-http = { version = "*", features = ["full"] }
+tokio-util = "0.7.14"
+tower = { version = "0.5.2", features = ["full"] }
+tower-http = { version = "0.6.2", features = ["full"] }
 tracing-subscriber = "*"
-reqwest-middleware = { version = "*" }
-http-cache-reqwest = { version = "*" }
-paste = "*"
-mime = "*"
-mime_guess = "*"
-rand = "*"
+reqwest-middleware = "0.4.1"
+http-cache-reqwest = "0.15.1"
+paste = { workspace = true }
+mime = "0.3.17"
+mime_guess = "2.0.5"
+rand = "0.9.0"
 open = "5"
-regex = "1.11.1"
+regex = { workspace = true }
 glob = "0.3.1"
 
 axum = { workspace = true }

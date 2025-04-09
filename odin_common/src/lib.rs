@@ -15,6 +15,8 @@
 #![feature(trait_alias)]
 #![feature(io_error_more)]
 
+use std::f64::consts::{PI as STD_PI};
+
 use serde::{Serialize,Deserialize};
 use num::{Num,ToPrimitive};
 
@@ -35,6 +37,7 @@ pub mod schedule;
 pub mod admin;
 pub mod process;
 pub mod net;
+pub mod uom;
 
 #[cfg(feature="s3")]
 pub mod s3;
@@ -46,19 +49,25 @@ pub mod slack; // only requires reqwest so no feature gate (yet)
 #[cfg(feature="slack_admin")]
 odin_build::define_load_config!();
 
-// syntactic sugar - this is just more readable
-#[inline] pub fn sin(x:f64) -> f64 { x.sin() }
-#[inline] pub fn sin2(x:f64) -> f64 { let sin_x = x.sin(); sin_x*sin_x }
-#[inline] pub fn cos(x:f64) -> f64 { x.cos() }
-#[inline] pub fn cos2(x:f64) -> f64 { let cos_x = x.cos(); cos_x*cos_x }
-#[inline] pub fn sinh(x:f64) -> f64 { x.sinh() }
-#[inline] pub fn cosh(x:f64) -> f64 { x.cosh() }
-#[inline] pub fn tan(x:f64) -> f64 { x.tan() }
-#[inline] pub fn asin(x:f64) -> f64 {x.asin() }
-#[inline] pub fn atan(x:f64) -> f64 { x.atan() }
-#[inline] pub fn atanh(x:f64) -> f64 { x.atanh() }
-#[inline] pub fn sqrt(x:f64) -> f64 { x.sqrt() }
-#[inline] pub fn pow2(x:f64) -> f64 { x*x }
+// syntactic sugar - this is just more readable in many cases
+#[inline(always)] pub fn sin(x:f64) -> f64 { x.sin() }
+#[inline(always)] pub fn sin2(x:f64) -> f64 { let sin_x = x.sin(); sin_x*sin_x }
+#[inline(always)] pub fn cos(x:f64) -> f64 { x.cos() }
+#[inline(always)] pub fn cos2(x:f64) -> f64 { let cos_x = x.cos(); cos_x*cos_x }
+#[inline(always)] pub fn sinh(x:f64) -> f64 { x.sinh() }
+#[inline(always)] pub fn cosh(x:f64) -> f64 { x.cosh() }
+#[inline(always)] pub fn tan(x:f64) -> f64 { x.tan() }
+#[inline(always)] pub fn asin(x:f64) -> f64 {x.asin() }
+#[inline(always)] pub fn atan(x:f64) -> f64 { x.atan() }
+#[inline(always)] pub fn atan2(y:f64,x:f64) -> f64 { y.atan2(x) }
+#[inline(always)] pub fn atanh(x:f64) -> f64 { x.atanh() }
+#[inline(always)] pub fn sqrt(x:f64) -> f64 { x.sqrt() }
+#[inline(always)] pub fn pow2(x:f64) -> f64 { x*x }
+#[inline(always)] pub fn abs(x:f64) -> f64 { x.abs() }
+#[inline(always)] pub fn deg(x:f64)->f64 { x.to_degrees() }
+#[inline(always)] pub fn rad(x:f64)->f64 { x.to_radians() }
+#[inline(always)] pub fn signum(x:f64)->f64 { x.signum() }
+
 
 // a global fn that can be used with serde(skip_serializing_if="odin_common::is_none")
 #[inline] pub fn is_none<T> (opt: &Option<T>)->bool { opt.is_none() }
@@ -105,10 +114,10 @@ impl <T: Num + Copy + ToPrimitive> BoundingBox<T> {
 /// a simple incremental min/max/avg accumulator
 #[derive(Debug)]
 pub struct MinMaxAvg {
-    n: usize,
-    min: f64,
-    max: f64,
-    avg: f64
+    pub n: usize,
+    pub min: f64,
+    pub max: f64,
+    pub avg: f64
 }
 
 impl MinMaxAvg {
@@ -134,3 +143,9 @@ impl MinMaxAvg {
 pub fn is_same_ref<T> (r1: &T, r2: &T) -> bool {
     (r1 as *const _) == (r2 as *const _) 
 }
+
+pub const PI: f64 = STD_PI;
+pub const HALF_PI: f64 = PI / 2.0;
+pub const TWO_PI: f64 = PI * 2.0;
+pub const PI_SQUARED: f64 = PI*PI;
+

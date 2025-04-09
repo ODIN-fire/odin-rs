@@ -13,18 +13,20 @@ export const config = {
 
     // the toplevel nodes we always show even if they don't have child nodes
     keyCategories: [
-        { key: "bbox" ,    type: "" }, 
-        { key: "incident", type: "" }, 
-        { key: "point",    type: "" },
+        { key: "point",    type: "GeoPoint" },
+        { key: "line",     type: "GeoLineString" },
+        { key: "rect" ,    type: "GeoRect" }, 
+        { key: "circle",   type: "GeoCircle"},
         { key: "view",     type: "" },
-        { key: "area",     type: "" }
+        { key: "area",     type: "GeoPolygon" },
+        { key: "incident", type: "" }
     ],
 
     // known suffixes for key patterns
     keyCompletions: [
         { pattern: "incident", completion: ["/◻/view", "/◻︎/cause", "/◻︎/bbox", "/◻︎/origin", "/◻︎/perimeter", "/◻︎/line", "/◻︎/fta"] },
         { pattern: "incident/*", completion: ["/view", "/cause", "/bbox", "/origin", "/perimeter", "/line", "/fta"] },
-        { pattern: "{bbox,point}", completion: ["/◻︎"] },
+        { pattern: "{bbox,point,line,polyline,circle,area}", completion: ["/◻︎"] },
         { pattern: "view", completion: ["/globe/◻︎", "/region/◻︎", "/state/◻︎/◻︎"] },
         { pattern: "view/*", completion: ["/◻︎"] },
         { pattern: "area", completion: ["/◻︎"] },
@@ -36,9 +38,11 @@ export const config = {
     keyTypes: [
         { pattern: "{point/**,**/point/**,**/point}", type: "GeoPoint" },
         { pattern: "{view/**,**/view/**,**/view}",    type: "GeoPoint3" },
+        { pattern: "{line/**,**/line/**,**/line}",    type: "GeoLineString" },
+        { pattern: "{rect/**,**/rect/**,**/rect}",    type: "GeoRect" },
         { pattern: "{bbox/**,**/bbox/**,**/bbox}",    type: "GeoRect" },
         { pattern: "{area/**,**/area/**,**/area}",    type: "GeoPolygon" },
-        { pattern: "{line/**,**/line/**,**/line}",    type: "GeoLineString" },
+        { pattern: "{circle/**,**/circle/**,**/circle}", type: "GeoCircle" },
         { pattern: "{fta/**,**/fta/**,**/fta}",       type: "GeoCircle" },
         { pattern: "**/cause",  type: "String"},
         { pattern: "**/origin", type: "GeoPoint"},
