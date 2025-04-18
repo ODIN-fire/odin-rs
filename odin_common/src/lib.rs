@@ -38,6 +38,7 @@ pub mod admin;
 pub mod process;
 pub mod net;
 pub mod uom;
+pub mod json_writer;
 
 #[cfg(feature="s3")]
 pub mod s3;

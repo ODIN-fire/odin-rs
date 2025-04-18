@@ -53,7 +53,8 @@ type Result<T> = std::result::Result<T,OdinJobError>;
 
 pub struct JobContext {
     current_id: u64,
-    cancel_repeat: bool
+    cancel_repeat: bool,          // directive to cancel a repeat job
+    reschedule: Option<Duration>  // directive to reschedule the current job
 }
 impl JobContext {
     pub fn current_id(&self)->u64 {
@@ -61,6 +62,10 @@ impl JobContext {
     }
     pub fn cancel_repeat (&mut self) {
         self.cancel_repeat = true
+    }
+
+    pub fn reschedule_in (&mut self, dur: Duration) {
+        self.reschedule = Some(dur)
     }
 }
 
@@ -148,13 +153,18 @@ impl JobScheduler {
                                         let mut queue = queue.lock().unwrap();
                                         if let Some(mut job) = queue.pop_front() {
 
-                                            let mut ctx = JobContext { current_id: job.id, cancel_repeat: false };
+                                            let mut ctx = JobContext { current_id: job.id, cancel_repeat: false, reschedule: None };
                                             job.execute(&mut ctx);
 
-                                            if job.interval_millis > 0 && !ctx.cancel_repeat {
-                                                // note we reschedule with the same id
-                                                job.epoch_millis += job.interval_millis;
+                                            if let Some(dur) = ctx.reschedule { // note this overrides a repeat cancellation
+                                                job.epoch_millis += dur.as_millis() as u64;
                                                 sort_in(job, &mut queue);
+                                            } else {
+                                                if job.interval_millis > 0 && !ctx.cancel_repeat {
+                                                    // note we reschedule with the same id
+                                                    job.epoch_millis += job.interval_millis;
+                                                    sort_in(job, &mut queue);
+                                                }
                                             }
                                         }
                                     }
@@ -199,7 +209,7 @@ impl JobScheduler {
             self.next_id += 1;
 
             if after.is_zero() {
-                let mut ctx = JobContext { current_id: id, cancel_repeat: false };
+                let mut ctx = JobContext { current_id: id, cancel_repeat: false, reschedule: None };
                 action(&mut ctx);
                 if interval.is_none() || ctx.cancel_repeat {
                     return Ok(JobHandle(id))

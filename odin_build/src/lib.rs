@@ -178,6 +178,32 @@ pub fn cache_dir()->&'static PathBuf {
     CACHE_DIR.get_or_init(|| ensure_existing_path( root_dir().join( Path::new("cache"))))
 }
 
+// those need to be compiled in the target crate hence we need macros
+
+#[macro_export]
+macro_rules! pkg_cache_dir {
+    () => {
+        odin_build::ensure_dir( odin_build::cache_dir().join( env!("CARGO_PKG_NAME")))
+    }
+}
+
+#[macro_export]
+macro_rules! pkg_data_dir {
+    () => {
+        odin_build::ensure_dir( odin_build::cache_dir().join( env!("CARGO_PKG_NAME")))
+    }
+}
+
+/// Note - this panics if the directory does not exist and can't be created
+pub fn ensure_dir (dir: PathBuf)->PathBuf {
+    if !&dir.is_dir() { 
+        std::fs::create_dir_all(&dir).unwrap(); 
+    }
+    dir
+}
+
+
+
 /* #endregion bin globals */
 
 /* #region resource lookup ***************************************************************/

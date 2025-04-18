@@ -15,6 +15,7 @@
 
 use std::{future,collections::{VecDeque,HashMap},sync::{Arc,atomic::AtomicU64,Mutex}};
 use futures::{TryFutureExt, stream::{StreamExt,SplitStream,SplitSink}, SinkExt};
+use odin_build::pkg_cache_dir;
 use tokio_tungstenite::{tungstenite::protocol::Message, MaybeTlsStream};
 use tokio::{select,time::{sleep,Sleep}};
 use reqwest::{Client};
@@ -148,7 +149,7 @@ struct LiveConnection {
 
 impl LiveConnection {
     async fn new (config: Arc<SentinelConfig>, hself: ActorHandle<SentinelActorMsg>)->Result<Self> {
-        let cache_dir = Arc::new(sentinel_cache_dir());
+        let cache_dir = Arc::new(pkg_cache_dir!());
 
         //--- get current sentinel data according to config (there is no point spawning tasks if we don't have a list of devices to watch)
         let http_client = Client::new();

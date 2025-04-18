@@ -14,16 +14,19 @@
 #![allow(unused)]
 
 use tokio::{self,time::sleep};
-use std::{fs::File,path::{Path,PathBuf}};
+use std::{fs::File,path::{Path,PathBuf},sync::Arc};
 use anyhow::{anyhow,Result};
 use chrono::{DateTime,Utc};
 use satkit::{Instant,Duration};
 use ron;
-use odin_build::cache_dir;
+use odin_build::pkg_cache_dir;
 use odin_common::{angle::Angle90,define_cli,fs::set_file_contents};
 use odin_orbital::{
-    errors::OdinOrbitalError, instant_from_datetime_spec, load_config, 
-    overpass::OverpassCalculator, tle_store::SpaceTrackTleStore, SatelliteInfo
+    errors::OdinOrbitalError, 
+    init_orbital_data, instant_from_datetime_spec, load_config, 
+    overpass::OverpassCalculator, 
+    tle_store::SpaceTrackTleStore, 
+    OrbitalSatelliteInfo
 };
 
 define_cli! { ARGS [about="calculate overpasses for given satellite, history and future durations"] =
@@ -32,39 +35,37 @@ define_cli! { ARGS [about="calculate overpasses for given satellite, history and
     future_days: u64 [help="number of future days to compute", short,long, default_value="1"],
     region: String [help="filename of region", short, long, default_value="conus.ron"],
     max_tles: usize [help="max number of TLEs to store", short,long, default_value="10"],
-    satellite: String [help="filename of satellite to analyze"]
+    sat_info: String [help="filename of satellite to analyze"]
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     odin_build::set_bin_context!();
-    let cache_dir = odin_build::cache_dir().join("orbital");
+    let cache_dir = pkg_cache_dir!();
+    init_orbital_data()?;
+
     let region = load_config( &ARGS.region)?;
-    let satellite: SatelliteInfo = load_config( &ARGS.satellite)?;
+    let sat_info: Arc<OrbitalSatelliteInfo> = Arc::new(load_config( &ARGS.sat_info)?);
 
     let t: Instant = if let Some(ds) = &ARGS.date { instant_from_datetime_spec(ds)? } else { Instant::now() };
     let t_start = t - Duration::from_days( ARGS.past_days as f64);
     let dur = Duration::from_days((ARGS.past_days + ARGS.future_days) as f64);
+    let tle_store = SpaceTrackTleStore::new( load_config("spacetrack.ron")?, sat_info.clone(), Some(cache_dir.clone()));
 
-    let mut overpass_calc = OverpassCalculator::new( 
-        region, 
-        vec![satellite.clone()],
-        SpaceTrackTleStore::new(load_config("spacetrack.ron")?, Some(cache_dir.clone())),
-        ARGS.max_tles
-    );
+    let mut overpass_calc = OverpassCalculator::new( sat_info.clone(), region, tle_store);
 
     if let Err(e) = overpass_calc.initialize().await {
         println!("failed to initialize overpass calculator: {e}");
         return Err( anyhow!(e));
     }
 
-    let overpasses = overpass_calc.get_overpasses( satellite.sat_id, satellite.max_scan_angle, t_start, dur).await?;
+    let overpasses = overpass_calc.get_overpasses( t_start, dur).await?;
     for o in &overpasses { 
         println!("{o}");
 
         let df = format!("{}", o.start.format("%Y-%m-%d_%H_%M"));
-        let p = cache_dir.join( format!("{}_{}_{}.ron", satellite.name,satellite.instrument, df));
-        println!("                     saved to {}", p.display());
+        let p = cache_dir.join( format!("{}_{}_{}.ron", sat_info.name, sat_info.instrument, df));
+        // println!("                     saved to {}", p.display());
 
         let mut file = File::create(&p)?;
         let s = ron::ser::to_string_pretty(o, ron::ser::PrettyConfig::default().compact_structs(true))?;

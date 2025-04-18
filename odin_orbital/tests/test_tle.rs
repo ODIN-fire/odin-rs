@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 
-use odin_orbital::tle_store::{parse_tle_lines, TLE_LINES_RE};
+use odin_orbital::tle_store::parse_tle_lines;
 
 /* #region test-data *************************************************************/
 
@@ -109,11 +109,11 @@ const INPUT: &'static str = r#"[
 fn test_parse_lines() {
     let tle_lines = parse_tle_lines(INPUT);
     
-    for tle in tle_lines {
+    for tle in &tle_lines {
         println!("{}", tle.0);
         println!("{}", tle.1);
         println!("{}", tle.2);
     }
 
-    assert!(tle.lines.len() == 2)
+    assert!(tle_lines.len() == 2)
 }

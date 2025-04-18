@@ -12,6 +12,7 @@
  * and limitations under the License.
  */
 
+use odin_actor::OdinActionFailure;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, OdinOrbitalError>;
@@ -19,20 +20,39 @@ pub type Result<T> = std::result::Result<T, OdinOrbitalError>;
 #[derive(Error,Debug)]
 pub enum OdinOrbitalError {
 
-   #[error("TLE error {0}")]
-   TleError( String ),
+    #[error("Config error {0}")]
+    ConfigError( #[from] odin_build::OdinBuildError),
 
-   #[error("IO error {0}")]
-   IOError( #[from] std::io::Error),
+    #[error("TLE error {0}")]
+    TleError( String ),
 
-   #[error("http error {0}")]
-   HttpError( #[from] reqwest::Error),
+    #[error("IO error {0}")]
+    IOError( #[from] std::io::Error),
+
+    #[error("http error {0}")]
+    HttpError( #[from] odin_common::net::OdinNetError),
    
-   #[error("Propagation error {0}")]
-   Sgp4Error( String ),
+    #[error("Propagation error {0}")]
+    Sgp4Error( String ),
 
-   #[error("operation failed {0}")]
-   OpFailedError(String),
+    #[error("csv error {0}")]
+    CsvError( #[from] csv::Error),
+
+    #[error("scheduling error {0}")]
+    ScheduleError( #[from] odin_job::OdinJobError),
+
+    #[error("action error {0}")]
+    ActionError( String ),
+
+    #[error("operation failed {0}")]
+    OpFailedError(String),
+}
+
+// OdinActionFailure is not a std::error::Error so we have to convert explicitly (see odin_action::OdinActionFailure)
+impl From<OdinActionFailure> for OdinOrbitalError {
+    fn from (e: OdinActionFailure)->OdinOrbitalError {
+        OdinOrbitalError::ActionError(e.to_string())
+    }
 }
 
 macro_rules! tle_error {
@@ -48,3 +68,10 @@ macro_rules! op_failed {
     };
 }
 pub (crate) use op_failed;
+
+macro_rules! action_failed {
+    ($fmt:literal $(, $arg:expr )* ) => {
+        OdinOrbitalError::ActionError( format!( $fmt $(, $arg)* ))
+    };
+}
+pub (crate) use action_failed;

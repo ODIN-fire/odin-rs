@@ -61,11 +61,12 @@ ron = { version = "0.9.0" }
 uom = { version = "0.36.0", features = ["serde", "f32", "i64"] }
 num = { version = "0.4.3" }
 chrono = { version = "0.4.40", features = ["serde"] }
-thiserror = { version = "1.0.64" }
+thiserror = { version = "2.0.12" }
 anyhow = { version = "1.0.97" }
 gdal = { version = "0.17.1", features = ["array"] }
 gdal-sys = { version = "0.10.0", features = ["bindgen"]}
 geo = { version = "0.30.0" }
+geo-types = { version = "0.7.16" }
 nalgebra = { version = "0.33.2"}
 lazy_static = { version = "1.5.0" }
 structopt = { version = "0.3.26" }

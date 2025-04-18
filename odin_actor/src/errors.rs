@@ -11,6 +11,8 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
+
+use odin_action::OdinActionFailure;
 use thiserror::Error;
 use std::time::Duration;
 
@@ -59,11 +61,21 @@ pub enum OdinActorError {
     #[error("build error {0}")]
     BuildError( #[from] odin_build::OdinBuildError),
 
+    #[error("action error {0}")]
+    ActionError( String ),
+
     // a generic error
     #[error("operation failed {0}")]
     OpFailed(String)
 
     //... and more to come
+}
+
+// OdinActionFailure is not a std::error::Error so we have to provide our own From<T> impl
+impl From<OdinActionFailure> for OdinActorError {
+    fn from (e: OdinActionFailure)->OdinActorError {
+        OdinActorError::ActionError(e.to_string())
+    }
 }
 
 pub fn iter_op_result (op: &'static str, total: usize, failed: usize)->Result<()> {

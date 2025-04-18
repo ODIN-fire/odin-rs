@@ -14,30 +14,29 @@
 #![allow(unused)]
 #![feature(duration_constructors)]
 
-use odin_build;
+use odin_build::{self, pkg_cache_dir};
+use std::sync::Arc;
 use tokio::{self,time::sleep};
 use odin_common::define_cli;
-use odin_orbital::{load_config, tle_store::{SpaceTrackConfig,SpaceTrackTleStore, TleStore}};
+use odin_orbital::{load_config, tle_store::{SpaceTrackConfig,SpaceTrackTleStore, TleStore}, OrbitalSatelliteInfo};
 use anyhow::{Result};
 
 define_cli! { ARGS [about="TLE retrieval tool"] =
-    satellites: Vec<u32> [help="list of NORAD_CAT_IDs for satellites to retrieve"]
+    sat_info: String [help="filename of satellite config"]
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     odin_build::set_bin_context!();
 
-    let config = load_config("spacetrack.ron")?;
-    let cache_dir = odin_build::cache_dir().join("orbital");
+    let config: SpaceTrackConfig = load_config("spacetrack.ron")?;
+    let sat_info: Arc<OrbitalSatelliteInfo> = Arc::new( load_config(&ARGS.sat_info)?);
+    let cache_dir = pkg_cache_dir!();
 
-    let mut tle_store = SpaceTrackTleStore::new( config, Some(cache_dir));
-
-    for sat_id in &ARGS.satellites {
-        print!("pre-fetching TLEs for satellite {sat_id}..");
-        let n = tle_store.pre_fetch( *sat_id).await?;
-        println!("{n}.");
-    }
+    let mut tle_store = SpaceTrackTleStore::new( config, sat_info.clone(), Some(cache_dir));
+    print!("pre-fetching TLEs for satellite {}..", sat_info.sat_id);
+    let n = tle_store.pre_fetch().await?;
+    println!("downloaded {n} TLEs");
 
     Ok(())
 }

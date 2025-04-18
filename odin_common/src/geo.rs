@@ -32,6 +32,7 @@ use geo::{Closest, Contains, Coord, CoordsIter, Distance, Line, LineString, Poin
 use geo::algorithm::line_measures::metric_spaces::{Haversine,Geodesic};
 use geo::algorithm::geodesic_area::GeodesicArea;
 use geo::algorithm::haversine_closest_point::HaversineClosestPoint;
+use geo_types::PointsIter;
 
 use nav_types::{ECEF,WGS84};
 
@@ -328,6 +329,32 @@ impl GeoPolygon {
     pub fn has_interiors(&self)->bool { self.0.interiors().len() > 0 }
 
     pub fn contains (&self, p: &GeoPoint)->bool { self.0.contains( &p.0) }
+
+    /// low level point iterator in case we have a large number of vertices to process - use with care
+    pub fn points_iter (&self)->PointsIter<'_,f64> {
+        self.0.exterior().points()
+    }
+
+    pub fn bounds (&self)->GeoRect {
+        let mut west: f64 = f64::MAX;
+        let mut south: f64 = f64::MAX;
+        let mut east: f64 = f64::MIN;
+        let mut north: f64 = f64::MIN;
+
+        for ref p in self.0.exterior().points() {
+            if p.0.x < west  { west  = p.0.x }
+            if p.0.x > east  { east  = p.0.x }
+            if p.0.y < south { south = p.0.y }
+            if p.0.y > north { north = p.0.y }
+        }
+
+        GeoRect::from_wsen( 
+            Longitude::from_radians(west), 
+            Latitude::from_radians(south), 
+            Longitude::from_radians(east), 
+            Latitude::from_radians(north)
+        )
+    }
 }
 
 impl SerializeTrait for GeoPolygon {

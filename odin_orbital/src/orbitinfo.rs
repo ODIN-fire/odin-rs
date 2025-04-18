@@ -13,11 +13,11 @@
  */
 #![allow(unused)]
 
-use satkit::{sgp4::sgp4,Duration,Instant,TLE};
+use satkit::{sgp4::sgp4,Duration,Instant,TLE,frametransform::qteme2itrf};
 use odin_common::{angle::normalize_360, cartesian3::Cartesian3, cartographic::{geodetic_latitude, Cartographic}, 
     atan, cos, pow2, sin, asin, sqrt, abs, MinMaxAvg, HALF_PI
 };
-use crate::{get_time_vec,get_cartographic};
+use crate::{get_time_vec,ColumnVec};
 
 
 /// time and ECEF longitude [degrees] of ascending or descending orbital node
@@ -246,4 +246,10 @@ fn interpolate_pole (t1: f64, p1: &Cartesian3, vz1: f64, t2: f64, p2: &Cartesian
     let latitude_deg = c.latitude_deg();
 
     OrbitPole { t, latitude_deg }
+}
+
+pub fn get_cartographic (t: &Instant, v: &ColumnVec) -> Cartographic {
+    let itrf = qteme2itrf( t).to_rotation_matrix() * v;
+    let p = Cartesian3::from_col( &itrf);
+    Cartographic::from(p)
 }

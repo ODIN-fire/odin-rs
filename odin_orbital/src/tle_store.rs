@@ -14,7 +14,7 @@
 
 #![allow(unused)]
 
-use std::{ffi::OsString, fs::{read_dir,File}, io::Write, path::{Path,PathBuf}, sync::LazyLock, time::Duration, collections::VecDeque};
+use std::{ffi::OsString, fs::{read_dir,File}, io::Write, path::{Path,PathBuf}, sync::{Arc,LazyLock}, time::Duration, collections::VecDeque};
 use odin_common::{
     collections::RingDeque, 
     fs::{ensure_writable_dir, filepath_contents_as_string, matching_files_in_dir, store_file_contents_in_dir}, is_same_ref
@@ -26,14 +26,14 @@ use chrono::{DateTime, Utc};
 use reqwest::{Client,Response};
 use async_trait::async_trait;
 use regex::Regex;
-use crate::{errors::{tle_error,Result,OdinOrbitalError}};
+use crate::{errors::{tle_error, OdinOrbitalError, Result}, OrbitalSatelliteInfo};
 
 /// obtaining GP data from celestrak
 
 /// regex to extract norad_cat_id, year, month, day and hour from TLE filename
-/// e.g. tle_54234_2025-03-13_18.txt
+/// e.g. 54234_2025-03-13_1810.tle
 pub static TLE_FNAME_RE: LazyLock<Regex> = LazyLock::new(|| 
-    Regex::new( r"tle_(\d+)_(\d\d\d\d)-(\d\d)-(\d\d)_(\d\d)\.txt").unwrap()
+    Regex::new( r"(\d+)_(\d\d\d\d)-(\d\d)-(\d\d)_(\d\d\d\d)\.tle").unwrap()
 );
 
 /// regex to extract TLE lines from gp and gp_history responses - we don't need to parse the whole
@@ -47,14 +47,14 @@ pub static TLE_LINES_RE: LazyLock<Regex> = LazyLock::new(||
 pub trait TleStore {
     /// get the TLE for the provided NORAD-cat-id (5 digit number) and datetime and a max allowed time difference
     /// between cached and requested datetime. If none can be obtained return an error
-    async fn get_tle_for_instant (&mut self, sat_id: u32, t: Instant) -> Result<TLE>;
+    async fn get_tle_for_instant (&mut self, t: Instant) -> Result<TLE>;
 
-    fn latest_epoch (&self, sat_id: u32)->Option<Instant>;
+    fn latest_epoch (&self)->Option<Instant>;
 
-    async fn pre_fetch (&mut self, sat_id: u32)->Result<usize>;
+    async fn pre_fetch (&mut self)->Result<usize>;
 
     // get first-to-last sorted TLEs we already have
-    fn get_available_tles (&self, sat_id: u32)->Vec<TLE>;
+    fn get_available_tles (&self)->Vec<TLE>;
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -82,32 +82,33 @@ pub struct SpaceTrackConfig {
     max_file_age: Duration     // how long to keep files
 }
 
+const SLOT_MINUTES: i64 = 5; // note that space-track.org sometimes has consecutive TLEs that are just a second apart
 
 /// this is a live TleStore using space-track.org credentials to retrieve TLEs
+/// this only handles a single satellite, which is acceptable given that TLEs are normally just updated once per day
 /// note that space-track.org APIs use a login cookie with a short expiration 
 pub struct SpaceTrackTleStore {
     config: SpaceTrackConfig,
+    sat_info: Arc<OrbitalSatelliteInfo>,
 
-    cache: HashMap<u32, VecDeque<TLE>>,  // NORAD_CAT_ID -> [epoch ordered TLE vector]
+    tles: VecDeque<TLE>,  // epoch ordered TLEs (ring buffer to ensure bounded space)
     cache_dir: Option<PathBuf>,
 
     cookie: Option<SpaceTrackCookie>
 }
 
 impl SpaceTrackTleStore {
-    pub fn new (config: SpaceTrackConfig, cache_dir: Option<PathBuf>) -> Self {
-        let cookie: Option<SpaceTrackCookie> = None;
-
+    pub fn new (config: SpaceTrackConfig, sat_info: Arc<OrbitalSatelliteInfo>, cache_dir: Option<PathBuf>) -> Self {
         if let Some(dir) = &cache_dir {
             ensure_writable_dir(dir);
-
-            match get_saved_tles( dir, config.max_file_age) {
-                Ok(cache) => SpaceTrackTleStore{ config, cache, cache_dir, cookie },
-                Err(_) => SpaceTrackTleStore{ config, cache: HashMap::new(), cache_dir, cookie } // TODO - should we report the error?
-            }
-        } else {
-            SpaceTrackTleStore{ config, cache: HashMap::new(), cache_dir, cookie }
         }
+
+        let cookie: Option<SpaceTrackCookie> = None;
+        let tles: VecDeque<TLE> = VecDeque::with_capacity(sat_info.max_tles);
+
+        let mut ts = SpaceTrackTleStore{ config, sat_info, tles, cache_dir, cookie };
+        ts.load_saved_tles();
+        ts
     }
 
     async fn get_cookie_value (&mut self) -> Result<&str> {
@@ -149,17 +150,23 @@ impl SpaceTrackTleStore {
         Ok(())
     }
 
-    async fn get_historical_tles (&mut self, sat_id: u32, max_len: usize) -> Result<()> {
+    fn sat_id (&self)->u32 {
+        self.sat_info.sat_id
+    }
+
+    async fn get_historical_tles (&mut self, max_len: usize) -> Result<()> {
+        let sat_id = self.sat_id();
         let url = format!("https://www.space-track.org/basicspacedata/query/class/gp_history/NORAD_CAT_ID/{sat_id}/orderby/EPOCH%20desc/limit/{max_len}/");
         self.get_tles(url).await        
     }
 
-    async fn get_current_tle (&mut self, sat_id: u32) -> Result<&TLE> {
+    async fn get_most_recent_tle (&mut self) -> Result<&TLE> {
+        let sat_id = self.sat_id();
         // both orderby and limit are not used - there only is one TLE in the response
         let url = format!("https://www.space-track.org/basicspacedata/query/class/gp/NORAD_CAT_ID/{sat_id}/orderby/EPOCH%20desc/limit/1/");
         self.get_tles(url).await?;
         
-        self.cache.get(&sat_id).and_then(|tles| tles.back()).ok_or( tle_error!("unable to retrieve TLE for satellite {sat_id}"))
+        self.tles.back().ok_or( tle_error!("unable to retrieve TLE for satellite {sat_id}"))
     }
 
     async fn get_tles (&mut self, url: String) -> Result<()> {
@@ -178,12 +185,14 @@ impl SpaceTrackTleStore {
 
             for tl in tle_lines {
                 if let Ok(tle) = TLE::load_3line( &tl.0, &tl.1, &tl.2).map_err(|e| tle_error!("3 line Satkit TLE import failed {:?}", e)) {
+                    //println!("@@ got TLE for {:?}", tle.epoch);
+                    
                     if let Some(cache_dir) = &self.cache_dir {
                         let path = cache_dir.join( tle_filename(&tle));
                         save_tle( path, &tl.0, &tl.1, &tl.2);
                     }
                     
-                    add_tle( &mut self.cache, tle);
+                    self.add_tle( tle);
                 }
             }
             Ok(())
@@ -192,129 +201,154 @@ impl SpaceTrackTleStore {
             Err( tle_error!("error retrieving TLE data {}", response.status()) )
         }
     }
-}
 
-#[async_trait]
-impl TleStore for SpaceTrackTleStore {
-    /// the main getter which first consults the cache and only queries space-track.org if no sufficiently close TLE is found
-    /// this returns a clone of the cached TLE so that it can be used to flyout orbits (which requires a mutable TLE)
-    async fn get_tle_for_instant (&mut self, sat_id: u32, t: Instant) -> Result<TLE> {
-        let max_tle_age = self.config.max_tle_age;
-
-        if let Some(tles) = self.cache.get( &sat_id) {
-            if let Some(tle) = get_closest_tle( tles, t) {
-                if is_same_ref( tle, tles.back().unwrap()) { // tle is the last one we got - check if we need a new one
-                    if t > tle.epoch {
-                        if ((t - tle.epoch).as_seconds() as u64) > max_tle_age.as_secs() {
-                            return self.get_current_tle(sat_id).await.and_then(|tle| check_tle( t, tle, max_tle_age))
-                        } else {
-                            return Ok( tle.clone() ) // last tle still good
-                        }
-                    } 
+    fn add_tle (&mut self, tle: TLE) {
+        let sat_id = tle.sat_num as u32;
+        if sat_id == self.sat_id() { // make sure it is for us
+            let epoch = tle.epoch;
+            let mut tles = &mut self.tles;
+        
+            for i in 0..tles.len() {
+                let e = tles[i].epoch;
+                if e < epoch { // parsed TLE is newer but check if we should replace prev TLE
+                    if ((epoch - e).as_minutes() as i64) < SLOT_MINUTES { // replace previous
+                        tles[i] = tle;
+                        return
+                    }
+                } else { // stored TLE is newer than parsed one -> insert
+                    if ((e - epoch).as_minutes() as i64) > SLOT_MINUTES {
+                        tles.insert_into_ringbuffer( i, tle);
+                    } // otherwise we ignore the parsed TLE
+                    return
                 }
-                // t within covered interval but check if close enough
-                return check_tle( t, tle, max_tle_age)
             }
-        } 
-        self.get_current_tle(sat_id).await.and_then(|tle| check_tle( t, tle, max_tle_age))
-    }
-
-    fn latest_epoch (&self, sat_id: u32)->Option<Instant> {
-        self.cache.get( &sat_id).and_then( |tles| tles.back()).map(|tle| tle.epoch)
-    }
-
-    async fn pre_fetch (&mut self, sat_id: u32)->Result<usize> {
-        if let Some(epoch) = self.latest_epoch(sat_id) {
-            let td = Instant::now() - epoch;
-            if (td.as_seconds() as u64) < self.config.max_tle_age.as_secs() { // most recent one within max age
-                return Ok( self.cache.get( &sat_id).unwrap().len() )
-            }
-
-            let max_len = td.as_days().ceil() as usize;
-            self.get_historical_tles(sat_id, max_len).await?;
-
-        } else {
-            self.get_historical_tles(sat_id, self.config.max_history).await?;
-        }
-
-        self.cache.get( &sat_id).map(|tles| tles.len()).ok_or( tle_error!("no TLEs for satellite {sat_id}"))
-    }
-
-
-    fn get_available_tles (&self, sat_id: u32)->Vec<TLE> {
-        if let Some(tles) = self.cache.get( &sat_id) {
-            let mut list: Vec<TLE> = Vec::with_capacity(tles.len());
-            for tle in tles { list.push(tle.clone()) }
-            list
-        } else {
-            Vec::with_capacity(0)
+            tles.push_to_ringbuffer( tle); // latest one
         }
     }
-}
 
-/* #region general helpers *******************************************************************************/
+    fn get_closest_tle (&self, t: Instant) -> Option<&TLE> {
+        let len = self.tles.len();
+        if len > 0 {
+            let tles = &self.tles;
+            // check for corner cases outside of the interval for which we have TLEs
+            if tles[0].epoch >= t { return Some(&tles[0]) }
+            if tles[len-1].epoch <= t { return Some(&tles[len-1]) }
+    
+            // t is within the interval - check which TLE is the closest
+            let mut t_last = tles[0].epoch;
+            for i in 1..len {
+                let t_next = tles[i].epoch;
+                if t_last < t && t_next > t {
+                    if (t_next - t) > (t - t_last) { return Some(&tles[i-1]) } else { return Some(&tles[i]) }
+                }
+                t_last = t_next;
+            }
+        }
+    
+        None
+    }
 
-const SLOT_MINUTES: i64 = 5; // note that space-track.org sometimes has consecutive TLEs that are just a second apart
-
-fn get_saved_tles<P: AsRef<Path>> (dir: P, max_age: Duration) -> Result<HashMap<u32,VecDeque<TLE>>> {
-    let dir = dir.as_ref();
-    let mut map: HashMap<u32,VecDeque<TLE>> = HashMap::new();
-
-    if dir.is_dir() {
-        for entry in read_dir(dir)? {
-            if let Ok(entry) = entry {
-                if let Some(fname) = entry.file_name().to_str() {
-                    if let Some(cap) = TLE_FNAME_RE.captures(fname) {
-                        let sat_id:u32 = cap[1].parse().unwrap();
-                        let path = entry.path();
-                        let text = filepath_contents_as_string(&path)?;
-                        if let Ok(tle) = parse_tle_text( &text) {
-                            let epoch = tle.epoch;
-                            if ((Instant::now() - epoch).as_seconds() as u64) < max_age.as_secs() { // check if this TLE makes the age cut-off
-                                add_tle( &mut map, tle);
+    fn load_saved_tles (&mut self) -> Result<()> {
+        let max_age = self.config.max_file_age.as_secs();
+        if let Some(dir) = &self.cache_dir {
+            if dir.is_dir() {
+                for entry in read_dir(dir)? {
+                    if let Ok(entry) = entry {
+                        if let Some(fname) = entry.file_name().to_str() {
+                            if let Some(cap) = TLE_FNAME_RE.captures(fname) {
+                                let sat_id:u32 = cap[1].parse().unwrap();
+                                if sat_id == self.sat_id() {
+                                    let path = entry.path();
+                                    let text = filepath_contents_as_string(&path)?;
+                                    if let Ok(tle) = parse_tle_text( &text) {
+                                        let epoch = tle.epoch;
+                                        if ((Instant::now() - epoch).as_seconds() as u64) < max_age { // check if this TLE makes the age cut-off
+                                            self.add_tle( tle);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
         }
+        
+        Ok(())
     }
-    
-    Ok(map)
 }
 
-fn add_tle (map: &mut HashMap<u32,VecDeque<TLE>>, tle: TLE) {
-    let sat_id = tle.sat_num as u32;
-    let epoch = tle.epoch;
+#[async_trait]
+impl TleStore for SpaceTrackTleStore {
+    /// the main getter which first consults the cache and only queries space-track.org if no sufficiently close TLE is found
+    /// this returns a clone of the cached TLE so that it can be used to flyout orbits (which requires a mutable TLE)
+    async fn get_tle_for_instant (&mut self, t: Instant) -> Result<TLE> {
+        let max_age: Duration = self.config.max_tle_age;
 
-    if let Some(tles) = map.get_mut(&sat_id) {
-        for i in 0..tles.len() {
-            let e = tles[i].epoch;
-            if e < epoch { // parsed TLE is newer but check if we should replace prev TLE
-                if ((epoch - e).as_minutes() as i64) < SLOT_MINUTES { // replace previous
-                    tles[i] = tle;
-                    return
-                }
-            } else { // stored TLE is newer than parsed one -> insert
-                if ((e - epoch).as_minutes() as i64) > SLOT_MINUTES {
-                    tles.insert_into_ringbuffer( i, tle);
-                } // otherwise we ignore the parsed TLE
-                return
+        if let Some(tle) = self.get_closest_tle( t) {
+            if is_same_ref( tle, self.tles.back().unwrap()) { // tle is the last one we got - check if we need a new one
+                if t > tle.epoch {
+                    if ((t - tle.epoch).as_seconds() as u64) > self.config.max_tle_age.as_secs() {
+                        return self.get_most_recent_tle().await.and_then(|tle| checked_tle_clone( t, tle, max_age))
+                    } else {
+                        return Ok( tle.clone() ) // last tle still good
+                    }
+                } 
             }
+            // t within covered interval but check if close enough
+            return checked_tle_clone( t, tle, max_age)
         }
-        tles.push_to_ringbuffer( tle); // latest one
 
-    } else { // nothing stored yet for this satellite
-        let mut tles: VecDeque<TLE> = VecDeque::with_capacity(32);
-        tles.push_back(tle);
-        map.insert( sat_id, tles);
+        self.get_most_recent_tle().await.and_then(|tle| checked_tle_clone( t, tle, max_age))
+    }
+
+    fn latest_epoch (&self)->Option<Instant> {
+        self.tles.back().map(|tle| tle.epoch)
+    }
+
+    async fn pre_fetch (&mut self)->Result<usize> {
+        if let Some(epoch) = self.tles.back().map(|tle| tle.epoch) { // do we already have TLEs? If so, only fetch from last to now
+            let td = Instant::now() - epoch;
+            if (td.as_seconds() as u64) < self.config.max_tle_age.as_secs() { // most recent one within max age
+                return Ok( self.tles.len() )
+            }
+
+            let max_len = td.as_days().ceil() as usize;
+            self.get_historical_tles(max_len).await?;
+
+        } else { // no TLE downloaded yet, get the configured number of last TLEs
+            self.get_historical_tles( self.config.max_history).await?;
+        }
+
+        if self.tles.is_empty() {
+            Err(tle_error!("no TLEs for satellite"))
+        } else {
+            Ok( self.tles.len() )
+        }
+    }
+
+    /// note this returns clones so that we can use them in (mutating) propagation
+    fn get_available_tles (&self)->Vec<TLE> {
+        let len = self.tles.len();
+        let mut list: Vec<TLE> = Vec::with_capacity(self.tles.len());
+        for tle in &self.tles { list.push(tle.clone()) }
+        list
     }
 }
 
+/* #region general helpers *******************************************************************************/
+
+fn checked_tle_clone (t: Instant, tle: &TLE, max_age: Duration) -> Result<TLE> {
+    if ((t - tle.epoch).as_seconds().abs() as u64) < max_age.as_secs() { // recent enough
+        return Ok( tle.clone() )
+    } else {
+        return Err( tle_error!("TLE for satellite {} outside age limit: {}", tle.sat_num, t - tle.epoch))
+    }
+}
 
 fn tle_filename (tle: &TLE) -> String {
     let (year, month, day, hour, minute, second) = tle.epoch.as_datetime();
-    format!("tle_{}_{:4}-{:02}-{:02}_{:02}.txt", tle.sat_num, year, month, day, hour)
+    format!("{}_{:4}-{:02}-{:02}_{:02}{:02}.tle", tle.sat_num, year, month, day, hour, minute)
 }
 
 fn parse_tle_text (text: &str)->Result<TLE> {
@@ -342,32 +376,4 @@ fn save_tle (path: PathBuf, line0: &str, line1: &str, line2: &str) -> Result<()>
     Ok(())
 }
 
-fn get_closest_tle (tles: &VecDeque<TLE>, t: Instant) -> Option<&TLE> {
-    let len = tles.len();
-    if len > 0 {
-        // check for corner cases outside of the interval for which we have TLEs
-        if tles[0].epoch >= t { return Some(&tles[0]) }
-        if tles[len-1].epoch <= t { return Some(&tles[len-1]) }
-
-        // t is within the interval - check which TLE is the closest
-        let mut t_last = tles[0].epoch;
-        for i in 1..len {
-            let t_next = tles[i].epoch;
-            if t_last < t && t_next > t {
-                if (t_next - t) > (t - t_last) { return Some(&tles[i-1]) } else { return Some(&tles[i]) }
-            }
-            t_last = t_next;
-        }
-    }
-
-    None
-}
-
-fn check_tle (t: Instant, tle: &TLE, max_age: Duration) -> Result<TLE> {
-    if ((t - tle.epoch).as_seconds().abs() as u64) < max_age.as_secs() { // recent enough
-        return Ok( tle.clone() )
-    } else {
-        return Err( tle_error!("TLE for satellite {} outside age limit: {}", tle.sat_num, t - tle.epoch))
-    }
-}
 /* #endregion general helpers */

@@ -95,21 +95,28 @@ impl<K> NormalizedAngle<K> where K: AngleKind {
         }
     }
 
-    #[inline] pub fn radians(self)->f64 { self.value.to_radians() }
-    #[inline] pub fn degrees(self)->f64 { self.value }
+    pub fn from_radians(rad: f64) -> Self {
+        NormalizedAngle {
+            value: K::normalize(rad.to_degrees()),
+            kind: PhantomData,
+        }
+    }
+
+    #[inline] pub fn radians(&self)->f64 { self.value.to_radians() }
+    #[inline] pub fn degrees(&self)->f64 { self.value }
 
     // the functions that require conversion to radians
-    #[inline] pub fn sin(self)->f64 { self.value.to_radians().sin() }
-    #[inline] pub fn cos(self)->f64 { self.value.to_radians().cos() }
-    #[inline] pub fn tan(self)->f64 { self.value.to_radians().tan() }
+    #[inline] pub fn sin(&self)->f64 { self.value.to_radians().sin() }
+    #[inline] pub fn cos(&self)->f64 { self.value.to_radians().cos() }
+    #[inline] pub fn tan(&self)->f64 { self.value.to_radians().tan() }
 
-    #[inline] pub fn sin2(self)->f64 { self.value.to_radians().sin().powi(2) }
-    #[inline] pub fn cos2(self)->f64 { self.value.to_radians().cos().powi(2) }
-    #[inline] pub fn tan2(self)->f64 { self.value.to_radians().tan().powi(2) }
+    #[inline] pub fn sin2(&self)->f64 { self.value.to_radians().sin().powi(2) }
+    #[inline] pub fn cos2(&self)->f64 { self.value.to_radians().cos().powi(2) }
+    #[inline] pub fn tan2(&self)->f64 { self.value.to_radians().tan().powi(2) }
 
-    #[inline] pub fn asin(self)->f64 { self.value.to_radians().sin() }
-    #[inline] pub fn acos(self)->f64 { self.value.to_radians().cos() }
-    #[inline] pub fn atan(self)->f64 { self.value.to_radians().atan() }
+    #[inline] pub fn asin(&self)->f64 { self.value.to_radians().sin() }
+    #[inline] pub fn acos(&self)->f64 { self.value.to_radians().cos() }
+    #[inline] pub fn atan(&self)->f64 { self.value.to_radians().atan() }
     //... and more to follow
 }
 
@@ -216,4 +223,15 @@ impl<K> SerializeTrait for NormalizedAngle<K> where K: AngleKind {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         serializer.serialize_f64(self.value)
     }
+}
+
+pub fn ser_rounded_angle<S: Serializer,K: AngleKind> (angle: &NormalizedAngle<K>, s: S) -> Result<S::Ok, S::Error>  {
+    let deg = angle.degrees().round() as i32;
+    s.serialize_i32(deg)
+}
+
+/// for Latitude, Longitude if we don't need more precision than ~1m
+pub fn ser_rounded5_angle<S: Serializer,K: AngleKind> (angle: &NormalizedAngle<K>, s: S) -> Result<S::Ok, S::Error>  {
+    let deg: f64 = (angle.degrees() * 100000.0).round() / 100000.0;
+    s.serialize_f64(deg)
 }

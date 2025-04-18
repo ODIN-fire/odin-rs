@@ -14,13 +14,13 @@
 
 use std::{f64::{consts::PI, NAN}, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign}};
 use nalgebra::{OMatrix,base::{Matrix,ArrayStorage,dimension::{Const,Dyn}}};
-use serde::{Serialize,Deserialize};
+use serde::{Serialize,Deserialize,ser::{Serializer,SerializeStruct},de::Deserializer};
 use crate::geo_constants::{
-    EARTH_RADIUS_RATIO_SQUARED, EQUATORIAL_EARTH_RADIUS, POLAR_EARTH_RADIUS_SQUARED, EQUATORIAL_EARTH_RADIUS_SQUARED, 
-    E_EARTH_SQUARED, MEAN_EARTH_RADIUS, MER_SQUARED
+    EARTH_RADIUS_RATIO_SQUARED, EQUATORIAL_EARTH_RADIUS, EQUATORIAL_EARTH_RADIUS_SQUARED, E_EARTH_SQUARED, MEAN_EARTH_RADIUS, MER_SQUARED, POLAR_EARTH_RADIUS_SQUARED
 };
 use crate::cartographic::Cartographic;
 use crate::{pow2,sqrt,signum, atan, atan2};
+use crate::json_writer::{JsonWritable,JsonWriter};
 
 /// note that we do not use uom here to allow for abstract coordinate systems (although
 /// it mostly is used for ITRF sysemts)
@@ -102,6 +102,7 @@ impl Cartesian3 {
         n
     }
 
+    /// Note - this assumes the first/last point is NOT duplicated 
     pub fn normals (vs: &Vec<Cartesian3>)->Vec<Cartesian3> {
         let len = vs.len();
         let mut ns: Vec<Cartesian3> = Vec::with_capacity(len);
@@ -204,6 +205,11 @@ impl Cartesian3 {
         *self * (len/self.length())
     } 
 
+    pub fn extended_by_length (&self, l: f64)->Self {
+        let length = self.length();
+        *self * ((length + l) / length) 
+    }
+
     /// return great circle distance of p1 and p2 projected to earth radius
     /// this uses a spherical approximation
     pub fn gc_distance (p1: &Cartesian3, p2: &Cartesian3) -> f64 {
@@ -267,6 +273,12 @@ impl Cartesian3 {
 /// higher (intersection to the right)  
 pub fn find_closest_index (ps: &[Cartesian3], p: &Cartesian3) -> usize {
     let len = ps.len();
+
+    // corner cases
+    if len == 0 { panic!("no vertices") }
+    if len == 1 { return 0 } // only choice
+    if len == 2 { return if dist_squared( &ps[1], p) > dist_squared( &ps[0], p) { 0 } else { 1 } }
+
     let mut l = 1;
     let mut r = len-2;
     let mut i = r/2;
@@ -297,6 +309,19 @@ pub fn find_closest_index (ps: &[Cartesian3], p: &Cartesian3) -> usize {
 pub fn dist_squared (p: &Cartesian3, q:&Cartesian3) -> f64 {
     let d = p - q;
     pow2(d.x) + pow2(d.y) + pow2(d.z)
+}
+
+impl JsonWritable for Cartesian3 {
+    /// note this is a lossy implementation as we round to integer (assuming the underlying unit is meter)
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object( |w| {
+            w.write_field("x", self.x.round() as i64);
+            w.write_field("y", self.y.round() as i64);
+            w.write_field("z", self.z.round() as i64);
+        });
+    }
+
+    fn estimated_length (&self)->usize { 64 }
 }
 
 impl std::fmt::Display for Cartesian3 {
@@ -514,6 +539,16 @@ impl From<&Cartographic> for Cartesian3 {
 
         Cartesian3::new( x, y, z)
     }
+}
+
+/* #region serde *******************************************************/
+
+pub fn ser_rounded_cartesian3<S: Serializer> (p: &Cartesian3, s: S) -> Result<S::Ok, S::Error>  {
+    let mut c3 = s.serialize_struct("Cartesian3", 3)?;
+    c3.serialize_field("x", &(p.x.round() as i64))?;
+    c3.serialize_field("y", &(p.y.round() as i64))?;
+    c3.serialize_field("z", &(p.z.round() as i64))?;
+    c3.end()
 }
 
 /* 

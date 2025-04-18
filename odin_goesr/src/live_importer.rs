@@ -14,6 +14,7 @@
 
 use crate::*;
 use odin_actor::ObjSafeFuture;
+use odin_build::pkg_cache_dir;
 use odin_common::fs::ensure_writable_dir;
 use odin_common::s3::{create_s3_client, get_s3_objects, get_last_s3_object};
 use odin_common::schedule::{get_hourly_schedule,Compaction,get_next_hourly_event_dtg};
@@ -48,9 +49,7 @@ pub struct LiveGoesrHotspotImporter {
 
 impl LiveGoesrHotspotImporter {
     pub fn new (config: LiveGoesrHotspotImporterConfig) -> Self {
-        let cache_dir = Arc::new( odin_build::cache_dir().join("goesr"));
-        ensure_writable_dir(cache_dir.as_ref()).unwrap(); // Ok to panic - this is a toplevel application object
-
+        let cache_dir = Arc::new( pkg_cache_dir!());
         LiveGoesrHotspotImporter{ config, cache_dir, import_task:None, file_cleanup_task:None }
     }
 

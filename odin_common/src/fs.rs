@@ -89,8 +89,9 @@ pub fn readable_file (dir: &str, filename: &str) -> Result<File> {
     }
 }
 
-pub fn writable_empty_file (dir: &str, filename: &str) -> Result<File> {
-    File::create(filepath(dir,filename)?)
+pub fn writable_empty_file (dir: impl AsRef<Path>, filename: &str) -> Result<File> {
+    let path = dir.as_ref().join(filename);
+    File::create( path)
 }
 
 pub fn file_contents_as_string (file: &mut fs::File) -> Result<String> {
@@ -117,8 +118,21 @@ pub fn filepath_contents <P: AsRef<Path>> (path: &P) -> Result<Vec<u8>> {
     } else { Err(io_error!(Other, "file empty: {:?}", file)) }
 }
 
-pub fn file_length <P: AsRef<Path>> (path: &P) -> Option<u64> {
+pub fn file_length <P: AsRef<Path>> (path: P) -> Option<u64> {
     fs::metadata(path).ok().map( |meta| meta.len() )
+}
+
+pub fn get_modified_timestamp <P: AsRef<Path>> (path: P) -> Option<SystemTime> {
+    if let Some(meta) = fs::metadata(path).ok() {
+        meta.modified().ok()
+    } else {
+        None
+    }
+}
+
+pub fn set_modified_timestamp <P: AsRef<Path>> (path: P, t: SystemTime) -> Result<()> {
+    let f = File::open(path)?;
+    f.set_modified(t)
 }
 
 pub fn existing_non_empty_file_from_path <P: AsRef<Path>> (path: P)-> Result<File> {
@@ -156,7 +170,7 @@ pub fn create_file_with_backup (dir: &str, filename: &str, ext: &str) -> Result<
     File::create(p)
 }
 
-pub fn set_filepath_contents (dir: &str, filename: &str, new_contents: &[u8]) -> Result<()> {
+pub fn set_filepath_contents (dir: impl AsRef<Path>, filename: &str, new_contents: &[u8]) -> Result<()>  {
     let mut file = writable_empty_file(dir,filename)?;
     set_file_contents(&mut file, new_contents)
 }

@@ -25,7 +25,7 @@ use crate::{
     PI, HALF_PI, 
     angle::{Latitude, Longitude}, 
     cartesian3::Cartesian3,
-    geo::{GeoPoint, GeoRect}, 
+    geo::{GeoPoint, GeoRect, GeoPolygon}, 
     geo_constants::*, 
     BoundingBox
 };
@@ -140,6 +140,19 @@ impl Cartographic {
         let z = radius * sin_lat;
 
         Cartesian3::new( x, y, z)
+    }
+
+    /// get vertices of GeoPolygon.
+    /// Note - this does NOT include a duplicated first/last point
+    pub fn vertices_of (poly: &GeoPolygon)->Vec<Cartographic> {
+        let len = poly.exterior_coords_count()-1;
+        let mut vs: Vec<Cartographic> = Vec::with_capacity(len);
+
+        let mut i = 0;
+        for p in poly.points_iter() {
+            if i < len { vs.push( Cartographic::from(p)) } 
+        }
+        vs
     }
 }
 

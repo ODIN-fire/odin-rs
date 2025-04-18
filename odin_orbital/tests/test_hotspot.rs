@@ -12,9 +12,14 @@
  * and limitations under the License.
  */
 
+#![allow(unused)]
+
+use chrono::{Datelike,Timelike,TimeDelta};
 use ron;
+use std::{collections::VecDeque, fs::File};
 use odin_common::{fs,cartographic::Cartographic,cartesian3::{Cartesian3,find_closest_index, dist_squared}};
-use odin_orbital::overpass::{Overpass};
+use odin_orbital::{Hotspot, HotspotList, Overpass, CompletedOverpass};
+use odin_orbital::firms::ViirsHotspotImporter;
 
 // -122.15794, 37.11457
 // -114.9097, 36.35744
@@ -62,4 +67,42 @@ fn gp (traj: &[Cartesian3], hs: Cartographic) {
 
     let rot = hs.bearing_to( &cp).to_degrees();
     println!("rot = {:.1} deg", rot);
+    assert!( (rot + 75.9).abs() < 0.1); // expected -75.9
+}
+
+#[test]
+fn test_parse () {
+    let mut cops: VecDeque<CompletedOverpass<HotspotList>> = VecDeque::new();
+
+    let op_src = fs::filepath_contents_as_string(&"tests/NOAA-21_VIIRS_2025-04-07_09_27.ron").unwrap();
+    let op: Overpass = ron::from_str(&op_src).unwrap();
+    cops.push_back( CompletedOverpass::new(op));
+
+    let op_src = fs::filepath_contents_as_string(&"tests/NOAA-21_VIIRS_2025-04-07_20_48.ron").unwrap();
+    let op: Overpass = ron::from_str(&op_src).unwrap();
+    cops.push_back( CompletedOverpass::new(op));
+
+    let csv_file =  File::open("tests/NOAA-21_FDDC_2025-04-07.csv").unwrap();
+    let changed_ops = ViirsHotspotImporter::import_hotspots( csv_file, &mut cops).unwrap();
+    println!("changed overpass indices: {:?}", changed_ops);
+
+    for idx in changed_ops.iter() {
+        if let Some(hotspot_list) =  &cops[idx].data {
+            let hotspots = &hotspot_list.hotspots;
+            let op = &cops[idx].overpass;
+            let start = op.start;
+
+            println!("\n---- [{}]: {} hotspots in {:04}-{:02}-{:02} {:02}:{:02} + {} min", 
+                     idx, hotspots.len(), 
+                     start.year(), start.month(), start.day(), start.hour(), start.minute(), 
+                     (op.end - start).num_minutes());
+            for h in hotspots {
+                let s = serde_json::to_string(h).unwrap();
+                println!("{s}");
+            }
+
+        } else {
+            panic!("no data for CompletedOverpass {}", idx)
+        }
+    } 
 }

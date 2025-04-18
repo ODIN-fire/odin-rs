@@ -15,6 +15,8 @@
 
 #[doc = include_str!("../doc/odin_action.md")]
 
+// TODO - re-evaluate if we need our own type now that async closures are stabilized
+
 use std::{fmt::Debug, marker::PhantomData, future::{Future,ready}, result::Result,
     any::type_name, ops::{Deref,DerefMut},
 };

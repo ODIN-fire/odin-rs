@@ -155,7 +155,7 @@ async fn process_ping (ws: &mut WsStream)->Result<()> {
     let cmd = serde_json::to_string(&ping)?;
 
     if_let! {
-        Ok(_) = { ws.send( Message::Text(cmd)).await } else |other| { handle_ws_error(other, "sending ping") },
+        Ok(_) = { ws.send( Message::text(cmd)).await } else |other| { handle_ws_error(other, "sending ping") },
         Some(response) = { ws.next().await } else { Err(OdinSentinelError::WsClosedError) },
         Ok(Message::Text(s)) = { response } else |other| { handle_ws_error(other, "unexpected Ping response") },
         Ok(WsMsg::Pong{..}) = { serde_json::from_str::<WsMsg>(&s) } else |other| { eprintln!("\nERROR parsing Ping response: {other:?}"); Ok(()) } => {
@@ -167,7 +167,7 @@ async fn process_ping (ws: &mut WsStream)->Result<()> {
 
 async fn process_cmd (ws: &mut WsStream, cmd: String)->Result<()> {
     if_let! {
-        Ok(_) = { ws.send( Message::Text(cmd)).await } else |other| { handle_ws_error(other, "sending command") },
+        Ok(_) = { ws.send( Message::text(cmd)).await } else |other| { handle_ws_error(other, "sending command") },
         Some(response) = { ws.next().await } else { Err(OdinSentinelError::WsClosedError) },
         Ok(Message::Text(s)) = { response } else |other| { handle_ws_error(other, "unexpected command response") } => {
             println!("{s}");

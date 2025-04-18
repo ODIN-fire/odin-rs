@@ -14,28 +14,38 @@
 
  #![allow(unused)]
 
-use std::{collections::{HashMap, VecDeque}, f64, time::Duration as StdDuration, fmt};
+use std::{collections::{HashMap, VecDeque}, f64, time::Duration as StdDuration, fmt, sync::Arc, path::{Path,PathBuf}};
 use odin_macro::public_struct;
 use satkit::{Instant,Duration,TLE,frametransform::qteme2itrf,itrfcoord::ITRFCoord,sgp4::sgp4};
 use nalgebra::{ViewStorage,base::{Matrix,ArrayStorage,dimension::{Const,Dyn}}};
 use geo::{Haversine, Bearing, Destination, Point};
 use uom::si::{length::meter,f64::Length};
-use chrono::{DateTime,Utc};
+use chrono::{DateTime, Datelike, Timelike, Utc};
 use serde::{Deserialize,Serialize};
+use bit_set::BitSet;
 use odin_common::{
-    angle::{normalize_360,Angle90}, 
-    cartesian3::Cartesian3, 
-    cartographic::{get_bbox_rad, mean_distance_rad, parallel_distance_rad, approximate_surface_centroid, Cartographic}, 
-    collections::{RingDeque, SingleLookupHashMap, SortedIterable}, 
-    datetime::{from_epoch_millis, ser_duration_as_fractional_secs, ser_epoch_millis, de_from_epoch_millis, de_duration_from_fractional_secs}, 
+    asin, atan2, cos, is_same_ref, signum, sin, sqrt, tan, MinMaxAvg, HALF_PI,
+    angle::{normalize_360, Angle360, Angle90},
+    fs::set_filepath_contents,
+    cartesian3::{dist_squared, find_closest_index, Cartesian3}, 
+    cartographic::{approximate_surface_centroid, earth_radius_at_geodetic_latitude, get_bbox_rad, mean_distance_rad, parallel_distance_rad, Cartographic}, 
+    collections::{empty_vec, RingDeque, SingleLookupHashMap, SortedIterable},
+    datetime::{de_duration_from_fractional_secs, de_from_epoch_millis, from_epoch_millis, ser_duration_as_fractional_secs, ser_epoch_millis}, 
     geo::{GeoPoint, GeoPolygon, GeoRect}, 
-    geo_constants::{E_EARTH, E_EARTH_SQUARED, MEAN_EARTH_RADIUS, POLAR_EARTH_RADIUS_SQUARED, EQUATORIAL_EARTH_RADIUS_SQUARED}, 
-    is_same_ref, MinMaxAvg, HALF_PI, atan2, sin, cos, asin, tan, sqrt, signum,
-    uom::{meters,ser_length_as_meters,de_length_from_meters}
+    geo_constants::{EQUATORIAL_EARTH_RADIUS_SQUARED, E_EARTH, E_EARTH_SQUARED, MEAN_EARTH_RADIUS, POLAR_EARTH_RADIUS_SQUARED}, 
+    uom::{de_length_from_meters, meters, ser_length_as_meters},
+    json_writer::{JsonWriter, JsonWritable}
 };
-use crate::{get_time_vec, SatelliteInfo, errors::{op_failed,Result,OdinOrbitalError}, tle_store::TleStore, orbitinfo::{OrbitInfo}};
+use crate::{
+    get_time_vec, instant_now, ColumnVec, OrbitalSatelliteInfo, Hotspot, 
+    errors::{op_failed,Result,OdinOrbitalError}, 
+    tle_store::TleStore, 
+    orbitinfo::{OrbitInfo}
+};
 
-type ColumnVec<'a> = Matrix<f64, Const<3>, Const<1>, ViewStorage<'a, f64, Const<3>, Const<1>, Const<1>, Const<3>>>;
+// we don't store anything that has less points as it is just skirting one of the (already margined) edges
+// as a rule of thumb SSO satellites move with about 7.5km/sec
+const MIN_TRAJECTORY_POINTS: usize = 10;
 
 /* #region configuration data **************************************************************************************/
 
@@ -43,53 +53,56 @@ type ColumnVec<'a> = Matrix<f64, Const<3>, Const<1>, ViewStorage<'a, f64, Const<
 
 /// OverpassCalculator output: the segment of an orbit whose swath covers (part of) an OverpassRegion
 /// this includes the regular time series trajectory in ECEF coordinates and respective start/end time of the segment
+/// note this structure works like a trampoline - we serialize to a pkg_cache_dir/fname file but then reset the trajectory
+/// before sending it via websocket. The client then uses fname to request the full file on demand
 #[derive(Debug,Serialize,Deserialize)]
 #[public_struct]
 pub struct Overpass {
     sat_id: u32,
 
     max_scan_angle: Angle90, 
-
-    #[serde(serialize_with="ser_length_as_meters", deserialize_with="de_length_from_meters")]
     mean_swath_width: Length, // note that swath width depends on altitude (i.e. varies over trajectory)
+    mean_height: Length, // ditto
+    mean_orbit_duration: StdDuration,
 
-    #[serde(serialize_with="ser_length_as_meters", deserialize_with="de_length_from_meters")]
-    mean_altitude: Length, // ditto
-
-    #[serde(serialize_with="ser_epoch_millis", deserialize_with="de_from_epoch_millis")]
     start: DateTime<Utc>,
-
-    #[serde(serialize_with="ser_epoch_millis", deserialize_with="de_from_epoch_millis")]
     end: DateTime<Utc>,
 
-    #[serde(serialize_with="ser_duration_as_fractional_secs", deserialize_with="de_duration_from_fractional_secs")]
     time_step: StdDuration,
 
+    fname: String, // the filename to retrieve the full trajectory (from the cache dir) if trajectory is empty
     trajectory: Vec<Cartesian3> // regular time series trajectory points in ECEF frame
 }
 
 impl Overpass {
-    pub fn new (sat_id: u32, max_scan_angle: Angle90, ts: Duration)-> Self {
+    pub fn new (sat_id: u32, max_scan_angle: Angle90, ts: Duration, mean_orb_dur: Duration)-> Self {
+        let time_step = StdDuration::from_secs_f64( ts.as_seconds());
+        let mean_orbit_duration = StdDuration::from_secs_f64( mean_orb_dur.as_seconds());
+
+        // those are all set later
         let start = from_epoch_millis(0);
         let end = from_epoch_millis(0);
-        let time_step = StdDuration::from_secs_f64( ts.as_seconds());
         let trajectory: Vec<Cartesian3> = Vec::with_capacity(1024);
         let mean_swath_width: Length = Length::new::<meter>(0.0); // computed once we have a trajectory
         let mean_altitude: Length = Length::new::<meter>(0.0); // computed once we have a trajectory
+        let fname = String::with_capacity(0); 
 
-        Overpass { sat_id, max_scan_angle, mean_swath_width, mean_altitude, start, end, time_step, trajectory }
+        Overpass { sat_id, max_scan_angle, mean_swath_width, mean_height: mean_altitude, mean_orbit_duration, start, end, time_step, fname, trajectory }
     }
 
     pub fn set_start (&mut self, t: Instant) {
         self.start = from_epoch_millis( (t.as_unixtime() * 1000.0) as i64);
     }
 
+    pub fn set_end (&mut self, t: Instant) {
+        self.end = from_epoch_millis( (t.as_unixtime() * 1000.0) as i64);
+    }
+
     pub fn push_trajectory_point (&mut self, p: Cartesian3) {
         self.trajectory.push( p);
     }
 
-    pub fn set_end (&mut self, t: Instant) {
-        self.end = from_epoch_millis( (t.as_unixtime() * 1000.0) as i64);
+    fn finish (&mut self) {
         self.trajectory.shrink_to_fit();
 
         let p_first = &self.trajectory[0];
@@ -103,165 +116,235 @@ impl Overpass {
         // same for mean altitude
         let alt_first = p_first.length() - p_first.earth_radius();
         let alt_last = p_last.length() - p_last.earth_radius();
-        self.mean_altitude = Length::new::<meter>( ((alt_first + alt_last) / 2.0).round() );
+        self.mean_height = Length::new::<meter>( ((alt_first + alt_last) / 2.0).round() );
+
+        let start = &self.start;
+        self.fname = format!("{}_{:4}-{:02}-{:02}_{:02}{:02}_{}.json", 
+                           self.sat_id, start.year(), start.month(), start.day(), start.hour(), start.minute(), (self.end-start).num_minutes());
+    }
+
+    pub fn len (&self)->usize {
+        self.trajectory.len()
     }
 
     pub fn is_empty (&self)->bool {
         self.trajectory.is_empty()
     }
+
+    pub fn covers (&self, d: DateTime<Utc>)->bool {
+        // give some leeway at the end since acquisition might have some latency - we assume download latency < orbit_dur / 2
+        (d > self.start) && (d < self.end + self.mean_orbit_duration.div_f64(2.0))
+    }
+
+    // note this requires at least 2 points but anything less is just skirting one of the region corners anyways
+    pub fn closest_ground_point (&self, p: &Cartesian3)->Cartesian3 {
+        let traj = &self.trajectory;
+        let len = traj.len();
+        if len < 2 { panic!("not enough trajectory points") }  // NOTE - caller has to make sure
+
+        let i = find_closest_index( traj, &p);
+        let j = if i == 0 { 1 } else if i == len-1 { len-2 } else {
+            if dist_squared( &traj[i-1], &p) > dist_squared( &traj[i+1], &p) { i+1 } else { i-1 }
+        };
+
+        if i > j {
+            p.closest_point_on_plane( &traj[j], &traj[i]).to_earth_radius()
+        } else {
+            p.closest_point_on_plane( &traj[i], &traj[j]).to_earth_radius()
+        }
+    }
+
+    pub fn bearing_to_closest_ground_point (&self, cp: Cartographic) -> Angle360 {
+        let p = Cartesian3::from(cp);
+        let gp = self.closest_ground_point(&p);
+        let cgp = Cartographic::from(&gp);
+        
+        Angle360::from_degrees( cp.bearing_to( &cgp).to_degrees())
+    }
+
+    pub fn save_to (&self, dir: impl AsRef<Path>)->Result<()> {
+        set_filepath_contents( dir, &self.fname, self.to_full_json().as_bytes())?;
+        Ok(())
+    }
+
+    fn write_common_json_fields_to (&self, w: &mut JsonWriter) {
+        w.write_field("sat_id", self.sat_id);
+        w.write_field("max_scan_angle", self.max_scan_angle.degrees());
+        w.write_field("mean_swath_width", self.mean_swath_width.get::<meter>().round() as i64);
+        w.write_field("mean_height", self.mean_height.get::<meter>().round() as i64);
+        w.write_fmt_field("mean_orbit_duration", &format!("{:.3}", self.mean_orbit_duration.as_secs_f64()));
+        w.write_field("start", self.start.timestamp_millis());
+        w.write_field("end", self.end.timestamp_millis());
+        w.write_field("mean_orbit_duration", &format!("{:.3}", self.time_step.as_secs_f64()));
+        w.write_string_field("fname", &self.fname);
+    }
+
+    pub fn to_collapsed_json (&self)->String {
+        let mut w = JsonWriter::with_capacity(128);
+        w.write_object(|w| self.write_common_json_fields_to(w));
+        w.to_string()
+    }
+
+    pub fn to_full_json (&self)->String {
+        let mut w = JsonWriter::with_capacity(128 + self.len() * 32);
+        w.write_object(|w| {
+            self.write_common_json_fields_to(w);
+            w.write_field_with("trajectory", |w| self.trajectory.write_json_to(w));
+        });
+        w.to_string()
+    }
+
+    pub fn collapse (&mut self) {
+        self.trajectory = empty_vec();
+    }
 }
+
+pub fn save_overpasses_to (dir: impl AsRef<Path>, overpasses: &Vec<Overpass>)->Result<()> {
+    for o in overpasses { 
+        o.save_to( &dir)? 
+    }
+    Ok(())
+}
+
 
 impl fmt::Display for Overpass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Overpass( sat_id:{}, start:{}, dur:{} min, step:{} s, n_points:{}, mean_alt: {:.0} m, mean_swath: {:.0} m)", 
             self.sat_id, self.start, (self.end - self.start).num_minutes(), self.time_step.as_secs(), self.trajectory.len(), 
-            self.mean_altitude.get::<meter>(), self.mean_swath_width.get::<meter>())
+            self.mean_height.get::<meter>(), self.mean_swath_width.get::<meter>())
     }
 }
+
 
 /// the object that performs overpass calculations
 /// Note the overpass calculator makes some assumptions about the region. It has to be a concave polygon
 /// and cannot exceed a hemisphere so that we get at most one overpass section in each orbit
 pub struct OverpassCalculator<T: TleStore> {
-    region: GeoPolygon,
-    satellites: Vec<SatelliteInfo>,
+    sat_info: Arc<OrbitalSatelliteInfo>,
     tle_store: T,
-    max_tles: usize, // maximum number of TLE to keep per satellite
-    ois: HashMap<u32,VecDeque<OrbitInfo>>, // sat_id -> time-sorted{OrbitInfo}
-    ocs: Vec<OverpassConstraints> // one for each SatelliteInfo
+    ois: VecDeque<OrbitInfo>, // time-sorted list of OrbitInfos
+    oc: OverpassConstraints // calculated from region and average satellite info
 }
 
 impl <T: TleStore> OverpassCalculator<T> {
-    pub fn new( region: GeoPolygon, satellites: Vec<SatelliteInfo>, tle_store: T, max_tles: usize)->Self {
-        let n_regions = satellites.len();
-        OverpassCalculator { region, satellites, tle_store, max_tles, ois: HashMap::new(), ocs: Vec::with_capacity( n_regions) }
+    pub fn new( sat_info: Arc<OrbitalSatelliteInfo>, region: GeoPolygon, tle_store: T)->Self {
+        let oc = OverpassConstraints::new( sat_info.clone(), region);
+        let ois: VecDeque<OrbitInfo> = VecDeque::with_capacity( sat_info.max_completed);
+        OverpassCalculator { sat_info, tle_store, ois, oc }
     }
 
-    /// this obtains required TLEs, computes reference orbits and OverpassRegionConstraints for each satellite
+    /// this obtains required TLEs and computes reference orbits 
     pub async fn initialize (&mut self)->Result<()> {
-        let region: Vec<Cartographic> = self.region.as_exterior_geo_points().iter().map( |p| Cartographic::from(p)).collect();
-
-        for sat in self.satellites.iter() {
-            let sat_id = sat.sat_id;
-            self.tle_store.pre_fetch(sat_id).await?;
-            let tles = self.tle_store.get_available_tles(sat_id);
-            let ois = calculate_orbitinfos( sat_id, tles, self.max_tles);
-            self.ois.insert( sat_id, ois);
-
-            if let Some(oi) = self.get_latest_orbitinfo( sat_id) {
-                let oc = OverpassConstraints::new( sat_id, sat.max_scan_angle, oi, &region);
-                self.ocs.push( oc);
-            } else {
-                return Err( op_failed!("no OrbitInfo for {}", sat_id))
-            }
-        }
+        self.tle_store.pre_fetch().await?;
+        self.calculate_orbitinfos();
+        
+        // TODO - we could re-compute the OverpassConstraints here with the height from the latest TLE but it is
+        // not clear we need this precision
 
         Ok(())
     }
 
-    fn get_orbitinfos_for (&self, sat_id: u32) -> Option<&VecDeque<OrbitInfo>> {
-        self.ois.get( &sat_id)
+    fn calculate_orbitinfos (&mut self) {
+        let max_tles = self.sat_info.max_tles;
+        let mut ois: VecDeque<OrbitInfo> = VecDeque::with_capacity( max_tles);
+        let mut tles = self.tle_store.get_available_tles();
+        let n_tles = tles.len();
+        let sat_id = self.sat_info.sat_id;
+
+        let i0 = if n_tles > max_tles { n_tles - max_tles } else { 0 };
+        for i in i0..n_tles { ois.push_front( OrbitInfo::new( sat_id, tles.pop().unwrap())) }
+    
+        self.ois = ois;
     }
 
-    fn get_latest_orbitinfo (&self, sat_id: u32) -> Option<&OrbitInfo> {
-        self.ois.get( &sat_id).and_then( |ois| ois.back())
-    }
+    pub async fn get_initial_overpasses (&mut self)-> Result<Vec<Overpass>> {
+        let back_dur = Duration::from_days( self.sat_info.back_days  as f64);
+        let forward_dur = Duration::from_days( self.sat_info.forward_days  as f64);
+        let t = instant_now() - back_dur;
 
-    pub fn get_overpass_constraints (&self, sat_id: u32, max_scan_angle: Angle90)->Option<&OverpassConstraints> {
-        self.ocs.iter().position( |oc| oc.sat_id == sat_id && oc.max_scan_angle == max_scan_angle).map( |i| &self.ocs[i])
+        self.get_overpasses( t, back_dur + forward_dur).await
     }
 
     /// get all overpasses that (partially) fall into the provided time span.
     /// This is the main reason why we have an OverpassCalculator
-    /// Note this might include overpasses with start/end times that are outside the interval as we always want to check full orbits
-    pub async fn get_overpasses (&mut self, sat_id: u32, max_scan_angle: Angle90, t_start: Instant, dur: Duration) -> Result<Vec<Overpass>> {
+    /// Note this might include overpasses with start/end times that are outside the provided interval as we always want to check full orbits
+    pub async fn get_overpasses (&mut self, t_start: Instant, dur: Duration) -> Result<Vec<Overpass>> {
+        let sat_id = self.sat_info.sat_id;
+        let max_scan_angle = self.sat_info.max_scan_angle;
+        let oc = &self.oc;
+        let mut oi = self.ois.find_closest(|o| (t_start - o.epoch()).as_seconds())
+                            .ok_or(op_failed!("no suitable OrbitInfo for {sat_id} at {t_start}"))?;
+        let mut tle = oi.get_tle();
+        let t_end = t_start + dur;
+        let mut t = oi.get_orbit_start(t_start); 
+        let mut n_steps: usize = oi.rev_sec.floor() as usize;
+        let step_dur = Duration::from_seconds(1.0);
+        let mut tvec: Vec<Instant> = vec![ Instant::new(0); n_steps + 20];
+        let z_range = self.oc.z_min..oc.z_max;
 
-        if let Some(ois) = self.get_orbitinfos_for( sat_id) {
-            if let Some(oc) = self.get_overpass_constraints(sat_id, max_scan_angle) {
-                let mut oi = ois.find_closest(|o| (t_start - o.epoch()).as_seconds()).ok_or(op_failed!("no suitable ObjectInfo for {sat_id} at {t_start}"))?;
-                let mut tle = oi.get_tle();
-                let t_end = t_start + dur;
-                let mut t = oi.get_orbit_start(t_start); 
-                let mut n_steps: usize = oi.rev_sec.floor() as usize;
-                let step_dur = Duration::from_seconds(1.0);
-                let mut tvec: Vec<Instant> = vec![ Instant::new(0); n_steps + 20];
-                let z_range = oc.z_min..oc.z_max;
+        let mut overpasses: Vec<Overpass> = Vec::new();
+        let mut current_overpass = Overpass::new( sat_id, max_scan_angle, step_dur, oi.mean_orbit_duration());
+        let mut is_recording = false;
+        let mut p_last = Cartesian3::undefined();
 
-                let mut overpasses: Vec<Overpass> = Vec::new();
-                let mut current_overpass = Overpass::new( sat_id, max_scan_angle, step_dur);
-                let mut is_recording = false;
-                let mut p_last = Cartesian3::undefined();
-    
-                while t < t_end {
-                    let mut i_last = 0;
-                    tvec.clear();
-                    for i in 0..n_steps { tvec.push(t + Duration::from_seconds( (i as f64) * 1.0)) } // initialize time vector for this rev
-                    let (pteme, vteme, errs) = sgp4( &mut tle, &tvec); // propagate
-    
-                    for i in 0..n_steps {  
-                        let v = pteme.column(i);
-                        if z_range.contains( &v[2]) { // outer filter - needs to be efficient
-                            let itrf = qteme2itrf(&tvec[i]).to_rotation_matrix() * v;
-                            let p = Cartesian3::from_col( &itrf);
+        while t < t_end {
+            let mut i_last = 0;
+            tvec.clear();
+            for i in 0..n_steps { tvec.push(t + Duration::from_seconds( (i as f64) * 1.0)) } // initialize time vector for this rev
+            let (pteme, vteme, errs) = sgp4( &mut tle, &tvec); // propagate
 
-                            if p_last.is_undefined() { 
-                                let itrf_last = qteme2itrf(&tvec[i-1]).to_rotation_matrix() * pteme.column(i-1);
-                                p_last = Cartesian3::from_col( &itrf_last);
-                            }
+            for i in 0..n_steps {  
+                let v = pteme.column(i);
+                if z_range.contains( &v[2]) { // outer filter - needs to be efficient
+                    let itrf = qteme2itrf(&tvec[i]).to_rotation_matrix() * v;
+                    let p = Cartesian3::from_col( &itrf);
 
-                            if oc.is_inside( &p, &p_last) {
-                                if !is_recording {
-                                    current_overpass.set_start(tvec[i]);
-                                    is_recording = true;
-                                }
-                                current_overpass.push_trajectory_point(p.to_rounded_decimals(0)); // no point keeping decimals - sgp4 does not have enough accuracy
-                                i_last = i;
-                            } else {
-                                if is_recording { break } // done for this revolution - note we might not get here if z-filter catches
-                            }
-
-                            p_last = p;
-                        } else {
-                            if is_recording { break }
-                        }
+                    if p_last.is_undefined() { 
+                        let itrf_last = qteme2itrf(&tvec[i-1]).to_rotation_matrix() * pteme.column(i-1);
+                        p_last = Cartesian3::from_col( &itrf_last);
                     }
 
-                    if is_recording {
-                        current_overpass.set_end(tvec[i_last]);
-                        if !current_overpass.is_empty() {
-                            overpasses.push( current_overpass);
-                            current_overpass =  Overpass::new( sat_id, max_scan_angle, step_dur);
+                    if oc.is_inside( &p, &p_last) {
+                        if !is_recording {
+                            current_overpass.set_start(tvec[i]);
+                            is_recording = true;
                         }
-
-                        is_recording = false;
+                        current_overpass.push_trajectory_point(p.to_rounded_decimals(0)); // no point keeping decimals - sgp4 does not have enough accuracy
+                        i_last = i;
+                    } else {
+                        if is_recording { break } // done for this revolution - note we might not get here if z-filter catches
                     }
-                    p_last.set_undefined();
 
-                    t = tvec[n_steps-1] + Duration::from_seconds(10.0);
-                    let oi_next =  ois.find_closest(|o| (t - o.epoch()).as_seconds()).ok_or(op_failed!("no suitable OrbitInfo for {sat_id} at {t}"))?;
-                    if !is_same_ref( oi, oi_next) {
-                        oi = oi_next;
-                        tle = oi.get_tle();
-                        n_steps = oi.rev_sec.floor() as usize;
-                    }                    
-                    t = oi.get_orbit_start( t); // make sure we start on pole 
+                    p_last = p;
+                } else {
+                    if is_recording { break }
                 }
+            }
 
-                Ok(overpasses)
+            if is_recording {
+                if current_overpass.len() >= MIN_TRAJECTORY_POINTS { // we require a minimum number of points so that we can interpolate the closest ground point
+                    current_overpass.set_end(tvec[i_last]);
+                    current_overpass.finish();
+                    overpasses.push( current_overpass);
+                }
+                current_overpass =  Overpass::new( sat_id, max_scan_angle, step_dur, oi.mean_orbit_duration());
+                is_recording = false;
+            }
+            p_last.set_undefined();
 
-            } else { Err(op_failed!("no OverpassConstraints for {sat_id} and max_scan {max_scan_angle}")) } 
-        } else { Err(op_failed!("no OrbitInfos for {sat_id}")) }
+            t = tvec[n_steps-1] + Duration::from_seconds(10.0);
+            let oi_next =  self.ois.find_closest(|o| (t - o.epoch()).as_seconds()).ok_or(op_failed!("no suitable OrbitInfo for {sat_id} at {t}"))?;
+            if !is_same_ref( oi, oi_next) {
+                oi = oi_next;
+                tle = oi.get_tle();
+                n_steps = oi.rev_sec.floor() as usize;
+            }                    
+            t = oi.get_orbit_start( t); // make sure we start on pole 
+        }
+
+        Ok(overpasses)
+
     }
-}
-
-fn calculate_orbitinfos (sat_id: u32, mut tles: Vec<TLE>, max_len: usize)->VecDeque<OrbitInfo> {
-    let mut ois: VecDeque<OrbitInfo> = VecDeque::with_capacity( max_len);
-    let n_tles = tles.len();
-
-    let i0 = if n_tles > max_len { n_tles - max_len } else { 0 };
-    for i in i0..n_tles { ois.push_front( OrbitInfo::new( sat_id, tles.pop().unwrap())) }
-
-    ois
 }
 
 
@@ -269,60 +352,51 @@ fn calculate_orbitinfos (sat_id: u32, mut tles: Vec<TLE>, max_len: usize)->VecDe
 
 /// struct that defines the region we want to compute overpasses for.
 /// this is constructed from a concave polygon given as a list of cartographic vertices, and from satellite specific data
-/// such as altitude and swath width
+/// such as altitude and swath width, which we derive from an OrbitInfo.
 pub struct OverpassConstraints {
-    sat_id: u32,
-    max_scan_angle: Angle90,
+    sat_info: Arc<OrbitalSatelliteInfo>,
 
     sin_msa: f64,  // pre-computed
     cos_msa: f64,
     
     region: Vec<Cartographic>,
     vertices: Vec<Cartesian3>,  // the ECEF vertices of the region
-    normals: Vec<Cartesian3>,     // the list of unit normals for each of the planes defined by two consecutive vertices (and earth center)
+    normals: Vec<Cartesian3>,   // the list of unit normals for each of the planes defined by two consecutive vertices (and earth center)
+    bounds: GeoRect,            // the meridian/parallel aligned hull of the region
 
     // corresponds to max and min latitude (but can be applied to both TEME and ITRF: sin(lat) * dist) as a first filter
     z_max: f64,
     z_min: f64,
-
-    // max and min longitude (atan2(y,x) of ITRF) in radians
-    lon_max: f64,
-    lon_min: f64,
 }
 
 impl OverpassConstraints {
-    fn new (sat_id: u32, max_scan_angle: Angle90, orbit_info: &OrbitInfo, base_region: &Vec<Cartographic>)->Self {
-        // expand region so that inside-checks account for swath width
-        let region = base_region.clone();
+    fn new (sat_info: Arc<OrbitalSatelliteInfo>, base_region: GeoPolygon)->Self {
+        // TODO - check and make sure region is concave
+        let region = Cartographic::vertices_of(&base_region);
 
-        let sin_msa = sin(max_scan_angle.radians());
-        let cos_msa = cos(max_scan_angle.radians());
+        let sin_msa = sin( sat_info.max_scan_angle.radians());
+        let cos_msa = cos( sat_info.max_scan_angle.radians());
 
         let vertices: Vec<Cartesian3> = region.iter().map(|v| v.into()).collect();
         let normals: Vec<Cartesian3> = Cartesian3::normals(&vertices);
-        let (z_min,z_max,lon_min,lon_max) = Self::compute_bounds( orbit_info, &vertices);
+        let bounds: GeoRect = base_region.bounds();
 
-        OverpassConstraints { sat_id, max_scan_angle, sin_msa, cos_msa, region, vertices, normals,  z_max, z_min, lon_max, lon_min }
+        let (z_min,z_max) = Self::compute_bounds( sat_info.avg_height.get::<meter>(), &vertices);
+
+        OverpassConstraints { sat_info, sin_msa, cos_msa, region, vertices, normals,  bounds, z_max, z_min }
     }
 
-    fn compute_bounds (orbit_info: &OrbitInfo, vertices: &[Cartesian3]) -> (f64,f64,f64,f64) {
-        let dist = orbit_info.dist_stats.max;
+    fn compute_bounds (avg_height: f64, vertices: &[Cartesian3]) -> (f64,f64) {
         let mut z_min: f64 = f64::MAX;
         let mut z_max: f64 = f64::MIN;
-        let mut lon_min: f64 = f64::MAX;
-        let mut lon_max: f64 = f64::MIN;
     
         for v in vertices {
-            let v = v.to_length(dist);
-            if v.z < z_min { z_min = v.z }
-            if v.z > z_max { z_max = v.z }
-    
-            let lon = atan2( v.y, v.x);
-            if lon < lon_min { lon_min = lon }
-            if lon > lon_max { lon_max = lon }
+            let t = v.extended_by_length( avg_height); // vertices are on the ellipsoid
+            if t.z < z_min { z_min = t.z }
+            if t.z > z_max { z_max = t.z }
         }
     
-        (z_min, z_max, lon_min, lon_max)
+        (z_min, z_max)
     }
 
     pub fn is_inside (&self, p: &Cartesian3, p_last: &Cartesian3) -> bool {

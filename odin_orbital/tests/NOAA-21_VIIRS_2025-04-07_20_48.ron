@@ -1,6 +1,15 @@
 // ascending overpass of NOAA-21 on 2025-04-07 20:48:18.786 UTC, dur:6 min
 
-(sat_id: 54234, max_scan_angle: 56.28, mean_swath_width: 1534735.0, mean_altitude: 830455.0, start: 1744058898786, end: 1744059291786, time_step: 1.0, trajectory: [
+(sat_id: 54234, 
+max_scan_angle: 56.28, 
+mean_swath_width: 1534735.0, 
+mean_height: 830455.0, 
+mean_orbit_duration: Duration(secs: 6068, nanos: 336800000),
+start: "2025-04-07T20:48:18.786Z", 
+end: "2025-04-07T20:54:30.0Z", 
+time_step: Duration(secs: 1, nanos: 0), 
+fname: "none", 
+trajectory: [
     (x: -2749548.0, y: -5949305.0, z: 2987425.0),
     (x: -2749825.0, y: -5945811.0, z: 2994096.0),
     (x: -2750099.0, y: -5942310.0, z: 3000765.0),

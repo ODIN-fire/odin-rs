@@ -35,7 +35,7 @@ use async_trait::async_trait;
 use paste::paste;
 use lazy_static::lazy_static;
 
-use odin_build::{define_load_asset, define_load_config};
+use odin_build::{define_load_asset, define_load_config, pkg_cache_dir};
 use odin_common::{
     angle::{Latitude,Longitude}, datetime::{deserialize_duration, to_epoch_millis, Dated, EpochMillis}, fs::{ensure_writable_dir, get_filename_extension}, geo::{GeoPoint3,GeoPoint4}
 };
@@ -971,10 +971,7 @@ impl Default for SentinelConfig {
 }
 
 pub fn sentinel_cache_dir()->PathBuf {
-    let path = odin_build::cache_dir().join("sentinel");
-    // Ok to panic - this is called during sys init
-    ensure_writable_dir(&path).expect( &format!("invalid sentinel cache dir: {path:?}"));
-    path
+    pkg_cache_dir!()
 }
 
 

@@ -19,6 +19,7 @@ ron = { workspace = true }
 num = { workspace = true }
 nalgebra = { workspace = true }
 geo = { workspace = true }
+geo-types = { workspace = true }
 uom = { workspace = true }
 thiserror = { workspace = true }
 parse_duration = "*"

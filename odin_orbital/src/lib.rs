@@ -13,41 +13,289 @@
  */
 
 #![allow(unused)]
+#![feature(duration_constructors)]
 
+use std::{collections::VecDeque, fmt, time::{Duration as StdDuration,SystemTime}, path::{Path,PathBuf},fs};
 use nalgebra::{ViewStorage,base::{Matrix,ArrayStorage,dimension::{Const,Dyn}}};
-use chrono::{DateTime,Utc,TimeZone};
-use satkit::{Instant,Duration,frametransform::qteme2itrf};
+use chrono::{DateTime,Utc,TimeZone,Datelike,Timelike};
+use satkit::{self,Instant,Duration,frametransform::qteme2itrf};
 use serde::{Deserialize,Serialize};
-use odin_build::{define_load_config,define_load_asset};
-use odin_common::{angle::Angle90, cartesian3::Cartesian3, cartographic::Cartographic, datetime};
+use async_trait::async_trait;
+use uom::si::{
+    f64::{Length,ThermodynamicTemperature,Power},thermodynamic_temperature::kelvin, length::meter, power::megawatt, 
+};
+use bit_set::BitSet;
+use odin_build::{define_load_config,define_load_asset, pkg_cache_dir};
+use odin_common::{
+    angle::{ser_rounded5_angle, ser_rounded_angle, Angle180, Angle90, Latitude, Longitude}, 
+    cartesian3::{ser_rounded_cartesian3, Cartesian3}, 
+    cartographic::Cartographic, collections::empty_vec, 
+    datetime::{self, de_from_epoch_millis, ser_epoch_millis}, 
+    fs::{ensure_writable_dir, get_modified_timestamp, set_modified_timestamp, set_filepath_contents}, 
+    geo::{GeoPoint,GeoPolygon}, 
+    json_writer::{JsonWritable, JsonWriter}, 
+};
 use odin_macro::public_struct;
 
 pub mod errors;
 use errors::{OdinOrbitalError,Result,op_failed};
 
 pub mod orbitinfo;
+pub use orbitinfo::OrbitInfo;
+
 pub mod overpass;
+pub use overpass::Overpass;
+
 pub mod tle_store;
-pub mod live_firms_importer;
+pub use tle_store::TleStore;
+
+pub mod firms;
+use firms::ViirsHotspotImporter;
+
+pub mod actor;
+pub use actor::OrbitalHotspotActor;
+
+pub mod hotspot_service;
+pub use hotspot_service::OrbitalHotspotService;
 
 define_load_config!{}
 define_load_asset!{}
 
-/// the general information about an orbital satellite 
+/// the general information about an orbital satellite
+/// this includes satellite identification, satellite sensor and overpass/data constraints
 #[derive(Debug,Clone,Serialize,Deserialize)]
 #[public_struct]
-pub struct SatelliteInfo {
+pub struct OrbitalSatelliteInfo {
     sat_id: u32,
     name: String,
+
     instrument: String,
-    max_scan_angle: Angle90,
+    max_scan_angle: Angle90,  
+
+    /// average orbital height - used to determine z-bounds for given regions
+    avg_height: Length, 
+
+    /// number of past days we initially compute overpasses and retrieve data for
+    back_days: usize,
+
+    // number of upcoming days we compute overpasses for 
+    forward_days: usize,
+
+    /// max number of completed overpasses to keep
+    max_completed: usize,  
+
+    /// max number of future overpasses to compute
+    max_upcoming: usize,
+
+    /// max number of TLEs to keep
+    max_tles: usize
 }
 
-//--- general utility functions
+/// general confidence categories for hotspots
+#[derive(Debug,Clone,Copy,Serialize,Deserialize)]
+pub enum HotspotConfidence {
+    Low, Nominal, High
+}
+impl HotspotConfidence {
+    pub fn index(&self) -> usize {
+        *self as usize
+    }
+}
+
+/// abstraction of hotspots measured by different instruments/satellites
+/// we need this so that we don't have to use generic hotspot types (or associated item types in containers), which would 
+/// either restrict us to homogenous instruments (with redundant JS modules) or to using lots of trait objects
+/// - which would still impose an abstraction unless we resort to the use of Any and downcasting
+/// Preserving the raw input type should best be left to the specific importers
+/// Note that we keep some redundant information here in order to save re-computation on the client side 
+#[derive(Debug,Serialize,Deserialize)]
+#[public_struct]
+struct Hotspot {
+    pos: Cartesian3, // of hotspot, in ECEF
+    lon: Longitude,  // geodetic hotspot coords
+    lat: Latitude,
+
+    scan: Length,    // cross-scan length of pixel footprint in meters
+    track: Length,   // along-track length of pixel footprint in meters
+    rot: Angle180,   // rotation angle of pixel rect counting clockwise from north (bearing from pos to nearest overpass ground point)
+    dist: Length,    // great-circle dist of hotspot from closest ground point 
+
+    date: DateTime<Utc>,    
+    conf: HotspotConfidence,
+
+    //--- optionals (depending on instrument)
+    temp: Option<ThermodynamicTemperature>,
+    frp: Option<Power>,
+}
+
+impl JsonWritable for Hotspot {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object( |w| {
+            w.write_field_with("pos", |w| self.pos.write_json_to(w));
+            w.write_fmt_field("lon", &format!("{:.5}", self.lon.degrees() ));
+            w.write_fmt_field("lat", &format!("{:.5}", self.lat.degrees() ));
+
+            w.write_field("scan", self.scan.get::<meter>().round() as i64);
+            w.write_field("track", self.track.get::<meter>().round() as i64);
+            w.write_field("rot", self.rot.degrees().round() as i64);
+            w.write_field("dist", self.dist.get::<meter>().round() as i64);
+
+            w.write_field("date", self.date.timestamp_millis());
+            w.write_field("conf", self.conf.index());
+
+            if let Some(temp) = self.temp { w.write_field("temp", temp.get::<kelvin>().round() as i64) }
+            if let Some(frp) = self.frp { w.write_field("frp", frp.get::<megawatt>().round() as i64) }
+        });
+    }
+}
+
+impl fmt::Display for Hotspot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let d = &self.date;
+        write!( f, "{{ lon: {:.5}, lat: {:.5}", self.lon.degrees(), self.lat.degrees())?;
+        write!( f, ", scan: {:.0} m, track: {:.0} m, rot: {:.0}, dist: {:.0}", 
+                 self.scan.get::<meter>(), self.track.get::<meter>(), self.rot.degrees(), self.dist.get::<meter>())?;
+        write!( f, ", date: {:04}-{:02}-{:02}T{:02}:{:02}", d.year(), d.month(), d.day(), d.hour(), d.minute())?;
+        if let Some(temp) = self.temp {
+            write!( f, ", temp: {:.0} K", temp.get::<kelvin>())?;
+        }
+        if let Some(frp) = self.frp {
+            write!( f, ", frp: {:.2} MW", frp.get::<megawatt>())?;
+        }
+        write!( f, " }}")
+    }
+}
+
+
+/// overpass data containing hotspots 
+/// note this structure can be used as a trampoline - if hotspots are empty the full data can be obtained from fname
+#[derive(Debug,Serialize,Deserialize)]
+#[public_struct]
+pub struct HotspotList {
+    sat_id: u32,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+
+    high: usize,
+    nominal: usize,
+    low: usize,
+
+    fname: String, // to retrieve the full hotspots if collapsed (hotspots are empty)
+    hotspots: Vec<Hotspot>
+}
+
+impl HotspotList {
+    pub fn new (op: &Overpass, hotspots: Vec<Hotspot>)->Self {
+        let start = &op.start;
+        let fname = format!("{}_{:4}-{:02}-{:02}_{:02}{:02}_{}_hotspots.json", 
+                            op.sat_id, start.year(), start.month(), start.day(), start.hour(), start.minute(), (op.end-start).num_minutes());
+
+        let mut high = 0;
+        let mut nominal = 0;
+        let mut low = 0;
+        for h in &hotspots {
+            match h.conf {
+                HotspotConfidence::High => high += 1,
+                HotspotConfidence::Nominal => nominal += 1,
+                HotspotConfidence::Low => low += 1
+            }
+        }
+
+        HotspotList { 
+            sat_id: op.sat_id, 
+            start: op.start,
+            end: op.end,
+            high, nominal, low,
+            fname,
+            hotspots
+        }
+    } 
+
+    pub fn save_to (&self, dir: impl AsRef<Path>)->Result<()> {
+        set_filepath_contents( dir, &self.fname, self.to_full_json().as_bytes())?;
+        Ok(())
+    }
+
+    pub fn collapse (&mut self) {
+        self.hotspots = empty_vec();
+    }
+
+    pub fn is_collapsed (&self)->bool {
+        self.hotspots.is_empty()
+    }
+
+    pub fn len (&self)->usize {
+        self.hotspots.len()
+    }
+
+    fn write_common_json_fields_to (&self, w: &mut JsonWriter) {
+        w.write_field( "sat_id", self.sat_id);
+        w.write_field( "start", self.start.timestamp_millis());
+        w.write_field( "end", self.end.timestamp_millis());
+        w.write_field( "high", self.high);
+        w.write_field( "nominal", self.nominal);
+        w.write_field( "low", self.low);
+        w.write_string_field( "fname", &self.fname);
+    }
+
+    pub fn to_collapsed_json (&self)->String {
+        let mut w = JsonWriter::with_capacity(128);
+        w.write_object( |w| self.write_common_json_fields_to(w));
+        w.to_string()
+    }
+
+    // note this is still lossy as it formats/rounds values. Use serde_json::to_string() if required to be loss-less
+    pub fn to_full_json (&self)->String {
+        let mut w = JsonWriter::with_capacity(128 + self.len() * 128);
+        w.write_object( |w|{
+            self.write_common_json_fields_to(w);
+            w.write_field_with( "hotspots", |w| self.hotspots.write_json_to(w));
+        });
+        w.to_string()
+    }
+}
+
+pub fn save_retrieved_hotspots_to (dir: impl AsRef<Path>, retrieved: &BitSet, completed: &VecDeque<CompletedOverpass<HotspotList>>)->Result<()> {
+    for i in retrieved.iter() {
+        if let Some(hs) = &completed[i].data {
+            hs.save_to( &dir)?;
+        }
+    }
+    Ok(())
+}
+
+#[async_trait]
+pub trait HotspotImporter {
+    /// import latest hotspots from current date with up to n_days of history and store in respective CompletedOverpasses
+    async fn import_hotspots (&self, n_days: usize, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<BitSet>;
+    fn get_download_schedule (&self, t: DateTime<Utc>) -> Vec<DateTime<Utc>>;
+}
+
+/// aggregation of orbit segment and resulting instrument data (to be filled in once such data becomes available)
+#[public_struct]
+pub struct CompletedOverpass<T> {
+    overpass: Overpass, // the time & trajectory 
+    data: Option<T>     // e.g. hotspots received for this overpass - optional since we might not have received data yet
+}
+
+impl<T> CompletedOverpass<T> {
+    pub fn new (overpass: Overpass)->Self { CompletedOverpass { overpass, data: None } }
+}
+
+//--- general utility functions and types
+
+pub fn instant_now()->Instant {
+    // TODO - this should use sim time
+    Instant::now()
+}
 
 pub fn instant_from_datetime<Z> (dt: DateTime<Z>)->Instant where Z:TimeZone {
     Instant::from_unixtime( dt.timestamp_millis() as f64 / 1000.0)
 }
+
+pub fn duration_minutes (minutes: u32) -> Duration { Duration::from_minutes(minutes as f64) }
+pub fn duration_hours (hours: u32) -> Duration { Duration::from_hours(hours as f64) }
+pub fn duration_days (days: u32) -> Duration { Duration::from_days(days as f64) }
 
 pub fn instant_from_datetime_spec (ds: &str) -> Result<Instant> {
     datetime::parse_datetime(ds).ok_or( op_failed!("invalid datetime spec {}", ds)).map( |dt| instant_from_datetime(dt))
@@ -68,8 +316,51 @@ pub fn get_time_vec (orbit_duration: Duration, time_step: Duration, start_time: 
 
 pub type ColumnVec<'a> = Matrix<f64, Const<3>, Const<1>, ViewStorage<'a, f64, Const<3>, Const<1>, Const<1>, Const<3>>>;
 
-pub fn get_cartographic (t: &Instant, v: &ColumnVec) -> Cartographic {
-    let itrf = qteme2itrf( t).to_rotation_matrix() * v;
-    let p = Cartesian3::from_col( &itrf);
-    Cartographic::from(p)
+
+// note this is based on the empirical assumption that VIIRS hotspot files are always monotonic in overpasses. This is not true with respect
+// to acquisition dates within the same overpass. Since this might be FIRMS/instrument specific the function is here and not in overpass.rs
+pub fn find_covering_overpass<T> (sat_id: u32, date: DateTime<Utc>, cops: &VecDeque<CompletedOverpass<T>>, last_idx: Option<usize>)->Option<usize> {
+    if let Some(i) = last_idx {
+        if cops[i].overpass.sat_id == sat_id && cops[i].overpass.covers( date) {
+            return last_idx;
+        }
+    }
+
+    let mut i = if let Some(idx) = last_idx { idx+1 } else { 0 };
+    let len = cops.len();
+    while i < len {
+        if cops[i].overpass.sat_id == sat_id && cops[i].overpass.covers( date) { 
+            return Some(i) 
+        }
+        i += 1;
+    }
+
+    None
+}
+
+pub fn init_orbital_data ()->Result<()> {
+    let dir = pkg_cache_dir!().join("satkit");
+    println!("using emphemeris from {:?}", dir);
+    ensure_writable_dir(&dir)?;
+    satkit::utils::set_datadir(&dir).map_err(|e| op_failed!("failed to set satkit data dir: {}", e))?;
+
+    update_orbital_data()
+}
+
+// in long running servers this should be called periodically (once per day)
+pub fn update_orbital_data ()->Result<()> {
+    let dir = satkit::utils::datadir().map_err(|_| op_failed!("no satkit data dir set"))?;
+    let last_mod = get_modified_timestamp(&dir).ok_or( op_failed!( "no modified timestamp of satkit data dir"))?;
+    let now = SystemTime::now();
+    let elapsed = now.duration_since(last_mod)
+        .map_err(|e| op_failed!("invalid modification timestamp of data dir {dir:?}: {e}"))?;
+
+    if elapsed > StdDuration::from_days(1) {
+        satkit::utils::update_datafiles( None, false).map_err( |e| op_failed!("failed to update satkit data dir: {}", e))?;
+        set_modified_timestamp(&dir, now)?;
+    } else {
+        println!("satkit data up-to-date");
+    }
+
+    Ok(())
 }

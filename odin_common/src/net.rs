@@ -60,6 +60,7 @@ pub fn get_headermap (headers: &Vec<String>) -> Result<HeaderMap> {
     }
 }
 
+
 /// fetch file from URL using HTTP GET method. Retrieve in chunks to support large files
 /// Note this requires a full URL
 pub async fn get_file (client: &Client, url: &str, opt_headers: &Option<HeaderMap>, dir: &str) -> Result<u64>  {
@@ -92,7 +93,7 @@ pub async fn get_differing_size_file (client: &Client, url: &str, opt_headers: &
     }
 }
 
-async fn download_url<P: AsRef<Path>> (client: &Client, url: &str, opt_headers: &Option<HeaderMap>, path: P) -> Result<u64> {
+pub async fn download_url (client: &Client, url: &str, opt_headers: &Option<HeaderMap>, path: impl AsRef<Path>) -> Result<u64> {
     let mut file = File::create(path)?;
     let mut len: u64 = 0;
 
