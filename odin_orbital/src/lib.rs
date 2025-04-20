@@ -15,7 +15,7 @@
 #![allow(unused)]
 #![feature(duration_constructors)]
 
-use std::{collections::VecDeque, fmt, time::{Duration as StdDuration,SystemTime}, path::{Path,PathBuf},fs};
+use std::{collections::VecDeque, fmt, time::{Duration as StdDuration,SystemTime}, path::{Path,PathBuf}, fs, sync::Arc};
 use nalgebra::{ViewStorage,base::{Matrix,ArrayStorage,dimension::{Const,Dyn}}};
 use chrono::{DateTime,Utc,TimeZone,Datelike,Timelike};
 use satkit::{self,Instant,Duration,frametransform::qteme2itrf};
@@ -25,6 +25,8 @@ use uom::si::{
     f64::{Length,ThermodynamicTemperature,Power},thermodynamic_temperature::kelvin, length::meter, power::megawatt, 
 };
 use bit_set::BitSet;
+use lazy_static::lazy_static;
+
 use odin_build::{define_load_config,define_load_asset, pkg_cache_dir};
 use odin_common::{
     angle::{ser_rounded5_angle, ser_rounded_angle, Angle180, Angle90, Latitude, Longitude}, 
@@ -36,6 +38,10 @@ use odin_common::{
     json_writer::{JsonWritable, JsonWriter}, 
 };
 use odin_macro::public_struct;
+
+lazy_static! {
+    pub static ref PKG_CACHE_DIR: PathBuf = pkg_cache_dir!(); 
+}
 
 pub mod errors;
 use errors::{OdinOrbitalError,Result,op_failed};
@@ -58,6 +64,7 @@ pub use actor::OrbitalHotspotActor;
 pub mod hotspot_service;
 pub use hotspot_service::OrbitalHotspotService;
 
+
 define_load_config!{}
 define_load_asset!{}
 
@@ -75,6 +82,9 @@ pub struct OrbitalSatelliteInfo {
     /// average orbital height - used to determine z-bounds for given regions
     avg_height: Length, 
 
+    /// time step for propagating orbits
+    time_step: StdDuration,
+
     /// number of past days we initially compute overpasses and retrieve data for
     back_days: usize,
 
@@ -89,6 +99,31 @@ pub struct OrbitalSatelliteInfo {
 
     /// max number of TLEs to keep
     max_tles: usize
+}
+
+impl OrbitalSatelliteInfo {
+    pub fn step_dur (&self)->Duration { Duration::from_seconds( self.time_step.as_secs_f64()) }
+
+    pub fn write_basic_json_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w| {
+            w.write_field("sat_id", self.sat_id);
+            w.write_string_field("name", &self.name);
+            w.write_string_field("instrument", &self.instrument);
+            w.write_field( "max_scan_angle", self.max_scan_angle.degrees());
+            w.write_field("avg_height", self.avg_height.get::<meter>());
+        });
+    }
+
+    pub fn from_filenames (fnames: &Vec<String>)->Result<Vec<Arc<OrbitalSatelliteInfo>>> {
+        let mut sat_infos: Vec<Arc<OrbitalSatelliteInfo>> =Vec::with_capacity(fnames.len());
+
+        for fname in fnames {
+            let sat_info: OrbitalSatelliteInfo = load_config(fname)?;
+            sat_infos.push( Arc::new(sat_info));
+        }
+
+        Ok( sat_infos )
+    }
 }
 
 /// general confidence categories for hotspots
@@ -216,16 +251,16 @@ impl HotspotList {
         Ok(())
     }
 
+    pub fn len (&self)->usize {
+        self.hotspots.len()
+    }
+
     pub fn collapse (&mut self) {
         self.hotspots = empty_vec();
     }
 
     pub fn is_collapsed (&self)->bool {
         self.hotspots.is_empty()
-    }
-
-    pub fn len (&self)->usize {
-        self.hotspots.len()
     }
 
     fn write_common_json_fields_to (&self, w: &mut JsonWriter) {
@@ -236,6 +271,10 @@ impl HotspotList {
         w.write_field( "nominal", self.nominal);
         w.write_field( "low", self.low);
         w.write_string_field( "fname", &self.fname);
+    }
+
+    pub fn write_collapsed_json_to (&self, w: &mut JsonWriter) {
+        w.write_object( |w| self.write_common_json_fields_to(w));
     }
 
     pub fn to_collapsed_json (&self)->String {
@@ -250,6 +289,14 @@ impl HotspotList {
         w.write_object( |w|{
             self.write_common_json_fields_to(w);
             w.write_field_with( "hotspots", |w| self.hotspots.write_json_to(w));
+        });
+        w.to_string()
+    }
+
+    pub fn to_collapsed_json_array (hs: &Vec<&HotspotList>)->String {
+        let mut w = JsonWriter::with_capacity(hs.len() * 128);
+        w.write_array(|w| {
+            for h in hs { h.write_collapsed_json_to(w); }
         });
         w.to_string()
     }
@@ -293,9 +340,9 @@ pub fn instant_from_datetime<Z> (dt: DateTime<Z>)->Instant where Z:TimeZone {
     Instant::from_unixtime( dt.timestamp_millis() as f64 / 1000.0)
 }
 
-pub fn duration_minutes (minutes: u32) -> Duration { Duration::from_minutes(minutes as f64) }
-pub fn duration_hours (hours: u32) -> Duration { Duration::from_hours(hours as f64) }
-pub fn duration_days (days: u32) -> Duration { Duration::from_days(days as f64) }
+pub fn duration_minutes (minutes: usize) -> Duration { Duration::from_minutes(minutes as f64) }
+pub fn duration_hours (hours: usize) -> Duration { Duration::from_hours(hours as f64) }
+pub fn duration_days (days: usize) -> Duration { Duration::from_days(days as f64) }
 
 pub fn instant_from_datetime_spec (ds: &str) -> Result<Instant> {
     datetime::parse_datetime(ds).ok_or( op_failed!("invalid datetime spec {}", ds)).map( |dt| instant_from_datetime(dt))

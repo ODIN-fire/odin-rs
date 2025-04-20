@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
     println!("----- TLE:\n{:#?}", tle);
 
     let t1 = std::time::Instant::now();
-    let oi = OrbitInfo::new( sat_info.sat_id, tle);
+    let oi = OrbitInfo::new( sat_info.sat_id, sat_info.step_dur(), tle);
     let t2 = std::time::Instant::now();
     //println!("@@ dt: {}", (t2 - t1).as_micros());
     println!("----- OrbitInfo:\n{:#?}", oi);

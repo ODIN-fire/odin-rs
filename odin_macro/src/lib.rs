@@ -976,6 +976,13 @@ pub fn term (ts: TokenStream)->TokenStream {
 
 /* #region spawn_actor ***********************************************************/
 
+/// macro to spawn an actor for a generic actor state S
+/// arguments: `(actor_system: &mut ActorSystem, actor_name: &str, actor_state: S [, channel_bounds: usize])`
+/// 
+/// use like so:
+/// ```
+/// let hserver = spawn_actor!( actor_system, "server", SpaServer::new(...), 64)?;
+/// ```
 #[proc_macro]
 pub fn spawn_actor (item: TokenStream)->TokenStream {
     let SpawnActor { spawner, aname_expr, astate_expr, channel_bounds } = match syn::parse(item) {

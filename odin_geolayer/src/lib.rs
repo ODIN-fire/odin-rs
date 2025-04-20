@@ -50,8 +50,6 @@ pub struct GeoLayerService {
 impl GeoLayerService {
     pub fn new()->Self { GeoLayerService{} }
 
-    pub fn mod_path()->&'static str { type_name::<Self>() }
-
     async fn geo_handler (path: AxumPath<String>) -> Response {
         let pathname = geolayer_data_dir().join( path.as_str());
         // add to watch list, check, send to WS if change
@@ -87,7 +85,7 @@ impl SpaService for GeoLayerService {
         spa.add_module( asset_uri!("geolayer.js"));
         spa.add_route( |router, spa_server_state| {
 
-            router.route( &format!("/{}/geolayer-data/*unmatched", spa_server_state.name.as_str()), get(Self::geo_handler))
+            router.route( &format!("/{}/geolayer-data/{{*unmatched}}", spa_server_state.name.as_str()), get(Self::geo_handler))
         });
 
         Ok(())

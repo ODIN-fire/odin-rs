@@ -113,10 +113,7 @@ pub struct ShareService {
     user_roles: HashMap<String,RoleEntry>,
 }
 
-impl ShareService 
-{
-    pub fn mod_path()->&'static str { type_name::<Self>() }
-
+impl ShareService {
     pub fn new (hstore: ActorHandle<SharedStoreActorMsg<SharedItemType>>) -> Self {
         //let data_dir = odin_build::data_dir().join("odin_server");
         let user_roles = HashMap::new();
@@ -156,8 +153,8 @@ impl SpaService for ShareService {
                 let remote_addr: SocketAddr = conn.remote_addr => 
                 |store as &dyn SharedStore<SharedItemType>| {
                     let json = store.to_json()?;
-                    let msg = ws_msg_from_json(ShareService::mod_path(), "initSharedItems", &json);
-                    hself.try_send_msg( SendWsMsg{ remote_addr: *remote_addr, data: msg});
+                    let ws_msg = ws_msg_from_json(ShareService::mod_path(), "initSharedItems", &json);
+                    hself.try_send_msg( SendWsMsg{ remote_addr: *remote_addr, ws_msg});
                     Ok(())
                 }
             );
@@ -165,8 +162,8 @@ impl SpaService for ShareService {
             self.hstore.send_msg( ExecSnapshotAction(action)).await?
         }
 
-        let msg = ws_msg_from_json( ShareService::mod_path(), "initExtRoles", &self.get_user_roles_json());
-        hself.send_msg( SendWsMsg{remote_addr: conn.remote_addr, data: msg}).await;
+        let ws_msg = ws_msg_from_json( ShareService::mod_path(), "initExtRoles", &self.get_user_roles_json());
+        hself.send_msg( SendWsMsg{remote_addr: conn.remote_addr, ws_msg}).await;
 
         Ok(())
     }
@@ -176,8 +173,8 @@ impl SpaService for ShareService {
         self.user_roles.retain( |kr,vr| vr.remote_addr != *remote_addr);
 
         if !dropped_roles.is_empty() {
-            let msg = WsMsg::json( ShareService::mod_path(), "rolesDropped", dropped_roles)?;
-            hself.send_msg( BroadcastWsMsg{ data: msg}).await; // we can broadcast here since remote_addr is already removed from connections
+            let ws_msg = WsMsg::json( ShareService::mod_path(), "rolesDropped", dropped_roles)?;
+            hself.send_msg( BroadcastWsMsg{ ws_msg}).await; // we can broadcast here since remote_addr is already removed from connections
         }
 
         // update the remaining roles that had remote_addr as a subscriber
@@ -188,8 +185,8 @@ impl SpaService for ShareService {
             if let Some(idx) = role_entry.subscribers.iter_mut().position( |a| *a == *remote_addr){
                 role_entry.subscribers.remove(idx);
 
-                let msg = WsMsg::json( ShareService::mod_path(), "updateRole", role_entry.json_value(role))?;
-                hself.send_msg( SendWsMsg{ remote_addr: role_entry.remote_addr, data: msg}).await;
+                let ws_msg = WsMsg::json( ShareService::mod_path(), "updateRole", role_entry.json_value(role))?;
+                hself.send_msg( SendWsMsg{ remote_addr: role_entry.remote_addr, ws_msg}).await;
             }
         }
 
@@ -235,17 +232,17 @@ impl SpaService for ShareService {
                             self.user_roles.insert( new_role.clone(), role_entry);
 
                             // notify owner of new role
-                            let msg = WsMsg::json(ShareService::mod_path(), "roleAccepted", jv.clone())?;
-                            hself.send_msg( SendWsMsg{ remote_addr: *remote_addr, data: msg}).await;
+                            let ws_msg = WsMsg::json(ShareService::mod_path(), "roleAccepted", jv.clone())?;
+                            hself.send_msg( SendWsMsg{ remote_addr: *remote_addr, ws_msg}).await;
 
                             // notify all others
-                            let msg = WsMsg::json( ShareService::mod_path(), "extRoleAdded", jv)?;
-                            hself.send_msg( SendAllOthersWsMsg{ except_addr: *remote_addr, data: msg}).await;
+                            let ws_msg = WsMsg::json( ShareService::mod_path(), "extRoleAdded", jv)?;
+                            hself.send_msg( SendAllOthersWsMsg{ except_addr: *remote_addr, ws_msg}).await;
                             
                         } else {
                             // TODO - should we give a reason here?
-                            let msg = WsMsg::json(ShareService::mod_path(), "roleRejected", new_role)?;
-                            hself.send_msg( SendWsMsg{ remote_addr: *remote_addr, data: msg}).await;
+                            let ws_msg = WsMsg::json(ShareService::mod_path(), "roleRejected", new_role)?;
+                            hself.send_msg( SendWsMsg{ remote_addr: *remote_addr, ws_msg}).await;
                         }
                     }
                 }
@@ -257,8 +254,8 @@ impl SpaService for ShareService {
                                 self.user_roles.remove(role);
                             }
 
-                            let msg = WsMsg::json( ShareService::mod_path(), "rolesDropped", released_roles)?;
-                            hself.send_msg( BroadcastWsMsg{ data: msg}).await;
+                            let ws_msg = WsMsg::json( ShareService::mod_path(), "rolesDropped", released_roles)?;
+                            hself.send_msg( BroadcastWsMsg{ ws_msg}).await;
                         }
                     }
                 }
@@ -266,8 +263,8 @@ impl SpaService for ShareService {
                     if let Ok(role) = serde_json::from_str::<String>( ws_msg_parts.payload) {
                         if let Some(e) = self.user_roles.get_mut(&role) {
                             e.is_publishing = true;
-                            let msg = WsMsg::json( ShareService::mod_path(), "startPublish", role)?;
-                            hself.send_msg( SendAllOthersWsMsg{except_addr: *remote_addr, data: msg}).await;
+                            let ws_msg = WsMsg::json( ShareService::mod_path(), "startPublish", role)?;
+                            hself.send_msg( SendAllOthersWsMsg{except_addr: *remote_addr, ws_msg}).await;
                         }
                     }
                 }
@@ -275,15 +272,15 @@ impl SpaService for ShareService {
                     if let Ok(role) = serde_json::from_str::<String>( ws_msg_parts.payload) {
                         if let Some(e) = self.user_roles.get_mut(&role) {
                             e.is_publishing = false;
-                            let msg = WsMsg::json( ShareService::mod_path(), "stopPublish", role)?;
-                            hself.send_msg( SendAllOthersWsMsg{except_addr: *remote_addr, data: msg}).await;
+                            let ws_msg = WsMsg::json( ShareService::mod_path(), "stopPublish", role)?;
+                            hself.send_msg( SendAllOthersWsMsg{except_addr: *remote_addr, ws_msg}).await;
                         }
                     }
                 }
                 "publishCmd" => { // pass msg verbatim to all subscribers of the publishing role
                     if let Ok(publish_cmd) = serde_json::from_str::<PublishCmd>( ws_msg_parts.payload) {
                         if let Some(e) = self.user_roles.get(&publish_cmd.role) {
-                            hself.send_msg( SendGroupWsMsg{ addr_group: e.subscribers.clone(), data: ws_msg_parts.ws_msg.to_string() }).await;
+                            hself.send_msg( SendGroupWsMsg{ addr_group: e.subscribers.clone(), ws_msg: ws_msg_parts.ws_msg.to_string() }).await;
                         }
                     }
                 }
@@ -291,7 +288,7 @@ impl SpaService for ShareService {
                     if let Ok(publish_msg) = serde_json::from_str::<PublishMsg>( ws_msg_parts.payload) {
                         if let Some(e) = self.user_roles.get(&publish_msg.role) {
                             // TODO - we could log messages here
-                            hself.send_msg( SendGroupWsMsg{ addr_group: e.subscribers.clone(), data: ws_msg_parts.ws_msg.to_string() }).await;
+                            hself.send_msg( SendGroupWsMsg{ addr_group: e.subscribers.clone(), ws_msg: ws_msg_parts.ws_msg.to_string() }).await;
                         }     
                     }
                 }
@@ -300,8 +297,8 @@ impl SpaService for ShareService {
                         if let Some(e) = self.user_roles.get_mut(&role) {
                             if !e.subscribers.contains( remote_addr) {
                                 e.subscribers.push( *remote_addr);
-                                let msg = WsMsg::json( ShareService::mod_path(), "updateRole", e.json_value(&role))?;
-                                hself.send_msg( BroadcastWsMsg{data: msg}).await;
+                                let ws_msg = WsMsg::json( ShareService::mod_path(), "updateRole", e.json_value(&role))?;
+                                hself.send_msg( BroadcastWsMsg{ws_msg}).await;
                             }
                         }
                     }
@@ -311,8 +308,8 @@ impl SpaService for ShareService {
                         if let Some(e) = self.user_roles.get_mut(&role) {
                             if let Some(idx) = e.subscribers.iter().position(|rar| *rar == *remote_addr) {
                                 e.subscribers.remove( idx);
-                                let msg = WsMsg::json( ShareService::mod_path(), "updateRole", e.json_value(&role))?;
-                                hself.send_msg( BroadcastWsMsg{data: msg}).await;
+                                let ws_msg = WsMsg::json( ShareService::mod_path(), "updateRole", e.json_value(&role))?;
+                                hself.send_msg( BroadcastWsMsg{ws_msg}).await;
                             }
                         }
                     }
@@ -369,7 +366,7 @@ pub struct PublishMsg {
 /// a specialized SharedStoreActor ctor used in conjunction with ShareService and SpaServer
 /// This only sets up init/change actions to send messages to the provided SpaServer actor
 /// Use the generic SharedStoreActor::new(..) if you need to set up other init/change actions than to just notify a SpaServer
-pub fn new_shared_store_actor<S> (store: S, store_actor_name: Arc<String>, hserver: &ActorHandle<SpaServerMsg>)
+pub fn new_shared_store_actor<S> (store: S, store_actor_name: Arc<String>, hserver: ActorHandle<SpaServerMsg>)
          -> SharedStoreActor<SharedItemType,S,impl SharedStoreAction<SharedItemType> + Send,impl for<'a> DataAction<SharedStoreChange<'a, SharedItemType>>> 
     where S: SharedStore<SharedItemType>
 {
@@ -400,14 +397,14 @@ pub async fn broadcast_store_change<'a> (hserver: &'a ActorHandle<SpaServerMsg>,
             if let Some(stored_val) = change.store.get( &key) {
                 let msg = SetShared{key, value: stored_val.clone()};
                 if let Ok(data) = WsMsg::json( ShareService::mod_path(), "setShared", msg) {
-                    hserver.send_msg( BroadcastWsMsg{data}).await?;
+                    hserver.send_msg( BroadcastWsMsg{ws_msg: data}).await?;
                 }
             }
         }
         SharedStoreUpdate::Remove { hstore, key } => {
             let msg = RemoveShared{key};
             if let Ok(data) = WsMsg::json( ShareService::mod_path(), "removeShared", msg) {
-                hserver.send_msg( BroadcastWsMsg{data}).await?;
+                hserver.send_msg( BroadcastWsMsg{ws_msg: data}).await?;
             }
         }
         _ => {}

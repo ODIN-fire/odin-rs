@@ -175,8 +175,12 @@ impl Overpass {
         w.write_fmt_field("mean_orbit_duration", &format!("{:.3}", self.mean_orbit_duration.as_secs_f64()));
         w.write_field("start", self.start.timestamp_millis());
         w.write_field("end", self.end.timestamp_millis());
-        w.write_field("mean_orbit_duration", &format!("{:.3}", self.time_step.as_secs_f64()));
+        w.write_field("time_step", &format!("{:.3}", self.time_step.as_secs_f64()));
         w.write_string_field("fname", &self.fname);
+    }
+
+    pub fn write_collapsed_json_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w| self.write_common_json_fields_to(w));
     }
 
     pub fn to_collapsed_json (&self)->String {
@@ -196,6 +200,14 @@ impl Overpass {
 
     pub fn collapse (&mut self) {
         self.trajectory = empty_vec();
+    }
+
+    pub fn to_collapsed_json_array (overpasses: &Vec<&Overpass>)->String {
+        let mut w = JsonWriter::with_capacity(overpasses.len() * 128);
+        w.write_array(|w| {
+            for o in overpasses { o.write_collapsed_json_to(w); }
+        });
+        w.to_string()
     }
 }
 
@@ -227,7 +239,7 @@ pub struct OverpassCalculator<T: TleStore> {
 }
 
 impl <T: TleStore> OverpassCalculator<T> {
-    pub fn new( sat_info: Arc<OrbitalSatelliteInfo>, region: GeoPolygon, tle_store: T)->Self {
+    pub fn new( sat_info: Arc<OrbitalSatelliteInfo>, region: Arc<GeoPolygon>, tle_store: T)->Self {
         let oc = OverpassConstraints::new( sat_info.clone(), region);
         let ois: VecDeque<OrbitInfo> = VecDeque::with_capacity( sat_info.max_completed);
         OverpassCalculator { sat_info, tle_store, ois, oc }
@@ -250,9 +262,10 @@ impl <T: TleStore> OverpassCalculator<T> {
         let mut tles = self.tle_store.get_available_tles();
         let n_tles = tles.len();
         let sat_id = self.sat_info.sat_id;
+        let time_step = Duration::from_seconds( self.sat_info.time_step.as_secs_f64());
 
         let i0 = if n_tles > max_tles { n_tles - max_tles } else { 0 };
-        for i in i0..n_tles { ois.push_front( OrbitInfo::new( sat_id, tles.pop().unwrap())) }
+        for i in i0..n_tles { ois.push_front( OrbitInfo::new( sat_id, time_step, tles.pop().unwrap())) }
     
         self.ois = ois;
     }
@@ -260,15 +273,16 @@ impl <T: TleStore> OverpassCalculator<T> {
     pub async fn get_initial_overpasses (&mut self)-> Result<Vec<Overpass>> {
         let back_dur = Duration::from_days( self.sat_info.back_days  as f64);
         let forward_dur = Duration::from_days( self.sat_info.forward_days  as f64);
+        let n_max = self.sat_info.max_completed + self.sat_info.max_upcoming;
         let t = instant_now() - back_dur;
 
-        self.get_overpasses( t, back_dur + forward_dur).await
+        self.get_overpasses( t, back_dur + forward_dur, n_max).await
     }
 
     /// get all overpasses that (partially) fall into the provided time span.
     /// This is the main reason why we have an OverpassCalculator
     /// Note this might include overpasses with start/end times that are outside the provided interval as we always want to check full orbits
-    pub async fn get_overpasses (&mut self, t_start: Instant, dur: Duration) -> Result<Vec<Overpass>> {
+    pub async fn get_overpasses (&mut self, t_start: Instant, dur: Duration, max_overpasses: usize) -> Result<Vec<Overpass>> {
         let sat_id = self.sat_info.sat_id;
         let max_scan_angle = self.sat_info.max_scan_angle;
         let oc = &self.oc;
@@ -278,19 +292,20 @@ impl <T: TleStore> OverpassCalculator<T> {
         let t_end = t_start + dur;
         let mut t = oi.get_orbit_start(t_start); 
         let mut n_steps: usize = oi.rev_sec.floor() as usize;
-        let step_dur = Duration::from_seconds(1.0);
+        let step_secs = self.sat_info.time_step.as_secs_f64();
+        let time_step = Duration::from_seconds(step_secs);
         let mut tvec: Vec<Instant> = vec![ Instant::new(0); n_steps + 20];
         let z_range = self.oc.z_min..oc.z_max;
 
         let mut overpasses: Vec<Overpass> = Vec::new();
-        let mut current_overpass = Overpass::new( sat_id, max_scan_angle, step_dur, oi.mean_orbit_duration());
+        let mut current_overpass = Overpass::new( sat_id, max_scan_angle, time_step, oi.mean_orbit_duration());
         let mut is_recording = false;
         let mut p_last = Cartesian3::undefined();
 
         while t < t_end {
             let mut i_last = 0;
             tvec.clear();
-            for i in 0..n_steps { tvec.push(t + Duration::from_seconds( (i as f64) * 1.0)) } // initialize time vector for this rev
+            for i in 0..n_steps { tvec.push(t + Duration::from_seconds( (i as f64) * step_secs)) } // initialize time vector for this rev
             let (pteme, vteme, errs) = sgp4( &mut tle, &tvec); // propagate
 
             for i in 0..n_steps {  
@@ -326,13 +341,15 @@ impl <T: TleStore> OverpassCalculator<T> {
                     current_overpass.set_end(tvec[i_last]);
                     current_overpass.finish();
                     overpasses.push( current_overpass);
+
+                    if overpasses.len() >= max_overpasses { break; }
                 }
-                current_overpass =  Overpass::new( sat_id, max_scan_angle, step_dur, oi.mean_orbit_duration());
+                current_overpass =  Overpass::new( sat_id, max_scan_angle, time_step, oi.mean_orbit_duration());
                 is_recording = false;
             }
             p_last.set_undefined();
 
-            t = tvec[n_steps-1] + Duration::from_seconds(10.0);
+            t = tvec[n_steps-1] + Duration::from_seconds(10.0); // give it some margin past end
             let oi_next =  self.ois.find_closest(|o| (t - o.epoch()).as_seconds()).ok_or(op_failed!("no suitable OrbitInfo for {sat_id} at {t}"))?;
             if !is_same_ref( oi, oi_next) {
                 oi = oi_next;
@@ -370,7 +387,7 @@ pub struct OverpassConstraints {
 }
 
 impl OverpassConstraints {
-    fn new (sat_info: Arc<OrbitalSatelliteInfo>, base_region: GeoPolygon)->Self {
+    fn new (sat_info: Arc<OrbitalSatelliteInfo>, base_region: Arc<GeoPolygon>)->Self {
         // TODO - check and make sure region is concave
         let region = Cartographic::vertices_of(&base_region);
 

@@ -19,7 +19,7 @@ import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
 
-const MOD_PATH = "odin_goesr::goesr_service::GoesrService";
+const MOD_PATH = "odin_goesr::goesr_service::GoesrHotspotService";
 
 ws.addWsHandler( MOD_PATH, handleWsMessages);
 

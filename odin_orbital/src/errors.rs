@@ -44,6 +44,9 @@ pub enum OdinOrbitalError {
     #[error("action error {0}")]
     ActionError( String ),
 
+    #[error("actor error {0}")]
+    ActorError( #[from] odin_actor::OdinActorError ),
+
     #[error("operation failed {0}")]
     OpFailedError(String),
 }

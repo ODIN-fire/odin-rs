@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
         return Err( anyhow!(e));
     }
 
-    let overpasses = overpass_calc.get_overpasses( t_start, dur).await?;
+    let overpasses = overpass_calc.get_overpasses( t_start, dur, 100).await?; // get up to 100 overpasses
     for o in &overpasses { 
         println!("{o}");
 

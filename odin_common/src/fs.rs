@@ -36,6 +36,10 @@ pub fn extension<'a,T: AsRef<Path>> (path: &'a T)->Option<&'a str> {
     path.as_ref().extension().and_then(|ostr| ostr.to_str())
 }
 
+pub fn filestem <'a,T: AsRef<Path>> (path: &'a T)->Option<&'a str> {
+    path.as_ref().file_stem().and_then(|ostr| ostr.to_str())
+}
+
 pub fn filename_of_path (path: impl AsRef<Path>)->Result<String> {
     let path = path.as_ref();
 

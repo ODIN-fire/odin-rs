@@ -28,6 +28,24 @@ pub fn empty_vec<T> ()->Vec<T> {
     Vec::with_capacity(0)
 }
 
+/// a collection that can be turned into a Vec of item references
+pub trait RefVec<T> {
+    fn as_ref_vec (&self) -> Vec<&T>;
+}
+
+impl<T> RefVec<T> for Vec<T> {
+    fn as_ref_vec (&self) -> Vec<&T> {
+        self.iter().map( |e| e).collect()
+    }
+}
+
+impl<T> RefVec<T> for VecDeque<T> {
+    fn as_ref_vec (&self) -> Vec<&T> {
+        self.iter().map( |e| e).collect()
+    }
+}
+
+
 pub trait SortedCollection<T> {
     fn sort_in<F> (&mut self, t: T, is_before: F) where F: Fn(&T,&T)->bool;
 } 

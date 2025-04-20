@@ -57,6 +57,12 @@ use crate::errors::{connect_error, init_error, op_failed, OdinServerError, OdinS
 /// and images) or fragments (HTML elements)
 #[async_trait]
 pub trait SpaService: Send + Sync + 'static {
+
+    /// used to identify this service on the client side
+    fn mod_path()->&'static str where Self: Sized { 
+        type_name::<Self>() 
+    }
+
     /// override this if the service depends on other services. Default is it doesn't
     fn add_dependencies (&self, sb: SpaServiceList)->SpaServiceList {sb} // defaut is no dependencies
 
@@ -523,7 +529,7 @@ pub struct RemoveConnection {
     pub remote_addr: SocketAddr,
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct DataAvailable {
     pub sender_id: Arc<String>, // normally the actor id of the sender, hence Arc<String>
     pub data_type: &'static str, // normally a static type name obtained via std::any::type_name<T>()
@@ -534,36 +540,36 @@ impl DataAvailable {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct DispatchIncomingWsMsg {
     pub remote_addr: SocketAddr,
     pub ws_msg: String
 }
 
 /// send websocket msg to all connections
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct BroadcastWsMsg {
-    pub data: String
+    pub ws_msg: String
 }
 
 /// send websocket msg to all other connections than `except_addr`
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct SendAllOthersWsMsg {
     pub except_addr: SocketAddr,
-    pub data: String,
+    pub ws_msg: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct SendGroupWsMsg {
     pub addr_group: Vec<SocketAddr>,
-    pub data: String,
+    pub ws_msg: String,
 }
 
 /// send websocket msg to `remote_addr``
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct SendWsMsg {
     pub remote_addr: SocketAddr,
-    pub data: String
+    pub ws_msg: String
 }
 
 /// open the default web browser on the SpaServer document URL
@@ -603,22 +609,22 @@ impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
         }
     }
     BroadcastWsMsg => cont! {
-        if let Err(e) = self.broadcast_ws_msg( actor_msg.data).await {
+        if let Err(e) = self.broadcast_ws_msg( actor_msg.ws_msg).await {
             error!("failed to broadcast ws message: {e:?}");
         }
     }
     SendAllOthersWsMsg => cont! {
-        if let Err(e) = self.send_all_others_ws_msg( actor_msg.except_addr, actor_msg.data).await {
+        if let Err(e) = self.send_all_others_ws_msg( actor_msg.except_addr, actor_msg.ws_msg).await {
             error!("failed to broadcast ws message: {e:?}");
         }
     }
     SendGroupWsMsg => cont! {
-        if let Err(e) = self.send_group_ws_msg( actor_msg.addr_group, actor_msg.data).await {
+        if let Err(e) = self.send_group_ws_msg( actor_msg.addr_group, actor_msg.ws_msg).await {
             error!("failed to send ws message: {e:?}");
         }
     }
     SendWsMsg => cont! {
-        if let Err(e) = self.send_ws_msg( actor_msg.remote_addr, actor_msg.data).await {
+        if let Err(e) = self.send_ws_msg( actor_msg.remote_addr, actor_msg.ws_msg).await {
             error!("failed to send ws message: {e:?}");
         }
     }

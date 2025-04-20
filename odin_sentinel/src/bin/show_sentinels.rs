@@ -44,7 +44,7 @@ run_actor_system!( actor_system => {
         let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
         |update:SentinelUpdate| {
             let data = WsMsg::json( SentinelService::mod_path(), "update", update)?;
-            Ok( hserver.try_send_msg( BroadcastWsMsg{data})? )
+            Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
         }
     );
 

@@ -54,8 +54,6 @@ impl SentinelService {
             (StatusCode::NOT_FOUND, "image not found").into_response() // FIXME - it might be in flight so we should wait for the download to complete
         }
     }
-
-    pub fn mod_path()->&'static str { type_name::<Self>() }
 }
 
 #[async_trait]
@@ -84,8 +82,8 @@ impl SpaService for SentinelService {
                 let action = dyn_dataref_action!( let hself: ActorHandle<SpaServerMsg> = hself.clone() => |data: &SentinelStore| {
                     let sentinels = data.values();
                     //let data = ws_msg!( MOD_PATH, sentinels).to_json()?;
-                    let data = WsMsg::json( SentinelService::mod_path(), "sentinels", sentinels)?;
-                    Ok( hself.try_send_msg( BroadcastWsMsg{data})? )
+                    let ws_msg = WsMsg::json( SentinelService::mod_path(), "sentinels", sentinels)?;
+                    Ok( hself.try_send_msg( BroadcastWsMsg{ws_msg})? )
                 });
                 self.hsentinel.send_msg( ExecSnapshotAction(action)).await?;
             }
@@ -101,14 +99,14 @@ impl SpaService for SentinelService {
         //--- send device_infos message to browser
         let device_infos = &self.device_infos;
         //let data = ws_msg!( MOD_PATH, device_infos).to_json()?;
-        let data = WsMsg::json( SentinelService::mod_path(), "device_infos", device_infos)?;
-        hself.try_send_msg( SendWsMsg{remote_addr,data})?;
+        let ws_msg = WsMsg::json( SentinelService::mod_path(), "device_infos", device_infos)?;
+        hself.try_send_msg( SendWsMsg{remote_addr,ws_msg})?;
 
         //--- send inactive_duration to browser
         let inactive_duration = self.config.inactive_duration.as_millis() as u64;
         //let data = ws_msg!( MOD_PATH, inactive_duration).to_json()?;
-        let data = WsMsg::json( SentinelService::mod_path(), "inactive_duration", inactive_duration)?;
-        hself.try_send_msg( SendWsMsg{remote_addr,data})?;
+        let ws_msg = WsMsg::json( SentinelService::mod_path(), "inactive_duration", inactive_duration)?;
+        hself.try_send_msg( SendWsMsg{remote_addr,ws_msg})?;
 
         if is_data_available {
             let action = dyn_dataref_action!{
@@ -117,9 +115,9 @@ impl SpaService for SentinelService {
                 |data: &SentinelStore| {
                     let sentinels = data.values();
                     //let data = ws_msg!( MOD_PATH, sentinels).to_json()?;
-                    let data = WsMsg::json( SentinelService::mod_path(), "sentinels", sentinels)?;
                     let remote_addr = remote_addr.clone();
-                    Ok( hself.try_send_msg( SendWsMsg{remote_addr,data})? )
+                    let ws_msg = WsMsg::json( SentinelService::mod_path(), "sentinels", sentinels)?;
+                    Ok( hself.try_send_msg( SendWsMsg{remote_addr,ws_msg})? )
                 }
             };
             self.hsentinel.send_msg( ExecSnapshotAction(action)).await?;

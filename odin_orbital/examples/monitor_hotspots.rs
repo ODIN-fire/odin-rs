@@ -20,7 +20,7 @@ use std::sync::Arc;
 use odin_actor::prelude::*;
 use odin_orbital::{actor::{OrbitalHotspotActor,HotspotActorData}, firms::ViirsHotspotImporter, tle_store::SpaceTrackTleStore, *};
 use odin_build::pkg_cache_dir;
-use odin_common::define_cli;
+use odin_common::{define_cli, geo::GeoPolygon};
 use ron;
 
 define_cli! { ARGS [about="monitor overpasses and hotspots for given satellite"] =
@@ -32,11 +32,12 @@ run_actor_system!( actor_system => {
     let cache_dir = pkg_cache_dir!();
     init_orbital_data()?;
     let sat_info: Arc<OrbitalSatelliteInfo> =  Arc::new( load_config( &ARGS.sat_info)?);
+    let region: Arc<GeoPolygon> = Arc::new( load_config( &ARGS.region)?);
 
     let hmonitor = spawn_actor!( actor_system, "monitor",
         OrbitalHotspotActor::new(
             sat_info.clone(),
-            load_config( &ARGS.region)?,
+            region,
             SpaceTrackTleStore::new( load_config("spacetrack.ron")?, sat_info.clone(), Some(cache_dir.clone())),
             ViirsHotspotImporter::new( load_config("firms.ron")?, sat_info.clone(), cache_dir.clone()),
             dataref_action!( => |data: &HotspotActorData| {
@@ -45,11 +46,11 @@ run_actor_system!( actor_system => {
                 for o in &data.upcoming   { println!("upcoming: {}", o) }
                 Ok(())
             }),
-            dataref_action!( => |overpass: &Overpass| {
+            data_action!( => |overpass: Vec<&Overpass>| {
                 println!("-- got overpass {overpass}");
                 Ok(())
             }),
-            dataref_action!( => |hs: &HotspotList| {
+            data_action!( => |hs: Vec<&HotspotList>| {
                 println!("-- got data with {} hotspots starting at {}", hs.hotspots.len(), hs.start);
                 //let s = ron::ser::to_string_pretty( hs, ron::ser::PrettyConfig::default().compact_structs(true))?;
                 //println!("{s}");

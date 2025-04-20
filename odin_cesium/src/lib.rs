@@ -40,8 +40,6 @@ pub struct CesiumService {
 
 impl CesiumService {
     pub fn new()->Self { CesiumService{} }
-
-    pub fn mod_path()->&'static str { type_name::<Self>() }
 }
 
 #[async_trait]
@@ -111,8 +109,6 @@ pub struct ImgLayerService {
 
 impl ImgLayerService {
     pub fn new()->Self { ImgLayerService{} }
-
-    pub fn mod_path()->&'static str { type_name::<Self>() }
 }
 
 // headers to copy from the proxied request for OpenStreetMap tiles - see https://operations.osmfoundation.org/policies/tiles/

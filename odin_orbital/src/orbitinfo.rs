@@ -63,7 +63,7 @@ pub struct OrbitInfo {
 
 impl OrbitInfo {
 
-    pub fn new (sat_id: u32, tle: TLE)->Self {
+    pub fn new (sat_id: u32, step_dur: Duration, tle: TLE)->Self {
         let mut dist_stats = MinMaxAvg::new();
         let mut rev_sec: f64 = 0.0;
         let mut asc_node  = OrbitNode{ t: f64::NAN, longitude_deg: 0.0};
@@ -72,7 +72,6 @@ impl OrbitInfo {
         let mut n_pole = OrbitPole{ t: f64::NAN, latitude_deg: 0.0};
         
         let mean_rev_sec = (24.0 * 3600.0) / tle.mean_motion;
-        let step_dur = Duration::from_seconds( 1.0);
         let t0 = tle.epoch;
     
         let incl = tle.inclination.to_radians();

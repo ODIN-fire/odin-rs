@@ -15,20 +15,27 @@
  #![allow(unused)]
 
 use std::{collections::VecDeque, sync::Arc, time::Duration, path::{Path,PathBuf}};
-
 use chrono::{DateTime,Utc,Local};
-use odin_build::pkg_cache_dir;
-use odin_actor::prelude::*;
-use odin_job::JobScheduler;
-use odin_common::{collections::{empty_vec, RingDeque}, datetime, fs::set_filepath_contents, geo::GeoPolygon};
-use odin_macro::public_struct;
 use satkit::consts::C;
 use uom::si::volume_rate::gallon_imperial_per_second;
+
+use odin_build::pkg_cache_dir;
+use odin_actor::prelude::*;
+use odin_server::prelude::*;
+use odin_job::JobScheduler;
+use odin_common::{
+    collections::{empty_vec, RingDeque,RefVec},
+    datetime, fs::set_filepath_contents, geo::GeoPolygon, 
+    json_writer::{JsonWriter,JsonWritable}
+};
+use odin_macro::public_struct;
 use crate::{
-    duration_days, duration_minutes, save_retrieved_hotspots_to, update_orbital_data, 
+    load_config, duration_days, duration_minutes, save_retrieved_hotspots_to, update_orbital_data, 
     errors::{action_failed, OdinOrbitalError, Result}, init_orbital_data, instant_from_datetime, instant_now, 
     overpass::{self, OverpassCalculator, save_overpasses_to}, 
     tle_store::SpaceTrackTleStore, 
+    firms::ViirsHotspotImporter,
+    hotspot_service::{HotspotSat,OrbitalHotspotService},
     CompletedOverpass, HotspotImporter, HotspotList, OrbitalSatelliteInfo, Overpass, TleStore
 }; 
 
@@ -41,9 +48,37 @@ pub struct HotspotActorData {
     pub upcoming: VecDeque<Overpass>,
 }
 
+impl HotspotActorData {
+    pub fn serialize_collapsed_overpasses (&self)->String {
+        let mut w = JsonWriter::with_capacity( self.completed.len() + self.upcoming.len() * 128);
+        w.write_array(|w|{
+            for co in &self.completed { co.overpass.write_collapsed_json_to(w) }
+            for o in &self.upcoming { o.write_collapsed_json_to(w) }
+        });
+        w.to_string()
+    }
+
+    pub fn serialize_collapsed_hotspots (&self)->String {
+        let mut w = JsonWriter::with_capacity( self.completed.len() * 128);
+        w.write_array(|w|{
+            for co in &self.completed { 
+                if let Some(hotspots) = &co.data {
+                    hotspots.write_collapsed_json_to(w);
+                }
+            }
+        });
+        w.to_string()
+    }
+}
+
 /// actor producing overpasses and hotspot data for a single satellite  
 pub struct OrbitalHotspotActor <T,I,A,O,H> 
-    where T: TleStore + Send, I: HotspotImporter + Send, A: DataRefAction<HotspotActorData>, O: DataRefAction<Overpass>, H: DataRefAction<HotspotList>
+    where   
+        T: TleStore + Send, 
+        I: HotspotImporter + Send, 
+        A: DataRefAction<HotspotActorData>, 
+        O: for <'a> DataAction<Vec<&'a Overpass>>, 
+        H: for <'a> DataAction<Vec<&'a HotspotList>>
 {
     sat_info: Arc<OrbitalSatelliteInfo>,
 
@@ -56,14 +91,19 @@ pub struct OrbitalHotspotActor <T,I,A,O,H>
 
     //--- our connectors
     init_action: A, // to announce once we have data
-    overpass_action: O, // to be executed when there is a new overpass
-    hotspot_action: H, // to be executed when we have new data for an overpass
+    overpass_action: O, // to be executed when there are new overpasses
+    hotspot_action: H, // to be executed when we have new hotspots for completed overpasses
 }
 
 impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H> 
-    where T: TleStore + Send, I: HotspotImporter + Send, A: DataRefAction<HotspotActorData>, O: DataRefAction<Overpass>, H: DataRefAction<HotspotList>
+    where   
+        T: TleStore + Send, 
+        I: HotspotImporter + Send, 
+        A: DataRefAction<HotspotActorData>, 
+        O: for <'a> DataAction<Vec<&'a Overpass>>, 
+        H: for <'a> DataAction<Vec<&'a HotspotList>>
 {
-    pub fn new (sat_info: Arc<OrbitalSatelliteInfo>, region: GeoPolygon, tle_store: T, importer: I, init_action:A, overpass_action:O, hotspot_action:H)->Self {
+    pub fn new (sat_info: Arc<OrbitalSatelliteInfo>, region: Arc<GeoPolygon>, tle_store: T, importer: I, init_action:A, overpass_action:O, hotspot_action:H)->Self {
         let overpass_calculator = OverpassCalculator::new(sat_info.clone(), region, tle_store);
         let max_completed = sat_info.max_completed;
         let max_upcoming = sat_info.max_upcoming;
@@ -136,14 +176,22 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
     }
 
     async fn snapshot (&mut self)->Result<()> {
-        for c in &self.data.completed {
-            self.overpass_action.execute( &c.overpass).await?;
-            if let Some(hs) = &c.data {
-                self.hotspot_action.execute( hs).await?;
-            }
+        // completed overpasses
+        let overpasses: Vec<&Overpass> = self.data.completed.iter().map(|oc| &oc.overpass).collect();
+        if !overpasses.is_empty() {
+            self.overpass_action.execute(overpasses).await?;
         }
-        for o in &self.data.upcoming {
-            self.overpass_action.execute( o).await?;
+
+        // hotspots for completed overpasses
+        let hotspots: Vec<&HotspotList> = self.data.completed.iter().filter_map(|co| co.data.as_ref()).collect();
+        if !hotspots.is_empty() {
+            self.hotspot_action.execute(hotspots).await?;
+        }
+
+        // upcoming overpasses
+        let overpasses: Vec<&Overpass> = self.data.upcoming.as_ref_vec();
+        if !overpasses.is_empty() {
+            self.overpass_action.execute(overpasses).await?;
         }
 
         Ok(())
@@ -166,33 +214,28 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
         // now retrieve current hotspot data (might span several completed overpasses) - if we have completeds without data
 
         if let Some(last_completed) = self.data.completed.back() {
-            if last_completed.data.is_none() { // we could also check if it had URT entries
+            if last_completed.data.is_none() { // TODO - we could also check if it had URT entries
                 let retrieved = self.importer.import_hotspots( 1, &mut self.data.completed).await?;
                 info!("retrieved {} hotspots", retrieved.len());
                 save_retrieved_hotspots_to( &self.cache_dir, &retrieved, &self.data.completed)?;
 
-                // execute hotspot action for each of the retrieved Hotspot lists
-                for idx in retrieved.iter() {
-                    let co = &self.data.completed[idx];
-
-                    if let Some(hs) = &co.data {
-                        self.hotspot_action.execute( hs).await?;
-                    }
+                let hotspots: Vec<&HotspotList> = retrieved.iter().filter_map( |i| self.data.completed[i].data.as_ref()).collect();
+                if !hotspots.is_empty() {
+                    self.hotspot_action.execute( hotspots).await?;
                 }
             }
         }
 
-        // we moved at least one upcoming to completed - get new upcoming overpasses
+        // we moved upcoming to completed - get up to n_completed new upcoming overpasses (we don't have yet)
         if n_completed > 0 || self.data.upcoming.is_empty() {
             let t = if let Some(o) = self.data.upcoming.back() { instant_from_datetime(o.end) + duration_minutes(20) } else { instant_now() };
-            let mut overpasses = self.overpass_calculator.get_overpasses( t, duration_days(1)).await?;
+            let mut overpasses = self.overpass_calculator.get_overpasses( t, duration_days( self.sat_info.forward_days), n_completed).await?;
             info!("retrieved {} new overpasses", overpasses.len());
             save_overpasses_to( &self.cache_dir, &overpasses)?;
 
-            overpasses.reverse();
-            while let Some(o) = overpasses.pop() {
-                if self.data.upcoming.len() < self.sat_info.max_upcoming {
-                    self.overpass_action.execute( &o).await?;
+            if !overpasses.is_empty() {
+                self.overpass_action.execute( overpasses.as_ref_vec()).await?;
+                for o in overpasses {
                     self.data.upcoming.push_back(o);
                 }
             }
@@ -221,8 +264,14 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
 define_actor_msg_set! { pub OrbitalHotspotActorMsg = RetrieveData  | ExecSnapshotAction }
 
 impl_actor! { match msg for Actor<OrbitalHotspotActor<T,I,A,O,H>, OrbitalHotspotActorMsg> 
-    where T: TleStore + Send, I: HotspotImporter + Send, A: DataRefAction<HotspotActorData>, O: DataRefAction<Overpass>, H: DataRefAction<HotspotList>
-as
+    where 
+        T: TleStore + Send, 
+        I: HotspotImporter + Send, 
+        A: DataRefAction<HotspotActorData>, 
+        O: for <'a> DataAction<Vec<&'a Overpass>>, 
+        H: for <'a> DataAction<Vec<&'a HotspotList>>
+    as
+
     _Start_ => cont! { 
         let hself = self.hself.clone();
         if let Err(e) = self.start( hself).await { error!("start failed {e}") } 
@@ -240,4 +289,56 @@ as
     _Terminate_ => stop! { 
         self.terminate().await;
     }
+}
+
+
+pub fn spawn_orbital_hotspot_actors (
+    actor_system: &mut ActorSystem, 
+    hserver: ActorHandle<SpaServerMsg>, 
+    region: GeoPolygon, 
+    sat_infos: &Vec<String>
+) -> Result<Vec<HotspotSat>> 
+{
+    let cache_dir = pkg_cache_dir!();
+    let region = Arc::new(region);
+    let mut sats: Vec<HotspotSat> = Vec::with_capacity( sat_info.len());
+
+    for sat_info in OrbitalSatelliteInfo::from_filenames(sat_infos)? {
+        let name = sat_info.name.clone();
+        let sender_id = Arc::new( name.clone());
+
+        let hupdater = spawn_actor!( actor_system, name,
+            OrbitalHotspotActor::new(
+                sat_info.clone(),
+                region.clone(),
+                SpaceTrackTleStore::new( load_config("spacetrack.ron")?, sat_info.clone(), Some(cache_dir.clone())),
+                ViirsHotspotImporter::new( load_config("firms.ron")?, sat_info.clone(), cache_dir.clone()),
+                dataref_action!( // init action - just let the service know we have data
+                    let hserver: ActorHandle<SpaServerMsg> = hserver.clone(),
+                    let sender_id: Arc<String> = sender_id.clone() => 
+                    |data: &HotspotActorData| { 
+                        Ok( hserver.retry_send_msg( 3, Duration::from_secs(10), DataAvailable::new::<HotspotActorData>(sender_id) )? )
+                    }
+                ),
+                data_action!( // update overpasses 
+                    let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
+                    |overpasses: Vec<&Overpass>| { // overpass action
+                        let ws_msg = ws_msg_from_json( OrbitalHotspotService::mod_path(), "overpasses", &Overpass::to_collapsed_json_array(&overpasses));
+                        Ok( hserver.retry_send_msg( 3, Duration::from_secs(10), BroadcastWsMsg { ws_msg })? )
+                    }
+                ),
+                data_action!( // update hotspots
+                    let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
+                    |hotspots: Vec<&HotspotList>| { // hotspot action
+                        let ws_msg = ws_msg_from_json( OrbitalHotspotService::mod_path(), "hotspots", &HotspotList::to_collapsed_json_array(&hotspots));
+                        Ok( hserver.retry_send_msg( 3, Duration::from_secs(10), BroadcastWsMsg { ws_msg })? )
+                    }
+                )
+            )  
+        )?;
+
+        sats.push( HotspotSat { sat_info, hupdater });
+    }
+
+    Ok(sats)
 }

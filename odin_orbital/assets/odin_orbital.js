@@ -19,7 +19,7 @@ import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
 
-const MODULE_PATH ="odin_orbital::orbital_service::OrbitalSatService";
+const MODULE_PATH ="odin_orbital::hotspot_service::OrbitalHotspotService";
 
 ws.addWsHandler( MODULE_PATH, handleWsMessages);
 

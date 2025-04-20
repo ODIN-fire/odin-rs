@@ -32,7 +32,7 @@ use odin_actor::ActorHandle;
 use odin_actor::prelude::*;
 use odin_actor::error;
 use odin_common::{if_let};
-use odin_common::{*,fs::remove_old_files,datetime::full_hour,ranges::LinearRange};
+use odin_common::{fs::remove_old_files,datetime::full_hour,ranges::LinearRange};
 use odin_common::s3::{S3Client,S3Object,create_s3_client,get_s3_objects,download_s3_object};
 use odin_gdal::{Dataset, Metadata, MetadataEntry, GdalValueType}; // gdal re-exports
 use odin_gdal::gdal::{DatasetOptions,GdalOpenFlags};
