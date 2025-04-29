@@ -7,6 +7,7 @@ build = "../build_resources.rs"
 [dependencies]
 # our ODIN crates
 odin_build = { workspace = true }
+odin_common = { workspace = true }
 odin_action = { workspace = true }
 odin_actor = { workspace = true }
 odin_macro = { workspace = true }

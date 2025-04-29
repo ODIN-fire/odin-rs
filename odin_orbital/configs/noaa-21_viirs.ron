@@ -2,17 +2,20 @@
 
 OrbitalSatelliteInfo (
     sat_id: 54234,
-    name: "NOAA-21",
+    name: "noaa-21",
 
     instrument: "VIIRS",
     max_scan_angle: 56.28,
     avg_height: 833000, // just to give a ballpark number ()
-    time_step: Duration( secs: 1, nanos: 0), // time step for calculating orbits
+    avg_swath_width: 1500000, // in meters (single side)
+    avg_orbit_duration: Duration( secs: 6120, nanos: 0),
+
+    time_step: Duration( secs: 2, nanos: 0), // time step for calculating orbits
 
     back_days: 3,    // initial historical data to retrieve
     forward_days: 1, // for which we compute upcoming overpasses
 
-    max_completed: 5, // maximum number of completed overpasses/data sets to keep
+    max_completed: 10, // maximum number of completed overpasses/data sets to keep
     max_upcoming: 3, // maximum number of upcoming overpasses to compute
     max_tles: 16
 )

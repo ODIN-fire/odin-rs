@@ -39,3 +39,6 @@ pub const INVERSE_F_EARTH: f64 = 1.0 / F_EARTH;
 pub const E_EARTH: f64 = 0.08181919092890692; // first eccentricity of earth  sqrt( 1.0 - b²/a²)
 pub const E_EARTH_SQUARED: f64 = E_EARTH*E_EARTH;
 pub const ONE_MINUS_E_EARTH_SQUARED: f64 = 1.0 - E_EARTH_SQUARED;  // 1-e²
+
+pub const E_EARTH_PRIME: f64 = 0.082551710742; // (sqrt( a2 - b2)/b)
+pub const E_EARTH_PRIME_SQUARED: f64 = E_EARTH_PRIME * E_EARTH_PRIME;

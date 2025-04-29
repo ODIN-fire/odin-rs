@@ -13,20 +13,24 @@
  */
 #![allow(unused)]
 
-use odin_action::{DataAction,DynDataRefAction};
+use odin_common::{arc};
+use odin_action::{DataAction,DynDataRefAction,OdinActionFailure};
 use odin_actor::prelude::*;
 use odin_actor::errors;
+use odin_server::prelude::*;
+use odin_build::pkg_data_dir;
 
 use std::marker::PhantomData;
-use std::{ collections::HashMap, path::Path, fs::File, io::BufReader, io, fmt::Debug };
+use std::{ collections::HashMap, path::Path, fs::File, io::BufReader, io, fmt::Debug, sync::Arc, result::Result };
 use serde::{Serialize,Deserialize};
 use serde_json;
 use odin_common::fs;
 
-use crate::errors::op_failed;
-use crate::errors::OdinShareError;
+use crate::errors::{OdinShareError,OdinShareResult,op_failed};
 use crate::{
-    SharedStore,SharedStoreReadAccess,SharedStoreAction,DynSharedStoreAction,SharedStoreValueConstraints,
+    SharedStore,SharedStoreReadAccess,SharedStoreAction,DynSharedStoreAction,SharedStoreValueConstraints,PersistentHashMapStore,
+    shared_store_action,
+    share_service::{SharedItemType,ShareService,SetShared,RemoveShared}
 };
 
 /// action argument type to announce changes to clients of a SharedStore. Note this does not include the changed value, 
@@ -71,7 +75,7 @@ impl <T,S,I,C> SharedStoreActor<T,S,I,C>
         SharedStoreActor { store, init_action, change_action, phantom_t: PhantomData }
     }
 
-    async fn initialize (&mut self)->Result<(),OdinShareError> {
+    async fn initialize (&mut self)->OdinShareResult<()> {
         self.store.initialize().await?;
         self.init_action.execute( &self.store as &dyn SharedStore<T>).await.map_err(|e| op_failed("init action failed {e}"))
     }
@@ -146,3 +150,60 @@ impl_actor! { match msg for Actor<SharedStoreActor<T,S,I,C>,SharedStoreActorMsg<
         msg.0.execute( &self.state.store as &dyn SharedStore<T>).await;
     }
 }
+
+/// spawn a persistent share actor that sends shared item updates to the provided SpaServer.
+/// The shared store is initialized from, and optionally writes to, `ODIN_ROOT/data/odin_share/shared_items.json`.
+/// 
+/// There is no reason a SharedStoreActor cannot be used by other actors within an ODIN actor system but - since shared items
+/// are normally created by users - the primary use case is to provide the storage backend for a SpaServer. We provide this
+/// method to set up required init and change actions to avoid duplicated boilerplate code in applications
+pub fn spawn_server_share_actor (actor_system: &mut ActorSystem, name: &str, hserver: ActorHandle<SpaServerMsg>, path: impl AsRef<Path>, save:bool)->OdinShareResult<ActorHandle<SharedStoreActorMsg<SharedItemType>> >
+{
+    let store_name = arc!(name);
+    let store = PersistentHashMapStore::new( &path, save)?;
+
+    let actor_state = SharedStoreActor::new( 
+        store, 
+        shared_store_action!( 
+            let hserver: ActorHandle<SpaServerMsg> = hserver.clone(),
+            let sender_id: Arc<String> = store_name.clone() => 
+            |store as &dyn SharedStore<SharedItemType>| announce_data_availability( &hserver, sender_id).await
+        ),
+        data_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
+            |update: SharedStoreChange<'_,SharedItemType>| broadcast_store_change( &hserver, update).await
+        )
+    );
+
+    Ok( spawn_actor!( actor_system, &store_name, actor_state)? )
+}
+
+/// helper function for the body of a SharedStore init action
+/// This just announces data avaiability by sending a message to the provided SpaServer actor handle
+pub async fn announce_data_availability<'a> (hserver: &'a ActorHandle<SpaServerMsg>, sender_id: &Arc<String>)->Result<(),OdinActionFailure> {
+    hserver.send_msg( DataAvailable::new::<SharedItemType>( sender_id) ).await.map_err(|e| e.into())
+}
+
+/// helper function for the body of a SharedStoreActor change action
+/// This sends change-specific websocket messages to all connected clients of the provided SpaServer actor  
+pub async fn broadcast_store_change<'a> (hserver: &'a ActorHandle<SpaServerMsg>, change: SharedStoreChange<'a,SharedItemType>)->Result<(),OdinActionFailure> {
+    match change.update {
+        SharedStoreUpdate::Set { hstore, key } => {
+            if let Some(stored_val) = change.store.get( &key) {
+                let msg = SetShared{key, value: stored_val.clone()};
+                if let Ok(data) = WsMsg::json( ShareService::mod_path(), "setShared", msg) {
+                    hserver.send_msg( BroadcastWsMsg{ws_msg: data}).await?;
+                }
+            }
+        }
+        SharedStoreUpdate::Remove { hstore, key } => {
+            let msg = RemoveShared{key};
+            if let Ok(data) = WsMsg::json( ShareService::mod_path(), "removeShared", msg) {
+                hserver.send_msg( BroadcastWsMsg{ws_msg: data}).await?;
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+

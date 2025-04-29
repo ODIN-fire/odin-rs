@@ -2,15 +2,13 @@
 
 GeoPolygon(
     exterior: [
-        GeoPoint( lon: -126.5471260124108,  lat: 49.19973487317867),
-        GeoPoint( lon: -125.02210132468043, lat: 39.60274299150046),
-        GeoPoint( lon: -121.95559057180115, lat: 32.89873385193727),
-        GeoPoint( lon: -97.57688513328095,  lat: 25.05209496118482),
-        GeoPoint( lon: -79.87064042106743,  lat: 24.58720779483302),
-        GeoPoint( lon: -64.01055461821433,  lat: 47.16407065712561),
-        GeoPoint( lon: -85.3146257615374,   lat: 50.01526467420633),
-        GeoPoint( lon: -102.64278480240112, lat: 50.30326127496382),
-        GeoPoint( lon: -114.77598912557194, lat: 50.02255130398618),
-        GeoPoint( lon: -126.5471260124108,  lat: 49.19973487317867)
+        GeoPoint( lon: -129.8029, lat: 52.0 ),
+        GeoPoint( lon: -130.40192, lat: 40.0444 ),
+        GeoPoint( lon: -122.1342, lat: 29.91261 ),
+        GeoPoint( lon: -97.6721, lat: 24.1709 ),
+        GeoPoint( lon: -78.92798, lat: 22.0 ),
+        GeoPoint( lon: -58.08073, lat: 45.92986 ),
+        GeoPoint( lon: -129.8029, lat: 53.0 ),
+        GeoPoint( lon: -129.8029, lat: 52.0 )
     ]
 )

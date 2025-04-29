@@ -15,6 +15,7 @@ import { config } from "./odin_orbital_config.js";
 
 import * as main from "../odin_server/main.js";
 import * as util from "../odin_server/ui_util.js";
+import * as data from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
@@ -22,20 +23,27 @@ import * as odinCesium from "../odin_cesium/odin_cesium.js";
 const MODULE_PATH ="odin_orbital::hotspot_service::OrbitalHotspotService";
 
 ws.addWsHandler( MODULE_PATH, handleWsMessages);
+main.addShareHandler( handleShareMessage);
 
+// to store SatelliteEntries
 var satelliteEntries = [];
 var selSat = undefined;
 var selSatOnly = false;
 
-var upcoming = [];  // upcoming overpasses (sorted in ascending time, earliest on top)
+// to store OverpassEntries (all of them - not filtered by satellite or region)
+var upcomingEntries = [];  
+var completedEntries = [];
 
-var pastEntries = [];  // past overpass data (sorted in descending time, latest on top)
-var displayPastEntries = [];  // the pastEntries shown
-var selPast = undefined;
-var showPastHistory = false;
+// the filtered OverpassEntries shown in the upcoming/past lists 
+var shownUpcomingEntries = []; 
+var shownCompletedEntries = [];
+
+var selCompleted = undefined;
+var showHistory = false;  // shall we show footprints of past entries?
 
 var areaAsset = undefined;
 var area = undefined;  // bounds as Rectangle
+var areaVertices = [];
 
 var zoomHeight = 20000;
 
@@ -43,70 +51,56 @@ var zoomHeight = 20000;
 var hsFootprintPrimitive = undefined;  // the surface footprint of fire pixels
 var hsPointPrimitive = undefined;   // the brightness/frp points
 
-var utcClock = undefined;
-var now = 0;
-
 var areaInfoText = undefined;
 
 class SatelliteEntry {
     constructor(sat) {
         this.satId = sat.satId;
         this.satName = sat.name;
-        this.descr = sat.description;
+        this.avgSwathWidth = sat.avgSwathWidth;
+        this.avgOrbitDuration = sat.avgOrbitDuration;
 
-        this.show = sat.show; // can be changed interactively
+        this.show = true; // can be changed interactively
 
-        this.prev = 0; // overpass times updated by clock
+        this.prev = 0; // overpass times updated when we get new overpasses and hotspots
         this.next = 0;
-
-        this.region = [];  // set by jpssRegion messages
-        this.regionAsset = undefined;
     }
 }
 
-// represents a past overpass for which we have hotspot data
-class PastEntry {
-    constructor(hs) {
-        this.satId = hs.satId;
-        this.date = hs.date;
-        this.hotspots = hs.hotspots;
-   
-        this.nGood = util.countMatching(hs.hotspots, h=> h.confidence == 2);
-        this.nTotal = hs.hotspots.length;
-        this.nURT = util.countMatching( hs.hotspots, h=> h.version.endsWith("URT"));
+class OverpassEntry {
+    constructor(o) {
+        this.satId = o.satId;
+        this.start = o.start;
+        this.end = o.end;
+
+        this.meanSwathWidth = o.meanSwathWidth; 
+        this.meanGpDist = gpSecantFromSwathWidth(o.meanSwathWidth); // cartesian3 distance between ground point and swath horizon
+
+        this.track = undefined; // dynamically loaded ground track points
+        this.fname = o.fname; // filename to load ground track from
+
+        this.swathEntity = undefined; // set when we interactively select to show
+        this.showSwath = false;
+
+        // set when we get a hotspots message
+        this.hsList = undefined; 
     }
 
-    setPixelGrid (res) {
-        this.hotspots.forEach( pix=> {
-            if (res) {
-                let glat = util.roundToNearest(pix.lat, res);
-                let glon = util.roundToNearest(pix.lon, res);
-        
-                let s = util.fmax_4.format(glat) + ',' + util.fmax_4.format(glon);
-                let id = util.intern(s); // we don't want gazillions of duplicate strings
-
-                pix.glat = glat;
-                pix.glon = glon;
-                pix.id = id;
-            } else {
-                pix.glat = undefined;
-                pix.glon = undefined;
-                pix.id = undefined;
-            }
-        });
+    stats () {
+        if (this.hsList) {
+            let hs = this.hsList;
+            let total = hs.high + hs.nominal + hs.low;
+            return `${hs.high}/${total}`;
+        } else {
+            return "-";
+        }
     }
+}
 
-    setPositions (){
-        this.hotspots.forEach( h=> {
-            h.pos = Cesium.Cartographic.fromDegrees(h.lon, h.lat, 1);
-            h.xyzPos = Cesium.Cartographic.toCartesian(h.pos);
-
-            if (h.bounds){
-                h.bounds = h.bounds.map( p=> Cesium.Cartographic.fromDegrees(p.lon, p.lat));
-                h.xyzBounds = h.bounds.map( p=> Cesium.Cartographic.toCartesian(p));
-            }
-        });
-    }
+function gpSecantFromSwathWidth (s) {
+    let alpha = s / util.meanEarthRadius;
+    let beta = (Math.PI - alpha) / 2;
+    return util.meanEarthRadius * Math.sin(alpha) / Math.sin(beta);
 }
 
 createIcon();
@@ -114,10 +108,12 @@ createWindow();
 
 var satelliteView = initSatelliteView();
 var upcomingView = initUpcomingView();
-var pastView = initPastView();
+var completedView = initPastView();
 var hotspotView = initHotspotView();
+var sharedAreasView = initAreasView();
 
-var dataSource = new Cesium.CustomDataSource("jpss");
+
+var dataSource = new Cesium.CustomDataSource("orbital");
 odinCesium.addDataSource(dataSource);
 
 var history = config.history;
@@ -126,87 +122,81 @@ var brightThreshold = config.bright.value;
 var brightThresholdColor = config.bright.color;
 var frpThreshold = config.frp.value;
 var frpThresholdColor = config.frp.color;
-var resolution = config.resolution; // lat/lon resolution to match pixel positions (in degrees)
 var pixelSize = config.pixelSize;
 var outlineWidth = config.outlineWidth;
 initSliders();
 
-ui.setCheckBox("jpss.sel_sat", selSatOnly);
-ui.setCheckBox("jpss.show_history", showPastHistory);
+ui.setCheckBox("orbital.sel_sat", selSatOnly);
+ui.setCheckBox("orbital.show_history", showHistory);
 
-odinCesium.initLayerPanel("jpss", config, showJpss);
-ui.registerClockMonitor( startTimeUpdate);
-
-console.log("ui_cesium_jpss initialized");
+odinCesium.initLayerPanel("orbital", config, showOrbital);
+console.log("odin_orbital initialized");
 
 //--- end init
 
 function createIcon() {
-    return ui.Icon("./asset/odin_orbital/polar-sat-icon.svg", (e)=> ui.toggleWindow(e,'jpss'));
+    return ui.Icon("./asset/odin_orbital/polar-sat-icon.svg", (e)=> ui.toggleWindow(e,'orbital'));
 }
 
 function createWindow() {
-    return ui.Window("Polar Satellites", "jpss", "./asset/odin_orbital/polar-sat-icon.svg")(
-        ui.LayerPanel("jpss", toggleShowJpss),
-        ui.Panel("satellites", true)(
-            ui.List("jpss.satellites", 5, selectJpssSatellite),
+    return ui.Window("Orbiting Satellite Hotspots", "orbital", "./asset/odin_orbital/polar-sat-icon.svg")(
+        ui.LayerPanel("orbital", toggleShowOrbital),
+        ui.Panel("area", false)(
+            (sharedAreasView = ui.TreeList("orbital.areas", 10, "30rem", setAreaFromSelection)),
             ui.RowContainer()(
-              ui.TextInput("area","jpss.bounds", "20rem", { placeHolder: "enter lat,lon bounds (WSEN order)", changeAction: setJpssBounds, isFixed: true }),
-              ui.Button("pick", pickJpssBounds),
-              ui.Button("clear", clearJpssBounds),
-              ui.Button( "zoom", zoomToJpssBounds)
+              ui.TextInput("area","orbital.bounds", "20rem", { placeHolder: "enter lat,lon bounds (WSEN order)", changeAction: setAreaFromInput, isFixed: true }),
+              ui.Button("pick", pickArea),
+              ui.Button("clear", clearArea),
+              ui.Button( "zoom", zoomToArea)
             ),
-            (areaInfoText = ui.VarText("", "jpss.bounds-info"))
+            (areaInfoText = ui.VarText("", "orbital.bounds-info"))
         ),
-        ui.Panel("overpasses:", true)(
-            ui.RowContainer()(
+        ui.Panel("satellite overpasses:", true)(
+            ui.List("orbital.satellites", 5, selectOrbitalSatellite),
+
+            ui.RowContainer("start")(
                 ui.RowContainer(null,null,"upcoming overpasses")(
-                    ui.List("jpss.upcoming", 5)
+                    ui.List("orbital.upcoming", 5)
                 ),
                 ui.HorizontalSpacer(0.5),
                 ui.RowContainer(null,null,"completed overpasses")(
-                    ui.List("jpss.past", 5, selectJpssPast)
+                    ui.List("orbital.past", 5, selectCompleted)
                 )
             ),
             ui.RowContainer()(
-                ui.CheckBox("show history", toggleJpssShowPastHistory, "jpss.show_history"),
+                ui.CheckBox("sel sat only", toggleSelSatOnly, "orbital.sel_sat"),
+                ui.CheckBox("show history", toggleShowHistory, "orbital.show_history"),
                 ui.HorizontalSpacer(2),
-                ui.ListControls("jpss.past")
+                ui.ListControls("orbital.past")
             )
         ),
         ui.Panel("hotspots", false)(
-            ui.List("jpss.hotspots", 10, null, null, null, zoomToJpssPixel)
+            ui.List("orbital.hotspots", 10, null, null, null, zoomToHotspot)
         ),
         ui.Panel("layer parameters", false)(
             ui.RowContainer()(
                 ui.ColumnContainer("align_right")(
-                    ui.Slider("history [d]", "jpss.history", setJpssHistory),
-                    ui.Slider("bright [K]", "jpss.bright", setJpssBrightThreshold),
-                    ui.Slider("frp [MW]", "jpss.frp", setJpssFrpThreshold)
+                    ui.Slider("history [d]", "orbital.history", setOrbitalHistory),
+                    ui.Slider("bright [K]", "orbital.bright", setOrbitalBrightThreshold),
+                    ui.Slider("frp [MW]", "orbital.frp", setOrbitalFrpThreshold)
                 ),
                 ui.ColumnContainer("align_right")(
-                    ui.Slider("size [pix]", "jpss.pixsize", setJpssPixelSize),
-                    ui.Slider("outline [pix]", "jpss.outline", setJpssOutlineWidth),
-                    ui.Slider("grid [°]", "jpss.resolution", setJpssResolution)
+                    ui.Slider("size [pix]", "orbital.pixsize", setOrbitalPixelSize),
+                    ui.Slider("outline [pix]", "orbital.outline", setOrbitalOutlineWidth)
                 )
             )
         )
     );
 }
 
-function startTimeUpdate(clock) {
-    utcClock = clock;
-    updateNow();
-    setInterval( updateNow, 5000);
-}
-
 function initSatelliteView() {
-    let view = ui.getList("jpss.satellites");
+    let view = ui.getList("orbital.satellites");
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "show", tip: "show/hide satellite", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.show, toggleShowSatellite) },
-            { name: "sat", tip: "satellite name", width: "3rem", attrs: [], map: e => e.satName },
-            { name: "rgn", tip: "show/hide region", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.showRegion, toggleShowSatelliteRegion) },
+            { name: "sat", tip: "satellite name", width: "5rem", attrs: [], map: e => e.satName },
+            { name: "swath", tip: "half swath width [km]", width: "4rem", attrs:["fixed", "alignRight"], map: e => util.f_0.format(e.avgSwathWidth / 1000.0) },
+            { name: "rev", tip: "orbital period [min]", width: "3rem", attrs:["fixed", "alignRight"], map: e => util.f_0.format(e.avgOrbitDuration) },
             { name: "next", tip: "next upcoming overpass (local)", width: "8rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.next) },
             { name: "last", tip: "most recent overpass (local)", width: "8rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.prev) }
 
@@ -216,69 +206,74 @@ function initSatelliteView() {
 }
 
 function initUpcomingView() {
-    let view = ui.getList("jpss.upcoming");
+    let view = ui.getList("orbital.upcoming");
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "swt", tip: "show swath/ground track", width: "2rem", attrs: [], map: e => ui.createCheckBox(e.swathEntity, toggleShowUpcomingSwath) },
-            { name: "sat", tip: "satellite name", width: "3rem", attrs: [], map: e => satName(e.satId) },
-            { name: "cvr", tip: "coverage of region [0-1]", width: "2rem", attrs: ["fixed", "alignRight"], map: e => util.f_1.format(e.coverage) },
-            { name: "next date", width: "8rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.lastDate) }
-        ]);
+            { name: "swt", tip: "show swath/ground track", width: "2rem", attrs: [], map: e => ui.createCheckBox(e.showSwath, toggleShowSwath) },
+            { name: "sat", tip: "satellite name", width: "5rem", attrs: [], map: e => satName(e.satId) },
+            { name: "date", tip: "overpass end date", width: "7rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.end) }        ]);
     }
     return view;
 }
 
 function initPastView() {
-    let view = ui.getList("jpss.past");
+    let view = ui.getList("orbital.past");
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "swt", tip: "show swath/ground track", width: "2rem", attrs: [], map: e => ui.createCheckBox(e.ops && e.ops.swathEntity, toggleShowPastSwath) },
-            { name: "sat", tip: "satellite name", width: "3rem", attrs: [], map: e => satName(e.satId) },
-            { name: "urt", tip: "number of ultra-realtime hotspots", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.nURT },
-            { name: "all", tip: "number of all hotspots", width: "3rem", attrs: ["fixed", "alignRight"], map: e => e.nTotal },
-            { name: "last date", width: "8rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.date) }
+            { name: "swt", tip: "show swath/ground track", width: "2rem", attrs: [], map: e => ui.createCheckBox(e.showSwath, toggleShowSwath) },
+            { name: "sat", tip: "satellite name", width: "5rem", attrs: [], map: e => satName(e.satId) },
+            { name: "stats", tip: "number of high-confidence / total hotspots", width: "4rem", attrs: ["fixed", "alignRight"], map: e => e.stats() },
+            { name: "date", tip: "overpass end date", width: "8rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.end) }
         ]);
     }
     return view;
 }
 
 function initHotspotView() {
-    let view = ui.getList("jpss.hotspots");
+    let view = ui.getList("orbital.hotspots");
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "sat", tip: "satellite name", width: "3rem", attrs: [], map: e => satName(e.satId) },
-            { name: "conf", tip: "hotspot confidence [0:low,1:med,2:high]", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.confidence },
-            { name: "bright", tip: "hotspot brightness [K]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_0.format(e.bright) },
+            { name: "conf", tip: "hotspot confidence [0:low,1:med,2:high]", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.conf },
+            { name: "temp", tip: "hotspot brightness [K]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_0.format(e.temp) },
             { name: "frp", tip: "hotspot fire radiative power [MW]", width: "4.5rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.frp) },
-            { name: "pos", tip: "position", width:  "11rem", attrs: ["fixed", "alignRight"], map: e => util.formatLatLon(e.lat,e.lon,3)},
-            { name: "date", tip: "date of scan", width: "8rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.date) }
+            { name: "lon", tip: "longitude", width:  "7rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.lon,4)},
+            { name: "lat", tip: "latitude", width:  "5rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.lat,4)},
+        ]);
+    }
+    return view;
+}
+
+function initAreasView() {
+    let view = ui.getList("orbital.areas");
+    if (view) {
+        ui.setListItemDisplayColumns(view, ["fit", "header"], [
+            { name: "west", tip: "longitude", width:  "6rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.value.data.west,3)},
+            { name: "south", tip: "latitude", width:  "5rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.value.data.south,3)},
+            { name: "east", tip: "longitude", width:  "6rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.value.data.east,3)},
+            { name: "north", tip: "latitude", width:  "5rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.value.data.north,3)},
         ]);
     }
     return view;
 }
 
 function initSliders() {
-    let e = ui.getSlider('jpss.history');
+    let e = ui.getSlider("orbital.history");
     ui.setSliderRange(e, 0, 20, 1, util.f_0);
     ui.setSliderValue(e, history);
 
-    e = ui.getSlider('jpss.resolution');
-    ui.setSliderRange(e, 0.0000, 0.01, 0.0008, util.fmax_4);
-    ui.setSliderValue(e, resolution);
-
-    e = ui.getSlider('jpss.pixsize');
+    e = ui.getSlider("orbital.pixsize");
     ui.setSliderRange(e, 0, 8, 1, util.fmax_0);
     ui.setSliderValue(e, pixelSize);
 
-    e = ui.getSlider('jpss.outline');
+    e = ui.getSlider("orbital.outline");
     ui.setSliderRange(e, 0, 3, 0.5, util.fmax_1);
     ui.setSliderValue(e, outlineWidth);
 
-    e = ui.getSlider('jpss.bright');
+    e = ui.getSlider("orbital.bright");
     ui.setSliderRange(e, 0, 400, 25, util.fmax_0);
     ui.setSliderValue(e, brightThreshold);
 
-    e = ui.getSlider('jpss.frp');
+    e = ui.getSlider("orbital.frp");
     ui.setSliderRange(e, 0, 300, 25, util.fmax_0);
     ui.setSliderValue(e, frpThreshold);
 }
@@ -290,58 +285,41 @@ function toggleShowSatellite(event) {
         if (se) {
             se.show = ui.isCheckBoxSelected(cb);
             updateUpcoming();
-            updatePast();
-            updateHotspots();
-            showPixels();
+            updateCompleted();
         }
     }
 }
 
-function toggleShowSatelliteRegion(event) {
+function toggleShowSwath (event) {
     let cb = ui.getCheckBox(event.target);
-    if (cb) {
-        let se = ui.getListItemOfElement(cb);
-        if (se) {
-            if (se.regionAsset) {
-                dataSource.entities.remove(se.regionAsset);
-                se.regionAsset = undefined;
-            } else {
-                se.regionAsset = createRegionEntity(se);
-                dataSource.entities.add(se.regionAsset);
-            }
-        }
-        odinCesium.requestRender();
-    }
-}
+    let oe = ui.getListItemOfElement(cb);
 
-function toggleShowUpcomingSwath (event) {
-    let cb = ui.getCheckBox(event.target);
-    let isSelected = ui.isCheckBoxSelected(cb);
-    let ops = ui.getListItemOfElement(cb);
-    if (ops) toggleShowSwath(isSelected, ops);
-}
+    oe.showSwath = ui.isCheckBoxSelected(cb);
 
-function toggleShowPastSwath (event) {
-    let cb = ui.getCheckBox(event.target);
-    let isSelected = ui.isCheckBoxSelected(cb);
-    let pe = ui.getListItemOfElement(cb);
-    if (pe && pe.ops) toggleShowSwath(isSelected, pe.ops);
-}
-
-function toggleShowSwath (showIt, ops) {
-    if (showIt && !ops.swathEntity) {
-        let e = createSwathEntity(ops);
-        if (e) {
-            dataSource.entities.add( e);
-            ops.swathEntity = e;
+    if (oe.showSwath) {
+        if (oe.showSwath) { // check again - could have been de-selected in the meantime
+            showSwath(oe);
         }
     } else {
-        dataSource.entities.remove(ops.swathEntity);
-        ops.swathEntity = undefined;
+        // TODO - shall we unload the track here if there is no filter rect set ? If there is a rect we need it to filter overpasses
+        if (oe.swathEntity) {
+            dataSource.entities.remove(oe.swathEntity);
+            oe.swathEntity = undefined;
+            odinCesium.requestRender(true);
+        }
     }
+}
 
-    odinCesium.requestRender(true);
-    setTimeout( odinCesium.render, 150);
+function showSwath (oe) {
+    if (!oe.swathEntity) {
+        oe.swathEntity = createSwathEntity(oe);
+        if (oe.swathEntity) {
+            dataSource.entities.add( oe.swathEntity);
+            dataSource.show = true;
+        }
+    }
+    //odinCesium.requestRender(true);
+    odinCesium.render();
 }
 
 function satEntry(satId) {
@@ -358,126 +336,121 @@ function satName(satId) {
     return se ? se.satName : undefined;
 }
 
-function updateNow() { // periodic upcoming cleanup (if we didn't get matching hotspots)
-    let timeMargin = 5000; // before we remove orphan upcomings (for which we didn't get hotspots)
-    let nShift = 0;
-    now = ui.getClockEpochMillis(utcClock);
-
-    while (upcoming.length > 0 && (upcoming[0].lastDate + timeMargin) < now) {
-        let head = upcoming.shift();
-        updateSatEntryNext(head);
-        nShift ++;
-    }
-
-    if (nShift > 0) {
-        updateUpcoming();
-    }
-}
-
-function updateSatEntryNext (satId) {
-    let se = satEntry(satId);
-    if (se) {
-        let tNow = ui.getClockEpochMillis(utcClock);
-        let nextUp = upcoming.find(e => (e.satId == satId) && (e.lastDate > tNow));
-        if (nextUp) {
-            se.next = nextUp.lastDate;
-            ui.updateListItem(satelliteView, se);
-        }
-    }
-}
-
-function updateSatEntryLast (satId) {
-    let se = satEntry(satId);
-    if (se) {
-        let last = pastEntries.find( e=> e.satId == satId);
-        se.prev = last.date;
-        ui.updateListItem(satelliteView, se);
-    }
-}
-
-function linkUpcoming (pe) {
-    let i = upcoming.findIndex( e=> e.satId == pe.satId && util.isWithin(pe.date, e.firstDate, e.lastDate));
-    if (i >= 0){
-        let ops = upcoming[i];
-        pe.ops = ops;
-
-        upcoming.splice(i,1);
-        updateUpcoming();
-        updateSatEntryNext(ops.satId);
-    }
-}
-
 function pastClassifier (he) {
     if (he.nGood > 0) {
-        if (he.date > now - util.MILLIS_IN_DAY) return ui.createImage("jpss-asset/fire"); // good pix within 24h
+        if (he.date > now - util.MILLIS_IN_DAY) return ui.createImage("orbital-asset/fire"); // good pix within 24h
         else return "";
     } else return "";
 }
 
 function hotspotClassifier (he) {
-    if (he.confidence > 1) return ui.createImage("jpss-asset/fire");
+    if (he.confidence > 1) return ui.createImage("orbital-asset/fire");
     else if (he.confidence > 0) return "";
     else return "";
 }
 
-function isInArea (lat,lon) {
-    return !area || odinCesium.withinRect(lat, lon, area);
+function isHotspotInArea (hs) {
+    let lat = hs.lat;
+    let lon = hs.lon;
+    return (lat > area.south) && (lat < area.north) && (lon > area.west) && (lon < area.east);
+}
+
+function updateSatellites () {
+    for (let se of satelliteEntries) {
+        updateSatEntryNext(se);
+        updateSatEntryLast(se);
+    }
+}
+
+function updateSatEntryNext (se) {
+    let next = shownUpcomingEntries.find(e => (e.satId == se.satId));
+    if (next) {
+        se.next = next.end;
+        ui.updateListItem(satelliteView, se);
+    }
+}
+
+function updateSatEntryLast (se) {
+    let last = shownCompletedEntries.find( e=> e.satId == se.satId);
+    if (last) {
+        se.prev = last.end;
+        ui.updateListItem(satelliteView, se);
+    }
 }
 
 function updateUpcoming() {
-    let candidates = upcoming;
-    candidates = candidates.filter( op=> isSatShowing(op.satId));
-
-    ui.setListItems(upcomingView, candidates);
+    shownUpcomingEntries = filterOverpasses( upcomingEntries);
+    ui.setListItems(upcomingView, shownUpcomingEntries);
 }
 
-function updatePast() {
-    let candidates = pastEntries;
-    candidates = candidates.filter( e=> isSatShowing(e.satId));
-    displayPastEntries = candidates;
+function updateCompleted() {  // FIXME
+    shownCompletedEntries = filterOverpasses( completedEntries);
 
-    let lastSel = selPast;
-    if (lastSel && !candidates.includes(lastSel)) lastSel = undefined;
+    let lastSel = selCompleted;
+    if (lastSel && !shownCompletedEntries.includes(lastSel)) lastSel = undefined;
 
-    console.log("@@ update pastView: ", candidates);
-    ui.setListItems(pastView, candidates);
+    ui.setListItems(completedView, shownCompletedEntries);
 
-    if (lastSel) ui.setSelectedListItem(pastView,lastSel);
+    if (lastSel) ui.setSelectedListItem(completedView,lastSel); // restore selection
+}
+
+function filterOverpasses (overpasses) {
+    let matches = [];
+    for (let oe of overpasses) {
+        if (isSatShowing(oe.satId)) {
+            if (isAreaOverpass(oe)) {
+                matches.push(oe)
+            }
+        }
+    }
+    return matches;
+}
+
+// note this returns a new array with all overpasses, sorted by ascending overpass end times
+function allOverpasses() {
+    return completedEntries.toReversed().concat( upcomingEntries); 
+}
+
+// the ascending end time ordered list of all showing overpasses (selected satellites)
+function allShowingOverpasses() {
+    return completedEntries.filter( (oe)=>isSatShowing(oe.satId)).toReversed()
+        .concat( upcomingEntries.filter((oe)=>isSatShowing(oe.satId))); 
+}
+
+function isAreaOverpass(oe) {
+    // check if at least one vertex is within swath of this overpass
+    if (areaVertices && areaVertices.length > 0) {
+        let track = oe.track;
+        let d2Max = util.pow2(oe.meanGpDist);
+
+        for (let v of areaVertices) {
+            let i = findClosestIndex(track, v);
+            if (i >= 0) {
+                let d2 = distSquared( v, track[i]);
+                if (d2 <= d2Max) return true;
+            }
+        }
+        return false;
+
+    } else {
+        return true;
+    }
 }
 
 function updateHotspots() {
-    if (selPast){
-        let pastIdx = displayPastEntries.indexOf(selPast);
-        let maxPast = showPastHistory ? displayPastEntries.length : pastIdx+1;
-        let candidates = [];
-    
-        for (var i = pastIdx; i < maxPast; i++) {
-            let e = displayPastEntries[i];
-            let hs = e.hotspots;
-            for (var j = 0; j < hs.length; j++) {
-                let h = hs[j];
-                if (isInArea(h.lat, h.lon)){
-                    candidates.push(h);
-                }
-            }
-        }
-        // sort sum(lat,lon)+time to keep history together ?
-
-        ui.setListItems(hotspotView, candidates);
-
+    // if hsList is still in flight this will be called again after it was loaded
+    if (selCompleted && selCompleted.hsList && selCompleted.hsList.hotspots){ 
+        ui.setListItems(hotspotView, selCompleted.hsList.hotspots);
     } else {
         ui.clearList(hotspotView);
     }
 }
 
 function handleWsMessages(msgType, msg) {
-    
     switch (msgType) {
         case "satellites":
             handleSatelliteMessage(msg); break;
-        case "region":
-            handleRegionMessage(msg); break;
-        case "overpass":
+        case "overpasses":
             handleOverpassMessage(msg); break;
         case "hotspots":
             handleHotspotMessage(msg); break;
@@ -487,148 +460,210 @@ function handleWsMessages(msgType, msg) {
     }
 }
 
-function handleSatelliteMessage(jpssSatellites) {
-    jpssSatellites.forEach( s=> satelliteEntries.push( new SatelliteEntry(s)));
+function handleSatelliteMessage(satellites) {
+    satellites.forEach( sat=> satelliteEntries.push( new SatelliteEntry(sat)));
     ui.setListItems( satelliteView, satelliteEntries);
 }
 
-function handleRegionMessage(jpssRegion) {
-    let se = satEntry(jpssRegion.satId);
-    if (se) {
-        se.region = jpssRegion.region;
-    }
+function handleOverpassMessage(overpasses) {
+    // this is async - we do need the utcClock to be initialized so this has to go through the respective promise
+    odinCesium.withCurrentUtcMillis( (now) => {
+        let loadPromises = [];
+        for (let o of overpasses) {
+            let oe = new OverpassEntry(o);
+            if (o.end < now) { // completed overpass
+                completedEntries.splice( 0, 0, oe); // add on top
+                completedEntries.sort( (a,b) => (a,b) => a.end - b.end);    
+            } else { // upcoming overpass
+                upcomingEntries.push( oe);
+                upcomingEntries.sort( (a,b) => (a,b) => a.end - b.end);
+            }
+            loadPromises.push( loadTrack(oe));
+        }
+
+        util.withAllPromises( loadPromises, ()=>updateAll());
+    });
 }
 
-function handleOverpassMessage(ops) {
-    upcoming.push(ops); // earliest upcoming on top
-    upcoming.sort( (a,b) => (a,b) => a.lastDate - b.lastDate);
+function updateAll() {
     updateUpcoming();
-    updateSatEntryNext(ops.satId);
+    updateCompleted();
+    updateSatellites();
+    scheduleNextOverpassMove();
 }
 
-function handleHotspotMessage(hs) {
-    let pe = new PastEntry(hs);
-    console.log("@@ updateHotspots: ", hs);
+// this returns a future that resolves once we have the full track
+function loadTrack (oe) {
+    let url = "orbital-data/" + oe.fname;
+    return fetch(url).then( (response) => { // TODO - this should handle errors
+        if (response.ok) {
+            response.json().then( (fullOverpass) => {
+                oe.track = fullOverpass.track;
+            });
+        }
+    });
+}
 
-    let i = pastEntries.findIndex( e=> e.date == pe.date);  // replace ? could be any past entry
-    if (i >= 0) {
-        pastEntries[i] = pe;  // replaced (corrected) version
-    } else { // sort in
-        i = 0;
-        while (i < pastEntries.length && pastEntries[i].date > pe.date) i++;
-        console.log("@@ insert new hotspots at ", i);
-        pastEntries.splice(i, 0, pe); // insert
+function scheduleNextOverpassMove () {
+    odinCesium.withCurrentUtcMillis( (now) => {
+        if (upcomingEntries.length > 0) {
+            setTimeout( () => {
+                moveOverpass();
+            }, upcomingEntries[0].end - now + 1000) // give it a 1 sec grace period as we might get new overpasses
+        }
+    });
+}
 
-        let pFirst = pastEntries.find( e=> e.satId == pe.satId);
-        if (pFirst === pe) updateSatEntryLast(pe.satId);
-        linkUpcoming(pe);
+function moveOverpass () {
+    odinCesium.withCurrentUtcMillis( (now) => {
+        if (upcomingEntries.length > 0) {
+            let oe = upcomingEntries[0];
+            if (oe.end < now) {
+                completedEntries.splice( 0, 0, oe);
+                upcomingEntries.splice( 0, 1);
+
+                updateCompleted();
+                updateUpcoming();
+                updateSatellites();
+            }
+
+            scheduleNextOverpassMove(); // only schedule next if we moved en entry
+        }
+    });
+}
+
+function handleHotspotMessage(hotspots) {
+    odinCesium.withCurrentUtcMillis( (now) => { // we don't have overpasses until we have the UTC clock set
+        for (let hsList of hotspots) {
+            let oe = completedEntries.find( (oe) => { return (oe.satId == hsList.satId) && (oe.end == hsList.end); });
+            if (oe) {
+                oe.hsList = hsList;
+                ui.updateListItem( completedView, oe); // might not show if filtered
+                loadHotspots(oe); // trampoline action - load full hsList (with hotspots) from file
+            }
+        }
+    });
+}
+
+function loadHotspots (oe) { 
+    odinCesium.withTopoTerrain( ()=>{  // no point loading hotspots before we have topo terrain
+        let url = "orbital-data/" + oe.hsList.fname;
+        fetch(url).then( (response) => {
+            if (response.ok) {
+                response.json().then( (hsList) => {
+                    oe.hsList = hsList;
+                    computeHotspotFootprints( hsList.hotspots);
+                    return hsList.hotspots.map( (h)=>h.geoPos);
+                }).then( (ps)=> {
+                    odinCesium.withSampledTerrain( ps, 10, ()=>{ // withDetailedSampleTerrain causes exception in Cesium
+                        updateHotspots();
+                    })
+                })
+            }
+        })
+    });
+}
+
+function computeHotspotFootprints (hotspots) {
+    for (let h of hotspots) {
+        let lon = h.lon;
+        let lat = h.lat;
+
+        h.geoPos = Cesium.Cartographic.fromDegrees( lon, lat);
+        h.area.push( h.area[0]); // close polygon
+
+        h.geom = new Cesium.PolygonGeometry({
+            polygonHierarchy: new Cesium.PolygonHierarchy(h.area),
+            //vertexFormat: Cesium.VertexFormat.POSITION_AND_NORMAL,
+        });
+
+        // TODO - do we need to keep area and geoPos now that we have a geometry?
     }
-
-    updatePast();
-    updateHotspots();
-
-    pe.setPixelGrid(resolution);
-    pe.setPositions();
 }
 
+function showOrbital(cond) {
+    showHotspotAssets(cond);
+    if (areaAsset) areaAsset.show = cond;
+    odinCesium.requestRender();
+ }
+ 
 
-// this works on displayHotspotEntries, which are ordered latest-first
-function computeHotspotPixels() {
-    let pastIdx = displayPastEntries.indexOf(selPast);
-    let pixels = [];
-    let seen = new Set();
-    let maxPast = showPastHistory ? displayPastEntries.length : pastIdx+1;
-    let cutOff = selPast.date - util.days(history);
+function showHotspotAssets(isVisible) {
+    if (hsPointPrimitive) hsPointPrimitive.show = isVisible;
+    if (hsFootprintPrimitive) hsFootprintPrimitive.show = isVisible;
+    odinCesium.requestRender();
+}
 
-    for (var i = pastIdx; i < maxPast; i++) {
-        let e = displayPastEntries[i];
+function showHotspots() {
+    if (selCompleted) {
+        setHotspotAssets();
+    } else {
+        clearHotspotAssets();
+    }
+}
 
-        if (e.date > cutOff) {
-            let hs = e.hotspots;
-            for (var j = 0; j < hs.length; j++) {
-                let pix = hs[j];
-                if (isInArea(pix.lat,pix.lon)) {
-                    let k = pix.id; // computed from gridded pixel position
-                    if (k) {
-                        if (!seen.has(k)) {
-                            seen.add(k);
-                            pixels.push(pix);
-                        }
-                    } else { // no grid, just add pixel
-                        pixels.push(pix);
+function setHotspotAssets() {
+    clearHotspotAssets();
+
+    if (selCompleted) { // if none is selected we don't have anything to display
+        let refDate = selCompleted.end;
+        let geoms = [];
+        let points = [];
+
+        let selIdx = shownCompletedEntries.findIndex( (oe) => Object.is( selCompleted, oe));
+        let i0 = showHistory ? shownCompletedEntries.length-1 : selIdx;
+
+        for (let i = i0; i>= selIdx; i--) { // start with oldest entries
+            let oe = shownCompletedEntries[i];
+            if (oe.hsList && oe.hsList.hotspots) {
+                let clr = getFootprintColor( oe.end, refDate);
+                if (clr) {
+                    let clrAttr = Cesium.ColorGeometryInstanceAttribute.fromColor(clr);
+
+                    for (let h of oe.hsList.hotspots) {
+                        if (!area || isHotspotInArea( h)) {
+                            let gi = new Cesium.GeometryInstance({
+                                geometry: h.geom,
+                                attributes: {
+                                    color: clrAttr
+                                }
+                            });
+                            geoms.push(gi);
+
+                            if (i == selIdx) {
+                                let point = {
+                                    position: Cesium.Cartographic.toCartesian(h.geoPos),
+                                    pixelSize: pixelSize,
+                                    heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                                    color: brightThresholdColor
+                                };
+                                if (h.frp >= frpThreshold) {
+                                    point.outlineWidth = outlineWidth;
+                                    point.outlineColor = frpThresholdColor;
+                                    // point.scaleByDistance = config.frpScale // use Cesium.NearFar(nearCameraDist,nearScale,farCameraDist,farScale)
+                                }
+                                points.push(point);   
+                            }
+                        } 
                     }
                 }
             }
-        } else { // pixel too old
-            break;
         }
-    }
 
-    return pixels; // newer pixels should be on top
+        setFootprintAssets( geoms);
+        setPointAssets( points);
+    }
 }
 
-function createPixelAssets(pixels) {
-    clearPrimitives();
-    if (pixels.length == 0) return;
-
-    let refDate = selPast.date;
-    let lastDate = undefined;
-    let clr = undefined;
-    let clrAttr = undefined;
-
-    let geoms = [];
-    let points = [];
-
-    for (var i = 0; i < pixels.length; i++) {
-        let pix = pixels[i];
-
-        if (pix.date != lastDate) { // don't create gazillions of color attrs
-            clr = getPixelColor(pix, refDate);
-            clrAttr = Cesium.ColorGeometryInstanceAttribute.fromColor(clr);
-            lastDate = pix.date;
-        }
-
-        if (clr) {
-            let isLastOverpass = (clr === timeSteps[0].color);
-
-            // only show footprints for last hotspots or selected area
-            if (isLastOverpass || isInArea(pix.lat, pix.lon)) {
-                let geom = new Cesium.GeometryInstance({
-                    geometry: new Cesium.PolygonGeometry({
-                        polygonHierarchy: new Cesium.PolygonHierarchy(pix.xyzBounds),
-                        vertexFormat: Cesium.VertexFormat.POSITION_AND_NORMAL,
-                    }),
-                    attributes: {
-                        color: clrAttr
-                    }
-                });
-                geoms.push(geom);
-            }
-
-            if (isLastOverpass && pix.bright >= brightThreshold) {
-                let point = {
-                    position: pix.xyzPos,
-                    pixelSize: pixelSize,
-                    color: brightThresholdColor
-                };
-                if (pix.frp >= frpThreshold) {
-                    point.outlineWidth = outlineWidth;
-                    point.outlineColor = frpThresholdColor;
-                    // point.scaleByDistance = config.frpScale // use Cesium.NearFar(nearCameraDist,nearScale,farCameraDist,farScale)
-                }
-                points.push(point);
-            }
-            // TODO - reorder all frp pixels to the top of their timestep
-        }
-    }
-
+function setFootprintAssets (geoms) {
     if (geoms.length > 0) {
         // should be a GroundPrimitive but that renders incorrectly on macOS
-        hsFootprintPrimitive = new Cesium.Primitive({
+        hsFootprintPrimitive = new Cesium.GroundPrimitive({
             geometryInstances: geoms,
             allowPicking: false,
             asynchronous: true,
             releaseGeometryInstances: true,
+            vertexCacheOptimize: true,
             
             appearance: new Cesium.PerInstanceColorAppearance({
                 faceForward: true,
@@ -636,22 +671,12 @@ function createPixelAssets(pixels) {
                 translucent: true,
                 //renderState: { depthTest: { enabled: false, } }, // this makes it appear always on top but translucent
             }),
-        });
-        /* 
-        hsFootprintPrimitive = new Cesium.GroundPrimitive({
-            geometryInstances: geoms,
-            allowPicking: false,
-            asynchronous: true,
-            releaseGeometryInstances: true,
-            vertexCacheOptimize: true,
-            classificationType: Cesium.ClassificationType.BOTH,
-
-            appearance: new Cesium.PerInstanceColorAppearance()
-        });
-        */        
+        });       
         odinCesium.addPrimitive(hsFootprintPrimitive);
     }
+}
 
+function setPointAssets (points) {
     if (points.length > 0) {
         hsPointPrimitive = new Cesium.PointPrimitiveCollection({
             blendOption: Cesium.BlendOption.OPAQUE
@@ -663,67 +688,36 @@ function createPixelAssets(pixels) {
     odinCesium.requestRender();
 }
 
-function createRegionEntity (se) {
-    if (se.region.length > 0) {
-        let cfg = config;
-        let pts = se.region.map( p=> Cesium.Cartesian3.fromDegrees(p[1], p[0]));
-        let br = util.getLatLonArrayBoundingRect(se.region);
-        let center = util.getRectCenter(br);
-        let pos = Cesium.Cartesian3.fromDegrees(center.lon,center.lat);
+function getFootprintColor(oeDate, refDate) {
+    let dt = util.hoursFromMillis(refDate - oeDate); // refDate is always > oeDate
 
-        return new Cesium.Entity({
-            position: pos,
-            polygon: {
-                hierarchy: pts,
-                fill: false,
-                outline: true,
-                outlineColor: cfg.regionColor,
-                height: 1,
-                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-            },
-            label: {
-                text: satName(se.satId),
-                font: cfg.font,
-                fillColor: cfg.regionColor,
-                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-            }
-        });
-
-    } else return undefined;
-}
-
-function getPixelColor(pixel, refDate) {
-    let dt = util.hoursFromMillis(refDate - pixel.date);
-
-    for (var i = 0; i < timeSteps.length; i++) {
+    for (let i = 0; i < timeSteps.length; i++) {
         let ts = timeSteps[i];
         if (dt < ts.hours) {
             return ts.color;
         }
     }
 
-    return timeSteps[timeSteps.length - 1].color; // TODO - shall we use the last as the catch-all?
+    return timeSteps[timeSteps.length - 1].color; // we use the last as the catch-all
 }
 
-function createSwathEntity (ops) {
-    let earth = Cesium.Ellipsoid.WGS84;
+function createSwathEntity (oe) {
+    //let earth = Cesium.Ellipsoid.WGS84;
     let cfg = config;
-    let trj = ops.trajectory;
-    
-    //let pts = trj.map( tp=> earth.scaleToGeodeticSurface(Cesium.Cartesian3.fromElements(tp.x, tp.y, tp.z)));
-    // Cesium has bug when rendering corridors with large number of centerline points
-    if (trj.length > 40) trj = util.downSampleWithFirstAndLast(trj,40);
-    let pts = trj.map( tp=> Cesium.Cartesian3.fromElements(tp.x, tp.y, tp.z));
 
-    let cp = earth.scaleToGeodeticSurface(pts[Math.round(pts.length/2)]);
+    // track is already in ECEF Cartesian3 coords (on ellipsoid)
+    let pts = util.downSampleWithFirstAndLast(oe.track,10);
 
-    let info = `${satName(ops.satId)}\n${util.toLocalDateString(ops.lastDate)}\n${util.toLocalHMTimeString(ops.firstDate)} - ${util.toLocalHMTimeString(ops.lastDate)}`;
+    //let cp = earth.scaleToGeodeticSurface(pts[Math.round(pts.length/2)]);
+    let cp = pts[Math.round(pts.length/2)];
+
+    let info = `${satName(oe.satId)}\n${util.toLocalDateString(oe.end)}\n${util.toLocalHMTimeString(oe.start)} - ${util.toLocalHMTimeString(oe.end)}`;
 
     return new Cesium.Entity( {
         position: cp,
         corridor: {
             positions: pts,
-            width: 2*ops.swath,
+            width: 2*oe.meanSwathWidth,
             cornerType: Cesium.CornerType.MITERED,
             material: cfg.swathColor,
             height: 0,
@@ -746,46 +740,27 @@ function createSwathEntity (ops) {
     });
 }
 
-function clearPrimitives() {
+function clearHotspotAssets() {
     if  (hsFootprintPrimitive || hsPointPrimitive){
-        if (hsFootprintPrimitive) odinCesium.removePrimitive(hsFootprintPrimitive);
-        hsFootprintPrimitive = undefined;
+        if (hsFootprintPrimitive) {
+            odinCesium.removePrimitive(hsFootprintPrimitive);
+            hsFootprintPrimitive = undefined;
+        }
     
-        if (hsPointPrimitive) odinCesium.removePrimitive(hsPointPrimitive);
-        hsPointPrimitive = undefined;
+        if (hsPointPrimitive) {
+            odinCesium.removePrimitive(hsPointPrimitive);
+            hsPointPrimitive = undefined;
+        }
 
         odinCesium.requestRender();
-    }
-}
-
-function showPrimitives(isVisible) {
-    if (hsPointPrimitive) hsPointPrimitive.show = isVisible;
-    if (hsFootprintPrimitive) hsFootprintPrimitive.show = isVisible;
-    odinCesium.requestRender();
-}
-
-function showJpss(cond) {
-   if (hsPointPrimitive) hsPointPrimitive.show = cond;
-   if (hsFootprintPrimitive) hsFootprintPrimitive.show = cond;
-   if (areaAsset) areaAsset.show = cond;
-   odinCesium.requestRender();
-}
-
-function showPixels() {
-    if (selPast) {
-        let pixels = computeHotspotPixels();
-        //if (pixels.length > 100) odinCesium.lowerFrameRateFor(pixels.length * 5, 5);
-        createPixelAssets(pixels);
-    } else {
-        clearPrimitives();
     }
 }
 
 //--- interaction
 
 function clearHotspots() {
-    ui.clearSelectedListItem(pastView);
-    clearPrimitives();
+    ui.clearSelectedListItem(completedView);
+    clearHotspotAssets();
     odinCesium.requestRender();
 }
 
@@ -795,64 +770,41 @@ function resetDisplayParams() {
     frpThreshold = structuredClone(config.frp);
 }
 
-function selectJpssSatellite(event) {
+function selectOrbitalSatellite(event) {
     selSat = ui.getSelectedListItem(satelliteView);
     if (selSatOnly) {
         updateUpcoming();
-        updatePast();
+        updateCompleted();
     }
 }
 
-function toggleJpssSelSatOnly(event) {
+function toggleSelSatOnly(event) {
     selSatOnly = ui.isCheckBoxSelected(event);
     updateUpcoming();
-    updatePast();
+    updateCompleted();
 }
 
-function toggleShowJpss(event) {
-    showPrimitives(ui.isCheckBoxSelected(event.target));
+function toggleShowOrbital(event) {
+    showHotspotAssets(ui.isCheckBoxSelected(event.target));
 }
 
-function toggleShowJpssRegion(event) {
-    let cb = ui.getCheckBox(event.target);
-    if (cb) {
-        let se = ui.getListItemOfElement(cb);
-        if (se) {
-            if (se.region) {
-                se.showRegion( ui.isCheckBoxSelected(cb));
-            } else console.log("no region for selected satellite");
-        }
-    }
+function selectCompleted(event) {
+    selCompleted = ui.getSelectedListItem(completedView);
+    updateHotspots(); 
+    showHotspots();
 }
 
-function selectJpssPast(event) {
-    selPast = ui.getSelectedListItem(pastView);
-    if (selPast) {
-        showPixels();
-    } else {
-        clearPrimitives();
-    }
-    updateHotspots();
-}
-
-function clearJpssHotspots(event) {
-    ui.clearSelectedListItem(pastView);
-    clearPrimitives();
-    odinCesium.requestRender();
-}
-
-function zoomToJpssPixel(event) {
+function zoomToHotspot(event) {
     let h = ui.getSelectedListItem(event);
     if (h) {
         odinCesium.zoomTo(Cesium.Cartesian3.fromDegrees(h.lon, h.lat, zoomHeight));
     }
 }
 
-function toggleJpssShowPastHistory(event) {
-    showPastHistory = ui.isCheckBoxSelected(event.target);
-    if (selPast) {
-        showPixels();
-        updateHotspots();
+function toggleShowHistory(event) {
+    showHistory = ui.isCheckBoxSelected(event.target);
+    if (selCompleted) {
+        showHotspots();
     }
 }
 
@@ -860,9 +812,9 @@ function toggleJpssShowPastHistory(event) {
 
 function clearArea() {
     if (area) {
-        ui.setField("jpss.bounds", null);
+        ui.setField("orbital.bounds", null);
         area = undefined;
-        // TODO - reset overpasses, area hotspots
+        areaVertices = undefined;
     }
     if (areaAsset) {
         odinCesium.removeEntity(areaAsset);
@@ -871,35 +823,77 @@ function clearArea() {
 
     ui.setVarText(areaInfoText, null);
 
-    updateHotspots();
-    showPixels();
+    updateAll();
+    showHotspots();
     odinCesium.requestRender();
 }
 
-function pickJpssBounds(event) { // mouse selection
-    odinCesium.enterGeoRect( setJpssArea);
+function pickArea(event) { // mouse selection
+    odinCesium.enterGeoRect( (rect) => {
+        ui.setField("orbital.bounds", util.degreesToString([rect.west, rect.south, rect.east, rect.north], util.fmax_3));
+        setArea(rect)
+    });
 }
 
-function setJpssBounds(event) { // text field input (WSEN)
-    // TBD
+function setAreaFromInput(event) { // text field input (WSEN)
+    let input = event.target.value;
+    if (input && input.length > 0) {
+        let a = input.split(',');
+        let west = parseFloat(a[0]);
+        let south = parseFloat(a[1]);
+        let east = parseFloat(a[2]);
+        let north = parseFloat(a[3]);
+
+        if (isNaN(west) || isNaN(south) || isNaN(east) || isNaN(north)) {
+            alert("invalid input (need west,south,east,north as comma separated degrees");
+        } else {
+            rect = new main.GeoRect( west,south,east,north);
+            setArea(rect)
+        }
+    }
 }
 
-function setJpssArea (rect) {
-    clearArea();
+function setAreaFromSelection(event){
+    let sharedItem = ui.getSelectedListItem(sharedAreasView);
+    if (sharedItem) {
+        let rect = sharedItem.value.data;
+        ui.setField("orbital.bounds", util.degreesToString([rect.west, rect.south, rect.east, rect.north], util.fmax_3));
+        setArea( rect);
 
+    } else {
+        clearArea();
+    }
+}
+
+function setArea (rect) {
     area = rect;
-    ui.setField("jpss.bounds", util.degreesToString([rect.west, rect.south, rect.east, rect.north], util.fmax_3));
+    areaVertices = odinCesium.cartesian3ArrayFromDegreesRect(rect);
 
-    let du = util.distanceBetweenGeoPos( rect.north,rect.west, rect.north,rect.east);
-    let dv = util.distanceBetweenGeoPos( rect.north,rect.west, rect.south,rect.west);
-    let sqAcres = util.fmax_0.format(util.squareMetersToAcres( du * dv));
-    let duMi = util.fmax_1.format(util.metersToUsMiles(du));
-    let dvMi = util.fmax_1.format(util.metersToUsMiles(dv));
-    ui.setVarText(areaInfoText, `${duMi} × ${dvMi} miles, ${sqAcres} acres`);
+    setAreaInfo();
+    setAreaAsset();
+
+    updateAll();
+}
+
+function setAreaInfo () {
+    if (area) {
+        let du = util.distanceBetweenGeoPos( area.north, area.west, area.north, area.east);
+        let dv = util.distanceBetweenGeoPos( area.north, area.west, area.south, area.west);
+        let sqAcres = util.fmax_0.format(util.squareMetersToAcres( du * dv));
+        let duMi = util.fmax_1.format(util.metersToUsMiles(du));
+        let dvMi = util.fmax_1.format(util.metersToUsMiles(dv));
+        ui.setVarText(areaInfoText, `${duMi} × ${dvMi} miles, ${sqAcres} acres`);
+    }
+}
+
+function setAreaAsset() {
+    if (areaAsset) {
+        odinCesium.removeEntity(areaAsset);
+    }
 
     areaAsset = new Cesium.Entity({
         polyline: {
-            positions: odinCesium.cartesian3ArrayFromDegreesRect(rect),
+            positions: areaVertices,
             clampToGround: true,
             width: 1,
             material: Cesium.Color.YELLOW
@@ -907,21 +901,11 @@ function setJpssArea (rect) {
         selectable: false
     });
     odinCesium.addEntity(areaAsset);
-
-    updatePast();
-    updateHotspots();
 }
 
-function clearJpssBounds(event) {
-    clearArea();
-}
 
-function zoomToJpssBounds(event) {
+function zoomToArea(event) {
     if (area) {
-        //let lon = (area.west + area.east) / 2;
-        //let lat = (area.south + area.north) / 2;
-        //let cameraPos = Cesium.Cartesian3.fromDegrees(lon, lat, 140000);
-
         let rect = Cesium.Rectangle.fromDegrees( area.west, area.south, area.east, area.north);
         let cameraPos = odinCesium.viewer.camera.getRectangleCameraCoordinates(rect);
         odinCesium.zoomTo(cameraPos);
@@ -930,31 +914,21 @@ function zoomToJpssBounds(event) {
 
 //--- layer parameters
 
-function setJpssResolution(event) {
-    let v = ui.getSliderValue(event.target);
-    resolution = v;
-    pastEntries.forEach(e => e.setPixelGrid(resolution));
-
-    if (hsFootprintPrimitive) {
-        showPixels(ui.getSelectedListItemIndex(pastView));
-    }
-}
-
-function setJpssBrightThreshold(event) {
+function setOrbitalBrightThreshold(event) {
     brightThreshold = ui.getSliderValue(event.target);
     if (hsPointPrimitive) {
-        showPixels(ui.getSelectedListItemIndex(pastView));
+        showHotspots(ui.getSelectedListItemIndex(completedView));
     }
 }
 
-function setJpssFrpThreshold(event) {
+function setOrbitalFrpThreshold(event) {
     frpThreshold = ui.getSliderValue(event.target);
     if (hsPointPrimitive) {
-        showPixels(ui.getSelectedListItemIndex(pastView));
+        showHotspots(ui.getSelectedListItemIndex(completedView));
     }
 }
 
-function setJpssPixelSize(event) {
+function setOrbitalPixelSize(event) {
     pixelSize = ui.getSliderValue(event.target);
     if (hsPointPrimitive) {
         const len = hsPointPrimitive.length;
@@ -965,7 +939,7 @@ function setJpssPixelSize(event) {
     }
 }
 
-function setJpssOutlineWidth(event) {
+function setOrbitalOutlineWidth(event) {
     outlineWidth = ui.getSliderValue(event.target);
     if (hsPointPrimitive) {
         const len = hsPointPrimitive.length;
@@ -976,9 +950,92 @@ function setJpssOutlineWidth(event) {
     }
 }
 
-function setJpssHistory(event) {
+function setOrbitalHistory(event) {
     history = ui.getSliderValue(event.target);
-    if (hsFootprintPrimitive && showPastHistory) {
-        showPixels(ui.getSelectedListItemIndex(pastView));
+    if (hsFootprintPrimitive && showHistory) {
+        showHotspots(ui.getSelectedListItemIndex(completedView));
     }
+}
+
+// both ps and p are Cartesian3
+function findClosestIndex (ps, p) {
+    let len = ps.length;
+
+    // corner cases
+    if (len == 0) { return -1; }
+    if (len == 1) { return 0 } // only choice
+    if (len == 2) { return distSquared( ps[1], p) > distSquared( ps[0], p) ? 0 : 1 }
+
+    let l = 1;
+    let r = len-2;
+    let i = Math.trunc(r/2);
+
+    let di = distSquared( ps[i], p);
+    let dl = di - distSquared( ps[i-1], p);
+    let dr = distSquared( ps[i+1], p) - di;
+
+    while (Math.sign(dl) == Math.sign(dr)) {
+        if (dr < 0.0) {  // bisect right
+            l = i;
+          } else {  // bisect left
+            r = i;
+          }
+          let i_last = i;
+          i = Math.trunc((l + r)/2);
+          if (i == i_last) { break; }
+    
+          di = distSquared( ps[i], p);
+          dl = di - distSquared( ps[i-1], p);
+          dr = distSquared( ps[i+1], p) - di;
+    }
+
+    return i;
+}
+
+// both p and q are Cartesian3
+function distSquared (p, q) {
+    let dx = p.x - q.x;
+    let dy = p.y - q.y;
+    let dz = p.z - q.z;
+
+    return (dx*dx + dy*dy + dz*dz);
+}
+
+//--- shared items
+
+var shareInitialized = false;
+
+function handleShareMessage (msg) {
+    if (msg.SHARE_INITIALIZED) { // we get that no matter what the share implementation is
+        shareInitialized = true;
+        updateSharedAreas();
+
+    } else if (shareInitialized) { // if we aren't initialized yet there is no need for updating the view
+        if (msg.setShared) {
+            let sharedItem = msg.setShared;
+            if (sharedItem.key.match(BBOX_PATTERN)) {
+                updateSharedAreas(); // TODO - don't do a sledge hammer approach (just add/delete items)
+            }
+        }
+    }
+}
+
+function updateSharedAreas() {
+    let areas = getSharedAreas();
+    let tree = data.ExpandableTreeNode.from( areas, e=>e.key );
+    ui.setTree( sharedAreasView, tree);
+}
+
+const BBOX_PATTERN = util.glob2regexp("{bbox/**,**/bbox/**,**/bbox}"); // any pathname with 'bbox' in it
+
+function getSharedAreas() {
+    let areas = [];
+    let items = main.getAllMatchingSharedItems( BBOX_PATTERN);
+    for (let item of items) {
+        if (item.value.type == "GeoRect") {
+            areas.push( item);
+        }
+    }
+
+    return areas;
 }

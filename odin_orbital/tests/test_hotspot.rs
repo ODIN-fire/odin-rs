@@ -29,7 +29,7 @@ use odin_orbital::firms::ViirsHotspotImporter;
 fn test_ground_point() {
     let input = fs::filepath_contents_as_string(&"tests/NOAA-21_VIIRS_2025-04-07_09_27.ron").unwrap();
     let op: Overpass = ron::from_str(&input).unwrap();
-    let traj = &op.trajectory;
+    let traj = &op.track;
 
     //gp( &traj, Cartographic::from_degrees( -122.15794, 37.11457, 0.0));
     gp( &traj, Cartographic::from_degrees( -114.9097, 36.35744, 0.0));

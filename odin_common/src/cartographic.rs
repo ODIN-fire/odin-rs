@@ -277,6 +277,18 @@ pub fn get_bbox_rad (vertices: &[Cartographic]) -> BoundingBox<f64> {
     BoundingBox { west, south, east, north }
 }
 
+/// meridional degrees per distance in meters - approximation of Bowring
+fn meridional_deg_per_meters_at (lat: f64, s: f64)->f64 {
+    let lat = lat.to_radians();
+    s / (111132.92 - 559.82 * cos(lat * 2.0) + 1.175 * cos(lat * 4.0) - 0.0023 * cos(lat * 6.0))
+}
+
+/// parallel degrees per distance in meters - approximation of Bowring
+fn parallel_deg_per_meters_at (lat: f64, s: f64)->f64 {
+    let lat = lat.to_radians();
+    s / (111412.84 * cos(lat) - 93.5 * cos(lat * 3.0) + 0.118 * cos(lat * 5.0))
+}
+
 impl From<Cartographic> for GeoPoint {
     fn from (p: Cartographic) -> Self {
         GeoPoint::from_lon_lat_degrees( p.longitude_deg(), p.latitude_deg())

@@ -25,21 +25,24 @@ use std::{collections::HashMap, sync::Arc, any::type_name};
 
 /// Cesium app using a ShareService
 run_actor_system!( actor_system => {
-    let pre_store = PreActorHandle::<SharedStoreActorMsg<SharedItemType>>::new( &actor_system, "store", 8);
-    let store_id = pre_store.get_id();
+    let pre_server = PreActorHandle::new( &actor_system, "server", 64);
 
-    let hserver = spawn_actor!( actor_system, "server", SpaServer::new(
+    // we would normally initialize the store via default_shared_items() but those normally reside outside the repository
+    let hstore = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), &"examples/shared_items.json", false)?;
+
+    let hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
         "cesium_share",
         SpaServiceList::new()
             .add( build_service!( => ImgLayerService::new()))
-            .add( build_service!( let hstore = pre_store.to_actor_handle() => ShareService::new( hstore)) )
+            .add( build_service!( let hstore = hstore.clone() => ShareService::new( hstore)) )
     ))?;
 
-    let hstore = spawn_pre_actor!( actor_system, pre_store, new_shared_store_actor( load_store()?, store_id, &hserver))?;
+    /*
+    // we could also excplicitly create the SharedStoreActor, which would require to set up the init and change actions.
+    // If our only client is the server actor this would be boilerplate code duplicated between different applications.
 
-    /* this would be the explicit way to create the SharedStoreActor, in case there are other actions than to just notify the server
-    let hstore = spawn_pre_actor!( actor_system, pre_store, SharedStoreActor::new(
+    let hstore = spawn_actor!( actor_system, "share", SharedStoreActor::new(
         create_store(),
         shared_store_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
             |store as &dyn SharedStore<SharedItem>| announce_data_availability( &hserver, "store")
@@ -53,11 +56,8 @@ run_actor_system!( actor_system => {
     Ok(())
 });
 
-fn load_store()->OdinActorResult<PersistentHashMapStore<SharedItemType>> {
-    PersistentHashMapStore::new( &"examples/shared_items.json", false).map_err(|e| op_failed(e.to_string()))
-}
 
-// this is artificial - normally we would initialize the store from a <odin-root>/data file
+// we could also programmatically create and initialize the store
 fn create_store()->HashMap<String,SharedItemType> {
     HashMap::from([
         ("view/bay_area".to_string(), SharedItemType::GeoPoint3( 

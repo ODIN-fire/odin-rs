@@ -17,6 +17,7 @@
  use serde_json;
 
  pub type Result<T> = std::result::Result<T, OdinShareError>;
+ pub type OdinShareResult<T> = std::result::Result<T, OdinShareError>;
  
  #[derive(Error,Debug)]
  pub enum OdinShareError {
@@ -28,6 +29,9 @@
 
     #[error("JSON error {0}")]
     JsonError( #[from] serde_json::Error),
+
+    #[error("actor error {0}")]
+    ActorError( #[from] odin_actor::errors::OdinActorError),
 
     // generic error
     #[error("operation failed: {0}")]

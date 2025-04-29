@@ -15,6 +15,7 @@ odin_common = { workspace = true }
 odin_server = { workspace = true }
 odin_cesium = { workspace = true }
 odin_macro = { workspace = true }
+odin_share = { workspace = true }
 
 axum = { workspace = true }
 serde = { workspace = true }
@@ -35,7 +36,7 @@ regex = { workspace = true }
 hashbrown = { workspace = true }
 
 csv = "1.3.1"
-satkit = "0.5.5"
+satkit = "0.5.6"
 bit-set = "0.8.0"
 
 [build-dependencies]

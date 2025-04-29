@@ -82,6 +82,11 @@ pub struct OrbitalSatelliteInfo {
     /// average orbital height - used to determine z-bounds for given regions
     avg_height: Length, 
 
+    /// average swath width (single side)
+    avg_swath_width: Length,
+
+    avg_orbit_duration: StdDuration,
+
     /// time step for propagating orbits
     time_step: StdDuration,
 
@@ -106,11 +111,13 @@ impl OrbitalSatelliteInfo {
 
     pub fn write_basic_json_to (&self, w: &mut JsonWriter) {
         w.write_object(|w| {
-            w.write_field("sat_id", self.sat_id);
+            w.write_field("satId", self.sat_id);
             w.write_string_field("name", &self.name);
             w.write_string_field("instrument", &self.instrument);
-            w.write_field( "max_scan_angle", self.max_scan_angle.degrees());
-            w.write_field("avg_height", self.avg_height.get::<meter>());
+            w.write_field( "maxScanAngle", self.max_scan_angle.degrees());
+            w.write_field("avgHeight", self.avg_height.get::<meter>());
+            w.write_field( "avgSwathWidth", self.avg_swath_width.get::<meter>());
+            w.write_field( "avgOrbitDuration", self.avg_orbit_duration.as_secs_f64() / 60.0)
         });
     }
 
@@ -149,6 +156,7 @@ struct Hotspot {
     pos: Cartesian3, // of hotspot, in ECEF
     lon: Longitude,  // geodetic hotspot coords
     lat: Latitude,
+    area: [Cartesian3;4], // footprint
 
     scan: Length,    // cross-scan length of pixel footprint in meters
     track: Length,   // along-track length of pixel footprint in meters
@@ -169,6 +177,13 @@ impl JsonWritable for Hotspot {
             w.write_field_with("pos", |w| self.pos.write_json_to(w));
             w.write_fmt_field("lon", &format!("{:.5}", self.lon.degrees() ));
             w.write_fmt_field("lat", &format!("{:.5}", self.lat.degrees() ));
+
+            w.write_array_field("area", |w| {
+                self.area[0].write_json_to(w);
+                self.area[1].write_json_to(w);
+                self.area[2].write_json_to(w);
+                self.area[3].write_json_to(w);            
+            });
 
             w.write_field("scan", self.scan.get::<meter>().round() as i64);
             w.write_field("track", self.track.get::<meter>().round() as i64);
@@ -264,7 +279,7 @@ impl HotspotList {
     }
 
     fn write_common_json_fields_to (&self, w: &mut JsonWriter) {
-        w.write_field( "sat_id", self.sat_id);
+        w.write_field( "satId", self.sat_id);
         w.write_field( "start", self.start.timestamp_millis());
         w.write_field( "end", self.end.timestamp_millis());
         w.write_field( "high", self.high);
@@ -314,8 +329,13 @@ pub fn save_retrieved_hotspots_to (dir: impl AsRef<Path>, retrieved: &BitSet, co
 #[async_trait]
 pub trait HotspotImporter {
     /// import latest hotspots from current date with up to n_days of history and store in respective CompletedOverpasses
-    async fn import_hotspots (&self, n_days: usize, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<BitSet>;
-    fn get_download_schedule (&self, t: DateTime<Utc>) -> Vec<DateTime<Utc>>;
+    async fn import_hotspots (&mut self, n_days: usize, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<BitSet>;
+    
+    /// what is the last date for which we got any hotspot data (might not be for our overpasses)
+    fn last_reported (&self)->DateTime<Utc>;
+
+    /// get the download time for the provided overpass end (might be either a const delay of depending on ground stations)
+    fn get_download_schedule (&self, overpass_end: DateTime<Utc>) -> DateTime<Utc>;
 }
 
 /// aggregation of orbit segment and resulting instrument data (to be filled in once such data becomes available)
@@ -363,27 +383,6 @@ pub fn get_time_vec (orbit_duration: Duration, time_step: Duration, start_time: 
 
 pub type ColumnVec<'a> = Matrix<f64, Const<3>, Const<1>, ViewStorage<'a, f64, Const<3>, Const<1>, Const<1>, Const<3>>>;
 
-
-// note this is based on the empirical assumption that VIIRS hotspot files are always monotonic in overpasses. This is not true with respect
-// to acquisition dates within the same overpass. Since this might be FIRMS/instrument specific the function is here and not in overpass.rs
-pub fn find_covering_overpass<T> (sat_id: u32, date: DateTime<Utc>, cops: &VecDeque<CompletedOverpass<T>>, last_idx: Option<usize>)->Option<usize> {
-    if let Some(i) = last_idx {
-        if cops[i].overpass.sat_id == sat_id && cops[i].overpass.covers( date) {
-            return last_idx;
-        }
-    }
-
-    let mut i = if let Some(idx) = last_idx { idx+1 } else { 0 };
-    let len = cops.len();
-    while i < len {
-        if cops[i].overpass.sat_id == sat_id && cops[i].overpass.covers( date) { 
-            return Some(i) 
-        }
-        i += 1;
-    }
-
-    None
-}
 
 pub fn init_orbital_data ()->Result<()> {
     let dir = pkg_cache_dir!().join("satkit");

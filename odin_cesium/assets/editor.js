@@ -384,7 +384,6 @@ export class PolyEditor {
       
     _enter() {
         if (this.points.length >= this.minPoints) {
-            console.log("@@ last point", this.points[this.points.length-1]);
             if (this.processResult) this.processResult(this.points);
         }
         this._dispose();
@@ -1033,6 +1032,27 @@ export class PolygonEditor extends PolyEditor {
         this._setAreaField( this._polygonArea());
 
         ui.updateListItem( this.editor.pointList, this.points[0]); // update closing distance
+    }
+
+    // we have to override this because the first/last points have to be moved together
+    _onHandleMove (event) { 
+        if (this.selHandle) {
+            let cp = this.cp;
+            cesium.getCartesian3MousePosition( event, cp);
+            this.selHandle.position = cp;
+
+            let idx = this.selHandle.__index;
+
+            let p = this.points[idx];
+            p.x = cp.x;  p.y = cp.y;  p.z = cp.z;
+
+            if (idx == this.points.length-1) {
+                p = this.points[0];
+                p.x = cp.x;  p.y = cp.y;  p.z = cp.z;
+            }
+
+            this._updateMovingPoint( idx, p);
+        }
     }
 }
 

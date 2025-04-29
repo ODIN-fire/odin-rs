@@ -20,6 +20,7 @@ use odin_actor::prelude::*;
 use odin_build::pkg_cache_dir;
 use odin_common::{define_cli, geo::GeoPolygon};
 use odin_server::prelude::*;
+use odin_share::prelude::*;
 use odin_orbital::{
     init_orbital_data, load_config,
     actor::spawn_orbital_hotspot_actors,
@@ -36,15 +37,18 @@ run_actor_system!( actor_system => {
 
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
 
-    let sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), load_config( &ARGS.region)?, &ARGS.sat_infos)?;
+    // we would normally initialize the store via default_shared_items() but those normally reside outside the repository
+    let hshare = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
+
+    let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), load_config( &ARGS.region)?, &ARGS.sat_infos)?;
 
     let hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
         "orbital_hotspots",
         SpaServiceList::new()
-            .add( build_service!( => OrbitalHotspotService::new( sats) ))
+            .add( build_service!( => OrbitalHotspotService::new( orbital_sats) ))
+            .add( build_service!( let hshare = hshare.clone() => ShareService::new( hshare)) )
     ))?;
-
 
     Ok(())
 });

@@ -24,17 +24,7 @@ use chrono::{DateTime, Datelike, Timelike, Utc};
 use serde::{Deserialize,Serialize};
 use bit_set::BitSet;
 use odin_common::{
-    asin, atan2, cos, is_same_ref, signum, sin, sqrt, tan, MinMaxAvg, HALF_PI,
-    angle::{normalize_360, Angle360, Angle90},
-    fs::set_filepath_contents,
-    cartesian3::{dist_squared, find_closest_index, Cartesian3}, 
-    cartographic::{approximate_surface_centroid, earth_radius_at_geodetic_latitude, get_bbox_rad, mean_distance_rad, parallel_distance_rad, Cartographic}, 
-    collections::{empty_vec, RingDeque, SingleLookupHashMap, SortedIterable},
-    datetime::{de_duration_from_fractional_secs, de_from_epoch_millis, from_epoch_millis, ser_duration_as_fractional_secs, ser_epoch_millis}, 
-    geo::{GeoPoint, GeoPolygon, GeoRect}, 
-    geo_constants::{EQUATORIAL_EARTH_RADIUS_SQUARED, E_EARTH, E_EARTH_SQUARED, MEAN_EARTH_RADIUS, POLAR_EARTH_RADIUS_SQUARED}, 
-    uom::{de_length_from_meters, meters, ser_length_as_meters},
-    json_writer::{JsonWriter, JsonWritable}
+    angle::{normalize_360, Angle360, Angle90}, asin, atan2, cartesian3::{dist_squared, find_closest_index, scale_to_earth_radius, Cartesian3}, cartographic::{approximate_surface_centroid, earth_radius_at_geodetic_latitude, get_bbox_rad, mean_distance_rad, parallel_distance_rad, Cartographic}, collections::{empty_vec, RingDeque, SingleLookupHashMap, SortedIterable}, cos, datetime::{de_duration_from_fractional_secs, de_from_epoch_millis, from_epoch_millis, ser_duration_as_fractional_secs, ser_epoch_millis}, fs::set_filepath_contents, geo::{GeoPoint, GeoPolygon, GeoRect}, geo_constants::{EQUATORIAL_EARTH_RADIUS_SQUARED, E_EARTH, E_EARTH_SQUARED, MEAN_EARTH_RADIUS, POLAR_EARTH_RADIUS_SQUARED}, is_same_ref, json_writer::{JsonWritable, JsonWriter}, signum, sin, sqrt, tan, uom::{de_length_from_meters, meters, ser_length_as_meters}, MinMaxAvg, HALF_PI
 };
 use crate::{
     get_time_vec, instant_now, ColumnVec, OrbitalSatelliteInfo, Hotspot, 
@@ -52,8 +42,8 @@ const MIN_TRAJECTORY_POINTS: usize = 10;
 /* #endregion coniguration data */
 
 /// OverpassCalculator output: the segment of an orbit whose swath covers (part of) an OverpassRegion
-/// this includes the regular time series trajectory in ECEF coordinates and respective start/end time of the segment
-/// note this structure works like a trampoline - we serialize to a pkg_cache_dir/fname file but then reset the trajectory
+/// this includes the regular time series ground track in ECEF coordinates and respective start/end time of the segment
+/// note this structure works like a trampoline - we serialize to a pkg_cache_dir/fname file but then reset the track
 /// before sending it via websocket. The client then uses fname to request the full file on demand
 #[derive(Debug,Serialize,Deserialize)]
 #[public_struct]
@@ -61,17 +51,18 @@ pub struct Overpass {
     sat_id: u32,
 
     max_scan_angle: Angle90, 
-    mean_swath_width: Length, // note that swath width depends on altitude (i.e. varies over trajectory)
+    mean_swath_width: Length, // note that swath width depends on altitude (i.e. varies over track)
     mean_height: Length, // ditto
     mean_orbit_duration: StdDuration,
+    mean_gp_dist: Length, // mean distance between ground track points
 
     start: DateTime<Utc>,
     end: DateTime<Utc>,
 
     time_step: StdDuration,
 
-    fname: String, // the filename to retrieve the full trajectory (from the cache dir) if trajectory is empty
-    trajectory: Vec<Cartesian3> // regular time series trajectory points in ECEF frame
+    fname: String, // the filename to retrieve the full track (from the cache dir) if track is empty
+    track: Vec<Cartesian3> // regular time series ground track points in ECEF frame
 }
 
 impl Overpass {
@@ -82,12 +73,15 @@ impl Overpass {
         // those are all set later
         let start = from_epoch_millis(0);
         let end = from_epoch_millis(0);
-        let trajectory: Vec<Cartesian3> = Vec::with_capacity(1024);
-        let mean_swath_width: Length = Length::new::<meter>(0.0); // computed once we have a trajectory
-        let mean_altitude: Length = Length::new::<meter>(0.0); // computed once we have a trajectory
+
+        let track: Vec<Cartesian3> = Vec::with_capacity(1024);
+        let mean_swath_width: Length = Length::new::<meter>(0.0); // computed once we have a track
+        let mean_altitude: Length = Length::new::<meter>(0.0); // computed once we have a track
+        let mean_gp_dist = Length::new::<meter>(0.0); // computed once we have a track
+
         let fname = String::with_capacity(0); 
 
-        Overpass { sat_id, max_scan_angle, mean_swath_width, mean_height: mean_altitude, mean_orbit_duration, start, end, time_step, fname, trajectory }
+        Overpass { sat_id, max_scan_angle, mean_swath_width, mean_height: mean_altitude, mean_orbit_duration, mean_gp_dist, start, end, time_step, fname, track }
     }
 
     pub fn set_start (&mut self, t: Instant) {
@@ -98,25 +92,34 @@ impl Overpass {
         self.end = from_epoch_millis( (t.as_unixtime() * 1000.0) as i64);
     }
 
-    pub fn push_trajectory_point (&mut self, p: Cartesian3) {
-        self.trajectory.push( p);
+    pub fn push_track_point (&mut self, p: Cartesian3) {
+        self.track.push( p);
     }
 
     fn finish (&mut self) {
-        self.trajectory.shrink_to_fit();
+        self.track.shrink_to_fit();
 
-        let p_first = &self.trajectory[0];
-        let p_last = &self.trajectory[self.trajectory.len()-1];
+        let len1 = self.track.len()-1;
+        let p_first = &self.track[0];
+        let p_last = &self.track[len1];
 
-        // we assume eccentricity is low and region extent is not exceeding a quadrant
+        // we assume eccentricity is low and region extent is not exceeding a quadrant - otherwise we have to loop over points
         let swi_first = compute_swath( p_first, self.max_scan_angle.radians());
         let swi_last =  compute_swath( p_last, self.max_scan_angle.radians());
         self.mean_swath_width = Length::new::<meter>( ((swi_first.swath_width + swi_last.swath_width) / 2.0).round() );
 
-        // same for mean altitude
+        // same for mean height
         let alt_first = p_first.length() - p_first.earth_radius();
         let alt_last = p_last.length() - p_last.earth_radius();
         self.mean_height = Length::new::<meter>( ((alt_first + alt_last) / 2.0).round() );
+
+        // now that we have computed height and swath we can convert the trajectory to ground track
+        scale_to_earth_radius(&mut self.track);
+
+        // get mean distance between ground track points
+        let dist_first = (&self.track[1] - &self.track[0]).length();
+        let dist_last = (&self.track[len1] - &self.track[len1-1]).length();
+        self.mean_gp_dist = Length::new::<meter>( ((dist_first + dist_last) / 2.0).round());
 
         let start = &self.start;
         self.fname = format!("{}_{:4}-{:02}-{:02}_{:02}{:02}_{}.json", 
@@ -124,39 +127,34 @@ impl Overpass {
     }
 
     pub fn len (&self)->usize {
-        self.trajectory.len()
+        self.track.len()
     }
 
     pub fn is_empty (&self)->bool {
-        self.trajectory.is_empty()
-    }
-
-    pub fn covers (&self, d: DateTime<Utc>)->bool {
-        // give some leeway at the end since acquisition might have some latency - we assume download latency < orbit_dur / 2
-        (d > self.start) && (d < self.end + self.mean_orbit_duration.div_f64(2.0))
+        self.track.is_empty()
     }
 
     // note this requires at least 2 points but anything less is just skirting one of the region corners anyways
-    pub fn closest_ground_point (&self, p: &Cartesian3)->Cartesian3 {
-        let traj = &self.trajectory;
-        let len = traj.len();
-        if len < 2 { panic!("not enough trajectory points") }  // NOTE - caller has to make sure
+    pub fn closest_track_point (&self, p: &Cartesian3)->Cartesian3 {
+        let track = &self.track;
+        let len = track.len();
+        if len < 2 { panic!("not enough track points") }  // NOTE - caller has to make sure
 
-        let i = find_closest_index( traj, &p);
+        let i = find_closest_index( track, &p);
         let j = if i == 0 { 1 } else if i == len-1 { len-2 } else {
-            if dist_squared( &traj[i-1], &p) > dist_squared( &traj[i+1], &p) { i+1 } else { i-1 }
+            if dist_squared( &track[i-1], &p) > dist_squared( &track[i+1], &p) { i+1 } else { i-1 }
         };
 
         if i > j {
-            p.closest_point_on_plane( &traj[j], &traj[i]).to_earth_radius()
+            p.closest_point_on_plane( &track[j], &track[i]).to_earth_radius()
         } else {
-            p.closest_point_on_plane( &traj[i], &traj[j]).to_earth_radius()
+            p.closest_point_on_plane( &track[i], &track[j]).to_earth_radius()
         }
     }
 
-    pub fn bearing_to_closest_ground_point (&self, cp: Cartographic) -> Angle360 {
+    pub fn bearing_to_closest_track_point (&self, cp: Cartographic) -> Angle360 {
         let p = Cartesian3::from(cp);
-        let gp = self.closest_ground_point(&p);
+        let gp = self.closest_track_point(&p);
         let cgp = Cartographic::from(&gp);
         
         Angle360::from_degrees( cp.bearing_to( &cgp).to_degrees())
@@ -168,14 +166,15 @@ impl Overpass {
     }
 
     fn write_common_json_fields_to (&self, w: &mut JsonWriter) {
-        w.write_field("sat_id", self.sat_id);
-        w.write_field("max_scan_angle", self.max_scan_angle.degrees());
-        w.write_field("mean_swath_width", self.mean_swath_width.get::<meter>().round() as i64);
-        w.write_field("mean_height", self.mean_height.get::<meter>().round() as i64);
-        w.write_fmt_field("mean_orbit_duration", &format!("{:.3}", self.mean_orbit_duration.as_secs_f64()));
+        w.write_field("satId", self.sat_id);
+        w.write_field("maxScanAngle", self.max_scan_angle.degrees());
+        w.write_field("meanSwathWidth", self.mean_swath_width.get::<meter>().round() as i64);
+        w.write_field("meanHeight", self.mean_height.get::<meter>().round() as i64);
+        w.write_fmt_field("meanOrbitDuration", &format!("{:.3}", self.mean_orbit_duration.as_secs_f64()));
+        w.write_field("meanGpDist", self.mean_gp_dist.get::<meter>().round() as i64);
         w.write_field("start", self.start.timestamp_millis());
         w.write_field("end", self.end.timestamp_millis());
-        w.write_field("time_step", &format!("{:.3}", self.time_step.as_secs_f64()));
+        w.write_field("timeStep", &format!("{:.3}", self.time_step.as_secs_f64()));
         w.write_string_field("fname", &self.fname);
     }
 
@@ -193,13 +192,13 @@ impl Overpass {
         let mut w = JsonWriter::with_capacity(128 + self.len() * 32);
         w.write_object(|w| {
             self.write_common_json_fields_to(w);
-            w.write_field_with("trajectory", |w| self.trajectory.write_json_to(w));
+            w.write_field_with("track", |w| self.track.write_json_to(w));
         });
         w.to_string()
     }
 
     pub fn collapse (&mut self) {
-        self.trajectory = empty_vec();
+        self.track = empty_vec();
     }
 
     pub fn to_collapsed_json_array (overpasses: &Vec<&Overpass>)->String {
@@ -222,7 +221,7 @@ pub fn save_overpasses_to (dir: impl AsRef<Path>, overpasses: &Vec<Overpass>)->R
 impl fmt::Display for Overpass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Overpass( sat_id:{}, start:{}, dur:{} min, step:{} s, n_points:{}, mean_alt: {:.0} m, mean_swath: {:.0} m)", 
-            self.sat_id, self.start, (self.end - self.start).num_minutes(), self.time_step.as_secs(), self.trajectory.len(), 
+            self.sat_id, self.start, (self.end - self.start).num_minutes(), self.time_step.as_secs(), self.track.len(), 
             self.mean_height.get::<meter>(), self.mean_swath_width.get::<meter>())
     }
 }
@@ -276,7 +275,7 @@ impl <T: TleStore> OverpassCalculator<T> {
         let n_max = self.sat_info.max_completed + self.sat_info.max_upcoming;
         let t = instant_now() - back_dur;
 
-        self.get_overpasses( t, back_dur + forward_dur, n_max).await
+        self.get_overpasses( t, back_dur + forward_dur, 100).await
     }
 
     /// get all overpasses that (partially) fall into the provided time span.
@@ -295,45 +294,43 @@ impl <T: TleStore> OverpassCalculator<T> {
         let step_secs = self.sat_info.time_step.as_secs_f64();
         let time_step = Duration::from_seconds(step_secs);
         let mut tvec: Vec<Instant> = vec![ Instant::new(0); n_steps + 20];
-        let z_range = self.oc.z_min..oc.z_max;
+        let i1 = n_steps-1;
+        let avg_swath = self.sat_info.avg_swath_width.get::<meter>();
 
         let mut overpasses: Vec<Overpass> = Vec::new();
         let mut current_overpass = Overpass::new( sat_id, max_scan_angle, time_step, oi.mean_orbit_duration());
-        let mut is_recording = false;
-        let mut p_last = Cartesian3::undefined();
 
         while t < t_end {
             let mut i_last = 0;
             tvec.clear();
-            for i in 0..n_steps { tvec.push(t + Duration::from_seconds( (i as f64) * step_secs)) } // initialize time vector for this rev
+            for i in 0..n_steps { tvec.push(t + Duration::from_seconds( (i as f64) * step_secs)) } // initialize time vector for this rev ?? nlerp
             let (pteme, vteme, errs) = sgp4( &mut tle, &tvec); // propagate
 
-            for i in 0..n_steps {  
-                let v = pteme.column(i);
-                if z_range.contains( &v[2]) { // outer filter - needs to be efficient
-                    let itrf = qteme2itrf(&tvec[i]).to_rotation_matrix() * v;
-                    let p = Cartesian3::from_col( &itrf);
+            let q0 = qteme2itrf(&tvec[0]);
+            let q1 = qteme2itrf(&tvec[i1]);
+   
+            let itrf_last = q0 * pteme.column(0);
+            let mut p_last = Cartesian3::from_col( &itrf_last);
+            let mut is_recording = false;
 
-                    if p_last.is_undefined() { 
-                        let itrf_last = qteme2itrf(&tvec[i-1]).to_rotation_matrix() * pteme.column(i-1);
-                        p_last = Cartesian3::from_col( &itrf_last);
+            for i in 1..=i1 {
+                let q = q0.slerp(&q1, (i as f64)/(i1 as f64)); // since we got quaternions we might as well interpolate (qteme2itrf() is expensive)
+
+                let itrf = q * pteme.column(i);
+                let p = Cartesian3::from_col( &itrf);
+
+                if oc.is_inside( &p, &p_last) {
+                    if !is_recording {
+                        current_overpass.set_start(tvec[i]);
+                        is_recording = true;
                     }
-
-                    if oc.is_inside( &p, &p_last) {
-                        if !is_recording {
-                            current_overpass.set_start(tvec[i]);
-                            is_recording = true;
-                        }
-                        current_overpass.push_trajectory_point(p.to_rounded_decimals(0)); // no point keeping decimals - sgp4 does not have enough accuracy
-                        i_last = i;
-                    } else {
-                        if is_recording { break } // done for this revolution - note we might not get here if z-filter catches
-                    }
-
-                    p_last = p;
+                    current_overpass.push_track_point(p.to_rounded_decimals(0)); // no point keeping decimals - sgp4 does not have enough accuracy
+                    i_last = i;
                 } else {
-                    if is_recording { break }
+                    if is_recording { break  } // done for this revolution - note we might not get here if z-filter catches
                 }
+
+                p_last = p;
             }
 
             if is_recording {
@@ -365,6 +362,32 @@ impl <T: TleStore> OverpassCalculator<T> {
 }
 
 
+// FIXME - this is not enough, we also need to check swath endpoints but those need an approximation of
+// apparent inclination (inclination + earth rotation)
+fn check_z_range (v: &Cartesian3, v_last: &Cartesian3, oc: &OverpassConstraints)->bool {
+    let z_min = oc.z_min;
+    let z_max = oc.z_max;
+    
+    if v.z >= z_min &&  v.z <= z_max { return true }  // if middle point is already in range we don't have to check swath
+
+    // we need an inexpensive way to update the TEME->ITRF rotation matrix here
+
+    /*
+    if v_last.is_defined() {
+        // get orbit plane unit normal
+        let u = v_last.normal(v);
+
+        let p = v + u * oc.avg_scan_dist;
+        if p.z >= z_min &&  p.z <= z_max { return true } 
+
+        let p = v - u * oc.avg_scan_dist;
+        if p.z >= z_min &&  p.z <= z_max { return true } 
+    }
+    */
+
+    false
+}
+
 /* #region internal structures *******************************************************************************************/
 
 /// struct that defines the region we want to compute overpasses for.
@@ -375,6 +398,7 @@ pub struct OverpassConstraints {
 
     sin_msa: f64,  // pre-computed
     cos_msa: f64,
+    avg_swath: ScanInfo,
     
     region: Vec<Cartographic>,
     vertices: Vec<Cartesian3>,  // the ECEF vertices of the region
@@ -393,6 +417,7 @@ impl OverpassConstraints {
 
         let sin_msa = sin( sat_info.max_scan_angle.radians());
         let cos_msa = cos( sat_info.max_scan_angle.radians());
+        let avg_swath = compute_avg_swath( sat_info.as_ref());
 
         let vertices: Vec<Cartesian3> = region.iter().map(|v| v.into()).collect();
         let normals: Vec<Cartesian3> = Cartesian3::normals(&vertices);
@@ -400,7 +425,7 @@ impl OverpassConstraints {
 
         let (z_min,z_max) = Self::compute_bounds( sat_info.avg_height.get::<meter>(), &vertices);
 
-        OverpassConstraints { sat_info, sin_msa, cos_msa, region, vertices, normals,  bounds, z_max, z_min }
+        OverpassConstraints { sat_info, sin_msa, cos_msa, avg_swath, region, vertices, normals,  bounds, z_max, z_min }
     }
 
     fn compute_bounds (avg_height: f64, vertices: &[Cartesian3]) -> (f64,f64) {
@@ -416,19 +441,33 @@ impl OverpassConstraints {
         (z_min, z_max)
     }
 
+    /// this checks if a trajectory scan line has points within the surface area defined by our normals.
+    /// Note this is a simplified computation that assumes this area is large enough so that it does
+    /// not fall between the test points. For now we just test the trajectory point and the two swath end points
+    /// but this could add more test points between the two end points so we can adapt it until this condition
+    /// is met. This would be a relatively inexpensive operation as we do not need correct height for our
+    /// is_inside_normals test
     pub fn is_inside (&self, p: &Cartesian3, p_last: &Cartesian3) -> bool {
+        // check if the trajectory point p itself is inside. If yes we are done
+        if p.is_inside_normals( &self.normals) { return true } // this is inexpensive (max n dot products)
+
+        // if not we also have to check the scan line
         let norm = p_last.normal(p); // normal vec for plane defined by last 2 points
 
         // for low eccentricity orbits we could pre-compute this but this would at least lose out on WGS84 which could
         // matter for low altitude orbits and high scan angles
-        let swi = compute_swath_internal(p, self.sin_msa, self.cos_msa); 
+        //let swi = compute_swath_internal(p, self.sin_msa, self.cos_msa);  // this is expensive
+        let swi = &self.avg_swath;
         let scaled_norm = norm * swi.norm_dist;
 
+        // check the scan line endpoints
         let p1 = p + &scaled_norm; // left swath bound
         if p1.is_inside_normals( &self.normals) { return true }
 
         let p2 = p - &scaled_norm; // right swath bound
         if p2.is_inside_normals( &self.normals) { return true }
+
+        // we could add more scanline test points here if the region is too narrow for the swath
 
         false
     }
@@ -459,11 +498,22 @@ fn compute_swath_internal (p: &Cartesian3, sin_max_scan: f64, cos_max_scan: f64)
     let c1 = r*r - dist2;
     let c2 = dist * cos_max_scan;
 
-    let sat_dist = c2 - sqrt(c2*c2 + c1); // arc length GP - HP
+    let sat_dist = c2 - sqrt(c2*c2 + c1); // arc length GP - HP (scan horizon point)
     let alpha = asin(c0 * sat_dist);  // angle EC to HP
 
     let swath_width = r * alpha;  // length satellite to HP
     let norm_dist = tan(alpha) * dist; // length of EC-SP normal intersection with EC-HP line
+
+    ScanInfo { swath_width, sat_dist, norm_dist }
+}
+
+fn compute_avg_swath (sat_info: &OrbitalSatelliteInfo) -> ScanInfo {
+    let swath_width = sat_info.avg_swath_width.get::<meter>();
+    let alpha =  swath_width / MEAN_EARTH_RADIUS;
+    let norm_dist = tan(alpha) * (MEAN_EARTH_RADIUS + sat_info.avg_height.get::<meter>());
+
+    // law of sine: c / sin(alpha) = R / sin(scan_angle)
+    let sat_dist = sin(alpha) * MEAN_EARTH_RADIUS / sin(sat_info.max_scan_angle.radians());
 
     ScanInfo { swath_width, sat_dist, norm_dist }
 }

@@ -33,7 +33,7 @@ fn main ()->Result<()> {
     let mut t = op.start;
     let tstep = op.time_step;
 
-    for (i,p) in op.trajectory.iter().enumerate() {
+    for (i,p) in op.track.iter().enumerate() {
         let c: Cartographic = p.into();
         println!("[{:3}]: {:02}:{:02}:{:02} = {:10.4} °,{:10.4} °,{:10.0} m", i, 
             t.hour(), t.minute(), t.second(),

@@ -527,7 +527,7 @@ export function isString(v) {
 
 //--- geo & math
 
-const meanEarthRadius = 6371000.0; // in meters
+export const meanEarthRadius = 6371000.0; // in meters
 const e2_wgs84 = 0.00669437999014;
 const a_wgs84 = 6378137.0;
 const mrcNom_wgs84 = a_wgs84 * (1.0 - e2_wgs84);
@@ -616,6 +616,10 @@ export function tan2(rad) {
     return x * x;
 }
 
+export function pow2(x) {
+    return x*x;
+}
+
 export function checkLat (deg) {
     return (!Number.isNaN(deg) && deg >= -90.0 && deg <= 90.0);
 }
@@ -649,6 +653,19 @@ export function formatFloat(v, digits) {
 export function formatGroupedFloat(v, digits) {
     let fmt = fg_N[digits];
     return fmt.format(v);
+}
+
+// WGS84 approximation for latitude delta in degrees for given meridional distance in meters (Bowring approximation)
+export function deltaLatDegForDistance (s, latDeg) {
+    let lat = latDeg / rad2deg;
+    return s / (111132.92 - 559.82 * cos(lat * 2.0) + 1.175 * cos(lat * 4.0) - 0.0023 * cos(lat * 6.0));
+}
+
+// WGS84 approximation for longitude delta for given parallel distance in meters (Bowring approximation)
+export function deltaLonDegForDistance (s, latDeg) {
+    let lat = latDeg / rad2deg;
+    return s / (111412.84 * cos(lat) - 93.5 * cos(lat * 3.0) + 0.118 * cos(lat * 5.0));
+
 }
 
 // along great circle, in meters
@@ -1103,8 +1120,11 @@ export function downSampleWithFirstAndLast (a, newLen) {
 
     let b = Array(newLen);
     let j = 0;
-    for (var i=0; i<len; i+= step) b[j++] = a[i];
-    if (i > len) b[j] = a[len-1]; 
+    for (var i=0; i<len; i+= step) {
+        b[j++] = a[i];
+    }
+
+    //b[j-1] = a[len-1]; // TODO - causes Cesium corridor errors (centerline points need to be equidistant ?)
 
     return b;
 }
@@ -1221,4 +1241,14 @@ export function haveEqualKeys (a,b) {
     }
     
     return true;
+}
+
+//--- promises
+
+export function withAllPromises (promises, f) {
+    if (promises && promises.length > 0) {
+        Promise.all( promises).then( ()=>f() );
+    } else {
+        f();
+    }
 }

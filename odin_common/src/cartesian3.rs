@@ -19,7 +19,7 @@ use crate::geo_constants::{
     EARTH_RADIUS_RATIO_SQUARED, EQUATORIAL_EARTH_RADIUS, EQUATORIAL_EARTH_RADIUS_SQUARED, E_EARTH_SQUARED, MEAN_EARTH_RADIUS, MER_SQUARED, POLAR_EARTH_RADIUS_SQUARED
 };
 use crate::cartographic::Cartographic;
-use crate::{pow2,sqrt,signum, atan, atan2};
+use crate::{pow2,sqrt,signum, atan, atan2,cos,sin};
 use crate::json_writer::{JsonWritable,JsonWriter};
 
 /// note that we do not use uom here to allow for abstract coordinate systems (although
@@ -123,6 +123,11 @@ impl Cartesian3 {
         self.z = self.z / length;
     }
 
+    pub fn to_unit (&self)->Cartesian3 {
+        let length = self.length();
+        Cartesian3 { x: self.x / length, y: self.y / length, z: self.z / length }
+    }
+
     pub fn scaled_to_unit_length(&self)->Self {
         let length = self.length();
         self / length
@@ -193,6 +198,10 @@ impl Cartesian3 {
         self.scale_to_length(MEAN_EARTH_RADIUS);
     }
 
+    pub fn scale_to_earth_radius (&mut self) {
+        self.mul_assign( self.earth_radius()/self.length());
+    }
+
     pub fn to_mean_earth_radius (&self)->Self {
         self * (MEAN_EARTH_RADIUS / self.length())
     }
@@ -232,9 +241,11 @@ impl Cartesian3 {
     }
 
     /// answer if point is within open polyhedron that is defined by (inwards pointing) normals, i.e. 
-    /// p is on the same side of all bounding planes
+    /// p is on the same side of all bounding planes.
+    /// Note this requires the polyhedron outside planes to define convex polygons
     pub fn is_inside_normals (&self, normals: &Vec<Cartesian3>)->bool {
-        for i in 0..normals.len() {
+        let len = normals.len();
+        for i in 0..len {
             if self.dot(&normals[i]) < 0.0 {
                 return false;
             }
@@ -266,7 +277,71 @@ impl Cartesian3 {
         let latitude = atan( self.z / sqrt( pow2(self.x) + pow2(self.y)));
         Cartographic { longitude, latitude, height: 0.0 }
     }
+
+    // compute the east and north facing unit vectors for the given point on a sphere
+    // cos(alpha) = length / d  -> d = length / cos(alpha)
+    pub fn en_units (&self)->(Cartesian3,Cartesian3,Cartesian3) {
+        let length = self.length();
+        let unit = Cartesian3 { x: self.x / length, y: self.y / length, z: self.z / length }; // own unit
+
+        let cos_alpha = unit.dot( &Z_UNIT); // angle between self and z-axis
+        let d = length / cos_alpha;
+        let north_unit = (Cartesian3 { x: 0.0, y: 0.0, z: d } - self).scaled_to_unit_length();
+        let east_unit = unit.cross( &north_unit);
+
+        (unit, east_unit, north_unit)
+    }
+
+    // rotate this point around the given unit_normal
+    pub fn rotate_around (&self, n: &Cartesian3, rad: f64)->Cartesian3 {
+        let cos_a = cos(rad);
+        let sin_a = sin(rad);
+        let mc = 1.0 - cos_a;
+
+        let nxx = n.x * n.x;
+        let nyy = n.y * n.y;
+        let nzz = n.z * n.z;
+
+        let nxy = n.x * n.y;
+        let nxz = n.x * n.z;
+        let nyz = n.y * n.z;
+
+        let nxs = n.x * sin_a;
+        let nys = n.y * sin_a;
+        let nzs = n.z * sin_a;
+
+        let nxy_mc = nxy * mc;
+        let nyz_mc = nyz * mc;
+        let nxz_mc = nxz * mc;
+
+        let r11 = nxx + cos_a * (1.0 - nxx);
+        let r12 = nxy_mc - nzs;
+        let r13 = nxz_mc + nys;
+
+        let r21 = nxy_mc + nzs;
+        let r22 = nyy + cos_a * (1.0 - nyy);
+        let r23 = nyz_mc - nxs;
+
+        let r31 = nxz_mc - nys;
+        let r32 = nyz_mc + nxs;
+        let r33 = nzz + cos_a * (1.0 - nzz);
+
+        let x = self.x;
+        let y = self.y;
+        let z = self.z;
+
+        Cartesian3 {
+            x: (x * r11) + (y * r12) + (z * r13),
+            y: (x * r21) + (y * r22) + (z * r23),
+            z: (x * r31) + (y * r32) + (z * r33) 
+        }
+
+    }
 }
+
+pub const X_UNIT: Cartesian3 = Cartesian3 { x: 1.0, y: 0.0, z: 0.0 };
+pub const Y_UNIT: Cartesian3 = Cartesian3 { x: 0.0, y: 1.0, z: 0.0 };
+pub const Z_UNIT: Cartesian3 = Cartesian3 { x: 0.0, y: 0.0, z: 1.0 };
 
 /// return closest and second closest index pair of vertices to given point
 /// note the second index can either be the same (exact match), lower (intersection to the left) or 
@@ -309,6 +384,12 @@ pub fn find_closest_index (ps: &[Cartesian3], p: &Cartesian3) -> usize {
 pub fn dist_squared (p: &Cartesian3, q:&Cartesian3) -> f64 {
     let d = p - q;
     pow2(d.x) + pow2(d.y) + pow2(d.z)
+}
+
+pub fn scale_to_earth_radius (ps: &mut[Cartesian3]) {
+    for p in ps.iter_mut() {
+        p.scale_to_earth_radius();
+    }
 }
 
 impl JsonWritable for Cartesian3 {

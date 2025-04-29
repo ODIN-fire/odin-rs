@@ -166,20 +166,52 @@ pub static ROOT_DIR: OnceLock<PathBuf> = OnceLock::new();
 pub static CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
 pub static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
+
+/// the global root dir: `ODIN_ROOT`
+/// this will try to create the directory if it does not exist and panics if that fails
 pub fn root_dir()->&'static PathBuf {
     ROOT_DIR.get_or_init(|| get_or_create_root_dir().expect("failed to locate ODIN root"))
 }
 
+/// the global data dir: `ODIN_ROOT/data`
+/// this will try to create the directory if it does not exist and panics if that fails
 pub fn data_dir()->&'static PathBuf {
     DATA_DIR.get_or_init(|| ensure_existing_path( root_dir().join( Path::new("data"))))
 }
 
+/// the global cache dir: `ODIN_ROOT/cache`
+/// this will try to create the directory if it does not exist and panics if that fails
 pub fn cache_dir()->&'static PathBuf {
     CACHE_DIR.get_or_init(|| ensure_existing_path( root_dir().join( Path::new("cache"))))
 }
 
+/// the BinContext derived data dir: `ODIN_ROOT/data/<bin-crate>/<bin-name>`
+/// this will try to create the directory if it does not exist and panics if that fails
+pub fn bin_data_dir ()->PathBuf {
+    if let Some(ctx) = get_bin_context() {
+        let path = data_dir().join( &ctx.bin_crate).join( &ctx.bin_name);
+        ensure_dir(path)
+    } else {
+        panic!("application has no bin context");
+    }
+}
+
+/// the BinContext derived cache dir: `ODIN_ROOT/cache/<bin-crate>/<bin-name>`
+/// this will try to create the directory if it does not exist and panics if that fails
+pub fn bin_cache_dir ()->PathBuf {
+    if let Some(ctx) = get_bin_context() {
+        let path = cache_dir().join( &ctx.bin_crate).join( &ctx.bin_name);
+        ensure_dir(path)
+    } else {
+        panic!("application has no bin context");
+    }
+}
+
 // those need to be compiled in the target crate hence we need macros
 
+/// the crate cache dir of the caller: `ODIN_ROOT/cache/<crate>`
+/// This is a macro so that it does not rely on a global bin context and uses the crate name of the caller source
+/// This will try to create the directory if it does not exist and panics if that fails
 #[macro_export]
 macro_rules! pkg_cache_dir {
     () => {
@@ -187,10 +219,13 @@ macro_rules! pkg_cache_dir {
     }
 }
 
+/// the crate data dir of the caller: `ODIN_ROOT/data/<crate>`
+/// This is a macro so that it does not rely on a global bin context and uses the crate name of the caller source
+/// This will try to create the directory if it does not exist and panics if that fails
 #[macro_export]
 macro_rules! pkg_data_dir {
     () => {
-        odin_build::ensure_dir( odin_build::cache_dir().join( env!("CARGO_PKG_NAME")))
+        odin_build::ensure_dir( odin_build::data_dir().join( env!("CARGO_PKG_NAME")))
     }
 }
 
@@ -201,7 +236,6 @@ pub fn ensure_dir (dir: PathBuf)->PathBuf {
     }
     dir
 }
-
 
 
 /* #endregion bin globals */

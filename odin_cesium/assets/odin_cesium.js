@@ -75,6 +75,26 @@ class CameraPosition {
     }
 }
 
+// set when constructing elements and initialized through websocket message
+var localClock = undefined;  // do we need a promise for it?
+var utcClock = undefined; 
+
+// a promise other modules can latch on to if they need an initialized utc clock
+export const utcClockPromise = new Promise( (resolve,reject) => {
+    let tid = setInterval(() => {
+        //console.log("@@@ check clock", utcClock);
+        if (ui.isClockSet(utcClock)) {
+            console.log("UTC clock set.");
+            clearTimeout(tid);
+            resolve(utcClock);
+        }
+    }, 2000); // check every 500 ms
+});
+
+export function withCurrentUtcMillis (f) {
+    utcClockPromise.then( (utcClock)=>f( ui.getClockEpochMillis(utcClock)))
+}
+
 //export var viewer = undefined;
 
 var cameraSpec = undefined;
@@ -103,7 +123,6 @@ var positions = new Map(); // list of known CameraPositions
 var positionsView = undefined;
 
 var isSelectedView = false;
-var utcClock;
 
 var mapScale; // canvas to show map scale
 var isMetric = true;
@@ -119,7 +138,17 @@ if (Cesium.Ion.defaultAccessToken) {
 }
 
 export const ellipsoidTerrainProvider = new Cesium.EllipsoidTerrainProvider();
-var terrainProvider = ellipsoidTerrainProvider; // switched on demand
+var terrainProvider = ellipsoidTerrainProvider; // this is our initial terrain as it is immediately available. Switched on demand in postInitialize
+
+var topoTerrainProvider = undefined; 
+export const topoTerrainProviderPromise = Cesium.createWorldTerrainAsync().then( (tp) => {  // needs to be exported since other modules might chain on it
+    topoTerrainProvider = tp;
+    console.log("topo terrain provider initialized");
+});
+
+export function withTopoTerrain (f) {
+    topoTerrainProviderPromise.then( () => { f(); });
+}
 
 export const viewer = new Cesium.Viewer('cesiumContainer', {
     terrainProvider: terrainProvider,
@@ -144,7 +173,6 @@ initTimeWindow();
 initViewWindow();
 initLayerWindow();
 initMapScale();
-
 
 // position fields
 let cameraLat = ui.getField("view.camera.latitude");
@@ -187,15 +215,13 @@ document.addEventListener('keydown', handleKeyDown); // does not work on canvas
 
 
 // FIXME - this seems to be broken as of Cesium 105.1
-viewer.scene.postRender.addEventListener(function() {
+//viewer.scene.postRender.addEventListener(function() {
+viewer.scene.preRender.addEventListener(function() {
     pendingRenderRequest = false;
 });
 
 setInitialViewPositions();
 setInitialView();
-
-var terrainProviderPromise = undefined; // set in postInitialize
-var topoTerrainProvider = undefined;
 
 console.log("ui_cesium initialized");
 
@@ -211,14 +237,6 @@ function showContext() {
 }
 
 //--- terrain handling
-
-function getTerrainProviderPromise() {
-    if (config.terrainProvider) {
-        return config.terrainProvider;
-    } else {
-        return Cesium.createWorldTerrainAsync();
-    } 
-}
 
 const ORTHO_PITCH = -Math.PI/2;
 const TERRAIN_HEIGHT = 100000; // in meters
@@ -237,7 +255,7 @@ function useEllipsoidTerrain() {
 }
 
 export async function getTopoTerrainProvider() {
-    return await terrainProviderPromise;
+    return await topoTerrainProviderPromise;
 }
 
 function toggleTerrain(event) {
@@ -261,18 +279,22 @@ function switchToEllipsoidTerrain() {
     }
 }
 
-async function switchToTopoTerrain() {
+function switchToTopoTerrain() {
     if (terrainProvider === ellipsoidTerrainProvider) {
-        terrainProvider = await terrainProviderPromise;
-        console.log("switching to topographic terrain");
-        viewer.scene.terrainProvider = terrainProvider;
-        handleTerrainChange();
-        //requestRender();
+        topoTerrainProviderPromise.then( () => {
+            terrainProvider = topoTerrainProvider;
+            console.log("switching to topographic terrain");
+            viewer.scene.terrainProvider = terrainProvider;
+
+            ui.setCheckBox( "view.show_terrain", true);
+            handleTerrainChange();
+            requestRender();
+        })
     }
 } 
 
 export function isUsingTopoTerrain() {
-    return !(terrainProvider === ellipsoidTerrainProvider);
+    return (terrainProvider === topoTerrainProvider);
 }
 
 export function registerTerrainChangeHandler (handler) {
@@ -383,15 +405,15 @@ function initTimeWindow() {
 }
 
 function createTimeWindow() {
-    return ui.Window("clock", "time", "./asset/odin_cesium/time.svg")(
-        (utcClock = ui.Clock("time UTC", "time.utc", "UTC")),
+    let view = ui.Window("clock", "time", "./asset/odin_cesium/time.svg")(
+        ui.Clock("time UTC", "time.utc", "UTC"),
         ui.Clock("time loc", "time.loc",  config.localTimeZone),
         ui.Timer("elapsed", "time.elapsed")
     );
-}
+    utcClock = ui.getClock("time.utc");
+    localClock = ui.getClock("time.loc");
 
-function getCurrentTime() {
-    return ui.getClockEpochMillis( utcClock);
+    return view;
 }
 
 function createTimeIcon() {
@@ -684,12 +706,31 @@ export function isRequestRenderMode() {
     return requestRenderMode;
 }
 
+var renderTimer = undefined;
+
+// this is a workaround for missing scene updates (e.g. when rendering corridors)
+function setRequestRenderTimer() {
+    if (requestRender) {
+        if (!renderTimer) {
+            renderTimer = setInterval( () => {
+                viewer.scene.requestRender();
+            }, 1000);
+        }
+    } else {
+        if (renderTimer) {
+            clearInterval( renderTimer);
+            renderTimer = undefined;
+        }
+    }
+}
+
 export function setRequestRenderMode (enable) {
     if (enable != requestRenderMode) {
         requestRenderMode = enable;
         console.log("set requestRender mode: ", requestRenderMode);
         viewer.scene.requestRenderMode = requestRenderMode;
         ui.setCheckBox("view.rm", requestRenderMode);
+        setRequestRenderTimer();
     }
 }
 
@@ -701,6 +742,7 @@ function toggleRequestRenderMode(event) {
             requestRenderMode = enable;
             console.log("set requestRender mode: ", requestRenderMode);
             viewer.scene.requestRenderMode = requestRenderMode;
+            setRequestRenderTimer();
         }
     }
 }
@@ -708,17 +750,25 @@ function toggleRequestRenderMode(event) {
 // if there is no pending scene rendering request issue one. Note this still is subject
 // to not exceeding the target framerate of Cesium, i.e. it might not result in rendering
 export function requestRender(force = false) {
+    // TODO - this "double-tap" is a (not fully dependable) workaround for a race-condition in Cesium that might not have a fully 
+    // updated scene when rendering, which can lead to missed updates 
+
+    viewer.scene.requestRender();
+    setTimeout( ()=>viewer.scene.requestRender(), 200);
+    /*
     if (force || (requestRenderMode && !pendingRenderRequest)) {
         pendingRenderRequest = true;
-        viewer.scene.render();
-        //viewer.scene.requestRender();
+        //viewer.scene.render();
+        viewer.scene.requestRender();
         // TODO - this does not dependably trigger a redraw as of Cesium 1.126 (requires screen interaction - like moving mouse over canvas)
     }
+    */
 }
 
 // imperative rendering
 export function render() {
-    viewer.scene.render();
+    //viewer.scene.render();
+    viewer.render();
 }
 
 export function withSampledTerrain(positions, level, action) {
@@ -860,8 +910,9 @@ function handleCameraMessage(newCamera) {
 }
 
 function handleSetClock(setClock) {
-    ui.setClock("time.utc", setClock.time, setClock.timeScale, true);
-    ui.setClock("time.loc", setClock.time, setClock.timeScale);
+    console.log("setting clock to ", setClock);
+    ui.setClock( utcClock, setClock.time, setClock.timeScale, true);
+    ui.setClock( localClock, setClock.time, setClock.timeScale);
     ui.resetTimer("time.elapsed", setClock.timeScale);
     ui.startTime();
 }
@@ -962,7 +1013,7 @@ function updateScale () {
     ctx.fillText( lengthString(nTicks * base, true), x, y - 3);
 }
 
-const metricBases = [ 500000, 200000, 100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50, 20, 10 ];  // all in meters
+const metricBases = [ 1000000, 500000, 100000, 50000, 10000, 5000, 1000, 500, 100, 50, 10 ];  // all in meters
 const usBases = [  ]; // in meters (for full, half and quarter miles)
 
 function getBaseDistance (canvasWidth, dPixel, bases, nBases) {
@@ -1814,24 +1865,17 @@ function keepPolylineWorkersAlive () {
 export function postInitialize() {
     initModuleLayerViewData();    
 
-    terrainProviderPromise = getTerrainProviderPromise();
-    terrainProviderPromise.then( (tp) => { 
-        console.log("topoTerrainProvider set");
-        topoTerrainProvider = tp;
-        console.log("topographic terrain loaded");
-
-        if (config.showTerrain) {
-            console.log("enabling terrain display");
-            ui.setCheckBox( "view.show_terrain", true);
-            switchToTopoTerrain();
-        }
-    });
+    if (config.showTerrain) {
+        switchToTopoTerrain();
+    }
 
     const credit = new Cesium.Credit('<a href="https://openstreetmap.org/" target="_blank">OpenStreetMap</a>');
     viewer.creditDisplay.addStaticCredit(credit);
 
     setCesiumContainerVisibility(true);
     keepPolylineWorkersAlive();
+
+    setRequestRenderTimer(); // set background render timer according to configured requestRenderMode
 
     console.log("odin_cesium.postInitialize complete.");
 }

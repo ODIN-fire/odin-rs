@@ -13,7 +13,7 @@
  */
 #![allow(unused)]
 
-use odin_common::{cartesian3::{self, Cartesian3}, cartographic::{self, Cartographic,approximate_surface_centroid}};
+use odin_common::{cartesian3::{self, Cartesian3}, cartographic::{self, approximate_surface_centroid, Cartographic}, rad};
 
 /// unit tests for cartesian3 and cartographic
 /// run with "cargo test test_inside -- --nocapture"
@@ -130,4 +130,29 @@ fn test_conversion () {
     println!("ecef:  {:?} : {}", q, q.length());
     println!("wgs84: {}", c);
     
+}
+
+#[test]
+fn test_rotation () {
+    let p = Cartesian3::new( -2075733.0, -3632129.0, 4798378.0);
+    let alpha = rad(73.0);
+    let w2 = 400.0 / 2.0; // with
+    let h2 = 370.0 / 2.0; // height
+
+    println!("p: {p}: {}", p.length());
+
+    let (n,n_east,n_north) = Cartesian3::en_units(&p);
+    
+    let p1 = p + n_east * w2 + n_north * h2;
+    println!("p1: {p1}: {}", p1.length());
+
+    let p1r = p1.rotate_around( &n, alpha);
+    println!("p1r: {p1r}: {}", p1r.length());
+
+    let q1 = p1r.rotate_around( &n, -alpha);
+    println!("q1: {q1}: {}", q1.length());
+
+    let q1 = p1r.rotate_around( &n, rad( 360.0 - 73.0));
+    println!("q1: {q1}: {}", q1.length());
+
 }

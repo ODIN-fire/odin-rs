@@ -15,10 +15,7 @@ FirmsConfig(
             sat_id: 54234,
             sat_name: "NOAA-21",
             data_source: "VIIRS_NOAA21_NRT",
-            download_schedule: [
-                Duration( secs: 180, nanos: 0), // initial download 3min after overpass
-                Duration( secs: 2700, nanos: 0) // 1st update after 45min (<orbital period)
-            ]
+            download_delay: Duration( secs: 180, nanos: 0) // initial download 3min after overpass
         )
     ]
 )

@@ -1314,6 +1314,7 @@ function initializeClock(e) {
         tc._uiSday = 0; // last sim clock day displayed
         tc._uiStopped = false;
         tc._uiTimeScale = 1;
+        tc._isSet = false;
 
         tc._uiUpdateTime = (t) => { _updateClock(tc, t); };
         _addTimerClient(tc);
@@ -1372,11 +1373,17 @@ export function getClockEpochMillis(o) {
     return 0;
 }
 
+export function isClockSet(o) {
+    let e = getClock(o);
+    return (e && e._isSet);
+}
+
 export function setClock(o, dateSpec, timeScale, notifyClockMonitors=false) {
     let e = getClock(o);
     if (e) {
         let date = new Date(dateSpec);
         if (date) {
+            e._isSet = true;
             e._uiDate = date;
             e._uiS0 = date.valueOf();
             e._uiSday = e._uiS0 / MILLIS_IN_DAY;
@@ -1397,7 +1404,7 @@ export function getClock(o) {
     let e = _elementOf(o);
     if (e && e.tagName == "DIV") {
         if (e.classList.contains("ui_clock_wrapper")) return e;
-        else if (e.classList.contains("ui_clock")) return _firstChildWithClass("ui_clock_wrapper");
+        else if (e.classList.contains("ui_clock")) return _firstChildWithClass(e, "ui_clock_wrapper");
     }
     throw "not a clock field";
 }

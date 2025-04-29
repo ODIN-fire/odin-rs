@@ -148,6 +148,29 @@ run_actor_system!( asys => {
 
 See the `enum_store.rs` example for further details.
 
+While there is no reason `SharedStoreActors` cannot be used by any other actor the most common use is as a storage backend for a
+[`SpaServer` actor](../odin_server/odin_server.md). To simplify spawning the `SharedStoreActor` (and explicitly setting up respective
+init and change actions) we therefore provide a `odin_share::spawn_server_share_actor(..)` method that can be use like so:
+
+```rust
+use odin_actor::prelude::*;
+use odin_server::prelude::*;
+use odin_share::prelude::*;
+
+run_actor_system!( actor_system => {
+    let pre_server = PreActorHandle::new( &actor_system, "server", 64);
+
+    let hstore = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), &"examples/shared_items.json", false)?;
+
+    let hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(
+        ...
+        SpaServiceList::new()
+            ...
+            .add( build_service!( let hstore = hstore.clone() => ShareService::new( hstore)) )
+    ))?;
+    Ok(())
+});
+```
 
 ## Abstract Sharing Model
 

@@ -25,7 +25,7 @@ use odin_cesium::CesiumService;
 use odin_server::{ errors::op_failed, prelude::*};
 use async_trait::async_trait;
 use odin_actor::prelude::*;
-use odin_build::prelude::*;
+use odin_build::{pkg_data_dir, prelude::*};
 use odin_common::{define_serde_struct, geo::{GeoPoint, GeoPoint3, GeoLine, GeoLineString, GeoRect, GeoPolygon, GeoCircle}};
 use core::str;
 use std::{any::type_name, collections::HashMap, fmt::Debug, fs::File, io::BufReader, net::SocketAddr, ops::Index, path::{Path, PathBuf}, sync::Arc};
@@ -36,6 +36,11 @@ use crate::{
     actor::{ExecSnapshotAction, SetSharedStoreEntry, RemoveSharedStoreEntry, SharedStoreActor, SharedStoreActorMsg, SharedStoreChange, SharedStoreUpdate}, 
     dyn_shared_store_action, load_asset, SharedStore, SharedStoreValueConstraints, shared_store_action, SharedStoreAction,
 };
+
+// the default path for stored SharedItems, which is `ODIN_ROOT/odin_share/shared_items.json`
+pub fn default_shared_items()->PathBuf {
+    pkg_data_dir!().join("shared_items.json")
+}
 
 /// the generic wrapper type for shared items. This is what we keep in a SharedStore
 /// the variants should eventually cover the GeoJSON types (the geo_types geometries), 3d points, the basic primitive types (String, f64 etc),
@@ -359,57 +364,5 @@ pub struct PublishCmd {
 pub struct PublishMsg {
     pub role: String,
     pub msg: String,
-}
-
-//--- syntactic sugar for creating SharedStoreActors that work with SpaServer actors
-
-/// a specialized SharedStoreActor ctor used in conjunction with ShareService and SpaServer
-/// This only sets up init/change actions to send messages to the provided SpaServer actor
-/// Use the generic SharedStoreActor::new(..) if you need to set up other init/change actions than to just notify a SpaServer
-pub fn new_shared_store_actor<S> (store: S, store_actor_name: Arc<String>, hserver: ActorHandle<SpaServerMsg>)
-         -> SharedStoreActor<SharedItemType,S,impl SharedStoreAction<SharedItemType> + Send,impl for<'a> DataAction<SharedStoreChange<'a, SharedItemType>>> 
-    where S: SharedStore<SharedItemType>
-{
-    SharedStoreActor::new( 
-        store, 
-        shared_store_action!( 
-            let hserver: ActorHandle<SpaServerMsg> = hserver.clone(),
-            let sender_id: Arc<String> = store_actor_name.clone() => 
-            |store as &dyn SharedStore<SharedItemType>| announce_data_availability( &hserver, sender_id).await
-        ),
-        data_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
-            |update: SharedStoreChange<'_,SharedItemType>| broadcast_store_change( &hserver, update).await
-        )
-    )
-}
-
-/// helper function for the body of a SharedStore init action
-/// This just announces data avaiability by sending a message to the provided SpaServer actor handle
-pub async fn announce_data_availability<'a> (hserver: &'a ActorHandle<SpaServerMsg>, sender_id: &Arc<String>)->Result<(),OdinActionFailure> {
-    hserver.send_msg( DataAvailable::new::<SharedItemType>( sender_id) ).await.map_err(|e| e.into())
-}
-
-/// helper function for the body of a SharedStoreActor change action
-/// This sends change-specific websocket messages to all connected clients of the provided SpaServer actor  
-pub async fn broadcast_store_change<'a> (hserver: &'a ActorHandle<SpaServerMsg>, change: SharedStoreChange<'a,SharedItemType>)->Result<(),OdinActionFailure> {
-    match change.update {
-        SharedStoreUpdate::Set { hstore, key } => {
-            if let Some(stored_val) = change.store.get( &key) {
-                let msg = SetShared{key, value: stored_val.clone()};
-                if let Ok(data) = WsMsg::json( ShareService::mod_path(), "setShared", msg) {
-                    hserver.send_msg( BroadcastWsMsg{ws_msg: data}).await?;
-                }
-            }
-        }
-        SharedStoreUpdate::Remove { hstore, key } => {
-            let msg = RemoveShared{key};
-            if let Ok(data) = WsMsg::json( ShareService::mod_path(), "removeShared", msg) {
-                hserver.send_msg( BroadcastWsMsg{ws_msg: data}).await?;
-            }
-        }
-        _ => {}
-    }
-
-    Ok(())
 }
 

@@ -601,3 +601,13 @@ macro_rules! impl_deserialize_seq {
 }
 
 /* #endregion impl_deserialize_struct */
+
+#[macro_export]
+macro_rules! arc {
+    ($s:literal) => {
+        Arc::new( $s.to_string() )
+    };
+    ($s:expr) => {
+        Arc::new( $s.to_string() )
+    }
+}

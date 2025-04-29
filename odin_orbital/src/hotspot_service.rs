@@ -83,7 +83,7 @@ impl SpaService for OrbitalHotspotService {
         spa.add_module( asset_uri!( "odin_orbital.js" ));
 
         spa.add_route( |router, spa_server_state| {
-            router.route( &format!("/{}/data/{{*unmatched}}", spa_server_state.name.as_str()), get(Self::data_handler))
+            router.route( &format!("/{}/orbital-data/{{*unmatched}}", spa_server_state.name.as_str()), get(Self::data_handler))
         });
 
         Ok(())

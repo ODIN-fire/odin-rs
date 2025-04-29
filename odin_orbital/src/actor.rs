@@ -15,7 +15,7 @@
  #![allow(unused)]
 
 use std::{collections::VecDeque, sync::Arc, time::Duration, path::{Path,PathBuf}};
-use chrono::{DateTime,Utc,Local};
+use chrono::{DateTime, Local, TimeDelta, Utc};
 use satkit::consts::C;
 use uom::si::volume_rate::gallon_imperial_per_second;
 
@@ -141,6 +141,14 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
             let retrieved = self.importer.import_hotspots( self.sat_info.back_days, &mut self.data.completed).await?;
             info!("start got {} initial hotspots", retrieved.len());
             save_retrieved_hotspots_to( &self.cache_dir, &retrieved, &self.data.completed)?;
+
+            // remove trailing completed overpasses without hotspots
+            while let Some(back) = self.data.completed.back() {
+                if back.data.is_none() { 
+                    info!("remove trailing completed without data");
+                    self.data.completed.pop_back(); 
+                } else { break; }
+            }
         }
 
         // if we have some data exec our init slot
@@ -154,46 +162,64 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
     }
 
     fn schedule_next_retrieval (&mut self, hself: ActorHandle<OrbitalHotspotActorMsg>) {
-        let import_schedule = self.get_next_schedule();
+        let t = self.get_next_schedule();
 
-        for t in &import_schedule {
-            self.scheduler.schedule_at( t, {
-                info!("scheduled next retrieval at {} (local {})", t, DateTime::<Local>::from(*t));
-                let hself = hself.clone();
-                move |_ctx| {
-                    hself.retry_send_msg( 3, Duration::from_secs(10), RetrieveData{}); // retry if queue is full
-                } 
-            });
+        self.scheduler.schedule_at( &t, {
+            info!("scheduled next retrieval at local {}", DateTime::<Local>::from(t));
+            let hself = hself.clone();
+            move |_ctx| {
+                hself.retry_send_msg( 3, Duration::from_secs(10), RetrieveData{}); // retry if queue is full
+            } 
+        });
+    }
+
+    fn last_completed_has_data (&self)->bool {
+        self.data.completed.back().and_then(|co| co.data.as_ref()).is_some()
+    }
+
+    fn get_next_schedule (&self)->DateTime<Utc> {
+        let now = datetime::utc_now();
+
+        if let Some(retry_date) = self.check_retry_schedule(&now) {
+            retry_date
+
+        } else { // this should be the normal branch - schedule (or obtain) the next overpass
+            if let Some(next_upcoming) = self.data.upcoming.front() {
+                if now < next_upcoming.end { // nominal case
+                    self.importer.get_download_schedule( next_upcoming.end)
+    
+                } else { // TODO - next upcoming wasn't moved? this seems like an error
+                    warn!("expired upcoming overpass {} at {}", next_upcoming.end, now);
+                    now + Duration::from_mins(5)
+                }
+            } else { // no upcoming overpasses in time window - check again in an hour
+                now + Duration::from_hours(1)
+            }
         }
     }
 
-    fn get_next_schedule (&self)->Vec<DateTime<Utc>> {
-        if !self.data.upcoming.is_empty() {
-            self.importer.get_download_schedule( self.data.upcoming.front().unwrap().end)
-        } else {
-            vec![ datetime::utc_now() + Duration::from_hours(1) ] // no upcomings - check again in an hour
-        }
+    fn check_retry_schedule (&self, now: &DateTime<Utc>)-> Option<DateTime<Utc>> {
+        if let Some(last) = self.data.completed.back() {
+            if last.data.is_none() {  // we don't have data for the last completed yet
+                if self.importer.last_reported() < last.overpass.end { // and we didn't get anything newer since then
+                    if let Some(next) = self.data.upcoming.front() {
+                        if (next.end - now) < TimeDelta::minutes(30) { // only retry download if the next overpass isn't close yet
+                            return None
+                        }
+                    } else {
+                        if (*now - last.overpass.end) > TimeDelta::minutes(30) {
+                            return None
+                        } 
+                    }
+                    return Some(*now + Duration::from_mins(10))
+                } // otherwise it means we already got newer hotspots but there were none for this overpass
+            } // otherwise we already have data for the last overpass
+        } // there was no last overpass yet
+        None
     }
 
-    async fn snapshot (&mut self)->Result<()> {
-        // completed overpasses
-        let overpasses: Vec<&Overpass> = self.data.completed.iter().map(|oc| &oc.overpass).collect();
-        if !overpasses.is_empty() {
-            self.overpass_action.execute(overpasses).await?;
-        }
-
-        // hotspots for completed overpasses
-        let hotspots: Vec<&HotspotList> = self.data.completed.iter().filter_map(|co| co.data.as_ref()).collect();
-        if !hotspots.is_empty() {
-            self.hotspot_action.execute(hotspots).await?;
-        }
-
-        // upcoming overpasses
-        let overpasses: Vec<&Overpass> = self.data.upcoming.as_ref_vec();
-        if !overpasses.is_empty() {
-            self.overpass_action.execute(overpasses).await?;
-        }
-
+    async fn exec_snapshot (&mut self, action: DynDataRefAction<HotspotActorData>)->Result<()> {
+        action.execute(&self.data).await?;
         Ok(())
     }
 
@@ -211,8 +237,7 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
         }
         info!("retrieve moved {} overpasses from upcoming to completed", n_completed);
 
-        // now retrieve current hotspot data (might span several completed overpasses) - if we have completeds without data
-
+        // now retrieve current hotspot data (might span several completed overpasses) - if the last completed overpass doesn't have data yet
         if let Some(last_completed) = self.data.completed.back() {
             if last_completed.data.is_none() { // TODO - we could also check if it had URT entries
                 let retrieved = self.importer.import_hotspots( 1, &mut self.data.completed).await?;
@@ -242,6 +267,7 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
         }
 
         // and finally schedule our next invocation
+        // watch out - don't immediately reschedule if we didn't get data for the last completed overpass (needs a delay) 
         self.schedule_next_retrieval(hself); 
 
         Ok(())
@@ -278,7 +304,7 @@ impl_actor! { match msg for Actor<OrbitalHotspotActor<T,I,A,O,H>, OrbitalHotspot
     }
 
     ExecSnapshotAction => cont! {
-       if let Err(e) = self.snapshot().await { error!("snapshot failed {e}") }
+       if let Err(e) = self.exec_snapshot( msg.0).await { error!("snapshot failed {e}") }
     }
 
     RetrieveData => cont! {
@@ -292,16 +318,12 @@ impl_actor! { match msg for Actor<OrbitalHotspotActor<T,I,A,O,H>, OrbitalHotspot
 }
 
 
-pub fn spawn_orbital_hotspot_actors (
-    actor_system: &mut ActorSystem, 
-    hserver: ActorHandle<SpaServerMsg>, 
-    region: GeoPolygon, 
-    sat_infos: &Vec<String>
-) -> Result<Vec<HotspotSat>> 
+pub fn spawn_orbital_hotspot_actors (actor_system: &mut ActorSystem, hserver: ActorHandle<SpaServerMsg>, 
+                                                             region: GeoPolygon, sat_infos: &Vec<String>) -> Result<Vec<HotspotSat>> 
 {
     let cache_dir = pkg_cache_dir!();
     let region = Arc::new(region);
-    let mut sats: Vec<HotspotSat> = Vec::with_capacity( sat_info.len());
+    let mut sats: Vec<HotspotSat> = Vec::with_capacity( sat_infos.len());
 
     for sat_info in OrbitalSatelliteInfo::from_filenames(sat_infos)? {
         let name = sat_info.name.clone();
