@@ -19,6 +19,7 @@ use odin_common::arc;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_goesr::{GoesrHotspotService, actor::spawn_goesr_hotspot_actors};
+use odin_orbital::{actor::spawn_orbital_hotspot_actors,hotspot_service::OrbitalHotspotService};
 use odin_share::prelude::*;
 use odin_geolayer::GeoLayerService;
 use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, SentinelActor, sentinel_service::SentinelService};
@@ -31,9 +32,14 @@ run_actor_system!( actor_system => {
     // we would normally initialize the store via default_shared_items() but those normally reside outside the repository
     let hstore = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
 
-    //--- spawn the shared store actor
-    let goesr_sat_names = vec![ "goes_18", "goes_16" ];
-    let goesr_sats = spawn_goesr_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), &goesr_sat_names, "fdcc")?;
+    //--- spawn the GOES-R actors
+    let goesr_sat_configs = vec![ "goes_18.ron", "goes_19.ron" ];
+    let goesr_sats = spawn_goesr_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), &goesr_sat_configs, "fdcc")?;
+
+    //--- spawn the orbital satellite actors
+    let region = odin_orbital::load_config("conus.ron")?;
+    let orbital_sat_configs = vec![ "noaa-21_viirs.ron", "noaa-20_viirs.ron", "snpp_viirs.ron"];
+    let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), region, &orbital_sat_configs)?;
 
     //--- spawn the sentinel actor
     let sentinel_name = arc!("sentinel");
@@ -61,9 +67,10 @@ run_actor_system!( actor_system => {
         "live",
         SpaServiceList::new()
             .add( build_service!( let hstore = hstore.clone() => ShareService::new( hstore)))
-            .add(build_service!( => GeoLayerService::new( &odin_geolayer::default_data_dir())))
+            .add( build_service!( => GeoLayerService::new( &odin_geolayer::default_data_dir())))
             .add( build_service!( let hsentinel = hsentinel.clone() => SentinelService::new( hsentinel)))
             .add( build_service!( => GoesrHotspotService::new( goesr_sats)) )
+            .add( build_service!( => OrbitalHotspotService::new( orbital_sats) ))
     ))?;
 
     Ok(())

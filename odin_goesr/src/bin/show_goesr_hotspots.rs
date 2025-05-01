@@ -28,8 +28,8 @@ async fn main()->Result<()> {
 
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
 
-    let sat_names = vec![ "goes_18", "goes_16" ];
-    let sats = spawn_goesr_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), &sat_names, "fdcc")?;
+    let sat_configs = vec![ "goes_18.ron", "goes_19.ron" ];
+    let sats = spawn_goesr_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), &sat_configs, "fdcc")?;
 
     let _hserver = spawn_pre_actor!( actor_system, pre_server, 
         SpaServer::new(

@@ -122,7 +122,7 @@ impl OrbitalSatelliteInfo {
         });
     }
 
-    pub fn from_filenames (fnames: &Vec<String>)->Result<Vec<Arc<OrbitalSatelliteInfo>>> {
+    pub fn from_filenames (fnames: &Vec<&str>)->Result<Vec<Arc<OrbitalSatelliteInfo>>> {
         let mut sat_infos: Vec<Arc<OrbitalSatelliteInfo>> =Vec::with_capacity(fnames.len());
 
         for fname in fnames {

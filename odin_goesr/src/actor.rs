@@ -16,6 +16,7 @@
 
 use std::{sync::Arc,future::Future};
 use serde::{Serialize,Deserialize};
+use odin_common::fs::basename;
 use odin_actor::prelude::*;
 use odin_server::{WsMsg, spa::{SpaServerMsg, SpaService, DataAvailable, SendWsMsg, BroadcastWsMsg}};
 use crate::{
@@ -101,22 +102,19 @@ pub trait GoesrHotspotImporter {
 }
 
 /// convenience function to spawn a number of GoesrHotSpotActors with config names derived from the provided satellite names
-pub fn spawn_goesr_hotspot_actors( 
-    actor_system: &mut ActorSystem, 
-    hserver: ActorHandle<SpaServerMsg>, 
-    sat_names: &Vec<&str>,
-    data_product: &str 
-) ->  Result<Vec<GoesrHotspotSat>>
+pub fn spawn_goesr_hotspot_actors (actor_system: &mut ActorSystem, hserver: ActorHandle<SpaServerMsg>, 
+                                   sat_configs: &Vec<&str>, data_product: &str ) ->  Result<Vec<GoesrHotspotSat>>
 {
-    let mut sats: Vec<GoesrHotspotSat> = Vec::with_capacity(sat_names.len());
+    let mut sats: Vec<GoesrHotspotSat> = Vec::with_capacity(sat_configs.len());
 
-    for sat_name in sat_names {
-        let info: GoesrSatelliteInfo = load_config( &format!("{sat_name}.ron"))?;
-        let importer_config: LiveGoesrHotspotImporterConfig = load_config( &format!("{sat_name}_{data_product}.ron"))?;
+    for sat_config in sat_configs {
+        let info: GoesrSatelliteInfo = load_config( sat_config)?;
+
+        let importer_config: LiveGoesrHotspotImporterConfig = load_config( &import_config_name(sat_config, data_product))?;
 
         let init_action = dataref_action!{ 
             let hserver: ActorHandle<SpaServerMsg> = hserver.clone(), 
-            let sender_id: Arc<String> =  Arc::new(sat_name.to_string()) => 
+            let sender_id: Arc<String> =  Arc::new(sat_config.to_string()) => 
             |_store:&GoesrHotspotStore| {
                 Ok( hserver.try_send_msg( DataAvailable::new::<GoesrHotspotStore>(sender_id) )? )
             }
@@ -131,7 +129,7 @@ pub fn spawn_goesr_hotspot_actors(
             }
         };
 
-        let hupdater = spawn_actor!( actor_system, sat_name, 
+        let hupdater = spawn_actor!( actor_system, sat_config, 
             GoesrHotspotActor::new( load_config( "goesr.ron")?, LiveGoesrHotspotImporter::new( importer_config), init_action, update_action), 64)?;
         
         sats.push( GoesrHotspotSat { info, hupdater })
@@ -139,3 +137,8 @@ pub fn spawn_goesr_hotspot_actors(
 
     Ok(sats)
 } 
+
+fn import_config_name (sat_config: &str, data_product: &str)->String {
+    let base_name = basename( &sat_config).unwrap();
+    format!("{}_{}.ron", base_name, data_product)
+}

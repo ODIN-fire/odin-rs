@@ -1,7 +1,7 @@
 LiveGoesrHotspotImporterConfig(
-    sat_id: 41866,
+    sat_id: 60133,
     s3_region: "us-east-1",
-    bucket: "noaa-goes16",
+    bucket: "noaa-goes19",
     source: "ABI-L2-FDCC",
     keep_files: true,
     init_files: 3,

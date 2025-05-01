@@ -326,7 +326,7 @@ impl_actor! { match msg for Actor<OrbitalHotspotActor<T,I,A,O,H>, OrbitalHotspot
 
 
 pub fn spawn_orbital_hotspot_actors (actor_system: &mut ActorSystem, hserver: ActorHandle<SpaServerMsg>, 
-                                                             region: GeoPolygon, sat_infos: &Vec<String>) -> Result<Vec<HotspotSat>> 
+                                                             region: GeoPolygon, sat_infos: &Vec<&str>) -> Result<Vec<HotspotSat>> 
 {
     let cache_dir = pkg_cache_dir!();
     let region = Arc::new(region);

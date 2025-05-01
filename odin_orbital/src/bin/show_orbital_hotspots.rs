@@ -40,7 +40,9 @@ run_actor_system!( actor_system => {
     // we would normally initialize the store via default_shared_items() but those normally reside outside the repository
     let hshare = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
 
-    let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), load_config( &ARGS.region)?, &ARGS.sat_infos)?;
+    let region = load_config( &ARGS.region)?;
+    let sats: Vec<&str> = ARGS.sat_infos.iter().map(|s| s.as_str()).collect();
+    let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), region, &sats)?;
 
     let hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(
         odin_server::load_config("spa_server.ron")?,

@@ -224,7 +224,7 @@ function initPastView() {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "swt", tip: "show swath/ground track", width: "2rem", attrs: [], map: e => ui.createCheckBox(e.showSwath, toggleShowSwath) },
             { name: "sat", tip: "satellite name", width: "5rem", attrs: [], map: e => satName(e.satId) },
-            { name: "hot", tip: "number of high-confidence / total hotspots", width: "5.5rem", attrs: ["fixed", "alignRight"], map: e => e.stats() },
+            { name: "hot", tip: "number of high-confidence / total hotspots", width: "5rem", attrs: ["fixed", "alignRight"], map: e => e.stats() },
             { name: "date", tip: "overpass end date", width: "8rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.end) }
         ]);
     }

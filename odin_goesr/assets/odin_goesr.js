@@ -98,9 +98,8 @@ function createWindow() {
                 ui.CheckBox("lock step", toggleGoesrLockStep, "goesr.lockStep"),
                 ui.CheckBox("follow latest", toggleFollowLatestGoesr, "goesr.followLatest"),
                 ui.HorizontalSpacer(2),
-                ui.CheckBox("G16", toggleShowGoesrSatellite, "goesr.G16"),
-                ui.CheckBox("G17", toggleShowGoesrSatellite, "goesr.G17"),
                 ui.CheckBox("G18", toggleShowGoesrSatellite, "goesr.G18"),
+                ui.CheckBox("G19", toggleShowGoesrSatellite, "goesr.G19"),
             ),
             ui.List("goesr.dataSets", 6, selectGoesrDataSet),
             ui.ListControls("goesr.dataSets")
