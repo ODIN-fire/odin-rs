@@ -5,8 +5,8 @@ edition = "2024"
 build = "../build_resources.rs"
 
 [[bin]]
-name = "geolayer_dev"
-path = "src/bin/geolayer_dev.rs"
+name = "show_geolayer"
+path = "src/bin/show_geolayer.rs"
 
 [dependencies]
 # our ODIN crates

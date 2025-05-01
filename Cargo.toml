@@ -44,6 +44,7 @@ odin_cesium = { version = "*", path = "odin_cesium" }
 odin_goesr  = { version = "*", path = "odin_goesr" }
 odin_orbital = { version = "*", path = "odin_orbital" }
 odin_sentinel = { version = "*", path = "odin_sentinel" }
+odin_geolayer = { version = "*", path = "odin_geolayer" }
 
 # external crates for which we have to ensure the same version
 axum = { version = "0.8.3", features = [ "http2", "ws", "macros"] }

@@ -40,6 +40,7 @@
   - [odin-gdal](odin_gdal/odin_gdal.md)
 
 - [3. Application Domain Crates](app_crates.md)
+  - [odin_geolayer](odin_geolayer/odin_geolayer.md)
   - [odin_hrrr](odin_hrrr/odin_hrrr.md)
   - [odin_sentinel](odin_sentinel/odin_sentinel.md)
   - [odin_goesr](odin_goesr/odin_goesr.md)

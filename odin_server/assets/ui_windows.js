@@ -59,8 +59,6 @@ export function ImageWindow (title, id, closeAction, imgUri, caption,
         let iw = img.naturalWidth;
         let ih = img.naturalHeight;
 
-        console.log("@@ image loaded: ", imgUri, iw, ih);
-
         let wScale = viewerWidth / iw;
         let hScale = viewerHeight / ih;
         scale = Math.floor( Math.min( wScale, hScale) / scaleStep) * scaleStep;

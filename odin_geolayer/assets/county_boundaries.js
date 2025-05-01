@@ -16,6 +16,8 @@ console.log("geolayer module loaded: " +  new URL(import.meta.url).pathname.spli
 
 const defaultGeometryDC  = new Cesium.DistanceDisplayCondition(0, 350000);
 const defaultBillboardDC = new Cesium.DistanceDisplayCondition(0, 200000);
+const defaultStrokeWidth = 2;
+const defaultStroke = Cesium.Color.MAGENTA;
 
 
 export function render (entityCollection, opts) {
@@ -23,16 +25,12 @@ export function render (entityCollection, opts) {
         let props = e.properties;
 
         if (e.polygon) {
-            e.polygon.distanceDisplayCondition = defaultGeometryDC;
-
             let name = getPropValue(props,'NAMELSAD');
             let lat = getPropValue(props,'INTPTLAT');
             let lon = getPropValue(props,'INTPTLON');
 
             if (name && lat && lon) {
                 e.position = Cesium.Cartesian3.fromDegrees(lon, lat);
-
-                // TODO outlineWidth does not work for polygons, we might turn this into polyline
 
                 e.label = {
                     text: name,
@@ -41,6 +39,18 @@ export function render (entityCollection, opts) {
                     distanceDisplayCondition: (opts.billboardDC ? opts.billboardDC : defaultBillboardDC),
                 };
             }
+
+            // since clamp-to-ground polygons in Cesium do not support outlines we have to turn the polygon into a polyline
+            e.polyline = {
+                positions: e.polygon.hierarchy._value.positions,
+                material: (opts.stroke ? opts.stroke : defaultStroke),
+                width: (opts.strokeWidth ? opts.strokeWidth : defaultStrokeWidth),
+                clampToGround: true,
+                distanceDisplayCondition: defaultGeometryDC
+            };
+            e.addProperty('polyline');
+            e.polygon = undefined; // TODO - maybe we keep it to allow fill
+            e.removeProperty('polygon');
         }
     }
 }

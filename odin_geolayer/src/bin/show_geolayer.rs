@@ -13,23 +13,27 @@
  */
 #![allow(unused)]
 
+use std::path::PathBuf;
+
 use odin_build::prelude::*;
+use odin_common::define_cli;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_cesium::{CesiumService, ImgLayerService};
-use odin_geolayer::GeoLayerService;
+use odin_geolayer::{default_data_dir, GeoLayerService};
 
-define_load_config!{}
-define_load_asset!{}
+define_cli! { ARGS [about="show GeoJSON in ODIN"] =
+    data_dir: Option<String> [help="directory where to look for data", short, long]
+}
 
 run_actor_system!( actor_system => {
-    
+    let data_dir: PathBuf = if let Some(dir) = &ARGS.data_dir { dir.into() } else { default_data_dir() };
+
     spawn_actor!( actor_system, "spa_server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
         "geolayer",
         SpaServiceList::new()
-            .add( build_service!( => ImgLayerService::new()))
-            .add(build_service!( => GeoLayerService::new())) 
+            .add(build_service!( => GeoLayerService::new( &data_dir))) 
     ));
 
     Ok(())

@@ -52,7 +52,7 @@ export const config = {
             file: './hifld/CA_County_Boundaries.geojson',
             info: 'California county boundaries',
             date: '10/01/2022',
-            render: { stroke: 'red', strokeWidth: 3, fill: '#ff000000', module: './county_boundaries.js' }
+            render: { stroke: 'yellow', strokeWidth: 2, module: './county_boundaries.js' }
         }
     ],
 

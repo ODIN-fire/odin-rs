@@ -196,7 +196,7 @@ async function loadSource(sourceEntry) {
                     odinCesium.addDataSource(ds);
 
                     console.log("loaded ", url);
-                    setTimeout( () => { odinCesium.requestRender(); }, 500);  // not showing if immediate request ?
+                    setTimeout( () => { odinCesium.requestRender(); }, 200);  // not showing if immediate request ?
                 });
             } else console.log("no data for request: ", url);
         } else console.log("request failed: ", url);
@@ -239,7 +239,7 @@ function showGeoLayer(cond) {
 function selectGeoLayerSource(event) {
     let e = event.detail.curSelection;
     if (e) {
-        console.log("selected: ", e);
+        // TODO - show info
     }
 }
 

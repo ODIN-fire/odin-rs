@@ -13,9 +13,8 @@
  */
 #![allow(unused)]
 
-use std::{net::SocketAddr,any::type_name, path::PathBuf, fs, io::{BufReader, Read}};
+use std::{net::SocketAddr,any::type_name, path::{Path,PathBuf}, fs, io::{BufReader, Read}, sync::Arc};
 use flate2::read::GzDecoder;
-use odin_common::{datetime::epoch_millis, strings::to_string_vec, collections::empty_vec, fs::{ensure_writable_dir, get_filename_extension}};
 use async_trait::async_trait;
 use axum::{
     http::StatusCode,
@@ -27,7 +26,8 @@ use axum::{
 use odin_build::prelude::*;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
-use odin_cesium::CesiumService;
+use odin_cesium::{CesiumService, ImgLayerService};
+use odin_common::{fs::get_filename_extension};
 
 define_load_config!{}
 define_load_asset!{}
@@ -36,22 +36,25 @@ define_load_asset!{}
 
 /// this is a resource-only SpaService that provides configurable GeoJSON layers (e.g., buildings, powerlines, etc)
 
-pub fn geolayer_data_dir()->PathBuf {
-    let path = odin_build::data_dir().join("geolayer");
-    // Ok to panic - this is called during sys init
-    ensure_writable_dir(&path).expect( &format!("invalid geolayer data dir: {path:?}"));
-    path
+pub fn default_data_dir()->PathBuf {
+    pkg_data_dir!()
 }
 
 pub struct GeoLayerService {
-    // nothing yet
+    /// the directory where to look for geolayer data
+    src_dir: Arc<PathBuf>
 }
 
 impl GeoLayerService {
-    pub fn new()->Self { GeoLayerService{} }
+    pub fn new( src_dir: impl AsRef<Path>)->Self { 
+        GeoLayerService { 
+            src_dir: Arc::new(src_dir.as_ref().to_path_buf()) 
+        } 
+    }
 
-    async fn geo_handler (path: AxumPath<String>) -> Response {
-        let pathname = geolayer_data_dir().join( path.as_str());
+    /// `path` is from the request, `dir` is from the GeoLayerService
+    async fn geo_handler (path: AxumPath<String>, dir: Arc<PathBuf>) -> Response {
+        let pathname = dir.join( path.as_str());
         // add to watch list, check, send to WS if change
         if pathname.is_file() {
             // check if zip , unzip if zip
@@ -60,8 +63,10 @@ impl GeoLayerService {
                 let file = BufReader::new(file);
                 let mut contents = GzDecoder::new(file);
                 let mut bytes = Vec::new();
+
                 contents.read_to_end(&mut bytes).unwrap();
                 (StatusCode::OK, bytes).into_response()
+
             } else {
                 (StatusCode::OK, fs::read(pathname).unwrap()).into_response()
             }
@@ -74,8 +79,9 @@ impl GeoLayerService {
 }
 
 impl SpaService for GeoLayerService {
-    fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
-        spa_builder.add( build_service!( => CesiumService::new()))
+    fn add_dependencies(&self, spa_builder: SpaServiceList) -> SpaServiceList {
+        spa_builder
+            .add( build_service!( => ImgLayerService::new()))
     }
 
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()> {
@@ -83,9 +89,12 @@ impl SpaService for GeoLayerService {
 
         spa.add_module( asset_uri!("geolayer_config.js"));
         spa.add_module( asset_uri!("geolayer.js"));
-        spa.add_route( |router, spa_server_state| {
 
-            router.route( &format!("/{}/geolayer-data/{{*unmatched}}", spa_server_state.name.as_str()), get(Self::geo_handler))
+        let dir = self.src_dir.clone();
+        spa.add_route( |router, spa_server_state| {
+            router.route( &format!("/{}/geolayer-data/{{*unmatched}}", spa_server_state.name.as_str()), get({
+                move |path| Self::geo_handler(path, dir.clone())
+            }))
         });
 
         Ok(())
