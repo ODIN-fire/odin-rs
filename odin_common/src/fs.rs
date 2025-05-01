@@ -242,12 +242,11 @@ pub fn basename<'a,T: AsRef<Path>> (path: &'a T)->Option<&'a str> {
     filename(path).and_then(|fname| get_file_basename(fname))
 }
 
-
 pub fn remove_old_files<T> (dir: &T, max_age: Duration)->Result<usize> where T: AsRef<Path> {
     let dir: &Path = dir.as_ref();
 
     if dir.is_dir() {
-        let now = SystemTime::now();
+        let now = SystemTime::now(); // TODO - this should use sim clock but that means we also have to translate the filesystem modified timestamp
         let mut n_removed = 0;
 
         for e in fs::read_dir(dir)? {

@@ -91,6 +91,7 @@ pub struct OrbitalSatelliteInfo {
     time_step: StdDuration,
 
     /// number of past days we initially compute overpasses and retrieve data for
+    /// this is also used as the basis for the max file age (after which we drop cache entries)
     back_days: usize,
 
     // number of upcoming days we compute overpasses for 
@@ -103,7 +104,7 @@ pub struct OrbitalSatelliteInfo {
     max_upcoming: usize,
 
     /// max number of TLEs to keep
-    max_tles: usize
+    max_tles: usize,
 }
 
 impl OrbitalSatelliteInfo {

@@ -4,7 +4,7 @@ export const config = {
         description: "active fire detection using polar orbiting satellites",
         show: true,
     },
-    history: 14, // 3
+    maxAgeInDays: 10, // maximum age (in days) after which we drop completed overpasses
     timeSteps: [
         { "hours":  6, "color": Cesium.Color.fromCssColorString("#ff0000") },
         { "hours": 12, "color": Cesium.Color.fromCssColorString("#c0000080") },

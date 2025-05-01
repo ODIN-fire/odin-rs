@@ -40,6 +40,7 @@ var shownCompletedEntries = [];
 
 var selCompleted = undefined;
 var showHistory = false;  // shall we show footprints of past entries?
+var followLatest = false; // always show latest completed overpass
 
 var areaAsset = undefined;
 var area = undefined;  // bounds as Rectangle
@@ -116,7 +117,7 @@ var sharedAreasView = initAreasView();
 var dataSource = new Cesium.CustomDataSource("orbital");
 odinCesium.addDataSource(dataSource);
 
-var history = config.history;
+var maxAgeInDays = config.maxAgeInDays;
 var timeSteps = config.timeSteps;
 var brightThreshold = config.bright.value;
 var brightThresholdColor = config.bright.color;
@@ -165,6 +166,7 @@ function createWindow() {
             ),
             ui.RowContainer()(
                 ui.CheckBox("sel sat only", toggleSelSatOnly, "orbital.sel_sat"),
+                ui.CheckBox("follow latest", toggleFollowLatest, "orbital.follow_latest"),
                 ui.CheckBox("show history", toggleShowHistory, "orbital.show_history"),
                 ui.HorizontalSpacer(2),
                 ui.ListControls("orbital.past")
@@ -176,7 +178,7 @@ function createWindow() {
         ui.Panel("layer parameters", false)(
             ui.RowContainer()(
                 ui.ColumnContainer("align_right")(
-                    ui.Slider("history [d]", "orbital.history", setOrbitalHistory),
+                    ui.Slider("max age [d]", "orbital.history", setOrbitalHistory),
                     ui.Slider("bright [K]", "orbital.bright", setOrbitalBrightThreshold),
                     ui.Slider("frp [MW]", "orbital.frp", setOrbitalFrpThreshold)
                 ),
@@ -222,7 +224,7 @@ function initPastView() {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "swt", tip: "show swath/ground track", width: "2rem", attrs: [], map: e => ui.createCheckBox(e.showSwath, toggleShowSwath) },
             { name: "sat", tip: "satellite name", width: "5rem", attrs: [], map: e => satName(e.satId) },
-            { name: "stats", tip: "number of high-confidence / total hotspots", width: "4rem", attrs: ["fixed", "alignRight"], map: e => e.stats() },
+            { name: "hot", tip: "number of high-confidence / total hotspots", width: "5.5rem", attrs: ["fixed", "alignRight"], map: e => e.stats() },
             { name: "date", tip: "overpass end date", width: "8rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.end) }
         ]);
     }
@@ -259,7 +261,7 @@ function initAreasView() {
 function initSliders() {
     let e = ui.getSlider("orbital.history");
     ui.setSliderRange(e, 0, 20, 1, util.f_0);
-    ui.setSliderValue(e, history);
+    ui.setSliderValue(e, maxAgeInDays);
 
     e = ui.getSlider("orbital.pixsize");
     ui.setSliderRange(e, 0, 8, 1, util.fmax_0);
@@ -328,7 +330,12 @@ function satEntry(satId) {
 
 function isSatShowing(satId) {
     let se = satEntry(satId);
-    return se ? se.show : false;
+    if (se) {
+        if (selSatOnly) return Object.is( se, selSat);
+        return se.show;
+    }
+
+    return false;
 }
 
 function satName(satId) {
@@ -386,12 +393,18 @@ function updateUpcoming() {
 function updateCompleted() {  // FIXME
     shownCompletedEntries = filterOverpasses( completedEntries);
 
-    let lastSel = selCompleted;
-    if (lastSel && !shownCompletedEntries.includes(lastSel)) lastSel = undefined;
+    if (followLatest) {
+        ui.setListItems(completedView, shownCompletedEntries);
+        ui.selectFirstListItem( completedView);
 
-    ui.setListItems(completedView, shownCompletedEntries);
+    } else { // try to restore selection
+        let lastSel = selCompleted;
+        if (lastSel && !shownCompletedEntries.includes(lastSel)) lastSel = undefined;
 
-    if (lastSel) ui.setSelectedListItem(completedView,lastSel); // restore selection
+        ui.setListItems(completedView, shownCompletedEntries);
+
+        if (lastSel) ui.setSelectedListItem(completedView,lastSel); // restore selection
+    }
 }
 
 function filterOverpasses (overpasses) {
@@ -471,18 +484,33 @@ function handleOverpassMessage(overpasses) {
         let loadPromises = [];
         for (let o of overpasses) {
             let oe = new OverpassEntry(o);
-            if (o.end < now) { // completed overpass
-                completedEntries.splice( 0, 0, oe); // add on top
-                completedEntries.sort( (a,b) => (a,b) => a.end - b.end);    
-            } else { // upcoming overpass
-                upcomingEntries.push( oe);
-                upcomingEntries.sort( (a,b) => (a,b) => a.end - b.end);
-            }
+            sortInOverpass(oe, now);
             loadPromises.push( loadTrack(oe));
         }
 
         util.withAllPromises( loadPromises, ()=>updateAll());
     });
+}
+
+function sortInOverpass (newEntry, now) {
+    if (newEntry.end < now) { // completed overpass - latest on top
+        for (let i =0; i<completedEntries.length; i++) {
+            if (newEntry.end > completedEntries[i].end) {
+                completedEntries.splice(i,0,newEntry);
+                return;
+            }
+        }  
+        completedEntries.push( newEntry);
+
+    } else { // upcoming overpass - next on top
+        for (let i =0; i<upcomingEntries.length; i++) {
+            if (newEntry.end < upcomingEntries[i].end) {
+                upcomingEntries.splice(i,0,newEntry);
+                return;
+            }
+        }
+        upcomingEntries.push( newEntry);
+    }
 }
 
 function updateAll() {
@@ -506,12 +534,24 @@ function loadTrack (oe) {
 
 function scheduleNextOverpassMove () {
     odinCesium.withCurrentUtcMillis( (now) => {
+        dropOldCompletedOverpasses(now); // house keeping
+
+        // check if we have to move overpasses from upcoming to completed
         if (upcomingEntries.length > 0) {
             setTimeout( () => {
                 moveOverpass();
             }, upcomingEntries[0].end - now + 1000) // give it a 1 sec grace period as we might get new overpasses
         }
     });
+}
+
+function dropOldCompletedOverpasses (now) {
+    let maxAgeInMillis = maxAgeInDays * 86400000;
+    for (let i = completedEntries.length - 1; i>= 0; i--) {
+        if ((now - completedEntries[i].end) > maxAgeInMillis) {
+            completedEntries.pop();
+        }
+    }
 }
 
 function moveOverpass () {
@@ -780,8 +820,17 @@ function selectOrbitalSatellite(event) {
 
 function toggleSelSatOnly(event) {
     selSatOnly = ui.isCheckBoxSelected(event);
-    updateUpcoming();
-    updateCompleted();
+    if (selSat) {
+        updateUpcoming();
+        updateCompleted();
+    }
+}
+
+function toggleFollowLatest(event){
+    followLatest = ui.isCheckBoxSelected(event);
+    if (followLatest) {
+        ui.selectFirstListItem( completedView);
+    }
 }
 
 function toggleShowOrbital(event) {
@@ -951,9 +1000,9 @@ function setOrbitalOutlineWidth(event) {
 }
 
 function setOrbitalHistory(event) {
-    history = ui.getSliderValue(event.target);
+    maxAgeInDays = ui.getSliderValue(event.target);
     if (hsFootprintPrimitive && showHistory) {
-        showHotspots(ui.getSelectedListItemIndex(completedView));
+        showHotspots();
     }
 }
 

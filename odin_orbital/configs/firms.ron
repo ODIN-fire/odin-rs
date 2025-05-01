@@ -16,6 +16,18 @@ FirmsConfig(
             sat_name: "NOAA-21",
             data_source: "VIIRS_NOAA21_NRT",
             download_delay: Duration( secs: 180, nanos: 0) // initial download 3min after overpass
+        ),
+        FirmsSatelliteData(
+            sat_id: 43013,
+            sat_name: "NOAA-20",
+            data_source: "VIIRS_NOAA20_NRT",
+            download_delay: Duration( secs: 180, nanos: 0) // initial download 3min after overpass
+        ),
+        FirmsSatelliteData(
+            sat_id: 37849,
+            sat_name: "SNPP",
+            data_source: "VIIRS_SNPP_NRT",
+            download_delay: Duration( secs: 180, nanos: 0) // initial download 3min after overpass
         )
     ]
 )

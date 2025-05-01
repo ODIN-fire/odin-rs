@@ -94,12 +94,10 @@ impl SpaService for OrbitalHotspotService {
 
         if let Some(hupdater) = self.satellites.iter().find( |s| *s.hupdater.id == sender_id).map( |s| &s.hupdater) {
             if data_type == type_name::<HotspotActorData>() {
-                if has_connections { // send overpasses and hotspots to all current connections
+                if has_connections { // broadcast overpasses and hotspots to all current connections
                     let action = dyn_dataref_action!( 
-                        let sats: Vec<Arc<OrbitalSatelliteInfo>> = self.sat_infos(),
                         let hself: ActorHandle<SpaServerMsg> = hself.clone() => 
                         |data: &HotspotActorData| {
-                            send_sat_infos( hself, None, sats).await;
                             send_hs_data( hself, None, data).await
                         }
                     );
@@ -113,15 +111,17 @@ impl SpaService for OrbitalHotspotService {
     }
 
     async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
+        let remote_addr = conn.remote_addr;
+
+        // no matter if we already have data we send our list of satellites (once)
+        send_sat_infos( &hself, Some(remote_addr.clone()), &self.sat_infos()).await?;
+
         if is_data_available {
-            let remote_addr = conn.remote_addr;
             for sat in &self.satellites {
                 let action = dyn_dataref_action!{ 
-                    let sats: Vec<Arc<OrbitalSatelliteInfo>> = self.sat_infos(),
                     let hself: ActorHandle<SpaServerMsg> = hself.clone(), 
                     let remote_addr: SocketAddr = remote_addr => 
                     |data: &HotspotActorData| { 
-                        send_sat_infos( hself, Some(*remote_addr), sats).await;
                         send_hs_data( hself, Some(*remote_addr), data).await
                     }
                 };
@@ -133,7 +133,7 @@ impl SpaService for OrbitalHotspotService {
     }
 }
 
-async fn send_sat_infos (hself: &ActorHandle<SpaServerMsg>, remote_addr: Option<SocketAddr>, sat_infos: &Vec<Arc<OrbitalSatelliteInfo>>) -> std::result::Result<(),odin_action::OdinActionFailure> {
+async fn send_sat_infos (hself: &ActorHandle<SpaServerMsg>, remote_addr: Option<SocketAddr>, sat_infos: &Vec<Arc<OrbitalSatelliteInfo>>) -> OdinActorResult<()> {
     let mut w = JsonWriter::with_capacity( sat_infos.len() * 64);
     w.write_array(|w| {
         for si in sat_infos { si.write_basic_json_to( w) } 

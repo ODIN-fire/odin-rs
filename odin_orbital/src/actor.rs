@@ -24,9 +24,9 @@ use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_job::JobScheduler;
 use odin_common::{
-    collections::{empty_vec, RingDeque,RefVec},
-    datetime, fs::set_filepath_contents, geo::GeoPolygon, 
-    json_writer::{JsonWriter,JsonWritable}
+    collections::{empty_vec, RefVec, RingDeque},
+    datetime, fs::{remove_old_files, set_filepath_contents}, geo::GeoPolygon, 
+    json_writer::{JsonWritable, JsonWriter}
 };
 use odin_macro::public_struct;
 use crate::{
@@ -226,12 +226,14 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
     async fn retrieve_data (&mut self, hself: ActorHandle<OrbitalHotspotActorMsg>)->Result<()> {
         let mut n_completed = 0;
 
+        self.drop_old_files(); // some house keeping first
+
         // move all upcoming overpasses that have passed into completed
         // note there might not be any (either because we had no upcoming overpasses yet or this is an update for a previously completed one)
         while let Some(o) = self.data.upcoming.front() {
             if o.end < datetime::utc_now() {
                 let co = CompletedOverpass::new( self.data.upcoming.pop_front().unwrap());
-                self.data.completed.push_to_ringbuffer( co);
+                self.data.completed.push_to_ringbuffer( co); // this makes sure we drop old overpass data
                 n_completed += 1;
             } else { break }
         }
@@ -278,6 +280,11 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
         Ok(())
     }
 
+    fn drop_old_files (&self)->Result<()> {
+        remove_old_files( &self.cache_dir, Duration::from_days(self.sat_info.back_days as u64 + 1))?;
+        Ok(())
+    }
+
 }
 
 
@@ -309,7 +316,7 @@ impl_actor! { match msg for Actor<OrbitalHotspotActor<T,I,A,O,H>, OrbitalHotspot
 
     RetrieveData => cont! {
         let hself = self.hself.clone();
-        if let Err(e) = self.retrieve_data(hself).await { error!("retrieve data failed {e}") }
+        if let Err(e) = self.retrieve_data( hself).await { error!("retrieve data failed {e}") }
     }
     
     _Terminate_ => stop! { 
