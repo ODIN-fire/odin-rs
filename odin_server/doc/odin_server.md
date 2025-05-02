@@ -274,7 +274,7 @@ async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_
 Since the `SpaService` needs to send a message to its *DataActor* this implies that a handle to the actor is stored in the
 `SpaService`, usually from a `PreActorHandle` of the *DataActor* passed into the `SpaService` constructor.
 
-Some *DataActors* have to obtain input from remote servers according to specific schedules hence there is a chance the first
+Many *DataActors* have to obtain input from remote servers according to specific schedules hence there is a chance the first
 clients are going to connect before the *DataActor* is ready. To avoid the overhead of creating, sending and executing superfluous
 data actions and websocket messages we keep track of the `data_available` state of *DataActors* within the `SpaServer`. This works
 by using a `init_action` field in the *DataActor* that has its actions executed once the data is initialized. The actor system
@@ -285,7 +285,11 @@ implementation sends a `DataRefAction` containing message to the *DataActor* jus
 `SpaServer` then stores the `data_available` status for that service, to be passed into subsequent `init_connection(..)` calls.
 
 While the data availability tracking adds some overhead to both *DataActors* and `SpaService` implementations it is an effective
-way to deal with the intrinsic race condition between connection requests and external data acquisition.
+way to deal with the intrinsic race condition between connection requests and external data acquisition. In many cases the
+implementations of `data_available()` and `init_connection()` share common code which should be factored out into separate functions.
+There is a prominent exception to this symmetry rule. If the `SpaService` uses several *DataActors* and clients have to get a list of 
+entities (e.g. satellites) they can expect data for then this list will be sent only - and un-conditionally - by `init_connection()` 
+(e.g. see `odin_goesr::goesr_service::GoesrHotspotService` or `odin_orbital::hotspot_service::OrbitalHotspotService`).
 
 This leaves us with data updates, which are always initiated by the *DataActor*. When its internal data model changes the *DataActor*
 executes a `DataAction` that is stored in one of its fields which is set from the actor system instantiation site (`main()`) to an
