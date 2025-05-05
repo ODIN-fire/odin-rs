@@ -1002,7 +1002,7 @@ function updateScale () {
         ctx.moveTo(x, y);
         ctx.lineTo(x, y + 5);
 
-        ctx.fillText( lengthString(i * base, false), x, y+14);
+        ctx.fillText( lengthString(i, false), x, y+14);
     }
 
     ctx.closePath();
@@ -1015,6 +1015,9 @@ function updateScale () {
 
 const metricBases = [ 1000000, 500000, 100000, 50000, 10000, 5000, 1000, 500, 100, 50, 10 ];  // all in meters
 const usBases = [  ]; // in meters (for full, half and quarter miles)
+
+
+
 
 function getBaseDistance (canvasWidth, dPixel, bases, nBases) {
     for (let i = 0; i< bases.length; i++) {
