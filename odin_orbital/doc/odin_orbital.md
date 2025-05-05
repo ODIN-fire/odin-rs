@@ -158,3 +158,99 @@ It is up to the JS module to fetch these data files when the user wants to displ
 also supports interactive selection/entry of incident areas (as geographic rectangles) which are then used to filter overpasses
 that cover them. This is done (on the client) by computing overpasses for which at least one area vertex is within the swath (has a 
 distance to the closest groung track point < swath-width/2).
+
+
+## How to use `odin_orbital` actors
+
+While the `OrbitalHotspotActor` is a pure import actor that is agnostic to how its `Hotspot` and `Overpass` data is used by other actors
+the main application pattern is to instantiate such (per-satellite/instrument) actors so that their 
+
+- init actions inform a `SpaServer` actor about initial data availability, and
+- overpass- and hotspot actions broadcast such updates as JSON messages to connected clients (processing them with the `odin_orbital.js`
+  JS module)
+
+Since the `odin_orbital.js` JS module supports user specified sub-regions (e.g. for incident areas) this pattern normally also involves
+a single [`odin_share::SharedStoreActor`](../odin_share/odin_share.md) so that such areas can be shared with other users.
+
+```
+   OrbitalSatelliteInfo config        shared_items.json data   
+             │                             │                   
+             ▼                             ▼                   
+    ┌───────────────────────┐        ┌─────────────────┐       
+    │ OrbitalHotspotActor 1 ├─┐      │SharedStoreActor │       
+    └─┬─────────────┬───────┘ │      └▲────────────────┘       
+      └─────────────┼─────────┘       │                        
+                    │                 │                        
+                    │  updates(JSON)  │                        
+                    │                 │                        
+                ┌───▼─────────────────▼──────┐                 
+                │ SpaServerActor             │                 
+Server config ─►│                            │                 
+                │   ┌──────────────────────┐ │                 
+                │   │OrbitalHotspotService │ │                 
+                │   └──────────────────────┘ │                 
+                │   ┌──────────────────────┐ │                 
+                │   │ShareService          │ │                 
+                │   └──────────────────────┘ │                 
+                │   ┌──────────────────────┐ │                 
+                │   │...                   │ │                 
+                │   └──────────────────────┘ │                 
+                └─────────────┬──────────────┘                 
+                              │                    server      
+  ────────────────────────────┼────────────────────────────────
+                              │                    clients     
+                      ┌───────▼───────┐                        
+                      │odin_orbital.js│                        
+                      └───────────────┘                        
+```
+
+To simplify the setup of multiple `OrbitalHotspotActor` instances we provide the `spawn_orbital_hotspot_actors(..)`
+convenience function that takes the configured satellites and macro region and a (pre) actor handle for the `SpaServer` actor as input.
+
+An example can be found in `src/bin/show_orbital_hotspots.rs` (which also doubles as a test tool for new satellites):
+
+```rust
+use odin_actor::prelude::*;
+use odin_common::define_cli;
+use odin_server::prelude::*;
+use odin_share::prelude::*;
+use odin_orbital::{
+    init_orbital_data, load_config,
+    actor::spawn_orbital_hotspot_actors,
+    hotspot_service::{HotspotSat, OrbitalHotspotService}
+};
+
+define_cli! { ARGS [about="show overpasses and hotspots for given satellites"] =
+    region: String [help="filename of region", short, long, default_value="conus.ron"],
+    sat_infos: Vec<String> [help="filenames of OrbitalSatelliteInfo configs"]
+}
+
+run_actor_system!( actor_system => {
+    // make sure our orbit calculation uses up-to-date ephemeris
+    init_orbital_data()?;
+
+    // we need to pre-instantiate a server handle since it is used as input for the other actors
+    let pre_server = PreActorHandle::new( &actor_system, "server", 64);
+
+    // spawn a shared store actor so that we can share areas of interest with other users
+    let hshare = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
+
+    // the macro region to calculate overpasses for
+    let region = load_config( &ARGS.region)?;
+
+    // spawn N OrbitalHotspotActors feeding into a single SpaServer actor
+    let sats: Vec<&str> = ARGS.sat_infos.iter().map(|s| s.as_str()).collect();
+    let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), region, &sats)?;
+
+    // and finally spawn the SpaServer actor with a OrbitalHotspotService micro-service layer
+    let hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(
+        odin_server::load_config("spa_server.ron")?,
+        "orbital_hotspots",
+        SpaServiceList::new()
+            .add( build_service!( => OrbitalHotspotService::new( orbital_sats) ))
+            .add( build_service!( let hshare = hshare.clone() => ShareService::new( hshare)) )
+    ))?;
+
+    Ok(())
+});
+```

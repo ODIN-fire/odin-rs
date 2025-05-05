@@ -14,11 +14,10 @@
 
 #![allow(unused)]
 
-/// example application to run single OrbitalHotspotActor
+/// example application to run/use OrbitalHotspotActors
 
 use odin_actor::prelude::*;
-use odin_build::pkg_cache_dir;
-use odin_common::{define_cli, geo::GeoPolygon};
+use odin_common::define_cli;
 use odin_server::prelude::*;
 use odin_share::prelude::*;
 use odin_orbital::{
@@ -33,17 +32,23 @@ define_cli! { ARGS [about="show overpasses and hotspots for given satellites"] =
 }
 
 run_actor_system!( actor_system => {
+    // make sure our orbit calculation uses up-to-date ephemeris
     init_orbital_data()?;
 
+    // we need to pre-instantiate a server handle since it is used as input for the other actors
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
 
-    // we would normally initialize the store via default_shared_items() but those normally reside outside the repository
+    // spawn a shared store actor so that we can share areas of interest with other users
     let hshare = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
 
+    // the macro region to calculate overpasses for
     let region = load_config( &ARGS.region)?;
+
+    // spawn N OrbitalHotspotActors feeding into a single SpaServer actor
     let sats: Vec<&str> = ARGS.sat_infos.iter().map(|s| s.as_str()).collect();
     let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), region, &sats)?;
 
+    // and finally spawn the SpaServer actor with a OrbitalHotspotService
     let hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
         "orbital_hotspots",
