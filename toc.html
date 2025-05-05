@@ -1,0 +1,33 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- sidebar iframe generated using mdBook
+
+        This is a frame, and not included directly in the page, to control the total size of the
+        book. The TOC contains an entry for each page, so if each page includes a copy of the TOC,
+        the total size of the page becomes O(n**2).
+
+        The frame is only used as a fallback when JS is turned off. When it's on, the sidebar is
+        instead added to the main page by `toc.js` instead. The JavaScript mode is better
+        because, when running in a `file:///` URL, the iframed page would not be Same-Origin as
+        the rest of the page, so the sidebar and the main page theme would fall out of sync.
+        -->
+        <meta charset="UTF-8">
+        <meta name="robots" content="noindex">
+        <!-- Custom HTML head -->
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="odin.css">
+    </head>
+    <body class="sidebar-iframe-inner">
+        <ol class="chapter"><li class="chapter-item expanded "><a href="about.html" target="_parent">About this Document</a></li><li class="chapter-item expanded "><a href="install.html" target="_parent">Installation</a></li><li class="chapter-item expanded "><a href="intro.html" target="_parent">1. Introduction</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="design_principles.html" target="_parent">Design Principles</a></li></ol></li><li class="chapter-item expanded "><a href="sys_crates.html" target="_parent">2. System Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_build/odin_build.html" target="_parent">odin_build</a></li><li class="chapter-item "><a href="odin_action/odin_action.html" target="_parent">odin_action</a></li><li class="chapter-item "><a href="odin_actor/odin_actor.html" target="_parent">odin_actor</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_actor/actor_basics.html" target="_parent">Actor Programming Model</a></li><li class="chapter-item "><a href="odin_actor/actor_impl.html" target="_parent">Basic Design</a></li><li class="chapter-item "><a href="odin_actor/actor_communication.html" target="_parent">Actor Communication</a></li><li class="chapter-item "><a href="odin_actor/examples/examples.html" target="_parent">Examples</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_actor/examples/hello_world.html" target="_parent">hello_world</a></li><li class="chapter-item "><a href="odin_actor/examples/sys_msgs.html" target="_parent">sys_msgs</a></li><li class="chapter-item "><a href="odin_actor/examples/spawn.html" target="_parent">spawn</a></li><li class="chapter-item "><a href="odin_actor/examples/spawn_blocking.html" target="_parent">spawn_blocking</a></li><li class="chapter-item "><a href="odin_actor/examples/exec.html" target="_parent">exec</a></li><li class="chapter-item "><a href="odin_actor/examples/jobs.html" target="_parent">jobs</a></li><li class="chapter-item "><a href="odin_actor/examples/producer_consumer.html" target="_parent">producer_consumer</a></li><li class="chapter-item "><a href="odin_actor/examples/pub_sub.html" target="_parent">pub_sub</a></li><li class="chapter-item "><a href="odin_actor/examples/pin_pong.html" target="_parent">ping_pong</a></li><li class="chapter-item "><a href="odin_actor/examples/query.html" target="_parent">query</a></li><li class="chapter-item "><a href="odin_actor/examples/dyn_actor.html" target="_parent">dyn_actor</a></li><li class="chapter-item "><a href="odin_actor/examples/actions.html" target="_parent">actions</a></li><li class="chapter-item "><a href="odin_actor/examples/dyn_actions.html" target="_parent">dyn_actions</a></li><li class="chapter-item "><a href="odin_actor/examples/retry.html" target="_parent">retry</a></li><li class="chapter-item "><a href="odin_actor/examples/requests.html" target="_parent">requests</a></li><li class="chapter-item "><a href="odin_actor/examples/actor_config.html" target="_parent">actor_config</a></li><li class="chapter-item "><a href="odin_actor/examples/heartbeat.html" target="_parent">heartbeat</a></li></ol></li></ol></li><li class="chapter-item "><a href="odin_server/odin_server.html" target="_parent">odin_server</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_server/client.html" target="_parent">Server/Client Interaction</a></li><li class="chapter-item "><a href="odin_server/ui_library.html" target="_parent">Web Client UI Library</a></li></ol></li><li class="chapter-item "><a href="odin_cesium/odin_cesium.html" target="_parent">odin_cesium</a></li><li class="chapter-item "><a href="odin_share/odin_share.html" target="_parent">odin_share</a></li><li class="chapter-item "><a href="odin_dem/odin_dem.html" target="_parent">odin-dem</a></li><li class="chapter-item "><a href="odin_gdal/odin_gdal.html" target="_parent">odin-gdal</a></li></ol></li><li class="chapter-item expanded "><a href="app_crates.html" target="_parent">3. Application Domain Crates</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="odin_geolayer/odin_geolayer.html" target="_parent">odin_geolayer</a></li><li class="chapter-item "><a href="odin_hrrr/odin_hrrr.html" target="_parent">odin_hrrr</a></li><li class="chapter-item "><a href="odin_sentinel/odin_sentinel.html" target="_parent">odin_sentinel</a></li><li class="chapter-item "><a href="odin_goesr/odin_goesr.html" target="_parent">odin_goesr</a></li><li class="chapter-item "><a href="odin_orbital/odin_orbital.html" target="_parent">odin_orbital</a></li></ol></li><li class="chapter-item expanded "><a href="glossary.html" target="_parent">Glossary</a></li></ol>
+    </body>
+</html>

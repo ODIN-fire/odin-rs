@@ -5,13 +5,16 @@
 }
 
 .coal,.navy,.ayu {
-    img.mono[src*='.svg'] {
+    img.mono[src*=".svg"] {
       filter: invert(90%);
+    }
+    img.mono[src*=".png"] {
+      filter: invert(80%);
     }
 }
 
 .light,.rust {
-    img.mono[src*='.svg'] {
+    img.mono[src*=".svg"] {
       filter: none;
     }
 }
