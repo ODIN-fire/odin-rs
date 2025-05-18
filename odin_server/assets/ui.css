@@ -106,6 +106,7 @@ div.ui_window {
 div.ui_window.spotlight {
     border: var(--window-spotlight-border);
     background: var(--window-spotlight-background);
+    z-index: var(--spotlight-z);
 }
 
 div.ui_window.show {
@@ -132,6 +133,7 @@ div.ui_titlebar {
 }
 
 div.ui_titlebar.spotlight {
+    color: var(--titlebar-spotlight-color);
     background: var(--titlebar-spotlight-background);
 }
 
@@ -567,7 +569,7 @@ div.ui_slider_thumb {
     position: absolute;
     top: 0;
     left: calc(50% - var(--slider-thumb-size)/2);
-    cursor: ew-resize;
+    /*cursor: ew-resize;*/
     z-index: 2;
 }
 
@@ -1116,20 +1118,32 @@ div.ui_tooltip {
     padding: 5px;
     border: var(--tooltip-border);
     border-radius: 6px;
-    box-shadow: var(--tooltip-shadow);
     z-index: 100;
 }
 
 
-div.ui_tooltip::after {
+div.ui_tooltip.above::after {
     content: "";
     position: absolute;
     width: 10px;
     height: 10px;
     bottom: calc(-5px - var(--tooltip-border-width));
     left: calc(50% - 5px);
-    box-shadow: var(--tooltip-shadow);
     transform: rotate(45deg);
+    background: var(--tooltip-background);
+    border: var(--tooltip-border);
+    border-left: 0;
+    border-top: 0;
+}
+
+div.ui_tooltip.below::after {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    top: calc(-5px - var(--tooltip-border-width));
+    left: calc(50% - 5px);
+    transform: rotate(225deg);
     background: var(--tooltip-background);
     border: var(--tooltip-border);
     border-left: 0;

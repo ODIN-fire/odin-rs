@@ -21,26 +21,26 @@
 // https://nasarace.github.io/race/design/share.html which supports data distribution of tabular data within
 // network nodes with a tree topology
 
+use std::{any::type_name, collections::HashMap, fmt::Debug, fs::{self,File}, io::BufReader, net::SocketAddr, ops::Index, path::{Path, PathBuf}, sync::Arc};
+use serde::{Serialize,Deserialize};
+use serde_json::{Value as JsonValue, json};
+use axum::{
+    http::StatusCode,
+    routing::{Router,get},
+    response::{Response,IntoResponse}
+};
+use bytes::Bytes;
 use odin_cesium::CesiumService;
 use odin_server::{ errors::op_failed, prelude::*};
 use async_trait::async_trait;
 use odin_actor::prelude::*;
 use odin_build::{pkg_data_dir, prelude::*};
 use odin_common::{define_serde_struct, geo::{GeoPoint, GeoPoint3, GeoLine, GeoLineString, GeoRect, GeoPolygon, GeoCircle}};
-use core::str;
-use std::{any::type_name, collections::HashMap, fmt::Debug, fs::File, io::BufReader, net::SocketAddr, ops::Index, path::{Path, PathBuf}, sync::Arc};
-use serde::{Serialize,Deserialize};
-use serde_json::{Value as JsonValue, json};
-use bytes::Bytes;
 use crate::{
     actor::{ExecSnapshotAction, SetSharedStoreEntry, RemoveSharedStoreEntry, SharedStoreActor, SharedStoreActorMsg, SharedStoreChange, SharedStoreUpdate}, 
     dyn_shared_store_action, load_asset, SharedStore, SharedStoreValueConstraints, shared_store_action, SharedStoreAction,
 };
 
-// the default path for stored SharedItems, which is `ODIN_ROOT/odin_share/shared_items.json`
-pub fn default_shared_items()->PathBuf {
-    pkg_data_dir!().join("shared_items.json")
-}
 
 /// the generic wrapper type for shared items. This is what we keep in a SharedStore
 /// the variants should eventually cover the GeoJSON types (the geo_types geometries), 3d points, the basic primitive types (String, f64 etc),
@@ -114,21 +114,32 @@ impl RoleEntry {
 
 /// micro service to share data between users and other micro-services. This is UI-less
 pub struct ShareService {
+    schema: Arc<String>, // (JS) asset filename for schema to use by client
     hstore: ActorHandle<SharedStoreActorMsg<SharedItemType>>,
     user_roles: HashMap<String,RoleEntry>,
 }
 
 impl ShareService {
-    pub fn new (hstore: ActorHandle<SharedStoreActorMsg<SharedItemType>>) -> Self {
+    pub fn new (schema: &str, hstore: ActorHandle<SharedStoreActorMsg<SharedItemType>>) -> Self {
         //let data_dir = odin_build::data_dir().join("odin_server");
         let user_roles = HashMap::new();
+        let schema = Arc::new(schema.to_owned());
 
-        ShareService { hstore, user_roles }
+        ShareService { schema, hstore, user_roles }
     }
 
     fn get_user_roles_json (&self)->String {
         let a = JsonValue::Array( self.user_roles.iter().map(|e| e.1.json_value(&e.0)).collect());
         serde_json::to_string(&a).unwrap() // save to unwrap as we are explicitly constructing the JsonValue
+    }
+
+    async fn schema_handler (schema: Arc<String>) -> Response {
+        if let Ok(data) = load_asset(schema.as_str()) {
+            get_asset_response(schema.as_str(), data)
+
+        } else {
+            (StatusCode::NOT_FOUND, "schema not found").into_response()
+        }
     }
 }
 
@@ -142,9 +153,19 @@ impl SpaService for ShareService {
     }
 
     fn add_components(&self, spa: &mut SpaComponents) -> OdinServerResult<()> {
-        spa.add_assets(self_crate!(), load_asset);
         spa.add_module(asset_uri!("odin_share_config.js"));
+        spa.add_module(asset_uri!("odin_share_schema.js")); // this is a virtual module - the physical file name is configured
         spa.add_module(asset_uri!("odin_share.js"));
+
+        let schema = self.schema.clone();
+        // note this is overlapping with our normal assets path so it has to be defined first
+        spa.add_route( |router, spa_server_state| {
+            router.route( &format!("/{}/asset/odin_share/odin_share_schema.js", spa_server_state.name.as_str()), get({
+                move || Self::schema_handler(schema.clone())
+            }))
+        });
+
+        spa.add_assets(self_crate!(), load_asset);
 
         Ok(())
     }

@@ -160,7 +160,8 @@ impl_actor! { match msg for Actor<SharedStoreActor<T,S,I,C>,SharedStoreActorMsg<
 pub fn spawn_server_share_actor (actor_system: &mut ActorSystem, name: &str, hserver: ActorHandle<SpaServerMsg>, path: impl AsRef<Path>, save:bool)->OdinShareResult<ActorHandle<SharedStoreActorMsg<SharedItemType>> >
 {
     let store_name = arc!(name);
-    let store = PersistentHashMapStore::new( &path, save)?;
+
+    let store = PersistentHashMapStore::new( &path, save).map_err(|e| op_failed(format!("could not open shared store {:?}", path.as_ref())))?;
 
     let actor_state = SharedStoreActor::new( 
         store, 

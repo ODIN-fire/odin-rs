@@ -46,7 +46,7 @@ console.log("ui_cesium_imglayer initialized");
 //--- end init
 
 function createIcon() {
-    return ui.Icon("./asset/odin_cesium/globe.svg", (e)=> ui.toggleWindow(e,'imglayer'));
+    return ui.Icon("./asset/odin_cesium/globe.svg", (e)=> ui.toggleWindow(e,'imglayer'), "map imagery");
 }
 
 function createWindow() {

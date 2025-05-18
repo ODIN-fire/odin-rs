@@ -196,6 +196,7 @@ export function getMoveableCanvas (o) {
 //--- windows
 
 var topWindowZ = _rootVarInt('--window-z');
+var spotlightZ = _rootVarInt('--spotlight-z');
 var windows = [];
 
 export function Window (title, eid, icon) {
@@ -348,11 +349,21 @@ function makeWindowDraggable(e) {
     }
 }
 
+// we have two categories of windows that each maintain their own z-index hierarchy: spotlight and normal
+// make sure spotlights always stay on top of normal
 function updateWindowZorder() {
     let z = topWindowZ;
+    let zSpot = spotlightZ;
+
     for (let i = windows.length - 1; i >= 0; i--) {
-        windows[i].style.zIndex = z;
-        z--;
+        let w = windows[i];
+        if (!_containsClass(w, "spotlight")){ 
+            w.style.zIndex = z;
+            z--;
+        } else {
+            w.style.zIndex = zSpot;
+            zSpot--;
+        }
     }
 }
 
@@ -620,6 +631,25 @@ function clickTab(event) {
     }
 }
 
+export function getShowingTabName (o) {
+    let e = getTabbedContainer(o);
+    if (e) {
+        if (e._uiShowing) {
+            return e._uiShowing.getAttribute("data-label");
+        }
+    }
+    return null;
+}
+
+export function getTabbedContainer(o) {
+    let e = _elementOf(o);
+    if (e) {
+        return _nearestElementWithClass(e, "ui_tab_container_wrapper");
+    } else {
+        return undefined;
+    }
+}
+
 //--- containers
 
 function genContainer (containerCls, align, eid, title, isBordered, children, width=undefined) {
@@ -740,11 +770,12 @@ function _resetPanelMaxHeight(ce) {
 
 const iconBox = getIconBox();
 
-export function Icon (src, action, eid=null) {
+export function Icon (src, action, tip=null, eid=null) {
     let e = createElement( "DIV", "ui_icon");
 
     e.setAttribute("data-src", src);
     if (eid) e.setAttribute("id", eid);
+    if (tip) createTooltip(e, tip);
 
     if (action instanceof Function) e.addEventListener("click", action); else e.onclick = action;
 
@@ -1516,6 +1547,7 @@ function startDrag(event) {
     let lastValue = track._uiValue;
     let trackRect = track.getBoundingClientRect();
 
+    track.style.cursor = "ew-resize";
     track.addEventListener("mousemove", drag);
     document.addEventListener("mouseup", stopDrag);
     _consumeEvent(event);
@@ -1537,6 +1569,7 @@ function startDrag(event) {
     }
 
     function stopDrag(event) {
+        track.style.cursor = "default";
         track.removeEventListener("mousemove", drag);
         document.removeEventListener("mouseup", stopDrag);
         _consumeEvent(event);
@@ -1649,10 +1682,9 @@ export function setSliderValue(o, v) {
     let e = getSlider(o);
     if (e) {
         let newValue = _computeSliderValue(e, v);
-        if (_hasDimensions(e)) _positionThumb(e);
-
         if (newValue != e._uiValue) {
             e._uiValue = newValue;
+            if (_hasDimensions(e)) _positionThumb(e);
             if (e._uiNum) e._uiNum.innerText = _formattedNum(newValue, e._uiNumFormatter);
 
             let slider = e.parentElement;
@@ -2937,6 +2969,18 @@ export function replaceListItem(o, oldItem, newItem) {
     }
 }
 
+/*
+export function updateSelectedListItem(o) {
+    let e = getList(o);
+    if (e) {
+        let ie = e._uiSelectedItemElement;
+        if (ie) {
+            _setListItem(e, ie, ie._uiItem);
+        }
+    }
+}
+*/
+
 export function updateListItem(o, item) {
     let e = getList(o);
     if (e) {
@@ -3108,12 +3152,21 @@ function createTooltip (e, text) {
         let e = event.target;
         let ett = e._uiTooltip;
         if (ett) {
-            let cr = e.getBoundingClientRect();
-            let tcr = ett.getBoundingClientRect();
+            let cr = e.getBoundingClientRect(); // client rect
+            let tcr = ett.getBoundingClientRect(); // tooltip client rect
 
-            let x = cr.x + cr.width/2 - tcr.width/2;
+            let x = cr.x + cr.width/2 - tcr.width/2; // center on client
             ett.style.left = x + "px";
-            ett.style.top = (cr.y - tcr.height - 8) + "px";
+
+            let y = cr.y - tcr.height - 8; // try above client
+            if (y > 0) {
+                _addClass(ett, "above");
+            } else {
+                _addClass(ett, "below");
+                y = cr.y + cr.height + 8;
+            }
+            ett.style.top = y + "px";
+
             ett.style.visibility = "visible";
 
             tcr = ett.getBoundingClientRect();

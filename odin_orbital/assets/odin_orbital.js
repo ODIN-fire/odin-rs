@@ -49,8 +49,9 @@ var areaVertices = [];
 var zoomHeight = 20000;
 
 // the Cesium assets to display fire pixels
-var hsFootprintPrimitive = undefined;  // the surface footprint of fire pixels
+var hsFootprintPrimitive = undefined;  // the surface footprint polygon of a hotspot
 var hsPointPrimitive = undefined;   // the brightness/frp points
+var hsOutlinePrimitive = undefined; // the surface footprint polyline of a (small) hotspot
 
 var areaInfoText = undefined;
 
@@ -125,6 +126,11 @@ var frpThreshold = config.frp.value;
 var frpThresholdColor = config.frp.color;
 var pixelSize = config.pixelSize;
 var outlineWidth = config.outlineWidth;
+
+var smallFootprintLength = config.smallFootprintLength;
+var smallFootprintDist = config.smallFootprintDist;
+var footprintDist = config.footprintDist;
+
 initSliders();
 
 ui.setCheckBox("orbital.sel_sat", selSatOnly);
@@ -235,7 +241,7 @@ function initHotspotView() {
     let view = ui.getList("orbital.hotspots");
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "conf", tip: "hotspot confidence [0:low,1:med,2:high]", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.conf },
+            { name: "conf", tip: "hotspot confidence [0:low,1:med,2:high]", width: "2rem", attrs: ["fixed", "alignRight"], map: e => hotspotConfidence(e) },
             { name: "temp", tip: "hotspot brightness [K]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_0.format(e.temp) },
             { name: "frp", tip: "hotspot fire radiative power [MW]", width: "4.5rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.frp) },
             { name: "lon", tip: "longitude", width:  "7rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.lon,4)},
@@ -343,6 +349,11 @@ function satName(satId) {
     return se ? se.satName : undefined;
 }
 
+function hotspotConfidence (e) {
+    // TODO - shall we decode the ordinals ?
+    return e.conf ? e.conf : "-";
+}
+
 function pastClassifier (he) {
     if (he.nGood > 0) {
         if (he.date > now - util.MILLIS_IN_DAY) return ui.createImage("orbital-asset/fire"); // good pix within 24h
@@ -351,8 +362,8 @@ function pastClassifier (he) {
 }
 
 function hotspotClassifier (he) {
-    if (he.confidence > 1) return ui.createImage("orbital-asset/fire");
-    else if (he.confidence > 0) return "";
+    if (he.conf > 1) return ui.createImage("orbital-asset/fire");
+    else if (he.conf > 0) return "";
     else return "";
 }
 
@@ -611,13 +622,6 @@ function computeHotspotFootprints (hotspots) {
 
         h.geoPos = Cesium.Cartographic.fromDegrees( lon, lat);
         h.area.push( h.area[0]); // close polygon
-
-        h.geom = new Cesium.PolygonGeometry({
-            polygonHierarchy: new Cesium.PolygonHierarchy(h.area),
-            //vertexFormat: Cesium.VertexFormat.POSITION_AND_NORMAL,
-        });
-
-        // TODO - do we need to keep area and geoPos now that we have a geometry?
     }
 }
 
@@ -647,13 +651,19 @@ function setHotspotAssets() {
 
     if (selCompleted) { // if none is selected we don't have anything to display
         let refDate = selCompleted.end;
-        let geoms = [];
+        let areaGeoms = [];
+        let outlineGeoms = [];
         let points = [];
+
+        let areaDCAttr = new Cesium.DistanceDisplayConditionGeometryInstanceAttribute( 0, footprintDist);
+        let smallOutlineColorAttr = Cesium.ColorGeometryInstanceAttribute.fromColor( brightThresholdColor);
+        let smallOutlineDCAttr = new Cesium.DistanceDisplayConditionGeometryInstanceAttribute(0, smallFootprintDist);
+        let smallFootprintPointDC = new Cesium.DistanceDisplayCondition( smallFootprintDist, Number.MAX_VALUE);
 
         let selIdx = shownCompletedEntries.findIndex( (oe) => Object.is( selCompleted, oe));
         let i0 = showHistory ? shownCompletedEntries.length-1 : selIdx;
 
-        for (let i = i0; i>= selIdx; i--) { // start with oldest entries
+        for (let i = selIdx; i<= i0; i++) { // z-order of entities is in order of addition
             let oe = shownCompletedEntries[i];
             if (oe.hsList && oe.hsList.hotspots) {
                 let clr = getFootprintColor( oe.end, refDate);
@@ -662,27 +672,48 @@ function setHotspotAssets() {
 
                     for (let h of oe.hsList.hotspots) {
                         if (!area || isHotspotInArea( h)) {
-                            let gi = new Cesium.GeometryInstance({
-                                geometry: h.geom,
+                            areaGeoms.push( new Cesium.GeometryInstance({ // we always show the footprint area
+                                geometry: new Cesium.PolygonGeometry({
+                                    polygonHierarchy: new Cesium.PolygonHierarchy(h.area),
+                                }),
                                 attributes: {
-                                    color: clrAttr
+                                    color: clrAttr,
+                                    distanceDisplayCondition: areaDCAttr
                                 }
-                            });
-                            geoms.push(gi);
+                            }));
+                            
+                            if (i == selIdx) { // points and (small footprint) outlines are only shown for the selected overpass
+                                let position = Cesium.Cartographic.toCartesian(h.geoPos);
+                                // points are not Geometries - PointPrimitives do not support clamp-to-ground so we have project to ellipsoid surface
+                                if (!odinCesium.isUsingTopoTerrain()) {
+                                    Cesium.Ellipsoid.WGS84.scaleToGeodeticSurface( position, position);
+                                }
 
-                            if (i == selIdx) {
                                 let point = {
-                                    position: Cesium.Cartographic.toCartesian(h.geoPos),
+                                    position,
                                     pixelSize: pixelSize,
-                                    heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
                                     color: brightThresholdColor
                                 };
                                 if (h.frp >= frpThreshold) {
                                     point.outlineWidth = outlineWidth;
                                     point.outlineColor = frpThresholdColor;
-                                    // point.scaleByDistance = config.frpScale // use Cesium.NearFar(nearCameraDist,nearScale,farCameraDist,farScale)
                                 }
-                                points.push(point);   
+                                points.push(point);
+
+                                if (isSmallFootprintHotspot(h)) { // hide point when we get close, display footprint outline instead
+                                    point.distanceDisplayCondition = smallFootprintPointDC;
+
+                                    outlineGeoms.push( new Cesium.GeometryInstance({
+                                        geometry: new Cesium.GroundPolylineGeometry({
+                                            positions: h.area
+                                        }),
+                                        attributes: {
+                                            color: smallOutlineColorAttr,
+                                            distanceDisplayCondition: smallOutlineDCAttr
+                                        }
+                                    }));
+                                }
+ 
                             }
                         } 
                     }
@@ -690,20 +721,24 @@ function setHotspotAssets() {
             }
         }
 
-        setFootprintAssets( geoms);
+        setFootprintAssets( areaGeoms);
+        setFootprintOutlineAssets( outlineGeoms);
         setPointAssets( points);
     }
 }
 
+function isSmallFootprintHotspot (h) {
+    return Math.min( h.scan, h.track) < smallFootprintLength; 
+}
+
 function setFootprintAssets (geoms) {
     if (geoms.length > 0) {
-        // should be a GroundPrimitive but that renders incorrectly on macOS
         hsFootprintPrimitive = new Cesium.GroundPrimitive({
             geometryInstances: geoms,
             allowPicking: false,
-            asynchronous: true,
-            releaseGeometryInstances: true,
-            vertexCacheOptimize: true,
+            //asynchronous: true,
+            //releaseGeometryInstances: true,
+            //vertexCacheOptimize: true,
             
             appearance: new Cesium.PerInstanceColorAppearance({
                 faceForward: true,
@@ -716,12 +751,28 @@ function setFootprintAssets (geoms) {
     }
 }
 
+function setFootprintOutlineAssets (geoms) {
+    if (geoms.length > 0) {
+        hsOutlinePrimitive = new Cesium.GroundPolylinePrimitive({
+            geometryInstances: geoms,
+            allowPicking: false,
+            appearance: new Cesium.PolylineColorAppearance()
+        });
+
+        odinCesium.addPrimitive( hsOutlinePrimitive);
+    }
+}
+
 function setPointAssets (points) {
     if (points.length > 0) {
         hsPointPrimitive = new Cesium.PointPrimitiveCollection({
             blendOption: Cesium.BlendOption.OPAQUE
         });
-        points.forEach( p=> hsPointPrimitive.add(p));
+        points.forEach( p=> {
+            // while the Cesium doc does not mention it the PointPrimitive ctor does honor a distanceDisplayCondition
+            // and hence we don't have to set it here explicitly
+            hsPointPrimitive.add(p);
+        });
         odinCesium.addPrimitive(hsPointPrimitive);
     }
 
@@ -781,10 +832,15 @@ function createSwathEntity (oe) {
 }
 
 function clearHotspotAssets() {
-    if  (hsFootprintPrimitive || hsPointPrimitive){
+    if  (hsFootprintPrimitive || hsPointPrimitive || hsOutlinePrimitive){
         if (hsFootprintPrimitive) {
             odinCesium.removePrimitive(hsFootprintPrimitive);
             hsFootprintPrimitive = undefined;
+        }
+
+        if (hsOutlinePrimitive) {
+            odinCesium.removePrimitive(hsOutlinePrimitive);
+            hsOutlinePrimitive = undefined;     
         }
     
         if (hsPointPrimitive) {
@@ -926,8 +982,8 @@ function setArea (rect) {
 
 function setAreaInfo () {
     if (area) {
-        let du = util.distanceBetweenGeoPos( area.north, area.west, area.north, area.east);
-        let dv = util.distanceBetweenGeoPos( area.north, area.west, area.south, area.west);
+        let du = util.distanceBetweenGeoPos( area.west, area.north, area.east, area.north);
+        let dv = util.distanceBetweenGeoPos( area.west, area.north, area.west, area.south);
         let sqAcres = util.fmax_0.format(util.squareMetersToAcres( du * dv));
         let duMi = util.fmax_1.format(util.metersToUsMiles(du));
         let dvMi = util.fmax_1.format(util.metersToUsMiles(dv));

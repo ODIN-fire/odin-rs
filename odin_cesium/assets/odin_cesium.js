@@ -125,7 +125,7 @@ var positionsView = undefined;
 var isSelectedView = false;
 
 var mapScale; // canvas to show map scale
-var isMetric = true;
+export var isMetric = true;
 
 const centerOrientation = {
     heading: Cesium.Math.toRadians(0.0),
@@ -294,7 +294,7 @@ function switchToTopoTerrain() {
 } 
 
 export function isUsingTopoTerrain() {
-    return (terrainProvider === topoTerrainProvider);
+    return Object.is( terrainProvider, topoTerrainProvider);
 }
 
 export function registerTerrainChangeHandler (handler) {
@@ -363,13 +363,10 @@ function createViewWindow() {
           ),
           ui.TreeList("view.positions", 10, "30rem", setCameraFromSelection, setCameraName),
           ui.RowContainer()(
-            ui.TextInput("name", "view.camera.name", "15rem", {isFixed: true, placeHolder: 'enter pathname for position'}),
-            ui.Button("pick", pickPoint),
-            ui.Button("add", addPoint),
-            ui.Button("del", removePoint)
-          ),
-          ui.Panel("measure", false)(
-
+            ui.TextInput("name", "view.camera.name", "15rem", {isFixed: true, placeHolder: 'enter path of new view'}),
+            ui.Button("pick", pickViewPoint),
+            ui.Button("current", addCurrentView),
+            ui.Button("del", removeView)
           ),
           ui.Panel("view parameters", false)(
             ui.CheckBox("render on-demand", toggleRequestRenderMode, "view.rm"),
@@ -394,10 +391,11 @@ function initPositionsView() {
 }
 
 function createViewIcon() {
-    return ui.Icon("./asset/odin_cesium/camera.svg", (e)=> ui.toggleWindow(e,'view'));
+    return ui.Icon("./asset/odin_cesium/camera.svg", (e)=> ui.toggleWindow(e,'view'), "camera view");
 }
 
-//--- time window
+
+/* #region time window ****************************************************************/
 
 function initTimeWindow() {
     createTimeIcon();
@@ -417,10 +415,12 @@ function createTimeWindow() {
 }
 
 function createTimeIcon() {
-    return ui.Icon("./asset/odin_cesium/time.svg", (e)=> ui.toggleWindow(e,'time'));
+    return ui.Icon("./asset/odin_cesium/time.svg", (e)=> ui.toggleWindow(e,'time'), "clock");
 }
 
-//--- layer window
+/* #endregion time window */
+
+/* #region layer window ***************************************************************/
 
 function initLayerWindow() {
     createLayerIcon();
@@ -445,7 +445,7 @@ function createLayerWindow() {
 }
 
 function createLayerIcon() {
-    return ui.Icon("./asset/odin_cesium/layers.svg", (e)=> ui.toggleWindow(e,'layer'));
+    return ui.Icon("./asset/odin_cesium/layers.svg", (e)=> ui.toggleWindow(e,'layer'), "map layers");
 }
 
 function initLayerOrderView() {
@@ -460,7 +460,9 @@ function initLayerOrderView() {
     return v;
 }
 
-//--- view position sets
+/* #endregion layer window */
+
+/* #region view position sets **********************************************************/
 
 function toggleShowPosition(event) {
     let cb = ui.getCheckBox(event.target);
@@ -476,7 +478,7 @@ function toggleShowPosition(event) {
     }
 }
 
-function addPoint() {
+function addCurrentView() {
     let lon = Number.parseFloat(ui.getFieldValue("view.camera.longitude"));
     let lat = Number.parseFloat(ui.getFieldValue("view.camera.latitude"));
     let alt = Number.parseFloat(ui.getFieldValue("view.camera.altitude"));
@@ -492,13 +494,13 @@ function addPoint() {
     } else alert("please enter valid view name: ", VIEW_PATTERN);
 }
 
-function pickPoint() {
+function pickViewPoint() {
     let btn = ui.getButton("view.pickPos");
     ui.setElementColors( btn, ui.getRootVar("--selected-data-color"), ui.getRootVar("--selection-background"));
 
     // system prompt blocks DOM manipulation so we need to defer the action
     setTimeout( ()=> {
-        let key = ui.getFieldValue( cameraName);
+        let key = sanitizeViewKey( ui.getFieldValue( cameraName));
         if (key && isValidViewKey(key)) {
             enterGeoPoint( (cp) => {
                 if (cp) {
@@ -519,11 +521,19 @@ function pickPoint() {
     }, 100);
 }
 
+function sanitizeViewKey(key) {
+    if (key && key.startsWith("/")) {
+        return key.substring(1);
+    } else {
+        return key;
+    }
+}
+
 function isValidViewKey(key) {
     return key.match( VIEW_PATTERN);
 }
 
-function removePoint() {
+function removeView() {
     let pos = ui.getSelectedListItem(positionsView);
     if (pos) {
         if (pos.isLocal) {
@@ -620,6 +630,8 @@ function updatePositionsView() {
     //let tree = data.ExpandableTreeNode.from( positions.values(), e=>e.key );
     ui.setTree( positionsView, tree);
 }
+
+/* #endregion view list */
 
 function filterAssets(k,v) {
     if (k === 'asset') return undefined;
@@ -947,7 +959,7 @@ function updateCamera() {
     updateScale();
 }
 
-//--- map scale
+/* #region map scale ************************************************************/
 
 const WGS84BoundingSphere = Cesium.BoundingSphere.fromEllipsoid(Cesium.Ellipsoid.WGS84);
 
@@ -960,27 +972,146 @@ function initMapScale() {
 }
 
 function updateScale () {
-    let styles = getComputedStyle(mapScale);
-    let clr = config.scale.cssColor;
+    withMetersPerPixel( (dPixel)=> {
+        let scale = isMetric ? getMetricScale(dPixel) : getUsScale(dPixel);
+        drawScale( scale, dPixel);
+    });
+}
 
+function withMetersPerPixel (f) {
     let w = viewer.scene.canvas.clientWidth;
     let h = viewer.scene.canvas.clientHeight;
 
-    let canvasWidth = mapScale.clientWidth;
+    // FIXME - this returns 0 if we get close (no tile level?). It also won't cover terrain height, which would cause
+    // problems as we zoom in (where we need distances most)
+    //let dPixel = viewer.scene.camera.getPixelSize( WGS84BoundingSphere, w, h);  // distance [m] per pixel
+    //if (dPixel) return dPixel; 
+
+    // the hard way to work around this - compute two rays close to the center of the canvas and deduce distance from 
+    // respective ellipsoid points. Note this does not account yet for elevation at the center
+    let dx = 2;
+    let camera = viewer.scene.camera;
+    let wp = new Cesium.Cartesian2( Math.round(w/2), Math.round(h/2)); // center window coordinates
+    let ray1 = camera.getPickRay(wp);
+    wp.x += dx; // add dx horizontal pixels
+    let ray2 = camera.getPickRay(wp);
+
+    let cp = ray1.origin;
+    let geo = util.ecefToGeo( cp.x, cp.y, cp.z);
+    let cameraHeight = geo.alt; // of camera above ellipsoid
+
+    let complete = () => {
+        let p1 = Cesium.Cartesian3.add( ray1.origin, 
+            Cesium.Cartesian3.multiplyByScalar(ray1.direction,cameraHeight,new Cesium.Cartesian3()), new Cesium.Cartesian3());
+        let p2 = Cesium.Cartesian3.add( ray2.origin, 
+                    Cesium.Cartesian3.multiplyByScalar(ray2.direction,cameraHeight, new Cesium.Cartesian3()), new Cesium.Cartesian3());
+        let dist = Cesium.Cartesian3.distance( p1, p2, new Cesium.Cartesian3());
+        let dPixel = dist / dx;
+
+        f( dPixel)
+    };
+
+    if (cameraHeight > 80000) { // means terrain height is negligible
+        complete()
+    } else {
+        geo = new Cesium.Cartographic.fromRadians( geo.lon, geo.lat);
+        withSampledTerrain([geo], 10, ()=> {
+            cameraHeight -= geo.height; // subtract the terrain elevation from the camera height
+            complete()
+        });
+    }
+}
+
+const metricScaleUnits = [ 1000000, 500000, 100000, 50000, 10000, 5000, 1000, 500, 100, 50, 10 ]; // in meters
+
+function getMetricScale (dPixel) { 
+    let unit, nUnits, unitPx, label, tickBase;
+    let maxWidth = config.scale.width;
+
+    outer: for ( let i=0; i < metricScaleUnits.length; i++) {
+        unit = metricScaleUnits[i];
+        unitPx = unit / dPixel;
+
+        let nu = [5,4,3,2];
+        for (let j=0; j<nu.length; j++) {
+            nUnits = nu[j];
+            if ((unitPx * nUnits) <= maxWidth) break outer;
+        }
+    }
+
+    if (unit >= 1000) {
+        tickBase = unit / 1000;
+        label = `${tickBase * nUnits} km`;
+    } else {
+        tickBase = unit;
+        label = `${tickBase * nUnits} m`;
+    }
+    
+    return { unit, nUnits, unitPx, tickBase, label }
+}
+
+const usMileScaleUnits = [ 1000, 500, 100, 50, 10, 5, 1, 0.25 ];
+const usYardScaleUnits = [ 500, 100, 50, 10 ];
+
+function getUsScale (dPixel) {
+    let unit, nUnits, unitPx, label, tickBase;
+    let maxWidth = config.scale.width;
+
+    //--- start with US miles
+    for ( let i=0; i < usMileScaleUnits.length; i++) {
+        unit = usMileScaleUnits[i];
+        unitPx = (unit * util.metersPerUsMile) / dPixel;
+
+        let nu = mileTicks(unit);
+        for (let j=0; j<nu.length; j++) {
+            nUnits = nu[j];
+            if ((unitPx * nUnits) <= maxWidth) {
+                console.log("@@ mi base: ", unit, nUnits);
+                return { unit, nUnits, unitPx, tickBase: unit, label: `${unit * nUnits} mi` };
+            }
+        }
+    }
+ 
+    //--- switch to yards
+    for ( let i=0; i < usYardScaleUnits.length; i++) {
+        unit = usYardScaleUnits[i];
+        unitPx = (unit * util.metersPerYard) / dPixel;
+
+        let nu = i % 2 ? mOdd : mEven;
+        for (let j=0; j<nu.length; j++) {
+            nUnits = nu[j];
+            if ((unitPx * nUnits) <= maxWidth) {
+                return { unit, nUnits, unitPx, tickBase: unit, label: `${unit * nUnits} yd` };
+            }
+        }
+    }
+}
+
+function mileTicks (unit) {
+    if (unit > 0.25) {
+        return [5,4,3,2];
+    } else if (unit == 0.25) {
+        return [4,2];
+    }
+}
+
+function drawScale ( scale, dPixel ) {
+    let unit = scale.unit;
+    let nUnits = scale.nUnits;
+    let label = scale.label;
+    let unitPx = scale.unitPx;
+    let tickBase = scale.tickBase;
+    //console.log("@@ unit:", unit, ", nUnits:", nUnits, ", label:", label, ", dPixel:", dPixel);
+
+    let clr = config.scale.cssColor;
+    let xMargin = 12;
+
     let canvasHeight = mapScale.clientHeight;
+    let canvasWidth = Math.ceil( 2* xMargin + (unitPx * nUnits));
+    mapScale.width = canvasWidth;
 
     let ctx = mapScale.getContext("2d");
     ctx.clearRect(0,0,canvasWidth,canvasHeight);
-
-    let xMargin = 10;
-    let yMargin = 5;
-    let cw = canvasWidth - 2*xMargin;
-
-    let dPixel = viewer.scene.camera.getPixelSize( WGS84BoundingSphere, w, h);  // distance [m] per pixel
-
-    let nTicks = isMetric ? 5 : 4;
-    let base = getBaseDistance( cw, dPixel, metricBases, nTicks);
-    let basePx = Math.round(base / dPixel); // with of base in pixels
 
     ctx.fillStyle = clr;
     ctx.strokeStyle = clr;
@@ -988,54 +1119,36 @@ function updateScale () {
 
     let y = canvasHeight / 2;
 
+    //--- the bar
     ctx.beginPath();
     ctx.lineWidth = 2;
     ctx.moveTo( xMargin, y);
-    ctx.lineTo( xMargin + (nTicks * basePx), y);
+    ctx.lineTo( xMargin + (nUnits * unitPx), y);
     ctx.closePath();
     ctx.stroke();
 
-    ctx.font = config.scale.smallFont;
-    ctx.beginPath();
-    for (let i = 0; i<=nTicks; i++) {
-        let x = xMargin + (i*basePx);
-        ctx.moveTo(x, y);
-        ctx.lineTo(x, y + 5);
+    //--- the ticks
+    if (unitPx > 25) {
+        ctx.font = config.scale.smallFont;
+        ctx.beginPath();
+        for (let i = 0; i<=nUnits; i++) {
+            let x = xMargin + (i*unitPx);
+            ctx.moveTo(x, y);
+            ctx.lineTo(x, y + 5);
 
-        ctx.fillText( lengthString(i, false), x, y+14);
+            ctx.fillText( tickBase * i, x, y+14);
+        }
+        ctx.closePath();
+        ctx.stroke();
     }
 
-    ctx.closePath();
-    ctx.stroke();
-
+    //--- the length string
     ctx.font = config.scale.font;
-    let x = Math.round( xMargin + (nTicks * basePx) / 2);
-    ctx.fillText( lengthString(nTicks * base, true), x, y - 3);
+    let x = Math.round( xMargin + (nUnits * unitPx) / 2);
+    ctx.fillText( label, x, y - 3);
 }
 
-const metricBases = [ 1000000, 500000, 100000, 50000, 10000, 5000, 1000, 500, 100, 50, 10 ];  // all in meters
-const usBases = [  ]; // in meters (for full, half and quarter miles)
-
-
-
-
-function getBaseDistance (canvasWidth, dPixel, bases, nBases) {
-    for (let i = 0; i< bases.length; i++) {
-        let d = bases[i] * nBases / dPixel;
-        if (d < canvasWidth) return bases[i];
-    }
-    return 0;
-}
-
-function lengthString (dist, showUnits) {
-    if (dist >= 100) {
-        let d = Math.round(dist) / 1000;
-        return showUnits ? d + "km" : d.toString();
-    } else {
-        let d = Math.round(dist);
-        return showUnits ? d + "m" : d.toString();
-    }
-}
+/* #endregion map scale */
 
 //--- 2nd level event handlers
 
@@ -1126,7 +1239,9 @@ export function getCartographicMousePosition(e, result=null) {
     cp2.y = e.clientY;
 
     let ellipsoid = viewer.scene.globe.ellipsoid;
-    let cartesian = viewer.camera.pickEllipsoid( cp2, ellipsoid, cp3); // mouse might be outside globe
+    
+    //let cartesian = viewer.camera.pickEllipsoid( cp2, ellipsoid, cp3); // mouse might be outside globe    
+    let cartesian = viewer.scene.pickPosition( cp2, result);
     return cartesian ? ellipsoid.cartesianToCartographic( cartesian, result) : undefined;
 }
 
@@ -1134,8 +1249,9 @@ export function getCartesian3MousePosition(e, result=null) {
     cp2.x = e.clientX;
     cp2.y = e.clientY;
 
-    let ellipsoid = viewer.scene.globe.ellipsoid;
-    return viewer.camera.pickEllipsoid( cp2, ellipsoid, result);
+    //let ellipsoid = viewer.scene.globe.ellipsoid;
+    //return viewer.camera.pickEllipsoid( cp2, ellipsoid, result);
+    return viewer.scene.pickPosition( cp2, result);
 }
 
 export function getWindowMousePosition(e) {
@@ -1374,13 +1490,15 @@ function lowerModuleLayer(event){
     console.log("TBD lower layer: " + le);
 }
 
-//--- interactive geo input
+/* #region interactive geo input ********************************************/
+
 /// the low level entry function - no handles, just cartesian points. Handles for subsequent editing
 /// have to be added through the provided callbacks. This function does not create any
 /// Cesium resources. We support a onMouseMove callback so that we don't have to redundantly calculate
 /// the Cartesian3 mouse position. There is no onDelPoint since we can't delete points in enter
 /// mode - we can't set the pointer position in Javascript
 /// callbacks: { onEnter, onCancel, onAddPoint, onDelPoint, onMouseMove }
+
 export function enterPolyline (points, maxPoints, callbacks) {
     let cp = new Cesium.Cartesian3(); // cached point to save allocs
     let dblClickAction = getInputAction( Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
@@ -1394,7 +1512,7 @@ export function enterPolyline (points, maxPoints, callbacks) {
         getCartesian3MousePosition(event, cp);
         p.x = cp.x;   p.y = cp.y;   p.z = cp.z;
     
-        if (callbacks.onMouseMove) { callbacks.onMouseMove( idx, p); }
+        if (callbacks.onMouseMove) { callbacks.onMouseMove( points, idx); }
     }
   
     function onClick(event) {
@@ -1469,8 +1587,7 @@ export function enterGeoPoint (processResult) {
     } });
 }
 
-/*** TODO - these need a enterPolyline environment that creates/removes an entity to draw the shape */
-export function enterGeoLine (processResult) {
+export function enterGeoLine (processResult, onMouseMove=undefined) {
     let points = [];
     let polyEntity = undefined;
 
@@ -1501,7 +1618,7 @@ export function enterGeoLine (processResult) {
 
     function onCancel () { cleanUpEnter(polyEntity); }
 
-    enterPolyline( points, 2, {onEnter, onCancel, onAddPoint});
+    enterPolyline( points, 2, {onEnter, onCancel, onAddPoint, onMouseMove});
 }
 
 function cleanUpEnter(entity) {
@@ -1740,15 +1857,17 @@ export function enterGeoCircle (processResult) {
     }
 
     function onEnter () {
-        //if (circleEntity) viewer.entities.remove(circleEntity);
         cleanUp();
-        processResult( new main.GeoCircle( util.toDegrees(pCenter.longitude), util.toDegrees(pCenter.latitude), radius));
+        let geo = util.ecefToGeo(pCenter.x, pCenter.y, pCenter.z);
+        processResult( new main.GeoCircle( util.toDegrees(geo.lon), util.toDegrees(geo.lat), radius));
     }
 
     function onCancel () { cleanUp(); }
 
     enterPolyline( points, 2, { onEnter, onCancel, onAddPoint, onMouseMove: updateRadius });
 }
+
+/* #endregion geo entry */
 
 export function cartesianToCartographicDegrees (p) {
     return cartographicToDegrees( Cesium.Cartographic.fromCartesian(p));
@@ -1797,9 +1916,90 @@ export function getEnuRotFromQuaternion (qx, qy, qz, w) {
     return Cesium.Matrix3.fromQuaternion( qRot);
 }
 
+// center is Cartesian3 
+export function circleOutline (center,radius) {
+    //let axis = Cesium.Caresian3.normalize( center, new Cartesian3()); // the rotation axis unit vec
+
+    // the rotation quaternion
+    let q = Cesium.Quaternion.fromAxisAngle(center, util.toRadians(5)); // we approximate in 5deg steps (72 vertices)
+    let b = new Cesium.Cartesian3( q.x, q.y, q.z); // the vector part of the rotation quaternion
+    let b2 = b.x*b.x + b.y*b.y + b.z*b.z;
+    let qwb2 = q.w * q.w - b2;
+    let qw2 = q.w*2;
+
+    // compute start point on circle (on parallel -> same z as center)
+    // we assume the radius is the distance on the sphere
+    // we have to divide by the radius of the parallel at the z position
+    let a = radius / (Math.sqrt(util.meanEarthRadius*util.meanEarthRadius - center.z*center.z));
+    let sin_a = Math.sin(a);
+    let cos_a = Math.cos(a);
+
+    let v = new Cesium.Cartesian3( 
+        center.x * cos_a - center.y * sin_a,
+        center.x * sin_a + center.y * cos_a,
+        center.z
+    );
+
+    let r1 = new Cesium.Cartesian3();
+    let r2 = new Cesium.Cartesian3();
+    let r3 = new Cesium.Cartesian3();
+    let r4 = new Cesium.Cartesian3();
+
+    let vertices = [v];
+
+    // now rotate p around center in 5 deg steps
+    for (let i=0; i<72; i++) {
+        let dot2 = Cesium.Cartesian3.dot( v, b) * 2;
+        let cross = Cesium.Cartesian3.cross( b, v, r1);
+
+        let v1 = Cesium.Cartesian3.multiplyByScalar( v, qwb2, r2);
+        let v2 = Cesium.Cartesian3.multiplyByScalar( b, dot2, r3);
+        let v3 = Cesium.Cartesian3.multiplyByScalar( cross, qw2, r4);
+
+        v = new Cesium.Cartesian3(
+            v1.x + v2.x + v3.x,
+            v1.y + v2.y + v3.y,
+            v1.z + v2.z + v3.z
+        );
+
+        vertices.push(v);
+    }
+    vertices.push( vertices[0]); // close polygon
+
+    return vertices;
+}
+
+
+
 function setCesiumContainerVisibility (isVisible) {
     document.getElementById("cesiumContainer").style.visibility = isVisible;
 }
+
+// return object suitable to set a Point3D from the current camera position
+function withCurrentCameraPosition (callback) {
+    let pos = viewer.camera.positionCartographic;
+    callback({
+        lon: Math.round( Cesium.Math.toDegrees(pos.longitude) * 10000) / 10000, // round to 4 decimals
+        lat: Math.round( Cesium.Math.toDegrees(pos.latitude) * 10000) / 10000,
+        alt: Math.round(pos.height)
+    });
+}
+
+// a hack to prevent rendering delays when reloading polyline workers
+function keepPolylineWorkersAlive () {
+    viewer.entities.add(
+        new Cesium.Entity({
+            name: 'dummy line to keep polyline web worker alive',
+            polyline: {
+                positions: [new Cesium.Cartesian3(0, 0, 0), new Cesium.Cartesian3(1, 1, 1)],
+                arcType: Cesium.ArcType.NONE, // required, or runtime error
+                material: new Cesium.PolylineDashMaterialProperty({color: Cesium.Color.CYAN}), // required, or else no worker!
+            },
+        }),
+    );
+}
+
+/* #region share interface ***********************************************************************************/
 
 var shareInitialized = false;
 
@@ -1840,29 +2040,8 @@ function handleSyncMessage (msg) {
     //... and more to follow
 }
 
-// return object suitable to set a Point3D from the current camera position
-function withCurrentCameraPosition (callback) {
-    let pos = viewer.camera.positionCartographic;
-    callback({
-        lon: Math.round( Cesium.Math.toDegrees(pos.longitude) * 10000) / 10000, // round to 4 decimals
-        lat: Math.round( Cesium.Math.toDegrees(pos.latitude) * 10000) / 10000,
-        alt: Math.round(pos.height)
-    });
-}
+/* #endregion share interface */
 
-// a hack to prevent rendering delays when reloading polyline workers
-function keepPolylineWorkersAlive () {
-    viewer.entities.add(
-        new Cesium.Entity({
-            name: 'dummy line to keep polyline web worker alive',
-            polyline: {
-                positions: [new Cesium.Cartesian3(0, 0, 0), new Cesium.Cartesian3(1, 1, 1)],
-                arcType: Cesium.ArcType.NONE, // required, or runtime error
-                material: new Cesium.PolylineDashMaterialProperty({color: Cesium.Color.CYAN}), // required, or else no worker!
-            },
-        }),
-    );
-}
 
 // executed after all modules have been loaded and initialized
 export function postInitialize() {
@@ -1883,5 +2062,3 @@ export function postInitialize() {
     console.log("odin_cesium.postInitialize complete.");
 }
 
-//console.log("ground primitive support:", Cesium.GroundPrimitive.isSupported(viewer.scene));
-//await Cesium.GroundPrimitive.initializeTerrainHeights();

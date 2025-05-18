@@ -13,21 +13,21 @@
  */
 #![allow(unused)]
 
+use std::{collections::HashMap, sync::Arc, any::type_name};
 use odin_build;
 use odin_actor::{errors::op_failed, prelude::*};
 use odin_server::prelude::*;
-use odin_share::prelude::*;
 use odin_cesium::ImgLayerService;
 use odin_action::{data_action,DataAction};
 use odin_common::{angle::{Latitude,Longitude},geo::{GeoPoint,GeoPoint3}};
+use odin_share::{prelude::*,load_config};
 
-use std::{collections::HashMap, sync::Arc, any::type_name};
 
 /// Cesium app using a ShareService
 run_actor_system!( actor_system => {
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
 
-    // we would normally initialize the store via default_shared_items() but those normally reside outside the repository
+    // we would normally initialize the store via &share_config.data
     let hstore = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), &"examples/shared_items.json", false)?;
 
     let hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(
@@ -35,7 +35,7 @@ run_actor_system!( actor_system => {
         "cesium_share",
         SpaServiceList::new()
             .add( build_service!( => ImgLayerService::new()))
-            .add( build_service!( let hstore = hstore.clone() => ShareService::new( hstore)) )
+            .add( build_service!( let hstore = hstore.clone() => ShareService::new( "odin_share_schema.js", hstore)) )
     ))?;
 
     /*

@@ -27,6 +27,7 @@ use csv;
 use async_trait::async_trait;
 use bit_set::BitSet;
 use odin_common::{
+    sin,cos,
     angle::{Angle180,Longitude,Latitude}, 
     cartesian3::{dist_squared, find_closest_index, Cartesian3}, 
     cartographic::Cartographic, 
@@ -38,6 +39,7 @@ use odin_macro::public_struct;
 use crate::{errors::{op_failed, OdinOrbitalError, Result}, HotspotList, OrbitalSatelliteInfo};
 use crate::{Hotspot, HotspotConfidence, HotspotImporter, overpass::Overpass, CompletedOverpass};
 
+/// config of how/when to access hotspot data for supported satellites from FIRMS 
 #[derive(Debug,Serialize,Deserialize)]
 #[public_struct]
 struct FirmsConfig {
@@ -47,16 +49,67 @@ struct FirmsConfig {
     satellites: Vec<FirmsSatelliteData>
 }
 
+impl FirmsConfig {
+    fn get_source (&self, sat_id: u32)->Option<&String> {
+        self.satellites.iter().find( |s|  s.sat_id == sat_id).map( |sd| &sd.data_source)
+    }
+
+    fn get_download_delay (&self, sat_id: u32)->Option<Duration> {
+        self.satellites.iter().find( |s|  s.sat_id == sat_id).map( |sd| sd.download_delay)
+    }
+}
+
 #[derive(Debug,Serialize,Deserialize)]
 #[public_struct]
 struct FirmsSatelliteData {
     sat_id: u32,
     sat_name: String,
-    data_source: String,
+    data_source: String, // the FIRMS data product name for this satellite 
     download_delay: Duration 
 }
 
-/* #region VIIRS hotspots ******************************************************************************************/
+/// abstraction for FIRMS hotspot data records.
+/// this is an internal type to support factoring out common functions for MODIS, VIIRS and OLI
+trait RawFirmsHotspot: fmt::Debug + for<'de> serde::Deserialize<'de> {
+    fn get_confidence (&self)->Option<HotspotConfidence>;
+    fn get_sat_id (&self)->Option<u32>;
+    fn get_utc_datetime (&self)->Option<DateTime<Utc>>;
+    fn to_hotspot (&self, cop: &CompletedOverpass<HotspotList>)->Result<Hotspot>;
+}
+
+/// internal abstraction for FIRMS importers that is used to factor out common functions 
+#[async_trait]
+trait FirmsHotspotImporter: HotspotImporter {
+
+    //--- our abstract field accessors
+    fn get_config (&self)->&FirmsConfig;
+    fn get_cache_dir (&self)->&PathBuf;
+    fn get_source (&self)->&str;
+    fn update_last_reported (&mut self, date: DateTime<Utc>);
+    fn get_download_delay (&self)->Duration;
+
+
+    /// according to https://firms.modaps.eosdis.nasa.gov/usfs/api/area/
+    ///   [BASE_URL]/api/area/csv/[MAP_KEY]/[SOURCE]/[AREA_COORDINATES]/[DAY_RANGE]/[DAY]
+    ///    e.g. /api/area/csv/534b391abcdf3cf5969cb7ec8ce07de5/VIIRS_NOAA21_NRT/-126,21,-66,50/1/2025-04-04
+    /// Note that only full day ranges are allowed (1-10), which also means consecutive downloads over a day do overlap
+    fn current_hotspots_request_url (&self, source: &str, n_days: usize)->String {
+        let conf = self.get_config();
+        let bbox = &conf.bounds;
+        format!( "{}/usfs/api/area/csv/{}/{}/{:.0},{:.0},{:.0},{:.0}/{}", 
+                conf.base_url, conf.map_key, source,  
+                bbox.west().degrees(), bbox.south().degrees(), bbox.east().degrees(), bbox.north().degrees(), n_days)
+    }
+
+    fn file_path (&self, source: &str, date: DateTime<Utc>)->PathBuf {
+        let now = datetime::utc_now();
+        let fname = format!("{}_{:4}-{:02}-{:02}_{:02}{:02}.csv", source, date.year(), date.month(), date.day(), date.hour(), date.minute());
+        self.get_cache_dir().join(Path::new(&fname))
+    }
+}
+
+
+/* #region VIIRS hotspots **********************************************************************************/
 
 /// this is the raw record format of the VIIRS FDDC data product as it is retrieved from the FIRMS server
 /// field descriptions on https://www.earthdata.nasa.gov/data/instruments/viirs/viirs-i-band-375-m-active-fire-data
@@ -78,132 +131,18 @@ struct RawViirsHotspot {
     daynight: String
 }
 
-/// this is the internal format and what we send (serialized) to clients
-
-
-pub struct ViirsHotspotImporter {
-    config: FirmsConfig,
-    sat_info: Arc<OrbitalSatelliteInfo>,
-    download_delay: Duration,
-    cache_dir: PathBuf,
-
-    last_date: DateTime<Utc> // most recent hotspot date we have seen so far
-}
-
-impl ViirsHotspotImporter {
-    pub fn new (config: FirmsConfig, sat_info: Arc<OrbitalSatelliteInfo>, cache_dir: impl AsRef<Path>)->Self {
-        let cache_dir = cache_dir.as_ref().to_path_buf();
-        let last_date = datetime::from_epoch_millis(0);
-        let download_delay = if let Some(sat) = config.satellites.iter().find(|sat| sat.sat_id == sat_info.sat_id) {
-            sat.download_delay
-        } else {
-            Duration::from_mins(10) // TODO - is this a sensible default value?
-        };
-
-        ViirsHotspotImporter { config, sat_info, download_delay, cache_dir, last_date }
-    }
-
-    /// parse the CSV data provided by the reader, convert the RawViirsHotpots from it into (uom-aware) ViirsHotspots,
-    /// and sort them into the provided mutable list of CompletedOverpass items (which are aggregations of Overpass and related
-    /// hotspot lists observed during this overpass)
-    pub fn import_hotspots (reader: impl io::Read, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<(BitSet,DateTime<Utc>)> {
-        let mut changed_overpasses = BitSet::with_capacity(cops.len());
-        let mut last_idx: Option<usize> = None; // none yet
-        let mut hotspots: Vec<Hotspot> = Vec::new();
-        let mut csv_reader = csv::Reader::from_reader(reader);
-        let mut last_date = datetime::from_epoch_millis(0);
-
-        for res in csv_reader.deserialize() {
-            let raw_hs: RawViirsHotspot = res?;
-            //println!("@@ raw {raw_hs:?}");
-            if_let! {
-                Some(sat_id) = Self::get_sat_id( &raw_hs.satellite),
-                Some(conf) = Self::get_confidence( &raw_hs.confidence),
-                Ok(date) = NaiveDate::parse_from_str( &raw_hs.acq_date, "%Y-%m-%d"),
-                Some(date) = date.and_hms_opt(raw_hs.acq_time/100, raw_hs.acq_time%100, 0) => {
-                    let date = Utc.from_utc_datetime(&date);
-                    if date > last_date { last_date = date; }
-                
-                    if let Some(idx) = find_covering_overpass( sat_id, date, cops, last_idx) {
-                        if let Some(j) = last_idx {
-                            if idx != j && !hotspots.is_empty() { // this is a new overpass
-                                if cops[j].data.is_none() {
-                                    cops[j].data = Some( HotspotList::new( &cops[j].overpass, hotspots) );
-                                    changed_overpasses.insert(j);
-                                }
-                                hotspots = Vec::new();
-                            }
-                        }              
-                        last_idx = Some(idx); // we have a last idx for which we have to store hotspots
-                        
-
-                        //println!("@@ {date} -> {}", cops[idx].overpass.end);
-
-                        let lon = Longitude::from_degrees(raw_hs.longitude);
-                        let lat = Latitude::from_degrees(raw_hs.latitude);
-
-                        let geo = Cartographic::from_degrees(raw_hs.longitude, raw_hs.latitude, 0.0);
-                        let pos = Cartesian3::from(&geo);
-
-                        let scan_m = raw_hs.scan * 1000.0;
-                        let scan = Length::new::<meter>(scan_m);
-
-                        let track_m = raw_hs.track * 1000.0;
-                        let track = Length::new::<meter>(track_m);
-
-                        let gp = cops[idx].overpass.closest_track_point( &pos);
-                        let geo_gp = Cartographic::from(gp);
-                        let alpha =  geo.bearing_to( &geo_gp);
-                        let area = compute_footprint( &pos, track_m, scan_m, -alpha);
-
-                        let rot = Angle180::from_radians(alpha);
-                        let dist = Length::new::<meter>( geo_gp.distance_to(&geo));
-
-                        let temp = Some(ThermodynamicTemperature::new::<kelvin>(raw_hs.bright_ti4));
-                        let frp = Some(Power::new::<megawatt>(raw_hs.frp));
-
-                        let vhs = Hotspot { pos, lon, lat, area, scan, track, rot, dist, date, conf, temp, frp };
-                        //println!("@@ vhs: {vhs:?}");
-                        hotspots.push( vhs);
-                    }
-                }
-            } 
+impl RawFirmsHotspot for RawViirsHotspot {
+    fn get_confidence (&self)->Option<HotspotConfidence> {
+        match self.confidence.as_str() {
+            "n" => Some(HotspotConfidence::Medium),
+            "h" => Some(HotspotConfidence::High),
+            "l" => Some(HotspotConfidence::Low),
+            _ => None
         }
-        if let Some(j) = last_idx {
-            if !hotspots.is_empty() {
-                if cops[j].data.is_none() {
-                    cops[j].data = Some( HotspotList::new( &cops[j].overpass, hotspots) );
-                    changed_overpasses.insert(j);
-                } 
-                // TODO should we replace if prev data contains URT hotspots?
-            }
-        }
-
-        Ok((changed_overpasses,last_date))
-    }        
-
-
-    /// according to https://firms.modaps.eosdis.nasa.gov/usfs/api/area/
-    ///   [BASE_URL]/api/area/csv/[MAP_KEY]/[SOURCE]/[AREA_COORDINATES]/[DAY_RANGE]/[DAY]
-    ///    e.g. /api/area/csv/534b391abcdf3cf5969cb7ec8ce07de5/VIIRS_NOAA21_NRT/-126,21,-66,50/1/2025-04-04
-    /// Note that only full day ranges are allowed (1-10), which also means consecutive downloads over a day do overlap
-    fn current_hotspots_request_url (&self, source: &str, n_days: usize)->String {
-        let bbox = &self.config.bounds;
-        format!( "{}/usfs/api/area/csv/{}/{}/{:.0},{:.0},{:.0},{:.0}/{}", 
-                self.config.base_url, self.config.map_key, source,  
-                bbox.west().degrees(), bbox.south().degrees(), bbox.east().degrees(), bbox.north().degrees(), n_days)
     }
 
-    fn file_path (&self, source: &str, date: DateTime<Utc>)->PathBuf {
-        let now = Utc::now();
-        let fname = format!("{}_{:4}-{:02}-{:02}_{:02}{:02}.csv", source, date.year(), date.month(), date.day(), date.hour(), date.minute());
-        self.cache_dir.join(Path::new(&fname))
-    }
-
-    //--- CSV field parsers
-
-    fn get_sat_id (name: &str)->Option<u32> {
-        match name {
+    fn get_sat_id (&self)->Option<u32> {
+        match self.satellite.as_str() {
             "N21" => Some(54234),  // NOAA-21
             "N20" => Some(43013),  // NOAA-20
             "N"   => Some(37849),  // Suomi-NPP
@@ -211,48 +150,321 @@ impl ViirsHotspotImporter {
         }
     }
 
-    fn get_source (sat_id: u32)->Option<&'static str> {
-        match sat_id {
-            54234 => Some("VIIRS_NOAA21_NRT"),
-            43013 => Some("VIIRS_NOAA20_NRT"),
-            37849 => Some("VIIRS_SNPP_NRT"),
-            _     => None
-        }
+    fn get_utc_datetime (&self)->Option<DateTime<Utc>> {
+        get_acq_utc_datetime( &self.acq_date, self.acq_time)
     }
 
-    fn get_confidence (s: &str)->Option<HotspotConfidence> {
-        match s {
-            "n" => Some(HotspotConfidence::Nominal),
-            "h" => Some(HotspotConfidence::High),
-            "l" => Some(HotspotConfidence::Low),
-            _ => None
+    
+    // this can't be a simple From<_> impl since we need overpass context info and the translation might fail
+    fn to_hotspot (&self, cop: &CompletedOverpass<HotspotList>)->Result<Hotspot> {
+        let date = self.get_utc_datetime().ok_or_else( || op_failed!("invalid hotspot date"))?;
+
+        let lon = Longitude::from_degrees(self.longitude);
+        let lat = Latitude::from_degrees(self.latitude);
+
+        let geo = Cartographic::from_degrees(self.longitude, self.latitude, 0.0);
+        let pos = Cartesian3::from(&geo);
+
+        let scan_m = self.scan * 1000.0;
+        let scan = Length::new::<meter>(scan_m);
+
+        let track_m = self.track * 1000.0;
+        let track = Length::new::<meter>(track_m);
+
+        let gp = cop.overpass.closest_track_point( &pos);
+        let geo_gp = Cartographic::from(gp);
+        let alpha =  geo.bearing_to( &geo_gp);
+        let area = compute_footprint( &pos, track_m, scan_m, -alpha);
+
+        let rot = Angle180::from_radians(alpha);
+        let dist = Length::new::<meter>( geo_gp.distance_to(&geo));
+
+        let conf = self.get_confidence();
+        let temp = Some(ThermodynamicTemperature::new::<kelvin>(self.bright_ti4));
+        let frp = Some(Power::new::<megawatt>(self.frp));
+
+        Ok( Hotspot { pos, lon, lat, area, scan, track, rot, dist, date, conf, temp, frp } )
+    }
+
+}
+
+/// the importer for hotspot data derived from Visible Infrared Imaging Radiometer Suite (VIIRS) instruments
+pub struct ViirsHotspotImporter {
+    config: FirmsConfig,
+    sat_info: Arc<OrbitalSatelliteInfo>,
+    source: String,
+    download_delay: Duration,
+    cache_dir: PathBuf,
+    last_date: DateTime<Utc> // most recent hotspot date we have seen so far
+}
+
+impl ViirsHotspotImporter {
+    pub fn new (config: FirmsConfig, sat_info: Arc<OrbitalSatelliteInfo>, cache_dir: impl AsRef<Path>)->Self {
+        let cache_dir = cache_dir.as_ref().to_path_buf();
+        let last_date = datetime::from_epoch_millis(0);
+        let download_delay = config.get_download_delay( sat_info.sat_id).unwrap(); // Ok to panic in toplevel ctor
+        let source = config.get_source( sat_info.sat_id).unwrap().clone(); // Ok to panic since this is a toplevel ctor
+
+        ViirsHotspotImporter { config, sat_info, source, download_delay, cache_dir, last_date }
+    }
+}
+
+impl FirmsHotspotImporter for ViirsHotspotImporter {
+
+    fn get_config(&self)->&FirmsConfig { &self.config }
+    fn get_source (&self)->&str { self.source.as_str() }
+    fn get_cache_dir (&self)->&PathBuf { &self.cache_dir }
+    fn get_download_delay (&self)->Duration { self.download_delay }
+
+    fn update_last_reported (&mut self, date:DateTime<Utc>) {
+        if date > self.last_date {
+            self.last_date = date;
         }
     }
 }
 
+#[async_trait]
+impl HotspotImporter for ViirsHotspotImporter {
+
+    async fn import_hotspots (&mut self, n_days: usize, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<BitSet> {
+        import_firms_hotspots::<ViirsHotspotImporter,RawViirsHotspot>(&mut self, n_days, cops).await
+    }
+
+    fn last_reported (&self) -> DateTime<Utc>  { 
+        self.last_date
+    }
+
+    fn get_download_schedule (&self,overpass_end:DateTime<Utc>) -> DateTime<Utc>  {
+        overpass_end + self.get_download_delay()
+    }
+}
+
+/* #endregion VIIRS hotspots */
+
+
+/* #region OLI (Landsat) hotspots ***********************************************************************/
+
+/// this is the raw record format of the OLI data product as it is retrieved from the FIRMS server
+/// field descriptions on https://www.earthdata.nasa.gov/data/tools/firms/faq ("attributes of Landsat fire data")
+/// the pixel footprint is fixed 30x30m (this is a narrow push broom sensor)
+#[derive(Debug,Deserialize)]
+#[public_struct]
+struct RawOliHotspot {
+    latitude: f64,
+    longitude: f64,
+    path: i64,
+    row: i64,
+    scan: i64,  // NOTE: these are NOT pixel footprint dimensions but image indices
+    track: i64,
+    acq_date: String, // ?? Date
+    acq_time: u32, // ?? hmm
+    satellite: String,
+    confidence: String,
+    daynight: String
+}
+
+impl RawFirmsHotspot for RawOliHotspot {
+    fn get_confidence (&self)->Option<HotspotConfidence> {
+        match self.confidence.as_str() {
+            "M" => Some(HotspotConfidence::Medium),
+            "H" => Some(HotspotConfidence::High),
+            "L" => Some(HotspotConfidence::Low),
+            _ => None
+        }
+    }
+
+    fn get_sat_id (&self)->Option<u32> {
+        match self.satellite.as_str() {
+            "L8" => Some(39084),
+            "L9" => Some(49260),
+            _     => None
+        }
+    }
+
+    fn get_utc_datetime (&self)->Option<DateTime<Utc>> {
+        get_acq_utc_datetime( &self.acq_date, self.acq_time)
+    }
+
+    fn to_hotspot (&self, cop: &CompletedOverpass<HotspotList>)->Result<Hotspot> {
+        let date = self.get_utc_datetime().ok_or_else( || op_failed!("invalid hotspot date"))?;
+        
+        let lon = Longitude::from_degrees(self.longitude);
+        let lat = Latitude::from_degrees(self.latitude);
+
+        let geo = Cartographic::from_degrees(self.longitude, self.latitude, 0.0);
+        let pos = Cartesian3::from(&geo);
+
+        let scan_m: f64 = 30.0;
+        let track_m: f64 = 30.0;
+
+        let scan = Length::new::<meter>(scan_m);
+        let track = Length::new::<meter>(track_m);
+
+        let gp = cop.overpass.closest_track_point( &pos);
+        let geo_gp = Cartographic::from(gp);
+        let alpha =  geo.bearing_to( &geo_gp);
+        let area = compute_footprint( &pos, track_m, scan_m, -alpha);
+
+        let rot = Angle180::from_radians(alpha);
+        let dist = Length::new::<meter>( geo_gp.distance_to(&geo));
+
+        let conf = self.get_confidence();
+        let temp = None;
+        let frp = None;
+
+        Ok( Hotspot { pos, lon, lat, area, scan, track, rot, dist, date, conf, temp, frp } )
+    }
+}
+
+/// importer for hotspots obtained from Landsat Operational Land Imager (OLI) instrument
+pub struct OliHotspotImporter {
+    config: FirmsConfig,
+    sat_info: Arc<OrbitalSatelliteInfo>,
+    source: String,
+    download_delay: Duration,
+    cache_dir: PathBuf,
+    last_date: DateTime<Utc> // most recent hotspot date we have seen so far
+}
+
+impl OliHotspotImporter {
+    pub fn new (config: FirmsConfig, sat_info: Arc<OrbitalSatelliteInfo>, cache_dir: impl AsRef<Path>)->Self {
+        let cache_dir = cache_dir.as_ref().to_path_buf();
+        let last_date = datetime::from_epoch_millis(0);
+        let download_delay = config.get_download_delay( sat_info.sat_id).unwrap(); // Ok to panic in toplevel ctor
+        let source = config.get_source( sat_info.sat_id).unwrap().clone(); // Ok to panic since this is a toplevel ctor
+
+        OliHotspotImporter { config, sat_info, source, download_delay, cache_dir, last_date }
+    }
+}
+
+impl FirmsHotspotImporter for OliHotspotImporter {
+
+    fn get_config(&self)->&FirmsConfig { &self.config }
+    fn get_cache_dir (&self)->&PathBuf { &self.cache_dir }
+    fn get_source (&self)->&str { self.source.as_str() }
+    fn get_download_delay (&self)->Duration { self.download_delay }
+
+    fn update_last_reported (&mut self, date:DateTime<Utc>) {
+        if date > self.last_date {
+            self.last_date = date;
+        }
+    }
+}
+
+#[async_trait]
+impl HotspotImporter for OliHotspotImporter {
+
+    async fn import_hotspots (&mut self, n_days: usize, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<BitSet> {
+        import_firms_hotspots::<OliHotspotImporter,RawOliHotspot>(&mut self, n_days, cops).await
+    }
+
+    fn last_reported (&self) -> DateTime<Utc>  { 
+        self.last_date
+    }
+
+    fn get_download_schedule (&self,overpass_end:DateTime<Utc>) -> DateTime<Utc>  {
+        overpass_end + self.get_download_delay()
+    }
+}
+
+/* #endregion OLI */
+
+/* #region common funcs **********************************************************************************************/
+
+async fn import_firms_hotspots<I,R> (importer: &mut I, n_days: usize, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<BitSet> 
+    where I: FirmsHotspotImporter, R: RawFirmsHotspot
+{
+    let date = datetime::utc_now();
+    let source = importer.get_source();
+    let url = importer.current_hotspots_request_url( source, n_days);
+    let file_path = importer.file_path(source, date);
+    let client = Client::new(); // no need to keep it around as this is only called every couple of hours
+
+    let size = download_url( &client, &url, &None, &file_path).await?;
+
+    if size > 0 {
+        let file = File::open( file_path)?;
+        let (retrieved,last_date) = read_hotspots::<R>( file, cops)?;
+        importer.update_last_reported( last_date);
+        Ok(retrieved)
+
+    } else { 
+        Err( op_failed!("no FIRMS data"))
+    }
+}
+
+/// parse the CSV data provided by the reader, convert the RawViirsHotpots from it into (uom-aware) ViirsHotspots,
+/// and sort them into the provided mutable list of CompletedOverpass items (which are aggregations of Overpass and related
+/// hotspot lists observed during this overpass)
+fn read_hotspots<R> (reader: impl io::Read, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<(BitSet,DateTime<Utc>)> 
+    where R: RawFirmsHotspot
+{
+    let mut changed_overpasses = BitSet::with_capacity(cops.len());
+    let mut last_idx: Option<usize> = None; // none yet
+    let mut hotspots: Vec<Hotspot> = Vec::new();
+    let mut csv_reader = csv::Reader::from_reader(reader);
+    let mut last_date = datetime::from_epoch_millis(0);
+
+    for res in csv_reader.deserialize() {
+        let raw_hs: R = res?;
+        if_let! {
+            Some(sat_id) = raw_hs.get_sat_id(),
+            Some(conf) = raw_hs.get_confidence(),
+            Some(date) = raw_hs.get_utc_datetime() => {
+                if date > last_date { last_date = date; }
+            
+                if let Some(idx) = find_covering_overpass( sat_id, date, cops, last_idx) {
+                    if let Some(j) = last_idx {
+                        if idx != j && !hotspots.is_empty() { // this is a new overpass
+                            if cops[j].data.is_none() {
+                                cops[j].data = Some( HotspotList::new( &cops[j].overpass, hotspots) );
+                                changed_overpasses.insert(j);
+                            }
+                            hotspots = Vec::new();
+                        }
+                    }              
+                    last_idx = Some(idx); // we have a last idx for which we have to store hotspots
+                    
+                    if let Ok(hs) = raw_hs.to_hotspot( &cops[idx]) {
+                        hotspots.push( hs);
+                    }
+                }
+            }
+        } 
+    }
+    if let Some(j) = last_idx {
+        if !hotspots.is_empty() {
+            if cops[j].data.is_none() {
+                cops[j].data = Some( HotspotList::new( &cops[j].overpass, hotspots) );
+                changed_overpasses.insert(j);
+            } 
+            // TODO should we replace if prev data contains URT hotspots?
+        }
+    }
+
+    Ok((changed_overpasses,last_date))
+}        
+
+/// scan and track are cross-scan and along-track dimentions of hotspot in meters
+/// alpha is the outgoing bearing from the hotspot to its closest ground track point
 fn compute_footprint( p: &Cartesian3, track: f64, scan: f64, alpha: f64)->[Cartesian3;4] {
     let (u, u_east, u_north) = p.en_units();
 
     let dw = u_east * track / 2.0;
     let dh = u_north * scan / 2.0;
 
-    let p1 = p - dw - dh; // WS
-    let p2 = p + dw - dh; // ES
-    let p3 = p + dw + dh; // EN
-    let p4 = p - dw + dh; // WN
+    let mut vertices: [Cartesian3;4] = [
+        p - dw - dh, // WS
+        p + dw - dh, // ES
+        p + dw + dh, // EN
+        p - dw + dh, // WN
+    ];
 
-    let mut p1 = p1.rotate_around( &u, alpha);
-    let mut p2 = p2.rotate_around( &u, alpha);
-    let mut p3 = p3.rotate_around( &u, alpha);
-    let mut p4 = p4.rotate_around( &u, alpha);
-    
-    p1.round_to_decimals(0);
-    p2.round_to_decimals(0);
-    p3.round_to_decimals(0);
-    p4.round_to_decimals(0);
-    
-    [p1,p2,p3,p4]
+    Cartesian3::rotate_all(&u, alpha, &mut vertices);
+    Cartesian3::round_all( &mut vertices, 0);
+    vertices
 }
+
 
 
 // note this is based on the empirical assumption that VIIRS hotspot files are always monotonic in overpasses. This is not true with respect
@@ -286,39 +498,13 @@ pub fn is_covering_overpass (o: &Overpass, d: DateTime<Utc>)->bool {
     (d >= o.start) && (d <= cutoff)
 }
 
-#[async_trait]
-impl HotspotImporter for ViirsHotspotImporter {
-
-    async fn import_hotspots (&mut self, n_days: usize, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<BitSet> {
-        let date = datetime::utc_now();
-        let source = Self::get_source(self.sat_info.sat_id).ok_or( op_failed!("unknown VIIRS source"))?;
-        let url = self.current_hotspots_request_url( source, n_days);
-        let file_path = self.file_path(source, date);
-        let client = Client::new(); // no need to keep it around as this is only called every couple of hours
-
-        let size = download_url( &client, &url, &None, &file_path).await?;
-
-        if size > 0 {
-            let file = File::open( file_path)?;
-            let (retrieved,last_date) = Self::import_hotspots( file, cops)?;
-            if last_date > self.last_date {
-                self.last_date = last_date;
-            }
-            Ok(retrieved)
-
-        } else { 
-            Err( op_failed!("no FIRMS data"))
-        }
-    }
-
-    fn get_download_schedule (&self, overpass_end: DateTime<Utc>) -> DateTime<Utc> {
-        // we get continuous FIRMS data - no need to wait for ground station overpasses
-        overpass_end + self.download_delay
-    }
-
-    fn last_reported (&self)->DateTime<Utc> {
-        self.last_date
-    }
+/// get datetime for date/time specs of a raw FIRMS record.
+/// date is specified as a YYYY-MM-DD string
+/// time is a [H]HMM number 
+fn get_acq_utc_datetime (acq_date: &str, acq_time: u32)->Option<DateTime<Utc>> {
+    NaiveDate::parse_from_str( acq_date, "%Y-%m-%d").ok()
+        .and_then( |nd| nd.and_hms_opt(acq_time/100, acq_time%100, 0) )
+        .map( |ndt| Utc.from_utc_datetime(&ndt))
 }
 
-/* #endregion VIIRS */
+/* #endregion common funcs */

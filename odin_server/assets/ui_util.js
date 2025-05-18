@@ -251,12 +251,20 @@ export function squareMetersToHectares(area) {
     return area/10000.0;
 }
 
+export function acresToSquareMiles (area) {
+    return area/640;
+}
+
 export function metersToUsMiles (len) {
     return len / 1609.344;
 }
 
 export function usMilesToMeters (len) {
     return len * 1609.344;
+}
+
+export function metersToYards (len) {
+    return len / metersPerYard;
 }
 
 export function metersToFeet (len) {
@@ -274,6 +282,7 @@ export function metersToNauticalMiles (len) {
 export function nauticalMilesToMeters (len) {
     return len * 1852;
 }
+
 
 //--- date utilities
 
@@ -527,6 +536,11 @@ export function isString(v) {
 
 //--- geo & math
 
+export const metersPerUsMile = 1609.344;
+export const yardsPerUsMile = 1760;
+export const metersPerYard = 0.9144;
+export const metersPerFeet = 0.3048;
+
 export const meanEarthRadius = 6371000.0; // in meters
 const e2_wgs84 = 0.00669437999014;
 const a_wgs84 = 6378137.0;
@@ -640,6 +654,11 @@ export function roundToNearest(x, d) {
     return Math.round(x / d) * d;
 }
 
+export function roundToDecimals(x, d) {
+    let e = Math.pow(10, Math.floor(d));
+    return Math.round(x * e) / e;
+}
+
 export function formatLatLon(latDeg, lonDeg, digits) {
     let fmt = f_N[digits];
     return fmt.format(latDeg) + " " + fmt.format(lonDeg);
@@ -655,6 +674,48 @@ export function formatGroupedFloat(v, digits) {
     return fmt.format(v);
 }
 
+export function lengthString (meters, isMetric) {
+    if (isMetric) {
+        if (meters > 100000) { // above 100km -> rounded to km
+            return `${Math.round(meters / 1000)} km`;
+        } else if (meters > 1000) { // above 1km -> rounded to 100m
+            return `${Math.round(meters / 100)/10 } km`;
+        } else { // below 1km -> rounded m
+            return `${Math.round(meters)} m`;
+        }
+    } else {
+        let mi = metersToUsMiles(meters);
+        if (mi > 100) { // > 100mi -> rounded mi
+            return `${Math.round(mi)} mi`
+        } else if (mi > 1) { // > 1mi -> rounded to 1/10 mi
+            return `${Math.round(mi * 10)/10} mi`;
+        } else { // < 1mi -> rounded yd
+            return `${Math.round(metersToYards(meters))} yd`;
+        }
+    }
+}
+
+export function areaString (meters2, isMetric) {
+    if (isMetric) { 
+        if (meters2 > 100000000) { // > 10x10km -> rounded km² 
+            return `${Math.round(meters2/1000000)} km²`;
+        } else if (meters2 > 10000) { // > 100x100m -> rounded to 1/10 ha
+            return `${Math.round(meters2 / 1000) /10} ha`;
+        } else { // < 100x100m -> rounded m²
+            return `${Math.round(meters2)} m²`;
+        }
+    } else {
+        let ac = squareMetersToAcres(meters2);
+        if (ac > 2589988) { // > 100 mi² -> rounded mi² 
+            return `${Math.round(ac/25899.88110336)} mi²`
+        } else if (ac > 100) { // > 100 ac -> rounded ac
+            return `${Math.round(ac)} ac`;
+        } else { // < 100 ac -> rounded to 1/10 ac
+            return `${Math.round(ac * 10)/10} ac`;
+        }
+    }
+}
+
 // WGS84 approximation for latitude delta in degrees for given meridional distance in meters (Bowring approximation)
 export function deltaLatDegForDistance (s, latDeg) {
     let lat = latDeg / rad2deg;
@@ -668,21 +729,33 @@ export function deltaLonDegForDistance (s, latDeg) {
 
 }
 
+export function distanceBetweenGeoPoints (p1, p2) {
+    return distanceBetweenGeoPos( p1.lon, p1.lat, p2.lon, p2.lat);
+}
+
 // along great circle, in meters
-export function distanceBetweenGeoPos(lat1Deg,lon1Deg, lat2Deg,lon2Deg) {
+export function distanceBetweenGeoPos (lon1Deg, lat1Deg, lon2Deg, lat2Deg) {
     let lat1 = toRadians(lat1Deg);
     let lon1 = toRadians(lon1Deg);
     let lat2 = toRadians(lat2Deg);
     let lon2 = toRadians(lon2Deg);
-    return distanceBetweenGeoPosRadians(lat1,lon1, lat2,lon2);
+    return distanceBetweenGeoPosRadians( lon1, lat1, lon2, lat2);
 }
 
-export function distanceBetweenGeoPosRadians(lat1,lon1, lat2,lon2) {
+export function distanceBetweenGeoPosRadians(lon1, lat1, lon2, lat2) {
     let dLat = lat2 - lat1;
     let dLon = lon2 - lon1;
     let a = sin2(dLat/2.0) + cos(lat1) * cos(lat2) * sin2(dLon/2.0);
     let c = 2.0 * atan2( sqrt(a), sqrt(1.0 - a));
     return meanEarthRadius * c;
+}
+
+export function distanceOverGeoPoints (points) {
+    let l = 0;
+    for (let i=1; i<points.length; i++) {
+        l += distanceBetweenGeoPoints( points[i-1], points[i]);
+    }
+    return l;
 }
 
 // law of cos  based on 2 Cartesian3 points on the surface
@@ -699,6 +772,7 @@ export function gcDistanceBetweenECEF (p1, p2) {
     let a = acos( 1 - (d*d)/(2*r*r) );
     return a * r;
 }
+
 
 export function gcEndPosDegrees (lonDeg, latDeg, initialBearingDeg, dist) {
     let p = gcEndPosRadians( toRadians(lonDeg), toRadians(latDeg), toRadians(initialBearingDeg), dist);
@@ -722,7 +796,7 @@ export function gcEndPosRadians (longitude, latitude, initialBearing, dist) {
 }
 
 /**
- * calculate area of spherical polygon given as geodetic coordinates
+ * calculate area of spherical polygon given as geodetic coordinates (lon,lat in degrees)
  * see Chamberlain, R.G., Duquette W.H.
  * Some Algorithms for Polygons on a Sphere,
  * AGU 2007
@@ -738,11 +812,12 @@ export function geoPolygonArea (geoPoints) {
     for (let i=0; i<=iMax; i++) {
         let p = geoPoints[i];
         let pNext = (i==iMax) ? geoPoints[0] : geoPoints[i+1];
-        sum += (pNext.lon - pPrev.lon) * Math.sin(p.lat);
+        sum += (toRadians(pNext.lon) - toRadians(pPrev.lon)) * Math.sin( toRadians(p.lat));
         pPrev = p;
     }
     return Math.abs(c * sum);
 }
+
 
 export function ecefPolygonArea (points) {
     const c = -20294820500000; // - R^2/2
@@ -776,10 +851,18 @@ export function ecefPolygonArea (points) {
 }
 
 // rect is west,south,east,north in radians
-export function geoRectArea(rect) {
+export function rectArea(rect) {
     const r2 = 40589641000000;
     return Math.abs(r2 * (Math.sin(rect.north) - Math.sin(rect.south)) * (rect.east - rect.west));
 } 
+
+export function geoRectArea (geoRect) {
+    let west = toRadians( geoRect.west);
+    let south = toRadians( geoRect.south);
+    let east = toRadians( geoRect.east);
+    let north = toRadians( geoRect.north);
+    return rectArea( { west, south, east, north });
+}
 
 // naive center
 export function centerLonLat (geoPoints) {
@@ -1057,7 +1140,6 @@ export function getRectCenter (rect) {
 
 //--- UTM coordinate transformation
 
-
 function getUtmTransform () {
     const sin = Math.sin;
     const cos = Math.cos;
@@ -1251,4 +1333,56 @@ export function withAllPromises (promises, f) {
     } else {
         f();
     }
+}
+
+//--- string buffering
+
+export function StringBuffer (initSize=1024) {
+    const textEncoder = new TextEncoder();
+    const textDecoder = new TextDecoder();
+
+    var _bufString = '';
+    let _buf = new ArrayBuffer(initSize);
+    let _u8Buf = new Uint8Array(_buf);
+    var _off = 0;
+
+    let push = function (s) {
+        let enc = textEncoder.encode(s);
+        let len = enc.length;
+        if (len > _u8Buf.length) {
+            if (_off) {
+                _bufString += textDecoder.decode( _u8Buf.subarray(0,_off));
+            }
+            _buf = new ArrayBuffer(len);
+            _u8Buf = new Uint8Array(_buf);
+            _off = 0;
+        } else {
+            if (_off + len > _u8Buf.length) {
+            _bufString += textDecoder.decode( _u8Buf.subarray(0,_off));
+            _off = 0;
+            }
+        }
+        _u8Buf.set(enc,_off);
+        _off += len;
+    };
+
+    let toString = function () {
+        if (_off) { // flush
+            _bufString += textDecoder.decode( _u8Buf.subarray(0,_off));
+            _off = 0;
+        }
+
+        return _bufString;
+    };
+
+    let clear = function () {
+        _off = 0;
+        _bufString = '';
+    };
+
+    let size = function () {
+        return _bufString.length + _off;
+    };
+
+    return { push, toString, clear, size }
 }

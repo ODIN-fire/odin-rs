@@ -54,7 +54,7 @@ run_actor_system!( actor_system => {
         "orbital_hotspots",
         SpaServiceList::new()
             .add( build_service!( => OrbitalHotspotService::new( orbital_sats) ))
-            .add( build_service!( let hshare = hshare.clone() => ShareService::new( hshare)) )
+            .add( build_service!( let hshare = hshare.clone() => ShareService::new( "odin_share_schema.js", hshare)) )
     ))?;
 
     Ok(())

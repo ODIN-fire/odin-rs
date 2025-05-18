@@ -21,13 +21,25 @@ FirmsConfig(
             sat_id: 43013,
             sat_name: "NOAA-20",
             data_source: "VIIRS_NOAA20_NRT",
-            download_delay: Duration( secs: 180, nanos: 0) // initial download 3min after overpass
+            download_delay: Duration( secs: 180, nanos: 0) 
         ),
         FirmsSatelliteData(
             sat_id: 37849,
             sat_name: "SNPP",
             data_source: "VIIRS_SNPP_NRT",
-            download_delay: Duration( secs: 180, nanos: 0) // initial download 3min after overpass
+            download_delay: Duration( secs: 180, nanos: 0) 
+        ),
+        FirmsSatelliteData(
+            sat_id: 39084,
+            sat_name: "L8",
+            data_source: "LANDSAT_NRT",
+            download_delay: Duration( secs: 180, nanos: 0) 
+        ),
+        FirmsSatelliteData(
+            sat_id: 49260,
+            sat_name: "L9",
+            data_source: "LANDSAT_NRT",
+            download_delay: Duration( secs: 180, nanos: 0) 
         )
     ]
 )

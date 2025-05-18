@@ -26,7 +26,7 @@ export const config = {
 
     isMetric: false,
     scale: {
-      width: 250,
+      width: 400, // this is a max width - actual width will be computed
       height: 30,
       right: 30,
       bottom: 5,

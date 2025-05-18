@@ -69,6 +69,7 @@
     --window-padding: 0.3rem;
     --window-gap: var(--gap);
     --window-z: 50;
+    --spotlight-z: 100;
     --panel-padding-top: 6px;
     --panel-padding-bottom: 3px;
     --panel-header-margin-top: 1rem;

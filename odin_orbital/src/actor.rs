@@ -30,13 +30,7 @@ use odin_common::{
 };
 use odin_macro::public_struct;
 use crate::{
-    load_config, duration_days, duration_minutes, save_retrieved_hotspots_to, update_orbital_data, 
-    errors::{action_failed, OdinOrbitalError, Result}, init_orbital_data, instant_from_datetime, instant_now, 
-    overpass::{self, OverpassCalculator, save_overpasses_to}, 
-    tle_store::SpaceTrackTleStore, 
-    firms::ViirsHotspotImporter,
-    hotspot_service::{HotspotSat,OrbitalHotspotService},
-    CompletedOverpass, HotspotImporter, HotspotList, OrbitalSatelliteInfo, Overpass, TleStore
+    duration_days, duration_minutes, errors::{action_failed, OdinOrbitalError, Result}, firms::{ViirsHotspotImporter,OliHotspotImporter}, hotspot_service::{HotspotSat,OrbitalHotspotService}, init_orbital_data, instant_from_datetime, instant_now, load_config, overpass::{self, save_overpasses_to, OverpassCalculator}, save_retrieved_hotspots_to, tle_store::SpaceTrackTleStore, update_orbital_data, CompletedOverpass, HotspotImporter, HotspotList, OrbitalSatelliteInfo, Overpass, TleStore
 }; 
 
 macro_rules! info { ($fmt:literal $(, $arg:expr )* ) => { {print!("INFO: "); println!( $fmt $(, $arg)* )} } }
@@ -336,35 +330,49 @@ pub fn spawn_orbital_hotspot_actors (actor_system: &mut ActorSystem, hserver: Ac
         let name = sat_info.name.clone();
         let sender_id = Arc::new( name.clone());
 
-        let hupdater = spawn_actor!( actor_system, name,
-            OrbitalHotspotActor::new(
-                sat_info.clone(),
-                region.clone(),
-                SpaceTrackTleStore::new( load_config("spacetrack.ron")?, sat_info.clone(), Some(cache_dir.clone())),
-                ViirsHotspotImporter::new( load_config("firms.ron")?, sat_info.clone(), cache_dir.clone()),
-                dataref_action!( // init action - just let the service know we have data
-                    let hserver: ActorHandle<SpaServerMsg> = hserver.clone(),
-                    let sender_id: Arc<String> = sender_id.clone() => 
-                    |data: &HotspotActorData| { 
-                        Ok( hserver.retry_send_msg( 3, Duration::from_secs(10), DataAvailable::new::<HotspotActorData>(sender_id) )? )
-                    }
-                ),
-                data_action!( // update overpasses 
-                    let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
-                    |overpasses: Vec<&Overpass>| { // overpass action
-                        let ws_msg = ws_msg_from_json( OrbitalHotspotService::mod_path(), "overpasses", &Overpass::to_collapsed_json_array(&overpasses));
-                        Ok( hserver.retry_send_msg( 3, Duration::from_secs(10), BroadcastWsMsg { ws_msg })? )
-                    }
-                ),
-                data_action!( // update hotspots
-                    let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
-                    |hotspots: Vec<&HotspotList>| { // hotspot action
-                        let ws_msg = ws_msg_from_json( OrbitalHotspotService::mod_path(), "hotspots", &HotspotList::to_collapsed_json_array(&hotspots));
-                        Ok( hserver.retry_send_msg( 3, Duration::from_secs(10), BroadcastWsMsg { ws_msg })? )
-                    }
-                )
-            )  
-        )?;
+        // unfortunately we can't share actions between actors
+        let init_action = dataref_action!( // init action - just let the service know we have data
+            let hserver: ActorHandle<SpaServerMsg> = hserver.clone(),
+            let sender_id: Arc<String> = sender_id.clone() => 
+            |data: &HotspotActorData| { 
+                Ok( hserver.retry_send_msg( 3, Duration::from_secs(10), DataAvailable::new::<HotspotActorData>(sender_id) )? )
+            }
+        );
+
+        let overpass_action = data_action!( // update overpasses 
+            let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
+            |overpasses: Vec<&Overpass>| { // overpass action
+                let ws_msg = ws_msg_from_json( OrbitalHotspotService::mod_path(), "overpasses", &Overpass::to_collapsed_json_array(&overpasses));
+                Ok( hserver.retry_send_msg( 3, Duration::from_secs(10), BroadcastWsMsg { ws_msg })? )
+            }
+        );
+
+        let hotspot_action = data_action!( // update hotspots
+            let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
+            |hotspots: Vec<&HotspotList>| { // hotspot action
+                let ws_msg = ws_msg_from_json( OrbitalHotspotService::mod_path(), "hotspots", &HotspotList::to_collapsed_json_array(&hotspots));
+                Ok( hserver.retry_send_msg( 3, Duration::from_secs(10), BroadcastWsMsg { ws_msg })? )
+            }
+        );
+
+        let tle_store = SpaceTrackTleStore::new( load_config("spacetrack.ron")?, sat_info.clone(), Some(cache_dir.clone()));
+
+        // TODO - this is suboptimal as it is a structural bottleneck. Maybe we should turn the importer into a Box<dyn HotspotImporter> 
+        let hupdater = match sat_info.instrument.as_str() {
+            "VIIRS" => {
+                let importer = ViirsHotspotImporter::new( load_config("firms.ron")?, sat_info.clone(), cache_dir.clone());
+                spawn_actor!( actor_system, name, 
+                    OrbitalHotspotActor::new(sat_info.clone(), region.clone(), tle_store, importer, init_action, overpass_action, hotspot_action)
+                )?
+            }
+            "OLI" => {
+                let importer = OliHotspotImporter::new( load_config("firms.ron")?, sat_info.clone(), cache_dir.clone());
+                spawn_actor!( actor_system, name, 
+                    OrbitalHotspotActor::new(sat_info.clone(), region.clone(), tle_store, importer, init_action, overpass_action, hotspot_action)
+                )?
+            }
+            unknown => panic!("no importer for instrument {unknown}") // Ok to panic since this is toplevel func
+        };
 
         sats.push( HotspotSat { sat_info, hupdater });
     }

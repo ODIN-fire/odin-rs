@@ -358,6 +358,10 @@ export class ExpandableTreeNode extends TreeNode {
         }
     }
 
+    setSticky (cond) {
+        this.isSticky = cond;
+    }
+
     isVisible () {
         let p = this.parent;
         while (p) {
@@ -498,6 +502,10 @@ export class ExpandableTreeNode extends TreeNode {
             this.firstChild = newNode;
         }
     } 
+
+    setExpanded (cond) {
+        this.isExpanded = cond;
+    }
 
     expand() {
         this.isExpanded = true;

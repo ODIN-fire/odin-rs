@@ -5,35 +5,36 @@
     "data": { "lon": -127.71080, "lat": 37.32540, "alt": 11229395 }
   },
 
-  "view/region/CONUS West": {
+  "view/region/West": {
     "owner": "🔒",
     "type": "GeoPoint3",
     "data": { "lon": -120.38130, "lat": 40.98100, "alt": 2388500 }
   },
 
-  "view/state/CA/SF Bay Area": {
+  "view/local/BayArea": {
     "owner": "🔒",
     "type": "GeoPoint3",
     "data": { "lon": -122.678, "lat": 38.1591, "alt": 800000.0 }
   },
 
-  "view/state/CA/SF Peninsula": {
+  "view/local/Peninsula": {
     "owner": "🔒",
     "type": "GeoPoint3",
     "data": { "lon": -122.4833, "lat": 37.3833, "alt": 153500 }
   },
 
-  "view/state/CA/Big Sur": {
+  "view/local/BigSur": {
     "owner": "🔒",
     "type": "GeoPoint3",
     "data": { "lon": -121.77800, "lat": 36.29400, "alt": 90000 }
   }, 
 
-  "view/state/CA/Los Angeles": {
+  "view/local/LosAngeles": {
     "owner": "🔒",
     "type": "GeoPoint3",
     "data": { "lon": -118.02000, "lat": 34.04000, "alt": 120000 }
   },
+
 
   "incident/czu/ignition": {
     "comment": "origin of fire at blabla",
@@ -54,55 +55,11 @@
 
   "incident/czu/bbox": {
     "type": "GeoRect",
-    "data": { 
-      "west": -122.44855,
-      "south": 36.95460,
-      "east": -121.89434,
-      "north": 37.30877 
-    }
+    "data": { "west": -122.68, "south": 36.9947, "east": -121.8617, "north": 37.4843 }
   },
 
-  "incident/czu/fta": {
-    "type": "GeoCircle",
-    "data": {
-      "lon": -122.1215,
-      "lat": 37.1307,
-      "radius": 8000
-    }
-  },
 
-  "incident/czu/perimeter": {
-    "type": "GeoPolygon",
-    "data": {
-        "exterior": [
-          { "lon": -122.29944, "lat": 37.14099 },
-          { "lon": -122.28173, "lat": 37.18575 },
-          { "lon": -122.23131, "lat": 37.21298 },
-          { "lon": -122.17135, "lat": 37.21893 },
-          { "lon": -122.14752, "lat": 37.20255 },
-          { "lon": -122.14147, "lat": 37.15568 },
-          { "lon": -122.12043, "lat": 37.12185 },
-          { "lon": -122.10892, "lat": 37.08476 },
-          { "lon": -122.15107, "lat": 37.05593 },
-          { "lon": -122.21637, "lat": 37.04618 },
-          { "lon": -122.25785, "lat": 37.07565 },
-          { "lon": -122.30138, "lat": 37.11762 }
-        ]
-    }
-  },
-
-  "incident/czu/line": {
-    "type": "GeoLineString",
-    "data": {
-        "points": [
-          { "lon": -122.16132497706668, "lat": 37.152796395519296 },
-          { "lon": -122.14108876202822, "lat": 37.093662803122704 },
-          { "lon": -122.1595108227905, "lat": 37.0388801614041 }
-        ]
-    }
-  },
-
-  "area/CONUS": {
+  "geometry/polygon/CONUS": {
     "type": "GeoPolygon",
     "data": {
       "exterior": [
@@ -113,6 +70,67 @@
           { "lon":  -62.8262, "lat": 47.7229 },
           { "lon": -129.8029, "lat": 50.4250 }
       ]
+    }
+  },
+  
+  "geometry/polygon/HenryCoeSP": {
+    "comment": "Henry Coe State Park",
+    "type": "GeoPolygon",
+    "data": {
+      "exterior": [
+        { "lon": -121.55510, "lat": 37.21700 },
+        { "lon": -121.54399, "lat": 37.31302 },
+        { "lon": -121.43837, "lat": 37.32892 },
+        { "lon": -121.41310, "lat": 37.39231 },
+        { "lon": -121.27003, "lat": 37.40313 },
+        { "lon": -121.17125, "lat": 37.35874 },
+        { "lon": -121.15528, "lat": 37.26320 },
+        { "lon": -121.10237, "lat": 37.19953 },
+        { "lon": -121.15752, "lat": 37.11202 },
+        { "lon": -121.26121, "lat": 37.07767 },
+        { "lon": -121.38187, "lat": 37.04218 },
+        { "lon": -121.50631, "lat": 37.11793 },
+        { "lon": -121.55510, "lat": 37.21770 }
+      ]
+    }  
+  },
+
+  "geometry/line/Sac-Reno": {
+    "comment": "distance Sacramento CA - Reno NV",
+    "type": "GeoLine",
+    "data": {
+      "start": { "lon": -121.50524, "lat": 38.58314 },
+      "end":   { "lon": -119.81097, "lat": 39.53036 }
+    }
+  },
+
+  "geometry/line/LG-BC": {
+    "comment": "distance between Los Gatos and Boulder Creek",
+    "type": "GeoLine",
+    "data": {
+      "start": { "lon": -121.97426, "lat": 37.22674 },
+      "end":   { "lon": -122.12255, "lat": 37.12467 }
+    }
+  },
+
+  "geometry/rect/BigSurNorth": {
+    "comment": "Big Sur North bbox",
+    "type": "GeoRect",
+    "data": {
+      "west": -121.94007,
+      "south": 36.137725,
+      "east": -121.32673,
+      "north": 36.573576
+    }
+  },
+
+  "geometry/circle/MtUmunhum": {
+    "comment": "Mt Umunhum",
+    "type": "GeoCircle",
+    "data": {
+      "lon": -121.90063,
+      "lat": 37.15957,
+      "radius": 2500.0
     }
   }
 }

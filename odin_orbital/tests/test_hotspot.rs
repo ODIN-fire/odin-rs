@@ -83,7 +83,7 @@ fn test_parse () {
     cops.push_back( CompletedOverpass::new(op));
 
     let csv_file =  File::open("tests/NOAA-21_FDDC_2025-04-07.csv").unwrap();
-    let changed_ops = ViirsHotspotImporter::import_hotspots( csv_file, &mut cops).unwrap();
+    let changed_ops = ViirsHotspotImporter::read_hotspots( csv_file, &mut cops).unwrap();
     println!("changed overpass indices: {:?}", changed_ops);
 
     for idx in changed_ops.iter() {

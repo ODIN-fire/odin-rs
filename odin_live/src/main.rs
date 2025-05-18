@@ -19,14 +19,16 @@ use odin_common::arc;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_goesr::{GoesrHotspotService, actor::spawn_goesr_hotspot_actors};
-use odin_orbital::{actor::spawn_orbital_hotspot_actors,hotspot_service::OrbitalHotspotService};
+use odin_orbital::{init_orbital_data,actor::spawn_orbital_hotspot_actors,hotspot_service::OrbitalHotspotService};
 use odin_share::prelude::*;
 use odin_geolayer::GeoLayerService;
 use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, SentinelActor, sentinel_service::SentinelService};
 
 
 run_actor_system!( actor_system => {
- 
+    // make sure our orbit calculation uses up-to-date ephemeris
+    init_orbital_data()?;
+
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
 
     // we would normally initialize the store via default_shared_items() but those normally reside outside the repository
@@ -66,7 +68,7 @@ run_actor_system!( actor_system => {
         odin_server::load_config("spa_server.ron")?,
         "live",
         SpaServiceList::new()
-            .add( build_service!( let hstore = hstore.clone() => ShareService::new( hstore)))
+            .add( build_service!( let hstore = hstore.clone() => ShareService::new( "odin_share_schema.js", hstore)))
             .add( build_service!( => GeoLayerService::new( &odin_geolayer::default_data_dir())))
             .add( build_service!( let hsentinel = hsentinel.clone() => SentinelService::new( hsentinel)))
             .add( build_service!( => GoesrHotspotService::new( goesr_sats)) )

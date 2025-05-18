@@ -14,6 +14,7 @@
 
 #![allow(unused)]
 #![feature(duration_constructors)]
+#![feature(duration_constructors_lite)]
 
 use std::{collections::VecDeque, fmt, time::{Duration as StdDuration,SystemTime}, path::{Path,PathBuf}, fs, sync::Arc};
 use nalgebra::{ViewStorage,base::{Matrix,ArrayStorage,dimension::{Const,Dyn}}};
@@ -137,7 +138,7 @@ impl OrbitalSatelliteInfo {
 /// general confidence categories for hotspots
 #[derive(Debug,Clone,Copy,Serialize,Deserialize)]
 pub enum HotspotConfidence {
-    Low, Nominal, High
+    Low, Medium, High
 }
 impl HotspotConfidence {
     pub fn index(&self) -> usize {
@@ -157,7 +158,7 @@ struct Hotspot {
     pos: Cartesian3, // of hotspot, in ECEF
     lon: Longitude,  // geodetic hotspot coords
     lat: Latitude,
-    area: [Cartesian3;4], // footprint
+    area: [Cartesian3;4], // footprint of pixel on ellipsoid surface
 
     scan: Length,    // cross-scan length of pixel footprint in meters
     track: Length,   // along-track length of pixel footprint in meters
@@ -165,7 +166,7 @@ struct Hotspot {
     dist: Length,    // great-circle dist of hotspot from closest ground point 
 
     date: DateTime<Utc>,    
-    conf: HotspotConfidence,
+    conf: Option<HotspotConfidence>,
 
     //--- optionals (depending on instrument)
     temp: Option<ThermodynamicTemperature>,
@@ -192,7 +193,7 @@ impl JsonWritable for Hotspot {
             w.write_field("dist", self.dist.get::<meter>().round() as i64);
 
             w.write_field("date", self.date.timestamp_millis());
-            w.write_field("conf", self.conf.index());
+            if let Some(conf) = self.conf { w.write_field("conf", conf.index()) }
 
             if let Some(temp) = self.temp { w.write_field("temp", temp.get::<kelvin>().round() as i64) }
             if let Some(frp) = self.frp { w.write_field("frp", frp.get::<megawatt>().round() as i64) }
@@ -207,6 +208,9 @@ impl fmt::Display for Hotspot {
         write!( f, ", scan: {:.0} m, track: {:.0} m, rot: {:.0}, dist: {:.0}", 
                  self.scan.get::<meter>(), self.track.get::<meter>(), self.rot.degrees(), self.dist.get::<meter>())?;
         write!( f, ", date: {:04}-{:02}-{:02}T{:02}:{:02}", d.year(), d.month(), d.day(), d.hour(), d.minute())?;
+        if let Some(conf) = self.conf {
+            write!( f, ", conf: {:?}", conf)?;
+        }
         if let Some(temp) = self.temp {
             write!( f, ", temp: {:.0} K", temp.get::<kelvin>())?;
         }
@@ -246,9 +250,10 @@ impl HotspotList {
         let mut low = 0;
         for h in &hotspots {
             match h.conf {
-                HotspotConfidence::High => high += 1,
-                HotspotConfidence::Nominal => nominal += 1,
-                HotspotConfidence::Low => low += 1
+                Some(HotspotConfidence::High) => high += 1,
+                Some(HotspotConfidence::Medium) => nominal += 1,
+                Some(HotspotConfidence::Low) => low += 1,
+                None => {}
             }
         }
 
@@ -327,6 +332,7 @@ pub fn save_retrieved_hotspots_to (dir: impl AsRef<Path>, retrieved: &BitSet, co
     Ok(())
 }
 
+/// the interface of importers used by OrbitalHotspotActor
 #[async_trait]
 pub trait HotspotImporter {
     /// import latest hotspots from current date with up to n_days of history and store in respective CompletedOverpasses

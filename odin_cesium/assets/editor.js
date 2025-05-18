@@ -107,7 +107,7 @@ class PolyEditorWindow {
             ),
             this._statsContainer(),
             ui.RowContainer("center")(
-                (this.metricCb = ui.CheckBox("metric", setMetric)),
+                (this.metricCb = ui.CheckBox("metric", setMetric, null, cesium.isMetric)),
                 ui.HorizontalSpacer(3),
                 ui.Button("cancel", cancel),
                 ui.Button("save", enter)
@@ -118,7 +118,7 @@ class PolyEditorWindow {
             { name: "idx", tip: "point index", width: "2rem", attrs: fieldAttrs, map: p => p.idx },
             { name: "lon", tip: "longitude [deg]", width: "7rem", attrs: fieldAttrs, map: p => util.formatFloat(p.lon,5) },
             { name: "lat", tip: "latitude [deg]", width: "6.5rem", attrs: fieldAttrs, map: p => util.formatFloat(p.lat,5) },
-            { name: "alt", tip: "altitude [m,ft]", width: "6.5rem", attrs: fieldAttrs, map: p => this._altDisplay(p.alt) },
+            { name: "alt", tip: "altitude [m,ft]", width: "5rem", attrs: fieldAttrs, map: p => this._altDisplay(p.alt) },
             { name: "dist", tip: "distance [km,mi]", width: "6rem", attrs: fieldAttrs, map: p => this._distDisplay(p.dist) }
         ]);    
     }
@@ -223,11 +223,9 @@ export function editPolyline (points, processResult) {
 export function editGeoPoint (geoPoint, processResult) {
     function procRes (editedPoints) {
         if (geoPoint) {
-            geoPoint.lon = editedPoints[0].lon;
-            geoPoint.lat = editedPoints[0].lat;
-            processResult( geoPoint);
+            processResult( geoPoint.toRounded());
         } else {
-            processResult( new main.GeoPoint(editedPoints[0].lon, editedPoints[0].lat));
+            processResult( main.GeoPoint.fromRoundedLonLatDegrees(editedPoints[0].lon, editedPoints[0].lat));
         }
     }
 
@@ -240,7 +238,7 @@ main.addShareEditor( main.GEO_POINT, "edit 2D point", editGeoPoint);
 /// shared item editor func for GeoLine
 export function editGeoLine (geoLine, processResult) {
     function procRes (editedPoints) {
-        let resultPoints = editedPoints.map( (p)=> new main.GeoPoint(p.lon, p.lat) );
+        let resultPoints = editedPoints.map( (p)=> main.GeoPoint.fromRoundedLonLatDegrees( p.lon, p.lat) );
         if (geoLine) {
             geoLine.start = resultPoints[0];
             geoLine.end = resultPoints[1];
@@ -258,7 +256,7 @@ main.addShareEditor( main.GEO_LINE, "2D line", editGeoLine);
 /// shared item editor func for GeoLineString
 export function editGeoLineString (geoLineString, processResult) {
     function procRes (editedPoints) {
-        let resultPoints = editedPoints.map( (p)=> new main.GeoPoint(p.lon, p.lat) );
+        let resultPoints = editedPoints.map( (p)=> main.GeoPoint.fromRoundedLonLatDegrees( p.lon, p.lat) );
         if (geoLineString) {
             geoLineString.points = resultPoints;
             processResult( geoLineString);
@@ -279,7 +277,7 @@ export function editPolygon (points, processResult) {
 /// shared item editor func for GeoPolygon
 export function editGeoPolygonExterior (geoPolygon, processResult) {
     function procRes (editedPoints) {
-        let resultPoints = editedPoints.map( (p)=> new main.GeoPoint(p.lon, p.lat) );
+        let resultPoints = editedPoints.map( (p)=> main.GeoPoint.fromRoundedLonLatDegrees( p.lon, p.lat) );
         if (geoPolygon) {
             geoPolygon.exterior = resultPoints;
             processResult( geoPolygon);
@@ -297,7 +295,12 @@ main.addShareEditor( main.GEO_POLYGON, "2D polygon exterior", editGeoPolygonExte
 /// shared item editor func for GeoRect
 export function editGeoRect (geoRect, processResult) {
     function procRes (rect) {
-        let geoRect = new main.GeoRect( rect.west, rect.south, rect.east, rect.north);
+        let geoRect = new main.GeoRect( 
+            util.roundToDecimals( rect.west, 5),
+            util.roundToDecimals( rect.south, 5),
+            util.roundToDecimals( rect.east, 5),
+            util.roundToDecimals( rect.north, 5)
+        );
         processResult( geoRect);
     }
 
@@ -313,7 +316,7 @@ export class PolyEditor {
 
     constructor (title, points, processResult) {
         this.cp = new Cesium.Cartesian3(); // cache so that we don't need to allocate on each mouseMove
-        this.isMetric = false;
+        this.isMetric = cesium.isMetric;
     
         this.title = title;
         this.points = points;
@@ -337,6 +340,7 @@ export class PolyEditor {
         this.onHandleClick = this._onHandleClick.bind(this);
         this.onHandleMove = this._onHandleMove.bind(this);
         this.onHandleKey = this._onHandleKey.bind(this);
+        this.onEditorKey = this._onEditorKey.bind(this);
     }
 
     open () {
@@ -344,10 +348,11 @@ export class PolyEditor {
     
         cesium.setRequestRenderMode(false);
 
-        if (this.points.length) { // no enter mode - create assets and go straight to edit mode
+        if (this.points.length) { // no entry mode - create assets and go straight to edit mode
             this._setPointAttributes(); // fill in lon/lat/alt or x/y/z, dist and idx
             this._createAssets();
             cesium.registerMouseClickHandler( this.onHandleClick);
+            cesium.registerKeyDownHandler( this.onEditorKey);
             this._setPointList();
       
         } else {
@@ -387,6 +392,15 @@ export class PolyEditor {
             if (this.processResult) this.processResult(this.points);
         }
         this._dispose();
+    }
+
+    // key handler for the editor window - only active while we are not in entry- or handle-edit mode
+    _onEditorKey (event) {
+        if (event.code == "Escape") { // cancel/close the window
+            this._cancel();
+        } else if (event.code == "Enter") { // save/close the window
+            this._enter();
+        }
     }
 
     _dispose() {
@@ -533,6 +547,9 @@ export class PolyEditor {
 
         if (this.selHandle) { // end tracking
             cesium.releaseMouseMoveHandler( this.onHandleMove);
+            cesium.releaseKeyDownHandler( this.onHandleKey);
+            cesium.registerKeyDownHandler( this.onEditorKey);
+
             cesium.setDefaultCursor();
             this.selHandle.color = config.handleColor;
 
@@ -578,6 +595,8 @@ export class PolyEditor {
                 this._removeHandleEntities(this.halfHandles); // we don't want to move them
                 this.selHandle.color = config.selectedHandleColor;
                 cesium.setCursor("crosshair");
+
+                cesium.releaseKeyDownHandler( this.onEditorKey);
                 cesium.registerMouseMoveHandler( this.onHandleMove);
                 cesium.registerKeyDownHandler( this.onHandleKey);
             }
@@ -617,7 +636,7 @@ export class PolyEditor {
             let p = this.points[idx];
             p.x = cp.x;  p.y = cp.y;  p.z = cp.z;
 
-            this._updateMovingPoint( idx, p);
+            this._updateMovingPoint( this.points, idx);
         }
     }
 
@@ -762,7 +781,8 @@ export class PolyEditor {
     }
 
     /// notification this point is moving with mouse (in flight)
-    _updateMovingPoint (idx, p) {
+    _updateMovingPoint (points, idx) {
+        let p = points[idx];
         setCartographicPos(p);
     
         ui.setField( this.editor.lonField, util.formatFloat( p.lon, 5));
@@ -913,6 +933,8 @@ export class PolyEditor {
         cesium.releaseMouseMoveHandler( this.onHandleMove);
         cesium.releaseKeyDownHandler( this.onHandleKey);
         cesium.releaseMouseClickHandler( this.onHandleClick);
+
+        cesium.releaseKeyDownHandler( this.onEditorKey);
     
         viewer.entities.remove( this.polyEntity);
         this._removeHandleEntities( this.handles);
@@ -928,6 +950,7 @@ export class PolyEditor {
     
         this._setHalfPointHandles();
         cesium.registerMouseClickHandler( this.onHandleClick);
+        cesium.registerKeyDownHandler( this.onEditorKey);
     
         this._setTotalField( this._totalDist());
     }
@@ -975,6 +998,8 @@ export class PolygonEditor extends PolyEditor {
     
         this._setHalfPointHandles();
         cesium.registerMouseClickHandler( this.onHandleClick);
+        cesium.registerKeyDownHandler( this.onEditorKey);
+
         this._setTotalField( this._totalDist());
         this._setAreaField( this._polygonArea());
     }
@@ -1051,7 +1076,7 @@ export class PolygonEditor extends PolyEditor {
                 p.x = cp.x;  p.y = cp.y;  p.z = cp.z;
             }
 
-            this._updateMovingPoint( idx, p);
+            this._updateMovingPoint( this.points, idx);
         }
     }
 }
@@ -1540,7 +1565,7 @@ export class RectEditor {
         let lonDist = (lonDistN + lonDistS) / 2.0; 
 
        //let area1 = util.ecefPolygonArea(points);
-       let area = util.geoRectArea(this.rect); // this is in m^2
+       let area = util.rectArea(this.rect); // this is in m^2
 
         if (!this.isMetric) {
             latDist = util.metersToUsMiles(latDist);
@@ -1567,7 +1592,7 @@ export class RectEditor {
 
 export function editGeoCircle (geoCircle, processResult) {
     function procRes (circle) {
-        let geoCircle = main.GeoCircle.fromRadians( circle.longitude, circle.latitude, circle.radius);
+        let geoCircle = main.GeoCircle.fromRadians( circle.longitude, circle.latitude, circle.radius).toRounded();
         processResult( geoCircle);
     }
 
@@ -1841,7 +1866,7 @@ export class CircleEditor {
         }
     }
 
-    _mouseMoved (idx, p){
+    _mouseMoved (points, idx){
         if (this.hp0) { // radius point moved
             this._updateRadius();
             this.circleEntity.ellipse.semiMajorAxis = this.radius;
@@ -1849,7 +1874,7 @@ export class CircleEditor {
 
         } else { // center point moved
             let pGeo = this.cpGeo;
-            Cesium.Cartographic.fromCartesian( p, ellipsoid, pGeo);
+            Cesium.Cartographic.fromCartesian( points[idx], ellipsoid, pGeo);
             this._updateCenter(pGeo)
         }
     }

@@ -120,6 +120,9 @@ export function toRadians(deg) { return deg / rad2deg; }
 export function toDegrees(rad) { return rad * rad2deg; }
 export function ftToMeters (ft) { return (ft * 0.3048); }
 
+const round = Math.round;
+export function round5 (x) { return Math.round( x * 100000) / 100000 }
+
 // the basic share-able data value types (note these should *not* depend on any other module)
 // it is up to client modules to provide conversion functions (e.g. to/from CesiumJS types)
 // The GeoX types have to match the serialization format of odin_common::geo types
@@ -131,6 +134,14 @@ export class GeoPoint {
     }
     static fromLonLatDegrees (lon, lat) { return new GeoPoint(lon,lat); }
     static fromLonLatRadians (lonRad, latRad) { return new GeoPoint(toDegrees(lonRad),toDegrees(latRad)); }
+
+    static fromRoundedLonLatDegrees (lon, lat) {
+        return new GeoPoint( round5(lon), round5(lat));
+    }
+
+    toRounded() {
+        return new GeoPoint( round5(this.lon), round5(this.lat));
+    }
 
     static checkType (o) {
         return (
@@ -153,6 +164,10 @@ export class GeoPoint3 {
     static fromLonLatRadiansMeters (lonRad, latRad, altMeters) { return new GeoPoint3(toDegrees(lonRad),toDegrees(latRad), altMeters); }
     static fromGeoPoint (point) { return new GeoPoint3( point.lon, point.lat, 0.0); }
 
+    toRounded() {
+        return new GeoPoint3( round5(this.lon), round5(this.lat), round(this.alt));
+    }
+
     static checkType (o) {
         return (
             (o.lon != undefined && typeof o.lon == "number") && 
@@ -170,7 +185,11 @@ export class GeoLine {
         this.end = end;
     }
 
-    static checkTypeConformance (o) {
+    toRounded() {
+        return new GeoLine( this.start.toRounded(), this.end.toRounded());
+    }
+
+    static checkType (o) {
         return (
             (o.start != undefined && GeoPoint.checkType(o.start)) && 
             (o.end != undefined && GeoPoint.checkType(o.end))
@@ -183,6 +202,11 @@ export class GeoLine {
 export class GeoLineString {
     constructor (points) {
         this.points = points;
+    }
+
+    toRounded() {
+        let roundedPoints = this.points.map( (p) => p.toRounded() );
+        return new GeoLineString( roundedPoints);
     }
 
     static checkType (o) {
@@ -199,6 +223,11 @@ export class GeoPolyline3 {
         this.points = points;
     }
 
+    toRounded() {
+        let roundedPoints = this.points.map( (p) => p.toRounded() );
+        return new GeoPolyline3( roundedPoints);
+    }
+
     static checkType (o) {
         return (
             (Array.isArray(o.points) && o.points.every( p=> GeoPoint3.checkType(p)))
@@ -212,6 +241,13 @@ export class GeoPolygon {
     constructor (exterior,interiors=[]) {
         this.exterior = exterior;
         this.interiors = interiors;
+    }
+
+    toRounded() {
+        let roundedExterior = this.exterior.map( (p)=> p.toRounded());
+        let roundedInteriors = this.interiors; // TODO
+
+        return new GeoPolygon( roundedExterior, roundedInteriors);
     }
 
     static checkType (o) {
@@ -241,6 +277,15 @@ export class GeoRect {
         let rect = new GeoRect(0,0,0,0);
         rect.setFromPoints( p1, p2);
         return rect; 
+    }
+
+    toRounded() {
+        return new GeoRect(
+            Math.round( this.west * 100000) / 100000,
+            Math.round( this.south * 100000) / 100000,
+            Math.round( this.east * 100000) / 100000,
+            Math.round( this.north * 100000) / 100000
+        );
     }
 
     toRectangle() {
@@ -291,6 +336,14 @@ export class GeoCircle {
 
     static fromRadians( lon, lat, radius) {
         return new GeoCircle( toDegrees(lon), toDegrees(lat), radius);
+    }
+
+    toRounded() {
+        return new GeoCircle(
+            Math.round( this.lon * 100000) / 100000,
+            Math.round( this.lat * 100000) / 100000,
+            Math.round( this.radius)
+        );
     }
 
     toCircle () {
@@ -362,6 +415,7 @@ export function typeTemplate (typeName) {
         case GEO_LINE_STRING: return GeoLineString.template;
         case GEO_POLYGON: return GeoPolygon.template;
         case GEO_RECT: return GeoRect.template;
+        case GEO_CIRCLE: return GeoCircle.template;
 
         case STRING: return '""';
         case F64: return "0.0";
@@ -386,6 +440,11 @@ export class SharedItem {
         this.key = key;
         this.isLocal = isLocal;
         this.value = value;
+    }
+
+    name () {
+        let idx = this.key.lastIndexOf('/');
+        return (idx >= 0) ? this.key.substring(idx+1) : this.key; 
     }
 }
 

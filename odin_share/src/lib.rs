@@ -28,6 +28,7 @@ pub mod share_service;
 
 pub mod errors;
 
+define_load_config!{}
 define_load_asset!{}
 
 pub trait SharedStoreValueConstraints = Clone + Send + Sync + Debug + 'static + Serialize + for<'a> Deserialize<'a> ;
@@ -239,20 +240,27 @@ pub fn hashmap_store_from<P,T> (path: &P)->Result<HashMap<String,T>, OdinShareEr
     Ok( map )
 }
 
+pub const SHARED_STORE: &'static str = "shared_items.json";
+
+pub fn data_store_pathname (fname: impl AsRef<Path>)->PathBuf {
+     pkg_data_dir!().join(fname.as_ref())
+}
+
+pub fn default_shared_items()->PathBuf {
+    pkg_data_dir!().join( SHARED_STORE)
+}
+
 /// a HashMap-based SharedStore that is both initialized from and saved to given JSON path
 #[derive(Serialize)]
 pub struct PersistentHashMapStore<T>{
-    #[serde(skip,default="default_store_path")]
+    #[serde(skip,default="default_store_filename")]
     path: PathBuf,
     save: bool,
     map: HashMap<String,T>
 }
 
-fn default_store_path()->PathBuf {
-    Path::new("shared_store.json").to_path_buf()
-}
-
 impl<T> PersistentHashMapStore<T> where T: SharedStoreValueConstraints {
+
     pub fn new<P> (path: &P, save: bool)->Result<Self,OdinShareError> where P: AsRef<Path> {
         let map = hashmap_store_from(path)?;
         let path = path.as_ref().to_path_buf();

@@ -1,0 +1,21 @@
+// satellite info for Landsat 9 / OLI
+
+OrbitalSatelliteInfo (
+    sat_id: 49260,
+    name: "L9",
+
+    instrument: "OLI",
+    max_scan_angle: 15.0,
+    avg_height: 705000, // just to give a ballpark number ()
+    avg_swath_width: 185000, // in meters (single side)
+    avg_orbit_duration: Duration( secs: 5928, nanos: 0), // 98.8min
+
+    time_step: Duration( secs: 2, nanos: 0), // time step for calculating orbits
+
+    back_days: 3,    // initial historical data to retrieve
+    forward_days: 1, // for which we compute upcoming overpasses
+
+    max_completed: 10, // maximum number of completed overpasses/data sets to keep
+    max_upcoming: 3, // maximum number of upcoming overpasses to compute
+    max_tles: 16
+)

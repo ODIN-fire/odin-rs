@@ -27,5 +27,8 @@ export const config = {
     labelColor: Cesium.Color.fromCssColorString("#ffff00ff"),
     regionColor:Cesium.Color.fromCssColorString("#00ffffff"),
     font: "bold 14px monospace",
-    swathDC: new Cesium.DistanceDisplayCondition(  150000, Number.MAX_VALUE)
+    swathDC: new Cesium.DistanceDisplayCondition(  150000, Number.MAX_VALUE),
+    smallFootprintLength: 100, // minimal footprint width/height (in meters) for which we always display points  
+    smallFootprintDist: 15000, // below this we don't show points for small footprints
+    footprintDist: 100000 // above this we only show points, no areas
   };

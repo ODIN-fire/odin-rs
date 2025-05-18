@@ -66,19 +66,21 @@
     /* windows */
     --titlebar-height: 1.4rem;
     --titlebar-color: var(--color);
+    --titlebar-spotlight-color: rgb(0,255,255);
     --titlebar-background: rgb(32, 32, 64);
-    --titlebar-spotlight-background: rgb(40,0,0);
+    --titlebar-spotlight-background: rgb(0,0,40);
     --titlebar-font: var(--font);
     --titlebar-padding: 5px;
     --window-color: var(--color);
     --window-background: var(--background);
     --window-border: 1px solid var(--border-color);
-    --window-spotlight-border: 2px solid rgb(255,0,0);
-    --window-spotlight-background: rgb(48,12,12);
+    --window-spotlight-border: 2px solid rgb(0,0,255);
+    --window-spotlight-background: rgb(12,12,48);
     --window-shadow: var(--box-shadow);
     --window-padding: 0.8rem;
     --window-gap: var(--gap);
     --window-z: 50;
+    --spotlight-z: 100;
     /* panels */
     --panel-padding-top: 6px;
     --panel-padding-bottom: 3px;

@@ -152,7 +152,7 @@ impl Cartesian3 {
         ((self.x * self.x) + (self.y * self.y) + (self.z * self.z)).sqrt()
     }
 
-    /// round all fields (separately)
+    /// return new rounded Cartesian3
     pub fn to_rounded_decimals (&self, n: u8)->Self {
         if n > 0 {
             let s = (10f64).powi(n as i32);
@@ -170,7 +170,7 @@ impl Cartesian3 {
         }
     }
 
-    /// the mutating version
+    /// round this Cartesian3
     pub fn round_to_decimals (&mut self, n: u8) {
         if n > 0 {
             let s = (10f64).powi(n as i32);
@@ -278,8 +278,7 @@ impl Cartesian3 {
         Cartographic { longitude, latitude, height: 0.0 }
     }
 
-    // compute the east and north facing unit vectors for the given point on a sphere
-    // cos(alpha) = length / d  -> d = length / cos(alpha)
+    /// compute the east and north facing unit vectors for the given point on a sphere
     pub fn en_units (&self)->(Cartesian3,Cartesian3,Cartesian3) {
         let length = self.length();
         let unit = Cartesian3 { x: self.x / length, y: self.y / length, z: self.z / length }; // own unit
@@ -293,49 +292,38 @@ impl Cartesian3 {
     }
 
     // rotate this point around the given unit_normal
-    pub fn rotate_around (&self, n: &Cartesian3, rad: f64)->Cartesian3 {
-        let cos_a = cos(rad);
-        let sin_a = sin(rad);
-        let mc = 1.0 - cos_a;
+    pub fn rotate_around (&self, u_axis: &Cartesian3, radians: f64)->Cartesian3 {
+        let a2 = radians/2.0;
+        let cos_a2 = cos(a2);
+        let sin_a2 = sin(a2);
+        let b = 2.0 * cos_a2 * sin_a2;
+        let c = 2.0 * sin_a2 * sin_a2;
 
-        let nxx = n.x * n.x;
-        let nyy = n.y * n.y;
-        let nzz = n.z * n.z;
+        let uxp = u_axis.cross(self);
+        let r = *self + (uxp * b) + (u_axis.cross(&uxp) * c);
+        r
+    }
 
-        let nxy = n.x * n.y;
-        let nxz = n.x * n.z;
-        let nyz = n.y * n.z;
+    /// rotate all points of the given (mutable) Cartesian3 slice around axis unit vector u_axis with rotation angle radians
+    /// this uses the quaternion based equation
+    ///    r = p + 2*cos(a/2)sin(a/2)(u × p) + 2*sin²(a/2) u × (u × p)
+    pub fn rotate_all (u_axis: &Cartesian3, radians: f64, points: &mut[Cartesian3]) {
+        let a2 = radians/2.0;
+        let cos_a2 = cos(a2);
+        let sin_a2 = sin(a2);
+        let b = 2.0 * cos_a2 * sin_a2;
+        let c = 2.0 * sin_a2 * sin_a2;
 
-        let nxs = n.x * sin_a;
-        let nys = n.y * sin_a;
-        let nzs = n.z * sin_a;
-
-        let nxy_mc = nxy * mc;
-        let nyz_mc = nyz * mc;
-        let nxz_mc = nxz * mc;
-
-        let r11 = nxx + cos_a * (1.0 - nxx);
-        let r12 = nxy_mc - nzs;
-        let r13 = nxz_mc + nys;
-
-        let r21 = nxy_mc + nzs;
-        let r22 = nyy + cos_a * (1.0 - nyy);
-        let r23 = nyz_mc - nxs;
-
-        let r31 = nxz_mc - nys;
-        let r32 = nyz_mc + nxs;
-        let r33 = nzz + cos_a * (1.0 - nzz);
-
-        let x = self.x;
-        let y = self.y;
-        let z = self.z;
-
-        Cartesian3 {
-            x: (x * r11) + (y * r12) + (z * r13),
-            y: (x * r21) + (y * r22) + (z * r23),
-            z: (x * r31) + (y * r32) + (z * r33) 
+        for p in points {
+            let uxp = u_axis.cross(p);
+            *p = *p + (uxp * b) + (u_axis.cross(&uxp) * c); 
         }
+    }
 
+    pub fn round_all (points: &mut[Cartesian3], n_digits: u8) {
+        for p in points {
+            p.round_to_decimals(n_digits);
+        }
     }
 }
 
