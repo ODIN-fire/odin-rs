@@ -38,7 +38,7 @@ use axum::{
     routing::get
 };
 use http::StatusCode;
-use serde_derive::{Serialize,Deserialize};
+use serde::{Serialize,Deserialize};
 use structopt::StructOpt;
 use tokio::net::TcpListener;
 use tower_http::{
@@ -154,7 +154,7 @@ async fn get_map_request( q: Query<HashMap<String, String>>, config: Arc<DemConf
 async fn get_capabilities_request( q: Query<HashMap<String, String>>, config: Arc<DemConfig>, cache_dir: Arc<PathBuf>) -> impl IntoResponse {
     if_let! {
         Some("WMS") = { q.get("service").map(|s| s.as_str()) } else { (StatusCode::BAD_REQUEST, "invalid SERVICE param").into_response() },
-        Some(path) = { &config.wms_capabilities_path.as_ref().map(|p| Path::new(p).to_path_buf()) } else { (StatusCode::INTERNAL_SERVER_ERROR, "no capabilities").into_response() },
+        Some(path) = { config.wms_capabilities_path.as_ref().map(|p| Path::new(p).to_path_buf()) } else { (StatusCode::INTERNAL_SERVER_ERROR, "no capabilities").into_response() },
         true = { path.is_file() } else { (StatusCode::INTERNAL_SERVER_ERROR, "no capabilities").into_response() } => {
             odin_server::file_response( &path, false).await.into_response()
         }

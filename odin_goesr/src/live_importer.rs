@@ -15,6 +15,7 @@
 use crate::*;
 use odin_actor::ObjSafeFuture;
 use odin_build::pkg_cache_dir;
+use odin_common::datetime::hours;
 use odin_common::fs::ensure_writable_dir;
 use odin_common::s3::{create_s3_client, get_s3_objects, get_last_s3_object};
 use odin_common::schedule::{get_hourly_schedule,Compaction,get_next_hourly_event_dtg};
@@ -105,7 +106,7 @@ async fn run_data_acquisition (hself: ActorHandle<GoesrHotspotImportActorMsg>, c
     let mut last_obj: Option<S3Object> = None;
 
     //--- get 3h most recent object entries so that we can build a schedule
-    let mut objs = get_most_recent_objects( &client, &config.bucket, &source, Duration::from_hours(3), Utc::now()).await?;
+    let mut objs = get_most_recent_objects( &client, &config.bucket, &source, hours(3), Utc::now()).await?;
     if objs.len() < 12 { return Err(no_object_error("not enough initial objects")) }
 
     let hourly_schedule = get_hourly_schedule(&objs, Some(Compaction::BoundedRightEdge(3)));

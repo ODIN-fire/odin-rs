@@ -25,6 +25,8 @@ const MODULE_PATH ="odin_orbital::hotspot_service::OrbitalHotspotService";
 ws.addWsHandler( MODULE_PATH, handleWsMessages);
 main.addShareHandler( handleShareMessage);
 
+var lastInit = undefined; // epoch when we last got initialized through the websocket
+
 // to store SatelliteEntries
 var satelliteEntries = [];
 var selSat = undefined;
@@ -37,6 +39,8 @@ var completedEntries = [];
 // the filtered OverpassEntries shown in the upcoming/past lists 
 var shownUpcomingEntries = []; 
 var shownCompletedEntries = [];
+
+var moveTimer = undefined; // set once we get the first upcoming overpass
 
 var selCompleted = undefined;
 var showHistory = false;  // shall we show footprints of past entries?
@@ -54,6 +58,12 @@ var hsPointPrimitive = undefined;   // the brightness/frp points
 var hsOutlinePrimitive = undefined; // the surface footprint polyline of a (small) hotspot
 
 var areaInfoText = undefined;
+
+function resetData () {
+    satelliteEntries = [];
+    upcomingEntries = [];  
+    completedEntries = [];
+}
 
 class SatelliteEntry {
     constructor(sat) {
@@ -84,7 +94,7 @@ class OverpassEntry {
         this.swathEntity = undefined; // set when we interactively select to show
         this.showSwath = false;
 
-        // set when we get a hotspots message
+        // the data for this overpass - set when we get a hotspots message
         this.hsList = undefined; 
     }
 
@@ -142,7 +152,7 @@ console.log("odin_orbital initialized");
 //--- end init
 
 function createIcon() {
-    return ui.Icon("./asset/odin_orbital/polar-sat-icon.svg", (e)=> ui.toggleWindow(e,'orbital'));
+    return ui.Icon("./asset/odin_orbital/polar-sat-icon.svg", (e)=> ui.toggleWindow(e,'orbital'), "polar sat hotspots");
 }
 
 function createWindow() {
@@ -445,20 +455,23 @@ function isAreaOverpass(oe) {
     // check if at least one vertex is within swath of this overpass
     if (areaVertices && areaVertices.length > 0) {
         let track = oe.track;
-        let d2Max = util.pow2(oe.meanGpDist);
+        if (track) {
+            let d2Max = util.pow2(oe.meanGpDist);
 
-        for (let v of areaVertices) {
-            let i = findClosestIndex(track, v);
-            if (i >= 0) {
-                let d2 = distSquared( v, track[i]);
-                if (d2 <= d2Max) return true;
+            for (let v of areaVertices) {
+                let i = findClosestIndex(track, v);
+                if (i >= 0) {
+                    let d2 = distSquared( v, track[i]);
+                    if (d2 <= d2Max) return true;
+                }
             }
+        } else {
+            console.log("warning - overpass has no track", oe.end);
         }
         return false;
-
-    } else {
-        return true;
     }
+
+    return true; // this is conservative
 }
 
 function updateHotspots() {
@@ -484,7 +497,14 @@ function handleWsMessages(msgType, msg) {
     }
 }
 
+// we get this message for each websocket initialization and it is always the first (followed by overpasses and then hotspots)
 function handleSatelliteMessage(satellites) {
+    if (lastInit) { // this is a re-initialization (probably the websocket got re-opened)
+        console.log("resetting orbiting satellite data");
+        resetData();
+    }
+    lastInit = Date.now();
+
     satellites.forEach( sat=> satelliteEntries.push( new SatelliteEntry(sat)));
     ui.setListItems( satelliteView, satelliteEntries);
 }
@@ -521,14 +541,11 @@ function sortInOverpass (newEntry, now) {
             }
         }
         upcomingEntries.push( newEntry);
-    }
-}
 
-function updateAll() {
-    updateUpcoming();
-    updateCompleted();
-    updateSatellites();
-    scheduleNextOverpassMove();
+        if (!moveTimer) { // start the timer to check for completed overpasses
+            moveTimer = setInterval( moveCompletedOverpasses, config.checkInterval);
+        }
+    }
 }
 
 // this returns a future that resolves once we have the full track
@@ -543,17 +560,29 @@ function loadTrack (oe) {
     });
 }
 
-function scheduleNextOverpassMove () {
-    odinCesium.withCurrentUtcMillis( (now) => {
-        dropOldCompletedOverpasses(now); // house keeping
+// note we have to do this periodically since setTimeout() does not properly account for system suspension/sleep
+function moveCompletedOverpasses () {
+    odinCesium.withCurrentUtcMillis( (now) => updateCompletedOverpasses(now));
+}
 
-        // check if we have to move overpasses from upcoming to completed
-        if (upcomingEntries.length > 0) {
-            setTimeout( () => {
-                moveOverpass();
-            }, upcomingEntries[0].end - now + 1000) // give it a 1 sec grace period as we might get new overpasses
+function updateCompletedOverpasses (now) {
+    dropOldCompletedOverpasses(now);
+
+    let update = false;
+    while (upcomingEntries[0].end <= now) {
+        completedEntries.splice( 0, 0, upcomingEntries[0]);
+        upcomingEntries.splice( 0, 1);
+        update = true;
+    }
+
+    if (update) {
+        updateAll();
+
+        if ((upcomingEntries.length == 0) && moveTimer) { // nothing left to move, stop checking
+            clearInterval( moveTimer);
+            moveTimer = undefined;
         }
-    });
+    }
 }
 
 function dropOldCompletedOverpasses (now) {
@@ -565,32 +594,24 @@ function dropOldCompletedOverpasses (now) {
     }
 }
 
-function moveOverpass () {
-    odinCesium.withCurrentUtcMillis( (now) => {
-        if (upcomingEntries.length > 0) {
-            let oe = upcomingEntries[0];
-            if (oe.end < now) {
-                completedEntries.splice( 0, 0, oe);
-                upcomingEntries.splice( 0, 1);
-
-                updateCompleted();
-                updateUpcoming();
-                updateSatellites();
-            }
-
-            scheduleNextOverpassMove(); // only schedule next if we moved en entry
-        }
-    });
+function updateAll() {
+    updateUpcoming();
+    updateCompleted();
+    updateSatellites();
 }
 
 function handleHotspotMessage(hotspots) {
     odinCesium.withCurrentUtcMillis( (now) => { // we don't have overpasses until we have the UTC clock set
+        updateCompletedOverpasses(now); // first make sure we have up-to-date completedEntries
+
         for (let hsList of hotspots) {
             let oe = completedEntries.find( (oe) => { return (oe.satId == hsList.satId) && (oe.end == hsList.end); });
             if (oe) {
                 oe.hsList = hsList;
                 ui.updateListItem( completedView, oe); // might not show if filtered
                 loadHotspots(oe); // trampoline action - load full hsList (with hotspots) from file
+            } else {
+                console.log("warning: un-associated hotspots for ", hsList,satId, " at ", util.toLocalMDHMString(hsList.end));
             }
         }
     });
@@ -606,7 +627,7 @@ function loadHotspots (oe) {
                     computeHotspotFootprints( hsList.hotspots);
                     return hsList.hotspots.map( (h)=>h.geoPos);
                 }).then( (ps)=> {
-                    odinCesium.withSampledTerrain( ps, 10, ()=>{ // withDetailedSampleTerrain causes exception in Cesium
+                    odinCesium.withDetailedSampledTerrain( ps, ()=>{
                         updateHotspots();
                     })
                 })

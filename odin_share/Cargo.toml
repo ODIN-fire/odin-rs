@@ -1,7 +1,7 @@
 [package]
 name = "odin_share"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 # our ODIN crates
@@ -21,9 +21,9 @@ thiserror = { workspace = true }
 axum = { workspace = true }
 
 globset = "0.4.15"
-regex = "1.11.1"
-anyhow = "1.0.93"
-bytes = "1.9.0"
+regex = {workspace = true }
+anyhow = { workspace = true }
+bytes = { workspace = true }
 
 
 [features]

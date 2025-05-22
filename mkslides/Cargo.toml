@@ -1,16 +1,14 @@
 [package]
 name = "mkslides"
 version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition = "2024"
 
 [dependencies]
 odin_common = { workspace = true }
 
-lazy_static = "*"
-markdown = "1.0.0-alpha.16"
-structopt = "*"
-anyhow = "*"
-regex = "*"
+lazy_static = { workspace = true }
+markdown = "1.0.0"
+structopt = { workspace = true }
+anyhow = { workspace = true }
+regex = { workspace = true }
 

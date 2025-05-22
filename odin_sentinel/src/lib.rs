@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 #![allow(unused)]
-#![feature(trait_alias,exit_status_error,duration_constructors)]
+#![feature(trait_alias,exit_status_error)]
 
 use std::u64;
 #[doc = include_str!("../doc/odin_sentinel.md")]
@@ -37,7 +37,10 @@ use lazy_static::lazy_static;
 
 use odin_build::{define_load_asset, define_load_config, pkg_cache_dir};
 use odin_common::{
-    angle::{Latitude,Longitude}, datetime::{deserialize_duration, to_epoch_millis, Dated, EpochMillis}, fs::{ensure_writable_dir, get_filename_extension}, geo::{GeoPoint3,GeoPoint4}
+    angle::{Latitude,Longitude}, 
+    datetime::{days, hours, minutes, secs, deserialize_duration, to_epoch_millis, Dated, EpochMillis}, 
+    fs::{ensure_writable_dir, get_filename_extension}, 
+    geo::{GeoPoint3,GeoPoint4}
 };
 use odin_actor::{MsgReceiver, Query, ActorHandle};
 use odin_macro::{define_algebraic_type, match_algebraic_type, define_struct};
@@ -960,12 +963,12 @@ impl Default for SentinelConfig {
 
             //--- the fields for which we have defaults
             max_history_len: 10,
-            max_age: Duration::from_secs( 60*60*24),
-            ping_interval: Some(Duration::from_secs(25)),
+            max_age: days(1),
+            ping_interval: Some(secs(25)),
             reconnect_delay: None,
             device_filter: Vec::new(), // default is no filter
-            inactive_duration: Duration::from_secs( 7200), // inactive if no update for 2h
-            inactive_interval: Duration::from_secs(300) // check every 5 min
+            inactive_duration: hours(2), // inactive if no update for 2h
+            inactive_interval: minutes(5) // check every 5 min
         }
     }
 }

@@ -15,11 +15,11 @@
 use std::collections::{VecDeque,HashMap};
 use std::{time::Duration,sync::Arc,future::Future, path::PathBuf, io::Write as IoWrite, fmt::Write as FmtWrite};
 use futures::SinkExt;
-use odin_common::datetime::duration_since;
+use odin_common::datetime::{duration_since,secs,minutes,days};
 use odin_common::fs::get_filename_extension;
 use odin_common::geo::GeoPoint4;
 use odin_common::sim_clock;
-use odin_common::{datetime::Dated,sim_clock::now,fs::{append_open,append_to_file,append_line_to_file}};
+use odin_common::{datetime::{Dated,millis},sim_clock::now,fs::{append_open,append_to_file,append_line_to_file}};
 use serde::{Deserialize,Serialize,Serializer};
 use serde_json;
 use chrono::{DateTime, Local, TimeDelta, Utc};
@@ -108,11 +108,11 @@ impl Default for SentinelAlarmMonitorConfig {
     fn default()->Self {
         SentinelAlarmMonitorConfig {
             new_alarm_duration: minutes(10),
-            old_alarm_duration: Duration::from_mins(60),
-            inactive_duration: Duration::from_mins(60),
-            inactive_interval: Duration::from_mins(5),
+            old_alarm_duration: minutes(60),
+            inactive_duration: minutes(60),
+            inactive_interval: minutes(5),
             attach_image: true,
-            image_timeout: Duration::from_secs(20),
+            image_timeout: secs(20),
             fire_prob: 0.7,
             smoke_prob: 0.7,
             viewer_url: None,
@@ -348,7 +348,7 @@ impl SentinelAlarmMonitor {
     async fn check_inactive (&mut self, hself: ActorHandle<SentinelAlarmMonitorMsg>) {
         let now = Utc::now();
         for ( device_id, time_recorded ) in &self.sentinel_states {
-            let elapsed = if let Some(tr) = time_recorded { duration_since( &now, &time_recorded.unwrap()) } else { Duration::from_days(1) };
+            let elapsed = if let Some(tr) = time_recorded { duration_since( &now, &time_recorded.unwrap()) } else { days(1) };
 
             if time_recorded.is_none() || elapsed >= self.config.inactive_duration {
                 if self.inactive_alerts.iter().find( |alert| alert.device_id == *device_id).is_none() { // did we already report?

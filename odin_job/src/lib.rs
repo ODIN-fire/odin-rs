@@ -314,10 +314,3 @@ fn sort_in (job: Job, queue: &mut VecDeque<Job>)->usize {
 fn now_epoch_millis()->u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as u64
 } 
-
-#[inline] pub fn days (n: u64)->Duration { Duration::from_secs(n*60*60*24) }
-#[inline] pub fn hours (n: u64)->Duration { Duration::from_secs(n*60*60) }
-#[inline] pub fn minutes (n: u64)->Duration { Duration::from_secs(n*60) }
-#[inline] pub fn secs (n: u64)->Duration { Duration::from_secs(n) }
-#[inline] pub fn millis (n: u64)->Duration { Duration::from_millis(n) }
-

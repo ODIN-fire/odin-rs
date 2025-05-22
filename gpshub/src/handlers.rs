@@ -36,8 +36,8 @@ pub async fn handle_gps (gps: Gps, server_opts: ArcMxSrvOpts) -> Result<impl war
     writeln!(cr.get_mut(), "{}", &rec).unwrap_or_else(|e| eprintln!("error writing log_file: {}", e))
   }
 
-  if let Some(ref mc_sock) = &srv.mc_sock {
-    if let Some(ref mc_addr) = &srv.mc_addr {
+  if let Some(mc_sock) = &srv.mc_sock {
+    if let Some(mc_addr) = &srv.mc_addr {
       match mc_sock.send_to(rec.as_bytes(), mc_addr) {
         Ok(len) => if srv.verbose { println!("sent {} bytes to {:?}", len, mc_addr) },
         Err(err) => eprintln!("error sending record to {:?}: {}", mc_addr, err)

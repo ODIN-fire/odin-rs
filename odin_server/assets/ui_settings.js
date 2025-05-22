@@ -47,7 +47,7 @@ createIcon();
 createWindow();
 
 function createIcon() {
-    return ui.Icon("./asset/odin_server/settings.svg", (e)=> ui.toggleWindow(e,'settings'));
+    return ui.Icon("./asset/odin_server/settings.svg", (e)=> ui.toggleWindow(e,'settings'), "UI settings");
 }
 
 function createWindow() {

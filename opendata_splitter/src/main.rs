@@ -208,7 +208,7 @@ fn process_geojson (gj: &GeoJson, output_dir: &str, summary: &mut FireSummary) {
     if let GeoJson::FeatureCollection(ref fc) = *gj {
         for feature in &fc.features {
             if_let! {
-                Some(ref props) = { &feature.properties } else { eprintln!("ignoring feature without properties") },
+                Some(props) = { &feature.properties } else { eprintln!("ignoring feature without properties") },
                 Some(id) = { archive_id_of_feature(feature) } else { eprintln!("ignoring feature without archive id") },
                 Some(cat) = { cat_property_of_feature(feature) } else { eprintln!("ignoring feature #{} without category", id) },
                 Some(dt) = { get_datetime(feature) } else { eprintln!("ignoring feature #{} without date", id) } => {

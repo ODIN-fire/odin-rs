@@ -12,7 +12,7 @@ OrbitalSatelliteInfo (
 
     time_step: Duration( secs: 2, nanos: 0), // time step for calculating orbits
 
-    back_days: 3,    // initial historical data to retrieve
+    back_days: 1, // 3   // initial historical data to retrieve
     forward_days: 1, // for which we compute upcoming overpasses
 
     max_completed: 10, // maximum number of completed overpasses/data sets to keep

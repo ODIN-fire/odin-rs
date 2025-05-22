@@ -23,7 +23,6 @@
 // re-export for our macro impls
 pub extern crate tokio;
 
-use odin_job::{JobHandle, JobScheduler};
 use tokio::{
     time::{self,Interval,interval},
     task::{self, JoinSet, LocalSet},
@@ -36,11 +35,18 @@ use std::{
     sync::{atomic::{AtomicU64, Ordering}, Arc, LockResult, Mutex, MutexGuard}, time::{Duration, Instant}
 };
 use futures::TryFutureExt;
-use crate::{
-    create_sfc, debug, error, errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, info, micros, millis, nanos, secs, trace, unpack_ping_response, warn, ActorReceiver, ActorSystemRequest, DefaultReceiveAction, DynMsgReceiver, DynMsgReceiverTrait, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints, MsgSendFuture, MsgTypeConstraints, ObjSafeFuture, ReceiveAction, SendableFutureCreator, SysMsgReceiver, TryMsgReceiver, _Exec_, _Pause_, _Ping_, _Resume_, _Start_, _Terminate_, _Timer_
-};
+use odin_common::{process,datetime::{secs,millis}};
+use odin_job::{JobHandle, JobScheduler};
 use odin_macro::fn_mut;
-use odin_common::process;
+use crate::{
+    create_sfc, debug, error, 
+    errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, 
+    info, trace, unpack_ping_response, warn, ActorReceiver, ActorSystemRequest, DefaultReceiveAction, 
+    DynMsgReceiver, DynMsgReceiverTrait, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints, 
+    MsgSendFuture, MsgTypeConstraints, ObjSafeFuture, ReceiveAction, SendableFutureCreator, SysMsgReceiver, 
+    TryMsgReceiver, _Exec_, _Pause_, _Ping_, _Resume_, _Start_, _Terminate_, _Timer_
+};
+
 
 /* #region channel abstractions ********************************************************************************/
 /*
@@ -1262,7 +1268,7 @@ macro_rules! run_actor_system {
             let _res: anyhow::Result<()> = $set_up;
             _res?;
 
-            $asys.timeout_start_all(secs(2)).await?;
+            $asys.timeout_start_all(std::time::Duration::from_secs(2)).await?;
             $asys.process_requests().await?;
 
             Ok(())

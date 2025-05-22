@@ -12,7 +12,6 @@
  * and limitations under the License.
  */
 #![allow(unused)]
-#![feature(duration_constructors)]
 
 //! this application serves both as a test for GOES-R hotspot data download functions and associated configs,
 //! and as a production tool to obtain raw GOES-R hotspot data (e.g. for archives)
@@ -26,6 +25,7 @@ use chrono::{DateTime,Utc};
 
 use odin_build;
 use odin_common::{define_cli,fs::ensure_writable_dir};
+use odin_common::datetime::hours;
 use odin_common::s3::{S3Object,create_s3_client, get_s3_objects, get_last_s3_object};
 use odin_common::schedule::{get_hourly_schedule,Compaction,get_next_hourly_event_dtg};
 use odin_goesr::{load_config,get_goesr_data, get_most_recent_objects, get_objects_since, no_object_error, OdinGoesrError, Result, LiveGoesrHotspotImporterConfig};
@@ -52,7 +52,7 @@ async fn main()->Result<()> {
 
     //--- initial download
     println!("\n----------- initial download of {} objects started at {}", n_objs, Utc::now());
-    let mut objs = get_most_recent_objects( &client, &config.bucket, &source, Duration::from_hours(3), Utc::now()).await?;
+    let mut objs = get_most_recent_objects( &client, &config.bucket, &source, hours(3), Utc::now()).await?;
     if objs.len() < 12 { return Err(no_object_error("not enough initial objects")) }
 
     let hourly_schedule = get_hourly_schedule(&objs, Some(Compaction::BoundedRightEdge(3)));

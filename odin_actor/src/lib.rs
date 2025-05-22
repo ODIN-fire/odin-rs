@@ -64,15 +64,6 @@ use odin_build::define_load_config;
 
 define_load_config! {}
 
-#[inline] pub fn days (n: u64)->Duration { Duration::from_secs(n*60*60*24) }
-#[inline] pub fn hours (n: u64)->Duration { Duration::from_secs(n*60*60) }
-#[inline] pub fn minutes (n: u64)->Duration { Duration::from_secs(n*60) }
-#[inline] pub fn secs (n: u64)->Duration { Duration::from_secs(n) }
-#[inline] pub fn millis (n: u64)->Duration { Duration::from_millis(n) }
-#[inline] pub fn micros (n: u64)->Duration { Duration::from_micros(n) }
-#[inline] pub fn nanos (n: u64)->Duration { Duration::from_nanos(n)} 
-
-
 /// type that can be used for returning futures in object-safe (async) traits
 pub type ObjSafeFuture<'a, T> = Pin<Box<dyn Future<Output=T> + Send + 'a>>;
 pub type MsgSendFuture<'a> = ObjSafeFuture<'a,Result<()>>;

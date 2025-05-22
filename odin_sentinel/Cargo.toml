@@ -1,7 +1,8 @@
 [package]
 name = "odin_sentinel"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+
 build = "../build_resources.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -49,6 +50,7 @@ odin_macro = { workspace = true }
 
 futures = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tokio-tungstenite = { workspace = true }
 reqwest = { workspace = true }
 axum = { workspace = true }
@@ -59,23 +61,23 @@ uom = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
 ron = { workspace = true }
+anyhow = { workspace = true }
+lazy_static = { workspace = true }
+structopt = { workspace = true }
+paste = { workspace = true }
+http = { workspace = true }
+url = { workspace = true }
 
-anyhow = "*"
-serde_with = "*" 
-tokio-util = { version = "*", features = ["full"] }
-async-stream = "*"
-http = "*"
-url = "*"
-lazy_static = "*"
-structopt = "*"
-displaydoc = "*"
-strum = { version = "*", features = ["derive"]}
-paste = "*"
-which = "*"
+serde_with = { workspace = true }
+async-stream = "0.3.6"
 
-jsonrpsee =  { version = "*",  features = ["macros","async-client","http-client"], optional = true }
-lettre = { version = "*", features = ["tokio1", "tokio1-native-tls"], optional = true }
-dhat = { version = "*", optional = true }
+displaydoc = "0.2.5"
+strum = { version = "0.27.1", features = ["derive"]}
+which = "7.0.3"
+
+jsonrpsee =  { version = "0.25.1",  features = ["macros","async-client","http-client"], optional = true }
+lettre = { version = "0.11.16", features = ["tokio1", "tokio1-native-tls"], optional = true }
+dhat = { version = "0.3.3", optional = true }
 
 
 [build-dependencies]

@@ -12,19 +12,12 @@
  * and limitations under the License.
  */
 
-use tokio;
-use anyhow::Result;
-
 use odin_build;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_goesr::{GoesrHotspotService, actor::spawn_goesr_hotspot_actors};
  
-#[tokio::main]
-async fn main()->Result<()> {
-    odin_build::set_bin_context!();
-    let mut actor_system = ActorSystem::new("main");
-    actor_system.request_termination_on_ctrlc();
+run_actor_system!( actor_system => {
 
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
 
@@ -40,8 +33,5 @@ async fn main()->Result<()> {
         )
     )?;
 
-    actor_system.timeout_start_all(secs(2)).await?;
-    actor_system.process_requests().await?;
-
     Ok(())
-}
+});

@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 
-import * as util from "../odin_server/ui_util.js";
+//import * as util from "../odin_server/ui_util.js";
 
 console.log("geolayer module loaded: " +  new URL(import.meta.url).pathname.split("/").pop());
 

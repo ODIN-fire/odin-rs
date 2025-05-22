@@ -203,7 +203,10 @@ pub fn get_or_create_root_dir()->Result<PathBuf> {
             default_odin_root()
         };
         // automatically set ODIN_ROOT to the computed path for the current process and its children
-        env::set_var("ODIN_ROOT", &computed_path);
+        // NOTE - this is not multi-threaded. Caller has to make sure this assumption holds
+        unsafe {
+            env::set_var("ODIN_ROOT", &computed_path);
+        }
 
         computed_path
     };

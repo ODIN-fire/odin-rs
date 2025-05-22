@@ -82,9 +82,8 @@ var utcClock = undefined;
 // a promise other modules can latch on to if they need an initialized utc clock
 export const utcClockPromise = new Promise( (resolve,reject) => {
     let tid = setInterval(() => {
-        //console.log("@@@ check clock", utcClock);
         if (ui.isClockSet(utcClock)) {
-            console.log("UTC clock set.");
+            console.log("clock running.");
             clearTimeout(tid);
             resolve(utcClock);
         }
@@ -211,8 +210,9 @@ viewer.scene.canvas.addEventListener('mousedown', handleMouseDown);
 viewer.scene.canvas.addEventListener('mouseup', handleMouseUp);
 viewer.scene.canvas.addEventListener('click', handleMouseClick);
 viewer.scene.canvas.addEventListener('dblclick', handleMouseDblClick);
-document.addEventListener('keydown', handleKeyDown); // does not work on canvas
 
+document.addEventListener('keydown', handleKeyDown); // does not work on canvas
+registerKeyDownHandler( globalKeyDownHandler); // global hotkeys
 
 // FIXME - this seems to be broken as of Cesium 105.1
 //viewer.scene.postRender.addEventListener(function() {
@@ -783,14 +783,21 @@ export function render() {
     viewer.render();
 }
 
-export function withSampledTerrain(positions, level, action) {
-    const promise = Cesium.sampleTerrain(viewer.terrainProvider, level, positions);
-    Promise.resolve(promise).then(action);
-}
+export async function withDetailedSampledTerrain(positions, action) {
+    let nPoints = positions.length;
 
-export function withDetailedSampledTerrain(positions, action) {
-    const promise = Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, positions);
-    Promise.resolve(promise).then(action);
+    if ( nPoints > 100) { // this tends to throw ERR_INSUFFICIENT_RESOURCES errors in Chrome, resulting in undefined heights
+        for (let i=0; i<nPoints; i+=100) {
+            let i1 = Math.min(i + 100, nPoints);
+            let chunk = positions.slice( i, i1);
+            await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, chunk);
+        }
+        action();
+
+    } else {
+        const promise = Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, positions);
+        Promise.resolve(promise).then(action);
+    }
 }
 
 export function createScreenSpaceEventHandler() {
@@ -922,9 +929,12 @@ function handleCameraMessage(newCamera) {
 }
 
 function handleSetClock(setClock) {
-    console.log("setting clock to ", setClock);
     ui.setClock( utcClock, setClock.time, setClock.timeScale, true);
+    console.log("UTC clock set to ", ui.getClockDate(utcClock).toUTCString());
+
     ui.setClock( localClock, setClock.time, setClock.timeScale);
+    console.log("local clock set to ", ui.getClockDate(utcClock));
+
     ui.resetTimer("time.elapsed", setClock.timeScale);
     ui.startTime();
 }
@@ -1000,26 +1010,20 @@ function withMetersPerPixel (f) {
     let geo = util.ecefToGeo( cp.x, cp.y, cp.z);
     let cameraHeight = geo.alt; // of camera above ellipsoid
 
-    let complete = () => {
-        let p1 = Cesium.Cartesian3.add( ray1.origin, 
-            Cesium.Cartesian3.multiplyByScalar(ray1.direction,cameraHeight,new Cesium.Cartesian3()), new Cesium.Cartesian3());
-        let p2 = Cesium.Cartesian3.add( ray2.origin, 
-                    Cesium.Cartesian3.multiplyByScalar(ray2.direction,cameraHeight, new Cesium.Cartesian3()), new Cesium.Cartesian3());
-        let dist = Cesium.Cartesian3.distance( p1, p2, new Cesium.Cartesian3());
-        let dPixel = dist / dx;
-
-        f( dPixel)
-    };
-
-    if (cameraHeight > 80000) { // means terrain height is negligible
-        complete()
-    } else {
+    if (cameraHeight < 80000) { // factor in terrain height
         geo = new Cesium.Cartographic.fromRadians( geo.lon, geo.lat);
-        withSampledTerrain([geo], 10, ()=> {
-            cameraHeight -= geo.height; // subtract the terrain elevation from the camera height
-            complete()
-        });
+        geo.height = viewer.scene.globe.getHeight(geo);
+        cameraHeight -= geo.height; // subtract the terrain elevation from the camera height
     }
+
+    let p1 = Cesium.Cartesian3.add( ray1.origin, 
+        Cesium.Cartesian3.multiplyByScalar( ray1.direction, cameraHeight,new Cesium.Cartesian3()), new Cesium.Cartesian3());
+    let p2 = Cesium.Cartesian3.add( ray2.origin, 
+                Cesium.Cartesian3.multiplyByScalar( ray2.direction, cameraHeight, new Cesium.Cartesian3()), new Cesium.Cartesian3());
+    let dist = Cesium.Cartesian3.distance( p1, p2, new Cesium.Cartesian3());
+    let dPixel = dist / dx;
+
+    f( dPixel)
 }
 
 const metricScaleUnits = [ 1000000, 500000, 100000, 50000, 10000, 5000, 1000, 500, 100, 50, 10 ]; // in meters
@@ -1066,7 +1070,6 @@ function getUsScale (dPixel) {
         for (let j=0; j<nu.length; j++) {
             nUnits = nu[j];
             if ((unitPx * nUnits) <= maxWidth) {
-                console.log("@@ mi base: ", unit, nUnits);
                 return { unit, nUnits, unitPx, tickBase: unit, label: `${unit * nUnits} mi` };
             }
         }
@@ -1230,6 +1233,18 @@ function handleKeyDown(e) {
     keyDownHandlers.forEach( handler=> handler(e));
 }
 
+// global hotkeys - make sure these don't collide with module specific handlers
+function globalKeyDownHandler (event) {
+    if (Object.is( event.target, document.body)) { // otherwise this wasn't for us
+        if (event.ctrlKey) {
+            if (event.keyCode >= 49 && event.keyCode <= 57) {
+                let i = Math.min(event.keyCode - 49, config.zoomLevels.length-1);
+                zoomToHeight( config.zoomLevels[i]);
+            }
+        }
+    }
+}
+
 // mouse query cached positions
 const cp2 = new Cesium.Cartesian2(); // screen
 const cp3 = new Cesium.Cartesian3(); // ecef
@@ -1335,6 +1350,16 @@ export function saveCamera() {
     //let spec = `{ lat: ${util.fmax_4.format(lastCamera.lat)}, lon: ${util.fmax_4.format(lastCamera.lon)}, alt: ${Math.round(lastCamera.alt)} }`;
     //navigator.clipboard.writeText(spec);  // this is still experimental in browsers and needs to be enabled explicitly (for each doc?) for security reasons
     //console.log(spec);
+}
+
+export function zoomToHeight (height) {
+    let cp = viewer.camera.position;
+    let pNew = Cesium.Ellipsoid.WGS84.scaleToGeodeticSurface( cp, new Cesium.Cartesian3());
+    let ds = Cesium.Cartesian3.magnitude(pNew);
+    let a = (ds + height) / ds;
+    Cesium.Cartesian3.multiplyByScalar( pNew, a, pNew);
+
+    zoomTo(pNew);
 }
 
 export function zoomTo(cameraPos) {

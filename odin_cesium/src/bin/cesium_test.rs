@@ -98,8 +98,8 @@ impl SpaService for TestService {
     }
 }
 
-run_actor_system!( actor_system => {    
-    env::set_var( "ODIN_RELOAD_ASSETS", "1"); // make sure assets are always reloaded - this is for testing/debugging
+run_actor_system!( actor_system => {
+    unsafe { env::set_var( "ODIN_RELOAD_ASSETS", "1") } // make sure assets are always reloaded - this is for testing/debugging
 
     let hserver = spawn_actor!( actor_system, "spa_server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,

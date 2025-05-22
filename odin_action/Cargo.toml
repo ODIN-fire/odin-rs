@@ -1,15 +1,15 @@
 [package]
 name = "odin_action"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [lib]
 doctest = false
 
 [dependencies]
-async-trait = "*"
-anyhow = "*"
+async-trait = { workspace = true }
+anyhow = { workspace = true }
 
 [dev-dependencies]
-tokio = { version = "*", features = ["full"] }
+tokio = { workspace = true }
 

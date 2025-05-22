@@ -40,7 +40,7 @@ run_actor_system!( actor_system => {
 
     //--- spawn the orbital satellite actors
     let region = odin_orbital::load_config("conus.ron")?;
-    let orbital_sat_configs = vec![ "noaa-21_viirs.ron", "noaa-20_viirs.ron", "snpp_viirs.ron"];
+    let orbital_sat_configs = vec![ "noaa-21_viirs.ron", "noaa-20_viirs.ron", "snpp_viirs.ron", "landsat-8_oli.ron", "landsat-9_oli.ron"];
     let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), region, &orbital_sat_configs)?;
 
     //--- spawn the sentinel actor

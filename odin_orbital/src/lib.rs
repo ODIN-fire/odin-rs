@@ -13,8 +13,6 @@
  */
 
 #![allow(unused)]
-#![feature(duration_constructors)]
-#![feature(duration_constructors_lite)]
 
 use std::{collections::VecDeque, fmt, time::{Duration as StdDuration,SystemTime}, path::{Path,PathBuf}, fs, sync::Arc};
 use nalgebra::{ViewStorage,base::{Matrix,ArrayStorage,dimension::{Const,Dyn}}};
@@ -33,7 +31,7 @@ use odin_common::{
     angle::{ser_rounded5_angle, ser_rounded_angle, Angle180, Angle90, Latitude, Longitude}, 
     cartesian3::{ser_rounded_cartesian3, Cartesian3}, 
     cartographic::Cartographic, collections::empty_vec, 
-    datetime::{self, de_from_epoch_millis, ser_epoch_millis}, 
+    datetime::{self, de_from_epoch_millis, ser_epoch_millis, days}, 
     fs::{ensure_writable_dir, get_modified_timestamp, set_modified_timestamp, set_filepath_contents}, 
     geo::{GeoPoint,GeoPolygon}, 
     json_writer::{JsonWritable, JsonWriter}, 
@@ -408,7 +406,7 @@ pub fn update_orbital_data ()->Result<()> {
     let elapsed = now.duration_since(last_mod)
         .map_err(|e| op_failed!("invalid modification timestamp of data dir {dir:?}: {e}"))?;
 
-    if elapsed > StdDuration::from_days(1) {
+    if elapsed > days(1) {
         satkit::utils::update_datafiles( None, false).map_err( |e| op_failed!("failed to update satkit data dir: {}", e))?;
         set_modified_timestamp(&dir, now)?;
     } else {

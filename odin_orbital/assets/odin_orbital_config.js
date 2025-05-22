@@ -4,6 +4,7 @@ export const config = {
         description: "active fire detection using polar orbiting satellites",
         show: true,
     },
+    checkInterval: 60000, // check for completed overpasses once per minute
     maxAgeInDays: 10, // maximum age (in days) after which we drop completed overpasses
     timeSteps: [
         { "hours":  6, "color": Cesium.Color.fromCssColorString("#ff0000") },

@@ -2,6 +2,7 @@
 name = "odin_geolayer"
 version = "0.1.0"
 edition = "2024"
+
 build = "../build_resources.rs"
 
 [[bin]]
@@ -17,17 +18,17 @@ odin_macro = { workspace = true }
 odin_server = { workspace = true }
 odin_cesium = { workspace = true }
 
-anyhow = "*"
+anyhow = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 axum = { workspace = true }
-async-trait = "*"
-structopt = "0.3.26"
+async-trait = { workspace = true }
+structopt = { workspace = true }
 lazy_static = { workspace = true }
 reqwest = { workspace = true }
-http = "1.2.0"
-zip = "2.2.2"
-flate2 = "*"
+http = { workspace = true }
+zip = "3.0.0"
+flate2 = "1.1.1"
 
 [build-dependencies]
 odin_build = { workspace = true }

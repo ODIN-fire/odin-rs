@@ -1,20 +1,19 @@
 [package]
 name = "odin_hrrr"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [[bin]]
 name = "get_hrrr"
 path = "src/bin/get_hrrr.rs"
 
 [dependencies]
-lazy_static = "*"
-bytes = "*"
-structopt = "*"
-regex = "*"
-anyhow = "*"
-tempfile = "*"
-serde_derive = "*"
+lazy_static = { workspace = true }
+bytes = { workspace = true }
+structopt = { workspace = true }
+regex = { workspace = true }
+anyhow = { workspace = true }
+tempfile = "3.20.0"
 
 # workspace dependencies
 odin_common = { workspace = true }

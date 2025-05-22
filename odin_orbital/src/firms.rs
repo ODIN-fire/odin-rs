@@ -31,7 +31,7 @@ use odin_common::{
     angle::{Angle180,Longitude,Latitude}, 
     cartesian3::{dist_squared, find_closest_index, Cartesian3}, 
     cartographic::Cartographic, 
-    datetime::{self, de_duration_from_fractional_secs, de_from_epoch_millis, from_epoch_millis, ser_duration_as_fractional_secs, ser_epoch_millis}, 
+    datetime::{self, minutes, de_duration_from_fractional_secs, de_from_epoch_millis, from_epoch_millis, ser_duration_as_fractional_secs, ser_epoch_millis}, 
     geo::{GeoPoint, GeoRect}, macros::if_let, 
     net::download_url 
 };
@@ -493,7 +493,7 @@ pub fn find_covering_overpass<T> (sat_id: u32, date: DateTime<Utc>, cops: &VecDe
 pub fn is_covering_overpass (o: &Overpass, d: DateTime<Utc>)->bool {
     // give some leeway at the end since acquisition might have some latency - we assume download latency < orbit_dur / 2
     //let cutoff = o.end + o.mean_orbit_duration.div_f64(2.0);
-    let cutoff = o.end + Duration::from_mins(10);
+    let cutoff = o.end + minutes(10);
     //println!("@@ {} < {} < {}", o.start, d, cutoff);
     (d >= o.start) && (d <= cutoff)
 }

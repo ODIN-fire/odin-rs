@@ -14,7 +14,7 @@
 #![allow(unused)]
 //#![feature(diagnostic_namespace)]
 
-use std::{net::SocketAddr, path::{Path,PathBuf}};
+use std::{net::SocketAddr, path::{Path,PathBuf}, time::Duration};
 
 use axum::{body::Body, response::{Response,IntoResponse}, Router, http::{header,StatusCode as AxStatusCode, HeaderMap, HeaderName}};
 use axum_server::{service::MakeService, tls_rustls::RustlsConfig};
@@ -49,6 +49,7 @@ type Result<T> = OdinServerResult<T>;
 pub struct ServerConfig {
     pub sock_addr: SocketAddr,
     pub tls: Option<TlsConfig>, // if set use TLS (https)
+    pub heartbeat_interval: Option<Duration>
 }
 
 impl ServerConfig {

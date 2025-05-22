@@ -58,7 +58,7 @@ pub fn is_rx_closed<M> (rx: &MpscReceiver<M>)->bool {
 
 #[inline]
 pub fn close_rx<M> (rx: &MpscReceiver<M>)->bool {
-    rx.close()
+    rx.close().is_ok()
 }
 
 #[macro_export]

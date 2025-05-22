@@ -1,26 +1,27 @@
 [package]
 name = "odin_build"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [[bin]]
 name = "bob"
 
 [dependencies]
-lazy_static = "*"
-anyhow = "*"
-toml = "0.8.19"
-cargo_toml = "0.21.0"
-bytes = "1.9.0"
-flate2 = "*"
-brotli = "*"
-minifier = "*"
-minify-html-onepass = "*"
-
-rand = "*"
-# pgp = "0.14.2"
-magic-crypt = "*"
-
+lazy_static = { workspace = true }
+anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 ron = { workspace = true }
+bytes = { workspace = true }
+
+toml = "0.8.22"
+cargo_toml = "0.22.1"
+flate2 = "1.1.1"
+brotli = "8.0.1"
+minifier = "0.3.5"
+minify-html-onepass = "0.16.4"
+
+rand = "0.9.1"
+# pgp = "0.14.2"
+magic-crypt = "4.0.1"
+

@@ -11,7 +11,7 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
-import { config } from "./geolayer_config.js";
+import { config } from "./odin_geolayer_config.js";
 import * as util from "../odin_server/ui_util.js";
 import { ExpandableTreeNode } from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
@@ -74,7 +74,7 @@ function createWindow() {
 }
 
 function createIcon() {
-    return ui.Icon("./asset/odin_geolayer/geomarker-icon.svg", (e)=> ui.toggleWindow(e,'geolayer'));
+    return ui.Icon("./asset/odin_geolayer/geomarker-icon.svg", (e)=> ui.toggleWindow(e,'geolayer'), "GeoJSON");
 }
 
 function initSourceView() {
@@ -112,16 +112,17 @@ async function loadRenderModule (modPath,sourceEntry=null) {
 
 function geoLayerSelection() {
     let e = odinCesium.getSelectedEntity();
+    if (e) {
+        if (e.position && e.position._value) {
+            odinCesium.viewer.selectionIndicator.viewModel.position = e.position._value;  // HACK - cesium has wrong SI height if not clamp-to-ground
+        }
 
-    if (e.position && e.position._value) {
-        odinCesium.viewer.selectionIndicator.viewModel.position = e.position._value;  // HACK - cesium has wrong SI height if not clamp-to-ground
-    }
-
-    if (e && e.properties && e.properties.propertyNames) {
-        let kvList = e.properties.propertyNames.map( key=> [key, e.properties[key]._value]);
-        ui.setKvList(objectView,kvList);
-    } else {
-        ui.setKvList(objectView,null);
+        if (e && e.properties && e.properties.propertyNames) {
+            let kvList = e.properties.propertyNames.map( key=> [key, e.properties[key]._value]);
+            ui.setKvList(objectView,kvList);
+        } else {
+            ui.setKvList(objectView,null);
+        }
     }
 }
 

@@ -24,7 +24,17 @@ use chrono::{DateTime, Datelike, Timelike, Utc};
 use serde::{Deserialize,Serialize};
 use bit_set::BitSet;
 use odin_common::{
-    angle::{normalize_360, Angle360, Angle90}, asin, atan2, cartesian3::{dist_squared, find_closest_index, scale_to_earth_radius, Cartesian3}, cartographic::{approximate_surface_centroid, earth_radius_at_geodetic_latitude, get_bbox_rad, mean_distance_rad, parallel_distance_rad, Cartographic}, collections::{empty_vec, RingDeque, SingleLookupHashMap, SortedIterable}, cos, datetime::{de_duration_from_fractional_secs, de_from_epoch_millis, from_epoch_millis, ser_duration_as_fractional_secs, ser_epoch_millis}, fs::set_filepath_contents, geo::{GeoPoint, GeoPolygon, GeoRect}, geo_constants::{EQUATORIAL_EARTH_RADIUS_SQUARED, E_EARTH, E_EARTH_SQUARED, MEAN_EARTH_RADIUS, POLAR_EARTH_RADIUS_SQUARED}, is_same_ref, json_writer::{JsonWritable, JsonWriter}, signum, sin, sqrt, tan, uom::{de_length_from_meters, meters, ser_length_as_meters}, MinMaxAvg, HALF_PI
+    asin, atan2, cos, signum, sin, sqrt, tan, is_same_ref, MinMaxAvg, HALF_PI, 
+    angle::{normalize_360, Angle360, Angle90}, 
+    cartesian3::{dist_squared, find_closest_index, scale_to_earth_radius, Cartesian3}, 
+    cartographic::{approximate_surface_centroid, earth_radius_at_geodetic_latitude, get_bbox_rad, mean_distance_rad, parallel_distance_rad, Cartographic}, 
+    collections::{empty_vec, RingDeque, SingleLookupHashMap, SortedIterable}, 
+    datetime::{secs_f64, de_duration_from_fractional_secs, de_from_epoch_millis, from_epoch_millis, ser_duration_as_fractional_secs, ser_epoch_millis}, 
+    fs::set_filepath_contents, 
+    geo::{GeoPoint, GeoPolygon, GeoRect}, 
+    geo_constants::{EQUATORIAL_EARTH_RADIUS_SQUARED, E_EARTH, E_EARTH_SQUARED, MEAN_EARTH_RADIUS, POLAR_EARTH_RADIUS_SQUARED}, 
+    json_writer::{JsonWritable, JsonWriter}, 
+    uom::{de_length_from_meters, meters, ser_length_as_meters}
 };
 use crate::{
     get_time_vec, instant_now, ColumnVec, OrbitalSatelliteInfo, Hotspot, 
@@ -67,8 +77,8 @@ pub struct Overpass {
 
 impl Overpass {
     pub fn new (sat_id: u32, max_scan_angle: Angle90, ts: Duration, mean_orb_dur: Duration)-> Self {
-        let time_step = StdDuration::from_secs_f64( ts.as_seconds());
-        let mean_orbit_duration = StdDuration::from_secs_f64( mean_orb_dur.as_seconds());
+        let time_step = secs_f64( ts.as_seconds());
+        let mean_orbit_duration = secs_f64( mean_orb_dur.as_seconds());
 
         // those are all set later
         let start = from_epoch_millis(0);
@@ -220,8 +230,8 @@ pub fn save_overpasses_to (dir: impl AsRef<Path>, overpasses: &Vec<Overpass>)->R
 
 impl fmt::Display for Overpass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Overpass( sat_id:{}, start:{}, dur:{} min, step:{} s, n_points:{}, mean_alt: {:.0} m, mean_swath: {:.0} m)", 
-            self.sat_id, self.start, (self.end - self.start).num_minutes(), self.time_step.as_secs(), self.track.len(), 
+        write!(f, "Overpass( sat_id:{}, start:{}, end: {}, dur:{} min, step:{} s, n_points:{}, mean_alt: {:.0} m, mean_swath: {:.0} m)", 
+            self.sat_id, self.start, self.end, (self.end - self.start).num_minutes(), self.time_step.as_secs(), self.track.len(), 
             self.mean_height.get::<meter>(), self.mean_swath_width.get::<meter>())
     }
 }
@@ -290,8 +300,8 @@ impl <T: TleStore> OverpassCalculator<T> {
         let mut tle = oi.get_tle();
         let t_end = t_start + dur;
         let mut t = oi.get_orbit_start(t_start); 
-        let mut n_steps: usize = oi.rev_sec.floor() as usize;
         let step_secs = self.sat_info.time_step.as_secs_f64();
+        let mut n_steps: usize = (oi.rev_sec / step_secs).floor() as usize;
         let time_step = Duration::from_seconds(step_secs);
         let mut tvec: Vec<Instant> = vec![ Instant::new(0); n_steps + 20];
         let i1 = n_steps-1;
@@ -327,7 +337,7 @@ impl <T: TleStore> OverpassCalculator<T> {
                     current_overpass.push_track_point(p.to_rounded_decimals(0)); // no point keeping decimals - sgp4 does not have enough accuracy
                     i_last = i;
                 } else {
-                    if is_recording { break  } // done for this revolution - note we might not get here if z-filter catches
+                    if is_recording { break  } // done for this revolution 
                 }
 
                 p_last = p;
@@ -351,8 +361,9 @@ impl <T: TleStore> OverpassCalculator<T> {
             if !is_same_ref( oi, oi_next) {
                 oi = oi_next;
                 tle = oi.get_tle();
-                n_steps = oi.rev_sec.floor() as usize;
+                n_steps = (oi.rev_sec / step_secs).floor() as usize;
             }                    
+
             t = oi.get_orbit_start( t); // make sure we start on pole 
         }
 

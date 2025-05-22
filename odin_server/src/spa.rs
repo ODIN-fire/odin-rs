@@ -45,12 +45,14 @@ use serde::{Deserialize,Serialize};
 use async_trait::async_trait;
 
 use odin_build::LoadAssetFp;
-use odin_common::{fs::get_file_basename,strings::{self, mk_query_string},collections::empty_vec};
+use odin_common::{fs::get_file_basename,strings::{self, mk_query_string},collections::empty_vec, datetime::epoch_millis};
 use odin_macro::define_struct;
 use odin_actor::prelude::*;
 
 use crate::{load_asset, asset_uri, self_crate, get_asset_response, spawn_server_task, ServerConfig, WsMsg, WsMsgParts, ws_service};
 use crate::errors::{connect_error, init_error, op_failed, OdinServerError, OdinServerResult};
+
+const HEARTBEAT_TIMER_ID: i64 = 1;
 
 /// the trait that abstracts a single page application service, which normally represents a visualization
 /// layer with its own data (either dynamic or static) and document assets (such as Javascript modules
@@ -61,6 +63,10 @@ pub trait SpaService: Send + Sync + 'static {
     /// used to identify this service on the client side
     fn mod_path()->&'static str where Self: Sized { 
         type_name::<Self>() 
+    }
+
+    fn get_mod_path(&self)->&str {
+        type_name::<Self>()
     }
 
     /// override this if the service depends on other services. Default is it doesn't
@@ -204,6 +210,7 @@ pub struct SpaServer {
 
     connections: HashMap<SocketAddr,SpaConnection>, // updated when receiving an AddConnection actor message
     server_task: Option<JoinHandle<()>>, // for the server task itself, initialized upon _Start_
+    heartbeat_timer: Option<AbortHandle>
 }
 
 impl SpaServer {
@@ -215,6 +222,7 @@ impl SpaServer {
             services: service_list.services,
             connections: HashMap::new(),
             server_task: None,
+            heartbeat_timer: None
         }
     }
 
@@ -240,6 +248,12 @@ impl SpaServer {
             println!("serving SPA on {}/{}", self.config.url(), self.name);
             let router = self.build_router( &hself)?;
             self.server_task = Some(spawn_server_task( &self.config, router));
+
+            if let Some(heartbeat_interval) = self.config.heartbeat_interval {
+                println!("started connection heartbeat timer ({}sec)", heartbeat_interval.as_secs());
+                self.heartbeat_timer = Some( hself.start_repeat_timer( HEARTBEAT_TIMER_ID, heartbeat_interval, false)? );
+            }
+
             Ok(())
 
         } else {
@@ -386,6 +400,8 @@ impl SpaServer {
 
         let conn = SpaConnection { remote_addr, ws_sender, ws_receiver_task };
         self.connections.insert( raddr, conn);
+        println!("connection added: {remote_addr:?} ({})", self.connections.len());
+
         let conn_ref = self.connections.get_mut( &raddr).unwrap();
 
         for svc in self.services.iter_mut() { // tell services to send their initial data
@@ -397,11 +413,25 @@ impl SpaServer {
 
     async fn remove_connection (&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr)->OdinServerResult<()> {
         self.connections.remove(&remote_addr);
+        println!("connection removed: {remote_addr:?} ({})", self.connections.len());
 
         for svc in self.services.iter_mut() { 
             svc.service.remove_connection( &hself, &remote_addr).await?;
         }
 
+        Ok(())
+    }
+
+    async fn check_connections (&mut self, hself: ActorHandle<SpaServerMsg>)->OdinServerResult<()> {
+        if !self.connections.is_empty() {
+            let msg = Message::text( format!("__ping__ {}", epoch_millis())); // note this is not JSON
+
+            for conn in self.connections.values_mut() {
+                if let Err(e) = conn.ws_sender.send(msg.clone()).await {
+                    error!("failed to send ping to {:?}: {}", conn.remote_addr, e);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -423,25 +453,43 @@ impl SpaServer {
     /// called when receiving a DispatchIncomingWsMsg actor message
     async fn dispatch_incoming_ws_msg (&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr, msg: String)->OdinServerResult<()> {
         if let Some( ws_msg_parts ) = ws_service::extract_ws_msg_parts(&msg) {
-            // this is ugly - we have to sequentialize the service loop and the response processing so that we don't keep the mutable self borrow open, 
-            // which would prohibit to call broadcast_/send_ws_msg(&mut self,...). The nested loops are just a way to avoid heap allocating the results
-            let mut i = 0;
-            let n = self.services.len();
-
-            while i < n {
-                let mut response: WsMsgReaction = WsMsgReaction::None;
-
-                for svc in &mut self.services[i..] {
-                    response = svc.handle_ws_msg( &hself, &remote_addr, &ws_msg_parts).await?;
-                    i += 1;
-                    if response != WsMsgReaction::None { break }
+            if ws_msg_parts.msg_type == "__system__" {  // check for system messages first
+                match ws_msg_parts.payload {
+                    stringify!("reinitialize") => self.reinitialize_svc(hself, remote_addr, ws_msg_parts.mod_path).await?,
+                    _ => {} // nothing else yet
                 }
+                
+            } else { // this is a service specific application message - dispatch to each service to see if they want to process it
+                // this is ugly - we have to sequentialize the service loop and the response processing so that we don't keep the mutable self borrow open, 
+                // which would prohibit to call broadcast_/send_ws_msg(&mut self,...). The nested loops are just a way to avoid heap allocating the results
+                let mut i = 0;
+                let n = self.services.len();
 
-                match response {
-                    WsMsgReaction::Broadcast(m) => self.broadcast_ws_msg(m).await?,
-                    WsMsgReaction::Send(m) => self.send_ws_msg( remote_addr, m).await?,
-                    WsMsgReaction::None => {}
+                while i < n {
+                    let mut response: WsMsgReaction = WsMsgReaction::None;
+
+                    for svc in &mut self.services[i..] {
+                        response = svc.handle_ws_msg( &hself, &remote_addr, &ws_msg_parts).await?;
+                        i += 1;
+                        if response != WsMsgReaction::None { break }
+                    }
+
+                    match response {
+                        WsMsgReaction::Broadcast(m) => self.broadcast_ws_msg(m).await?,
+                        WsMsgReaction::Send(m) => self.send_ws_msg( remote_addr, m).await?,
+                        WsMsgReaction::None => {}
+                    }
                 }
+            }
+        }
+        Ok(())
+    }
+
+    async fn reinitialize_svc (&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr, mod_path: &str)->OdinServerResult<()>{
+        if let Some(conn_ref) = self.connections.get_mut( &remote_addr) {
+            println!("reinitializing service {} for connection {remote_addr:?}", mod_path);
+            if let Some(svc) = self.services.iter_mut().find( |svc| svc.service.get_mod_path() == mod_path) {
+                svc.service.init_connection( &hself, svc.is_data_available, conn_ref).await.map_err(|e| connect_error(e))?;
             }
         }
         Ok(())
@@ -484,7 +532,6 @@ impl SpaServer {
                 }
             }
         }
-
         Ok(())
     }
 
@@ -501,6 +548,11 @@ impl SpaServer {
 
     /// called when receiving _Terminate_ message
     fn stop_server (&mut self)->OdinServerResult<()> {
+        if let Some(heartbeat_timer) = &self.heartbeat_timer {
+            heartbeat_timer.abort();
+            self.heartbeat_timer = None;
+        }
+
         if let Some(jh) = &self.server_task {
             for svc in self.services.iter_mut() { 
                 svc.service.terminate_service();
@@ -587,8 +639,16 @@ impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
             error!("failed to start server: {e:?}");
         }
     }
+    _Timer_ => cont!{ // (optional) heartbeat timer messages
+        if actor_msg.id == HEARTBEAT_TIMER_ID {
+            let hself = self.hself.clone();
+            if let Err(e) = self.check_connections(hself).await {
+                error!("failed to check connections {e:?}");
+            }
+        }
+    }
     Open => cont! {
-
+        self.open(); // open the default web browser on this url
     }
     AddConnection => cont! {
         let hself = self.hself.clone();

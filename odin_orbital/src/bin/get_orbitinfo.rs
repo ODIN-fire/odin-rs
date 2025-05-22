@@ -12,7 +12,6 @@
  * and limitations under the License.
  */
 #![allow(unused)]
-#![feature(duration_constructors)]
 
 use odin_actor::errors::op_failed;
 use odin_build::{self, pkg_cache_dir};

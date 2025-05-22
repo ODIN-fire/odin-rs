@@ -19,6 +19,12 @@ var ws = undefined;
 var wsUrl = getWsUrl();
 
 var isShutdown = false;
+var connectDate = undefined; // time when last (re-)connection was established
+
+// message stats (to assess health status)
+var lastMsgDate = undefined; // last timestamp (epoch millis) when we received a message
+var lastLatency = 0; // in millis (only measured for pings)
+var lastMsgCount = 0; // number of total messages received (including pings so should be increasing)
 
 // wsHandlers is a map object from module-names to handler functions.
 // each handler function takes the msg name and the payload object as arguments:
@@ -44,6 +50,16 @@ export function addWsHandler(modName,newHandler) {
     wsHandlers.set( modName, newHandler);
 }
 
+//--- these can all be used to assess connectivity status
+export function isConnected () { return (ws != undefined); }
+
+// to be called from ws handlers to check if data initialization messages are due to a reconntect, i.e. whould 
+// purge old state before processing the incoming message. To do this the caller has to keep track of 
+// connectDates
+export function getConnectDate() { return connectDate; }
+export function getLastMsgDate() { return lastMsgDate; }
+export function getLastMsgCount() { return lastMsgCount; }
+
 // messages have the format { "mod": "<module-path>", "<MsgType>": <payload-object> }
 // note that MsgType is an uppercase typename as it is directly derived from the respective server type
 function handleServerMessage(msg) {
@@ -64,13 +80,49 @@ function handleServerMessage(msg) {
 }
 
 export function sendWsMessage (modPath, msgType, msgData) {
-    let msg = {};
-    msg.mod = modPath;
-    msg[msgType] = msgData;
+    if (ws) {
+        let msg = {};
+        msg.mod = modPath;
+        msg[msgType] = msgData;
 
-    let json = JSON.stringify(msg);
+        let json = JSON.stringify(msg);
+        ws.send(json);
+    } else {
+        console.log("sendWsMessage() error: no WebSocket");
+    }
+}
 
-    ws.send(json);
+// high level re-init registration for service modules that need to re-initialize if the document was hidden and becomes visible again
+// use the optional visChangeFunc function argument if the caller has to modify its state before being reinitialized (e.g. to preserve
+// selections)
+export function reInitializeOnVisibilityChange (modPath, visChangeFunc=null) {
+    console.log("registering visibility change initialization for ", modPath);
+    document.addEventListener('visibilitychange', (e)=> {
+        let isVisible = !document.hidden;
+        if (visChangeFunc) {
+            visChangeFunc(isVisible); // allow caller to set some state based on document visibility status
+        }
+        if (isVisible) {
+            if (ws) { // if there is no websocket we will get re-initialized anyways
+                console.log("sending websocket reinitialization request for ", modPath);
+                sendWsReinitializeMessage(modPath);
+            }
+        }
+    });
+}
+
+// send a system message to request re-initialization through the existing websocket connection
+// use this if the requesting service has to obtain data updates after a visibilitychange event even though the websocket is still open
+// note this is only sent to the corresponding SpaService.
+// Use this if the caller registers for visibilitychange events itself (e.g. to track hidden status)
+export function sendWsReinitializeMessage (modPath) {
+    if (ws) {
+        let msg = {mod: modPath, __system__: "reinitialize"};
+        let json = JSON.stringify(msg);
+        ws.send(json);
+    } else {
+        console.log("sendWsReinitializeMessage() error: no WebSocket");
+    }
 }
 
 export function shutdown() {
@@ -79,39 +131,69 @@ export function shutdown() {
     if (ws) ws.close();
 }
 
-// execute after all js modules have initialized to make sure handlers have been set
-// this is crucial for modules that get initialization data through the ws - as soon as we are connected this is sent by the server
-export function postInitialize() {
+function connect () {
     if (wsUrl) {
         if ("WebSocket" in window) {
-            console.log("initializing websocket: " + wsUrl);            
-            ws = new WebSocket(wsUrl);
+            if (!ws) {
+                console.log("initializing websocket: " + wsUrl);            
+                ws = new WebSocket(wsUrl);
 
-            ws.onopen = function() {
-                // nothing yet
-            };
+                ws.onopen = function() {
+                    connectDate = Date.now();
+                };
 
-            ws.onmessage = function(evt) {
-                let data = evt.data.toString();
-                let msg = JSON.parse(data);
-                handleServerMessage(msg);
-            };
+                ws.onmessage = function(evt) {
+                    lastMsgDate = Date.now();
+                    lastMsgCount++;
 
-            ws.onerror = function(evt) {
-                if (!isShutdown) {
-                    console.log('websocket error: ', evt);
-                    // TODO - if we get a 'WebSocket is already in CLOSING or CLOSED state' outside of a shutdown we should try to reconnect
-                }
-            };
+                    let data = evt.data.toString();
+                    if (data.startsWith("__ping__")) { // this is a heartbeat (not JSON)
+                        let timestamp = Number.parseInt( data.substring(9));
+                        if (!Number.isNaN(timestamp)) {
+                            lastLatency = lastMsgDate - timestamp;
+                        }
 
-            ws.onclose = function() {
-                console.log("connection is closed.");
-            };
+                    } else { // everything else is supposed to be a structured JSON message with a JS_MODULE receiver spec
+                        let msg = JSON.parse(data);
+                        handleServerMessage(msg);
+                    }
+                };
 
+                ws.onerror = function(evt) {
+                    if (!isShutdown) {
+                        console.log('websocket error: ', evt);
+                        // TODO - if we get a 'WebSocket is already in CLOSING or CLOSED state' outside of a shutdown we should try to reconnect
+                    }
+                };
+
+                ws.onclose = function() {
+                    console.log("connection is closed.");
+                    ws = undefined;
+                };
+            } else {
+                console.log("WebSocket still open, ignoring connection request");
+            }
         } else {
             console.log("WebSocket NOT supported by your Browser!");
         }
     } else {
         console.log("no WebSocket url set");
     }
+}
+
+function checkReconnect () {
+    if (!ws && !document.hidden) {
+        console.log("reconnecting WebSocket..");
+        connect();
+    }
+}
+
+
+// execute after all js modules have initialized to make sure handlers have been set
+// this is crucial for modules that get initialization data through the ws - as soon as we are connected this is sent by the server
+export function postInitialize() {
+    connect();
+
+    // reconnect if the websocket was closed due to a suspend or inactivity
+    document.addEventListener('visibilitychange', checkReconnect);
 }

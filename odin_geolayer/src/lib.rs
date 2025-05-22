@@ -87,8 +87,8 @@ impl SpaService for GeoLayerService {
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()> {
         spa.add_assets( self_crate!(), load_asset);
 
-        spa.add_module( asset_uri!("geolayer_config.js"));
-        spa.add_module( asset_uri!("geolayer.js"));
+        spa.add_module( asset_uri!("odin_geolayer_config.js"));
+        spa.add_module( asset_uri!("odin_geolayer.js"));
 
         let dir = self.src_dir.clone();
         spa.add_route( |router, spa_server_state| {

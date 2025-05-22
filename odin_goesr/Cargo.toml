@@ -1,7 +1,8 @@
 [package]
 name = "odin_goesr"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+
 build = "../build_resources.rs"
 
 [[bin]]
@@ -35,13 +36,13 @@ uom = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 
-serde_with = "*" 
-anyhow = "*"
-meshgridrs = "*"
-paste = "*"
-structopt = "*"
-lazy_static = "*"
-regex = "*"
+serde_with = { workspace = true }
+anyhow = { workspace = true }
+meshgridrs = "0.1.1"
+paste = { workspace = true }
+structopt = { workspace = true }
+lazy_static = { workspace = true }
+regex = { workspace = true }
 
 [build-dependencies]
 odin_build = { workspace = true }

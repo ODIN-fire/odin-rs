@@ -1,7 +1,7 @@
 [package]
 name = "odin_dem"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -22,17 +22,14 @@ odin_common = { workspace = true }
 odin_gdal = { workspace = true }
 odin_server = { workspace = true }
 
-lazy_static = "*"
-structopt = "*"
-tokio-util = { version = "*", features = ["full"] }
-tower-http = { version = "*", features = ["full"] }
-tracing = "*"
+lazy_static = { workspace = true }
+structopt = { workspace = true }
+tokio-util = { workspace = true }
+tower-http = { workspace = true }
+tracing = "0.1.41"
 tracing-subscriber = { version = "*", features = ["env-filter"] }
-http = "*"
-serde_derive = "*"
-anyhow = "*"
-
-
+http = { workspace = true }
+anyhow = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

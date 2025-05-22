@@ -1,15 +1,13 @@
 [package]
 name = "gpshub"
 version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition = "2024"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-warp = "0.3"
-bytes = "1"
-structopt = "0.3"
-socket2 = { version = "*", features = ["all"] }
-serde = { version = "*", features = ["derive"] }
-serde_json = "*"
+tokio = { workspace = true }
+warp = "0.3.7"
+bytes = { workspace = true }
+structopt = { workspace = true }
+socket2 = { version = "0.5.9", features = ["all"] }
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -18,7 +18,7 @@ use chrono::{DateTime,Utc,Timelike};
 
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
-use odin_common::{datetime::full_hour, fs::{remove_old_files, FileAvailable}};
+use odin_common::{datetime::{full_hour,hours}, fs::{remove_old_files, FileAvailable}};
 
 use crate::{errors::*, get_next_base_step, is_extended_forecast, queue_available_forecasts, DownloadCmd, HrrrConfig, HrrrDataSetConfig, HrrrDataSetRequest, HrrrFileAvailable, HrrrFileRequest};
 use crate::{spawn_download_task, hrrr_cache_dir, schedule::{HrrrSchedules, get_statistic_schedules}};
@@ -107,7 +107,7 @@ impl HrrrActor {
                 self.step += 1;
 
                 if self.step >= sched.len() { // next cycle
-                    self.base = self.base + Duration::from_secs(3600);
+                    self.base = self.base + hours(1);
                     self.step = 0;
                     sched =  self.schedules.schedule_for(&self.base);
                 }

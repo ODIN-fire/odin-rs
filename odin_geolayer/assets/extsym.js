@@ -12,8 +12,8 @@
  * and limitations under the License.
  */
 
-import * as config from "./geolayer_config.js";
-import * as util from "../odin_server/ui_util.js";
+//import * as config from "./odin_geolayer_config.js";
+//import * as util from "../odin_server/ui_util.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
 
 console.log("geolayer module loaded: " +  new URL(import.meta.url).pathname.split("/").pop());

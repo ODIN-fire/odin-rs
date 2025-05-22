@@ -47,11 +47,30 @@ impl<Tz> From<EpochMillis> for DateTime<Tz> where Tz: TimeZone, DateTime<Tz>: Fr
     }
 }
 
+// as of Rust 1.87 the min,hour,day Duration ctors are experimental and require multiple crate attributes
+// (see https://github.com/rust-lang/rust/issues/140881).
+// for simple use cases that do not require to handle leap seconds and the like we therefore provide our own wrappers
+// to reduce nightly/crate attr dependencies
+#[inline] pub fn nanos (n: u64)->Duration { Duration::from_nanos(n) }
+#[inline] pub fn micros (n: u64)->Duration { Duration::from_micros(n) }
+#[inline] pub fn millis (n: u64)->Duration { Duration::from_millis(n) }
+#[inline] pub fn secs (n: u64)->Duration { Duration::from_secs(n) }
+#[inline] pub fn secs_f64 (n: f64)->Duration { Duration::from_secs_f64(n) }
+#[inline] pub fn minutes (n: u64)->Duration { Duration::from_secs(n * 60) }
+#[inline] pub fn hours (n: u64)->Duration { Duration::from_secs(n * 3600) }
+#[inline] pub fn days (n: u64)->Duration { Duration::from_secs(n * 86400) }
+
+
 /// this should be used wherever we might have to use sim clock instead of wall clock
 /// TODO - support configured sim clock
 #[inline]
 pub fn utc_now()->DateTime<Utc> {
     Utc::now()
+}
+
+#[inline]
+pub fn local_now()->DateTime<Local> {
+    Local::now()
 }
 
 #[inline]

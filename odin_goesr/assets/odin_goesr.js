@@ -87,7 +87,7 @@ odinCesium.initLayerPanel("goesr", config, showGoesr);
 console.log("ui_cesium_goesr initialized");
 
 function createIcon() {
-    return ui.Icon("./asset/odin_goesr/geo-sat-icon.svg", (e)=> ui.toggleWindow(e,'goesr'));
+    return ui.Icon("./asset/odin_goesr/geo-sat-icon.svg", (e)=> ui.toggleWindow(e,'goesr'), "GOES-R hotspots");
 }
 
 function createWindow() {

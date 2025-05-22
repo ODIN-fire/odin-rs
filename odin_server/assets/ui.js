@@ -1391,6 +1391,7 @@ function _updateClock(e, t) {
 export function getClockDate(o) {
     let e = getClock(o);
     if (e) {
+        _updateClock(e, Date.now()); // make sure _uiDate is updated
         return e._uiDate;
     }
     return undefined;
@@ -1399,6 +1400,7 @@ export function getClockDate(o) {
 export function getClockEpochMillis(o) {
     let e = getClock(o);
     if (e && e._uiDate) {
+        _updateClock(e, Date.now()); // make sure _uiDate is updated
         return e._uiDate.getTime();
     }
     return 0;
@@ -1412,21 +1414,33 @@ export function isClockSet(o) {
 export function setClock(o, dateSpec, timeScale, notifyClockMonitors=false) {
     let e = getClock(o);
     if (e) {
-        let date = new Date(dateSpec);
-        if (date) {
-            e._isSet = true;
-            e._uiDate = date;
-            e._uiS0 = date.valueOf();
-            e._uiSday = e._uiS0 / MILLIS_IN_DAY;
+        if (typeof dateSpec === "number" && !isNaN(dateSpec) &&dateSpec > 0) { 
+            let date = new Date(dateSpec);
+            if (date) {
+                if (date.valueOf() == dateSpec) {
+                    e._isSet = true;
+                    e._uiDate = date;
+                    e._uiS0 = date.valueOf(); 
+                    e._uiSday = e._uiS0 / MILLIS_IN_DAY;
 
-            e.children[0].innerText = e._uiDateFmt.format(date);
-            e.children[1].innerText = e._uiTimeFmt.format(date);
+                    e.children[0].innerText = e._uiDateFmt.format(date);
+                    e.children[1].innerText = e._uiTimeFmt.format(date);
 
-            if (timeScale) {
-                e._uiTimeScale = timeScale;
+                    if (timeScale){
+                        if (typeof timeScale === "number" && timeScale > 0) {
+                            e._uiTimeScale = timeScale;
+                        } else {
+                            console.log("warning: ignore invalid setClock timeScale ", timeScale);
+                            e._uiTimeScale = 1;
+                        }
+                    }
+                    if (notifyClockMonitors) clockMonitors.forEach( func=> func(e));
+                } else {
+                    console.log("warning: ignore setClock with invalid date/time spec ", dateSpec);
+                }
             }
-
-            if (notifyClockMonitors) clockMonitors.forEach( func=> func(e));
+        } else {
+            console.log("warning: ignore setClock with invalid date/time spec ", dateSpec);
         }
     }
 }
@@ -1444,6 +1458,13 @@ const clockMonitors = [];
 
 export function registerClockMonitor(func) {
     clockMonitors.push(func);
+}
+
+export function releaseClockMonitor(func) {
+    let i = clockMonitors.findIndex( (f)=> Object.is(f, func));
+    if (i >= 0) {
+        clockMonitors.splice(i, 1);
+    }
 }
 
 //--- slider widgets

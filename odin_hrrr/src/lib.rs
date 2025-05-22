@@ -29,7 +29,11 @@ use tempfile;
 use tokio::{time::{Duration,Sleep}};
 
 use odin_common::{
-    angle::{Longitude,Latitude}, datetime::{elapsed_minutes_since,full_hour}, fs::{ensure_writable_dir, remove_old_files}, geo::GeoRect, strings::{mk_string,to_sorted_string_vec}
+    angle::{Longitude,Latitude}, 
+    datetime::{self,elapsed_minutes_since,secs,full_hour}, 
+    fs::{ensure_writable_dir, remove_old_files}, 
+    geo::GeoRect, 
+    strings::{mk_string,to_sorted_string_vec}
 };
 use odin_actor::prelude::*;
 use odin_actor::AbortHandle;
@@ -44,7 +48,7 @@ pub mod schedule;
 mod errors;
 pub use errors::*;
 
-const ONE_HOUR: Duration = Duration::from_secs(3600);
+const ONE_HOUR: Duration = Duration::from_secs(60*60);
 
 define_load_config!{}
 
@@ -103,11 +107,11 @@ impl Default for HrrrConfig {
             ext_last: 108,
             ext_len: 49,
 
-            delay: Duration::from_secs( 60), 
-            check_interval: Duration::from_secs(30),
-            retry_delay: Duration::from_secs( 30),
+            delay: secs(60), 
+            check_interval: secs(30),
+            retry_delay: secs( 30),
             max_retry: 4, 
-            max_age: Duration::from_secs(7200), // 2h 
+            max_age: datetime::hours(2), 
         }
     }
 }
@@ -493,7 +497,7 @@ pub async fn run_downloads<A> (conf: HrrrConfig, dsrs: Vec<Arc<HrrrDataSetReques
                 step += 1;
 
                 if step >= sched.len() { // next cycle
-                    base = base + Duration::from_secs(3600);
+                    base = base + datetime::hours(1);
                     step = 0;
                     sched =  schedules.schedule_for(&base);
                 }

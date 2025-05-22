@@ -1275,7 +1275,7 @@ impl ToTokens for VarAssign {
 
 fn get_type_base (t: &Type)->TokenStream2 {
     match t {
-        Type::Reference(ref type_reference) => { let elem = &type_reference.elem; quote!{ #elem } }
+        Type::Reference(type_reference) => { let elem = &type_reference.elem; quote!{ #elem } }
         _ => quote!{ #t } // TODO - there are probably Type variants we have to reject
     }
 }

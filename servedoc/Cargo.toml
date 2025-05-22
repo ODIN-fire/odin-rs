@@ -1,12 +1,10 @@
 [package]
 name = "servedoc"
 version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition = "2024"
 
 [dependencies]
-lazy_static = "*"
-tokio = { version = "*", features = ["full"] }
-warp = "*"
-structopt = "*"
+lazy_static = { workspace = true }
+tokio = { workspace = true }
+warp = "0.3.7"
+structopt = { workspace = true }

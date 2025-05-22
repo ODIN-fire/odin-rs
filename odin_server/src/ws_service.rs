@@ -114,6 +114,7 @@ pub fn extract_ws_msg_parts<'a> (ws_msg: &'a str) -> Option<WsMsgParts<'a>> {
 /// helper struct that provides str references to the str components of a WsMsg.
 /// Used to efficiently dispatch WsMsg sources to the services that process them, without the dispatcher
 /// having to know the payload type T
+#[derive(Debug)]
 pub struct WsMsgParts<'a> {
     pub ws_msg: &'a str,
     pub mod_path: &'a str,

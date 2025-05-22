@@ -222,7 +222,7 @@ console.log("ui_cesium_sentinel initialized");
 
 
 function createIcon() {
-    return ui.Icon("./asset/odin_sentinel/sentinel.svg", (e)=> ui.toggleWindow(e,'sentinel'));
+    return ui.Icon("./asset/odin_sentinel/sentinel.svg", (e)=> ui.toggleWindow(e,'sentinel'), "delphire sentinels");
 }
 
 function createWindow() {
