@@ -185,7 +185,7 @@ function createWindow() {
                 ui.CheckBox("follow latest", toggleFollowLatest, "orbital.follow_latest"),
                 ui.CheckBox("show history", toggleShowHistory, "orbital.show_history"),
                 ui.HorizontalSpacer(2),
-                ui.ListControls("orbital.past")
+                ui.ListControls("orbital.past",null,null,null,null,clearOrbits)
             )
         ),
         ui.Panel("hotspots", false)(
@@ -212,7 +212,7 @@ function initSatelliteView() {
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "show", tip: "show/hide satellite", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.show, toggleShowSatellite) },
-            { name: "sat", tip: "satellite name", width: "5rem", attrs: [], map: e => e.satName },
+            { name: "sat", tip: "satellite name", width: "4rem", attrs: [], map: e => e.satName },
             { name: "swath", tip: "half swath width [km]", width: "4rem", attrs:["fixed", "alignRight"], map: e => util.f_0.format(e.avgSwathWidth / 1000.0) },
             { name: "rev", tip: "orbital period [min]", width: "3rem", attrs:["fixed", "alignRight"], map: e => util.f_0.format(e.avgOrbitDuration) },
             { name: "next", tip: "next upcoming overpass (local)", width: "8rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.next) },
@@ -228,7 +228,7 @@ function initUpcomingView() {
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "swt", tip: "show swath/ground track", width: "2rem", attrs: [], map: e => ui.createCheckBox(e.showSwath, toggleShowSwath) },
-            { name: "sat", tip: "satellite name", width: "5rem", attrs: [], map: e => satName(e.satId) },
+            { name: "sat", tip: "satellite name", width: "4rem", attrs: [], map: e => satName(e.satId) },
             { name: "date", tip: "overpass end date", width: "7rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.end) }        ]);
     }
     return view;
@@ -239,8 +239,8 @@ function initPastView() {
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "swt", tip: "show swath/ground track", width: "2rem", attrs: [], map: e => ui.createCheckBox(e.showSwath, toggleShowSwath) },
-            { name: "sat", tip: "satellite name", width: "5rem", attrs: [], map: e => satName(e.satId) },
-            { name: "hot", tip: "number of high-confidence / total hotspots", width: "5rem", attrs: ["fixed", "alignRight"], map: e => e.stats() },
+            { name: "sat", tip: "satellite name", width: "4rem", attrs: [], map: e => satName(e.satId) },
+            { name: "hot", tip: "number of high-confidence / total hotspots", width: "6rem", attrs: ["fixed", "alignRight"], map: e => e.stats() },
             { name: "date", tip: "overpass end date", width: "8rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.end) }
         ]);
     }
@@ -524,7 +524,7 @@ function handleOverpassMessage(overpasses) {
 }
 
 function sortInOverpass (newEntry, now) {
-    if (newEntry.end < now) { // completed overpass - latest on top
+    if (newEntry.end <= now) { // completed overpass - latest on top
         for (let i =0; i<completedEntries.length; i++) {
             if (newEntry.end > completedEntries[i].end) {
                 completedEntries.splice(i,0,newEntry);
@@ -535,7 +535,7 @@ function sortInOverpass (newEntry, now) {
 
     } else { // upcoming overpass - next on top
         for (let i =0; i<upcomingEntries.length; i++) {
-            if (newEntry.end < upcomingEntries[i].end) {
+            if (newEntry.end <= upcomingEntries[i].end) {
                 upcomingEntries.splice(i,0,newEntry);
                 return;
             }
@@ -569,7 +569,7 @@ function updateCompletedOverpasses (now) {
     dropOldCompletedOverpasses(now);
 
     let update = false;
-    while (upcomingEntries[0].end <= now) {
+    while (upcomingEntries.length > 0 && upcomingEntries[0].end <= now) {
         completedEntries.splice( 0, 0, upcomingEntries[0]);
         upcomingEntries.splice( 0, 1);
         update = true;
@@ -874,6 +874,17 @@ function clearHotspotAssets() {
 }
 
 //--- interaction
+
+function clearOrbits () {
+    ui.clearSelectedListItem(upcomingView);
+    ui.clearListItemCheckBoxes(upcomingView);
+
+    ui.clearSelectedListItem(completedView);
+    ui.clearListItemCheckBoxes(completedView);
+
+    clearHotspotAssets();
+    odinCesium.requestRender();
+}
 
 function clearHotspots() {
     ui.clearSelectedListItem(completedView);

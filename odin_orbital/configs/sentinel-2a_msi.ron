@@ -1,14 +1,14 @@
-// satellite info for Landsat 8 / OLI
+// satellite info for Copernicus Sentinel-2A
 
 OrbitalSatelliteInfo (
-    sat_id: 39084,
-    name: "L8",
+    sat_id: 40697,
+    name: "S2A",
 
-    instrument: "OLI",
-    max_scan_angle: 7.5, // from nadir to horizon (ZA 8.3)
-    avg_height: 705000, // just to give a ballpark number ()
-    avg_swath_width: 92500, // in meters (single side)
-    avg_orbit_duration: Duration( secs: 5928, nanos: 0), // 98.8min
+    instrument: "MSI",
+    max_scan_angle: 10.3, // ZA 11.6
+    avg_height: 789000, // just to give a ballpark number ()
+    avg_swath_width: 145000, // in meters (single side)
+    avg_orbit_duration: Duration( secs: 6039, nanos: 0),
 
     time_step: Duration( secs: 2, nanos: 0), // time step for calculating orbits
 

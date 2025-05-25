@@ -32,7 +32,7 @@ use odin_common::{
 };
 use odin_macro::public_struct;
 use crate::{
-    duration_days, duration_minutes, errors::{action_failed, OdinOrbitalError, Result}, firms::{ViirsHotspotImporter,OliHotspotImporter}, hotspot_service::{HotspotSat,OrbitalHotspotService}, init_orbital_data, instant_from_datetime, instant_now, load_config, overpass::{self, save_overpasses_to, OverpassCalculator}, save_retrieved_hotspots_to, tle_store::SpaceTrackTleStore, update_orbital_data, CompletedOverpass, HotspotImporter, HotspotList, OrbitalSatelliteInfo, Overpass, TleStore
+    duration_days, duration_minutes, duration_secs_f64, duration_std, errors::{action_failed, OdinOrbitalError, Result}, firms::{OliHotspotImporter, ViirsHotspotImporter}, hotspot_service::{HotspotSat,OrbitalHotspotService}, init_orbital_data, instant_from_datetime, instant_now, load_config, overpass::{self, save_overpasses_to, OverpassCalculator}, save_retrieved_hotspots_to, tle_store::SpaceTrackTleStore, update_orbital_data, CompletedOverpass, HotspotImporter, HotspotList, NoHotspotImporter, OrbitalSatelliteInfo, Overpass, TleStore
 }; 
 
 //macro_rules! info { ($fmt:literal $(, $arg:expr )* ) => { {print!("INFO: "); println!( $fmt $(, $arg)* )} } }
@@ -204,12 +204,12 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
                         if (next.end - now) < TimeDelta::minutes(30) { // only retry download if the next overpass isn't close yet
                             return None
                         }
-                    } else {
-                        if (*now - last.overpass.end) > TimeDelta::minutes(30) {
-                            return None
-                        } 
                     }
-                    return Some(*now + minutes(10))
+                    if (*now - last.overpass.end) > TimeDelta::minutes(60) { // give up after one hour
+                        return None
+                    } else {
+                        return Some(*now + minutes(10)) // try again in 10min
+                    }    
                 } // otherwise it means we already got newer hotspots but there were none for this overpass
             } // otherwise we already have data for the last overpass
         } // there was no last overpass yet
@@ -251,17 +251,26 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
             }
         }
 
-        // we moved upcoming to completed - get up to n_completed new upcoming overpasses (we don't have yet)
+        // we either don't have upcoming or moved upcoming to completed - get up to n_completed new upcoming overpasses within time window
         if n_completed > 0 || self.data.upcoming.is_empty() {
-            let t = if let Some(o) = self.data.upcoming.back() { instant_from_datetime(o.end) + duration_minutes(20) } else { instant_now() };
-            let mut overpasses = self.overpass_calculator.get_overpasses( t, duration_days( self.sat_info.forward_days), n_completed).await?;
-            info!("retrieved {} new overpasses", overpasses.len());
-            save_overpasses_to( &self.cache_dir, &overpasses)?;
+            let now = instant_now();
+            let t = if let Some(o) = self.data.upcoming.back() { 
+                // make sure we don't re-compute the already computed orbit
+                instant_from_datetime(o.start) + duration_std( o.mean_orbit_duration) 
+            } else { 
+                now
+            };
+            let upcoming_dur = (now + duration_days( self.sat_info.forward_days)) - t;
+            if upcoming_dur.as_hours() > 0.0 {
+                let mut overpasses = self.overpass_calculator.get_overpasses( t, upcoming_dur, n_completed).await?;
+                info!("retrieved {} new overpasses", overpasses.len());
+                save_overpasses_to( &self.cache_dir, &overpasses)?;
 
-            if !overpasses.is_empty() {
-                self.overpass_action.execute( overpasses.as_ref_vec()).await?;
-                for o in overpasses {
-                    self.data.upcoming.push_back(o);
+                if !overpasses.is_empty() {
+                    self.overpass_action.execute( overpasses.as_ref_vec()).await?;
+                    for o in overpasses {
+                        self.data.upcoming.push_back(o);
+                    }
                 }
             }
         }
@@ -375,7 +384,13 @@ pub fn spawn_orbital_hotspot_actors (actor_system: &mut ActorSystem, hserver: Ac
                     OrbitalHotspotActor::new(sat_info.clone(), region.clone(), tle_store, importer, init_action, overpass_action, hotspot_action)
                 )?
             }
-            unknown => panic!("no importer for instrument {unknown}") // Ok to panic since this is toplevel func
+            unknown => { // we don't have a hotspot importer for this satellite
+                println!("no known hotspot import for satellite {} ({})", sat_info.name, sat_info.sat_id);
+                let importer = NoHotspotImporter{};
+                spawn_actor!( actor_system, name, 
+                    OrbitalHotspotActor::new(sat_info.clone(), region.clone(), tle_store, importer, init_action, overpass_action, hotspot_action)
+                )?
+            }
         };
 
         sats.push( HotspotSat { sat_info, hupdater });

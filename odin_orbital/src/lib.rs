@@ -343,6 +343,25 @@ pub trait HotspotImporter {
     fn get_download_schedule (&self, overpass_end: DateTime<Utc>) -> DateTime<Utc>;
 }
 
+/// this is a dummy HotspotImporter that does not import anything but does so right away
+/// Useful to hook up new satellites in order to see their orbits/coverage
+pub struct NoHotspotImporter {}
+
+#[async_trait]
+impl HotspotImporter for NoHotspotImporter {
+    async fn import_hotspots (&mut self, n_days: usize, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<BitSet> {
+        Ok(BitSet::with_capacity(0))
+    }
+
+    fn last_reported (&self)->DateTime<Utc> {
+        datetime::utc_now() + datetime::days(1000) // make sure we never reschedule any "unavailable" data
+    }
+
+    fn get_download_schedule (&self, overpass_end: DateTime<Utc>) -> DateTime<Utc> {
+        overpass_end
+    }
+}
+
 /// aggregation of orbit segment and resulting instrument data (to be filled in once such data becomes available)
 #[public_struct]
 pub struct CompletedOverpass<T> {
@@ -365,6 +384,8 @@ pub fn instant_from_datetime<Z> (dt: DateTime<Z>)->Instant where Z:TimeZone {
     Instant::from_unixtime( dt.timestamp_millis() as f64 / 1000.0)
 }
 
+pub fn duration_std (dur: StdDuration) -> Duration { Duration::from_seconds( dur.as_secs_f64()) }
+pub fn duration_secs_f64 (secs: f64) -> Duration { Duration::from_seconds(secs) }
 pub fn duration_minutes (minutes: usize) -> Duration { Duration::from_minutes(minutes as f64) }
 pub fn duration_hours (hours: usize) -> Duration { Duration::from_hours(hours as f64) }
 pub fn duration_days (days: usize) -> Duration { Duration::from_days(days as f64) }

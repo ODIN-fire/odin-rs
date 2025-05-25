@@ -1923,7 +1923,9 @@ export function createCheckBox(initState, clickHandler, labelText = "") {
     if (initState) _addClass(e, "checked");
     _addCheckBoxComponents(e, labelText);
 
-    if (clickHandler)  e.addEventListener("click", clickHandler); // watch out - these don't get cloned
+    if (clickHandler)  {
+        e.addEventListener("click", clickHandler); // watch out - these don't get cloned
+    }
     
     return e;
 }
@@ -1956,6 +1958,15 @@ export function setCheckBox(o, check = true) {
     if (e) {
         if (check) _addClass(e, "checked");
         else _removeClass(e, "checked");
+    }
+}
+
+export function triggerCheckBoxAction(o) {
+    let e = getCheckBox(o);
+    if (e) {
+        let click = new CustomEvent("click", { target: e });
+        console.log("@@ dispatching ", click);
+        e.dispatchEvent(click);
     }
 }
 
@@ -2861,6 +2872,18 @@ export function selectNextListItem(o) {
     }
 }
 
+export function clearListItemCheckBoxes(o) {
+    let listBox = getList(o);
+    if (listBox) {
+        for (let cb of listBox.getElementsByClassName("ui_checkbox")) {
+            if (isCheckBoxSelected(cb)) {
+                setCheckBox(cb, false);
+                triggerCheckBoxAction(cb);
+            }
+        }
+    }
+}
+
 function nextItemElement (ie) {
     if (_containsClass(ie, "ui_list_item")) {
         let p = ie.parentElement;
@@ -3129,12 +3152,14 @@ export function getList(o) {
 
 export function ListControls (listId, first=null,up=null,down=null,last=null,clear=null) {
     let e = createElement("DIV", "ui_listcontrols");
-    e.setAttribute("data-listId", listId);
-    if (first) e.setAttribute("data-first", first);
-    if (up) e.setAttribute("data-up", up);
-    if (down) e.setAttribute("data-down", down);
-    if (last) e.setAttribute("data-last", last);
-    if (clear) e.setAttribute("data-clear", clear);
+
+    // we can't use dataset for these as dataset values are stringified (we store funtions)
+    e._listId = listId;
+    if (first) e._first = first;
+    if (up) e._up = up;
+    if (down) e._down = down;
+    if (last) e._last = last;
+    if (clear) e._clear = clear;
 
     return e;
 }
@@ -3144,13 +3169,13 @@ function initializeListControls(e) {
         // note that this window might not yet be linked into the document so we have to dig the list up from our parent
         let w = getWindow(e); // this gets the nearest window
         if (w) {
-            let le = _findChildWithId(w, e.dataset.listid);
+            let le = _findChildWithId(w, e._listId);
             if (le && le.classList.contains("ui_list")) {
-                e.appendChild( createListControlButton("⊼", e.dataset.first ? e.dataset.first : ()=>selectFirstListItem(le)));
-                e.appendChild( createListControlButton("⋀︎", e.dataset.up ? e.dataset.up :()=>selectPrevListItem(le)));
-                e.appendChild( createListControlButton("⋁︎", e.dataset.down ? e.dataset.down :()=>selectNextListItem(le)));
-                e.appendChild( createListControlButton("⊻", e.dataset.last ? e.dataset.last :()=>selectLastListItem(le)));
-                e.appendChild( createListControlButton("∅", e.dataset.clear ? e.dataset.clear :()=>clearSelectedListItem(le))); // alternatives: ⌫ ∅ ⎚
+                e.appendChild( createListControlButton("⊼", e._first ? e._first : ()=>selectFirstListItem(le)));
+                e.appendChild( createListControlButton("⋀︎", e._up ? e._up : ()=>selectPrevListItem(le)));
+                e.appendChild( createListControlButton("⋁︎", e._down ? e._down : ()=>selectNextListItem(le)));
+                e.appendChild( createListControlButton("⊻", e._last ? e._last : ()=>selectLastListItem(le)));
+                e.appendChild( createListControlButton("∅", e._clear ? e._clear : ()=>clearSelectedListItem(le))); // alternatives: ⌫ ∅ ⎚
             }
         }
     }
