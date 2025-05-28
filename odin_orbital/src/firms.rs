@@ -493,9 +493,10 @@ pub fn find_covering_overpass<T> (sat_id: u32, date: DateTime<Utc>, cops: &VecDe
 pub fn is_covering_overpass (o: &Overpass, d: DateTime<Utc>)->bool {
     // give some leeway at the end since acquisition might have some latency - we assume download latency < orbit_dur / 2
     //let cutoff = o.end + o.mean_orbit_duration.div_f64(2.0);
-    let cutoff = o.end + minutes(10);
+    let d_start = o.start - minutes(30);
+    let d_end = o.end + minutes(30);
     //println!("@@ {} < {} < {}", o.start, d, cutoff);
-    (d >= o.start) && (d <= cutoff)
+    (d >= d_start) && (d <= d_end)
 }
 
 /// get datetime for date/time specs of a raw FIRMS record.

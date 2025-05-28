@@ -137,17 +137,26 @@ if (Cesium.Ion.defaultAccessToken) {
 }
 
 export const ellipsoidTerrainProvider = new Cesium.EllipsoidTerrainProvider();
-var terrainProvider = ellipsoidTerrainProvider; // this is our initial terrain as it is immediately available. Switched on demand in postInitialize
-
 var topoTerrainProvider = undefined; 
-export const topoTerrainProviderPromise = Cesium.createWorldTerrainAsync().then( (tp) => {  // needs to be exported since other modules might chain on it
-    topoTerrainProvider = tp;
-    console.log("topo terrain provider initialized");
-});
+
+export const topoTerrainProviderPromise = (config.terrainProviderPromise ? config.terrainProviderPromise : Cesium.createWorldTerrainAsync()).then(
+    (tp) => {
+        topoTerrainProvider = tp;
+        console.log("topo terrain provider initialized to ", tp);
+    }
+);
+
+//Cesium.createWorldTerrainAsync().then( (tp) => {  // needs to be exported since other modules might chain on it
+//    topoTerrainProvider = tp;
+//    console.log("topo terrain provider initialized");
+//});
 
 export function withTopoTerrain (f) {
     topoTerrainProviderPromise.then( () => { f(); });
 }
+
+var terrainProvider = ellipsoidTerrainProvider; // this is our initial terrain as it is immediately available. Switched on demand in postInitialize
+
 
 export const viewer = new Cesium.Viewer('cesiumContainer', {
     terrainProvider: terrainProvider,

@@ -27,9 +27,11 @@ use axum::{
     },
     http::{HeaderMap, StatusCode, Uri},
     middleware::map_request, response::{Html, IntoResponse, Response},
-    routing::get,
+    routing::{get,options,head},
+    handler::Handler,
     Router,ServiceExt
 };
+use http::Method;
 use axum_server::{service::MakeService, tls_rustls::RustlsConfig};
 use bytes::Bytes;
 use futures_util::{sink::SinkExt, stream::{StreamExt, SplitSink, SplitStream}};
@@ -53,6 +55,7 @@ use crate::{load_asset, asset_uri, self_crate, get_asset_response, spawn_server_
 use crate::errors::{connect_error, init_error, op_failed, OdinServerError, OdinServerResult};
 
 const HEARTBEAT_TIMER_ID: i64 = 1;
+
 
 /// the trait that abstracts a single page application service, which normally represents a visualization
 /// layer with its own data (either dynamic or static) and document assets (such as Javascript modules
@@ -202,6 +205,16 @@ pub struct SpaServerState {
     pub hself: ActorHandle<SpaServerMsg>
 }
 
+macro_rules! proxy_handler {
+    ($http_client:ident, $proxies:ident) => {
+        {
+            let http_client = $http_client.clone();
+            let proxies = $proxies.clone();
+            move |path: AxumPath<String>, query: RawQuery, req: Request| { SpaServer::proxy_handler(path, query, req, http_client, proxies) }
+        }
+    }
+}
+
 /// the actor state for a single page application server actor
 pub struct SpaServer {
     config: ServerConfig,
@@ -270,7 +283,6 @@ impl SpaServer {
     fn build_router (&self, hself: &ActorHandle<SpaServerMsg>)->OdinServerResult<Router> {
         let comps = SpaComponents::from_svcs( self.name.clone(), &self.services)?;
         let doc = Arc::new(comps.to_html( &self.name));
-        let proxies = comps.proxies;
         let assets = comps.assets;
 
         let mut router = Router::new()
@@ -291,18 +303,17 @@ impl SpaServer {
             }
         }
 
+        // create the http_client once 
+        let http_client = self.create_cached_client();
+        let proxies = Arc::new(comps.proxies);  // used in mutiple handlers so we have to make it shareable
+        let proxy_url = format!("/{}/proxy/{{*unmatched}}", self.name);
+
         // now add the generic routes for proxies and assets
         router = router
-            .route( &format!("/{}/proxy/{{*unmatched}}", self.name), get({
-                let mode = CacheMode::Default;
-                let manager = CACacheManager { path: odin_build::cache_dir().join("proxies") };
-                let options = HttpCacheOptions::default();
-                let http_client = ClientBuilder::new(Client::new())
-                    .with( Cache( HttpCache {mode, manager, options}))
-                    .build();
-                //move |uri_elems: Path<(String,String)>, req: Request| { Self::proxy_handler(uri_elems, req, http_client, proxies) }
-                move |path: AxumPath<String>, query: RawQuery, req: Request| { Self::proxy_handler(path, query, req, http_client, proxies) }
-            }))
+            .route( &proxy_url, options( proxy_handler!( http_client, proxies)))
+            .route( &proxy_url, head( proxy_handler!( http_client, proxies)))
+            .route( &proxy_url, get( proxy_handler!( http_client, proxies)))
+            // TODO shall we also support POST ? 
 
             // 'key' is the owning crate
             .route( &format!("/{}/asset/{{key}}/{{*unmatched}}", self.name), get({
@@ -317,18 +328,28 @@ impl SpaServer {
         Ok(router)
     }
 
+    fn create_cached_client (&self)->ClientWithMiddleware {
+        let mode = CacheMode::Default;
+        let manager = CACacheManager { path: odin_build::cache_dir().join("proxies") };
+        let options = HttpCacheOptions::default();
+        
+        ClientBuilder::new(Client::new())
+            .with( Cache( HttpCache {mode, manager, options}))
+            .build()
+    }
+
     async fn doc_handler (req: Request, doc: Arc<String>) -> Response {
         (StatusCode::OK, Body::from(doc.to_string())).into_response()
     }
 
     async fn proxy_handler (path: AxumPath<String>, query: RawQuery, req: Request,
-                            http_client: ClientWithMiddleware, proxies: HashMap<String,ProxySpec>) -> Response {
+                            http_client: ClientWithMiddleware, proxies: Arc<HashMap<String,ProxySpec>>) -> Response {
         if let Some(idx) = path.find('/') {
             let key = &path[0..idx];
 
             if let Some(proxy_spec) = proxies.get(key) {
                 let rel_path = &path[idx+1..];
-                let proxy_req = proxy_spec.create_request( &http_client, rel_path, &query, req.headers());
+                let proxy_req = proxy_spec.create_request( &http_client, req.method(), rel_path, &query, req.headers());
 
                 let reqwest_response = match proxy_req.send().await {
                     Ok(res) => res,
@@ -762,9 +783,9 @@ struct ProxySpec {
 
 impl ProxySpec {
 
-    fn create_request (&self, http_client: &ClientWithMiddleware, rel_path: &str, query: &RawQuery, hdr_map: &HeaderMap) -> MwRequestBuilder {
+    fn create_request (&self, http_client: &ClientWithMiddleware, mth: &Method, rel_path: &str, query: &RawQuery, hdr_map: &HeaderMap) -> MwRequestBuilder {
         let uri = self.get_uri( rel_path, query);
-        let request_builder = http_client.get(uri);
+        let request_builder =  http_client.request( mth.clone(), uri);
 
         self.add_headers( request_builder, hdr_map)
     }

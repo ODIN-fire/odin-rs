@@ -75,6 +75,8 @@ impl SpaService for CesiumService {
             spa.add_css( format!("https://cesium.com/downloads/cesiumjs/releases/{CESIUM_VERSION}/Build/Cesium/Widgets/widgets.css"));
         }
 
+        // unfortunately CesiumWorldTerrain cannot be proxies as it uses a protocol with its own authentication headers and OPTIONS queries
+
         spa.add_css( asset_uri!("odin_cesium.css"));
 
         //--- add JS modules
