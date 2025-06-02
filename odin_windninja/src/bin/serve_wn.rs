@@ -17,7 +17,6 @@
 /// test manually with 
 ///   curl -X POST -H "Content-Type: application/json" http://localhost:8080/wnrun --data-binary "@race-earth/src/main/rust/odin_windninja/resources/test/wn_args.json"
 
-mod fetchdem;
 
  #[macro_use]
  extern crate lazy_static;
@@ -96,6 +95,7 @@ struct WnArgs {
     datetime: DateTime<chrono::Utc>,
 }
 
+/*
 fn run_windninja (args: &WnArgs) -> Result<String,String> {
     fetchdem::get_dem_file( &args.bbox, OPT.dem_path.as_str(), OPT.warp_path.as_str(), OPT.vrt_path.as_str()).and_then( |dem_file| {
         match Command::new(OPT.wn_path.as_str())
@@ -159,9 +159,11 @@ fn run_windninja (args: &WnArgs) -> Result<String,String> {
         }
     })
 }
+*/
 
- #[tokio::main]
+#[tokio::main]
 async fn main() {
+    /*
     let route = warp::path(OPT.end_point.as_str())
     .and( warp::post())
     .and( warp::body::content_length_limit(1024 * 32))
@@ -196,4 +198,5 @@ async fn main() {
     } else {
         warp::serve( route ).run(([127, 0, 0, 1], OPT.port)).await
     }
+    */
 }

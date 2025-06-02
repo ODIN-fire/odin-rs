@@ -322,3 +322,10 @@ macro_rules! error {
     ( $( $id:ident = $e:expr ),* ) => { $crate::_error!( $( $id = $e ),* ) };
     ( $( $e: expr ),* ) => { $crate::_error!( $( $e ),* ) }
 }
+
+#[inline]
+pub fn check_err<T,E: std::fmt::Display> ( result: std::result::Result<T,E>, msg: impl std::fmt::Display ) {
+    if let Err(e) = result { 
+        error!("{} {}", msg, e) 
+    }
+}

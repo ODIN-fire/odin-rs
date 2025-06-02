@@ -39,16 +39,16 @@ impl HrrrSchedules {
     }
 }
 
-pub async fn get_schedules (conf: &HrrrConfig, statistic_schedules: bool)->Result<HrrrSchedules> {
+pub async fn get_hrrr_schedules (conf: &HrrrConfig, statistic_schedules: bool)->Result<HrrrSchedules> {
     if statistic_schedules { 
-        get_statistic_schedules( &conf).await 
+        get_statistic_hrrr_schedules( &conf).await 
     } else { 
-        get_estimated_schedules( &conf)
+        get_estimated_hrrr_schedules( &conf)
     }
 }
 
 /// compute forecast schedules from configured estimates
-pub fn get_estimated_schedules (conf: &HrrrConfig) -> Result<HrrrSchedules> {
+pub fn get_estimated_hrrr_schedules (conf: &HrrrConfig) -> Result<HrrrSchedules> {
 
     fn estimate_sched (first: u32, last: u32, len: u32, delay_secs: u32)->Result<Vec<u32>> {
         if last <= first { return Err( schedule_error("invalid configured  schedule estimates")) }
@@ -69,7 +69,7 @@ pub fn get_estimated_schedules (conf: &HrrrConfig) -> Result<HrrrSchedules> {
 }
 
 /// compute forecast schedules from server directory
-pub async fn get_statistic_schedules (conf: &HrrrConfig) -> Result<HrrrSchedules> {
+pub async fn get_statistic_hrrr_schedules (conf: &HrrrConfig) -> Result<HrrrSchedules> {
     let url_template = &conf.dir_url_pattern;
     let delay_minutes = (conf.delay.as_secs() + 29) as u32 / 60;
 

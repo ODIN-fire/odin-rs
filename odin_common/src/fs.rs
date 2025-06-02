@@ -139,6 +139,24 @@ pub fn set_modified_timestamp <P: AsRef<Path>> (path: P, t: SystemTime) -> Resul
     f.set_modified(t)
 }
 
+pub fn get_accessed_timestamp <P: AsRef<Path>> (path: P) -> Option<SystemTime> {
+    if let Some(meta) = fs::metadata(path).ok() {
+        meta.accessed().ok()
+    } else {
+        None
+    }
+}
+
+pub fn set_accessed_timestamp <P: AsRef<Path>> (path: P, t: SystemTime) -> Result<()> {
+    let f = File::open(path)?;
+    let ftimes = FileTimes::new().set_accessed(t);
+    f.set_times( ftimes)
+}
+
+pub fn set_accessed<P: AsRef<Path>> (path: &P)->Result<()> {
+    set_accessed_timestamp(path, SystemTime::now())
+}
+
 pub fn existing_non_empty_file_from_path <P: AsRef<Path>> (path: P)-> Result<File> {
     let mut file = File::open(path)?;
     let md = file.metadata()?;
@@ -336,6 +354,19 @@ pub fn lru_files<P: AsRef<Path>> (dir: &P, recursive: bool) -> Result<Vec<(PathB
     Ok(acc)
 }
 
+pub fn purge_lru_files_above_limit<P: AsRef<Path>> (dir: &P, recursive: bool, max_size: u64) -> Result<()> {
+    let lru = lru_files( dir, recursive)?;
+
+    let mut size: u64 = 0;
+    for e in &lru {
+        size += e.2;
+        if size > max_size {
+            std::fs::remove_file(&e.0)?
+        }
+    }
+    Ok(())
+}
+
 pub fn dir_size <P: AsRef<Path>> (dir: &P, recursive: bool) -> Result<u64> {
     let mut acc: u64 = 0;
     let mut cb = |entry: &DirEntry| {
@@ -367,12 +398,6 @@ pub fn lru_dir_bound <P: AsRef<Path>> (dir: &P, recursive: bool, max_size: u64) 
     } else { Ok(false) } // nothing to shrink, we are under the limit
 }
 
-
-pub fn set_accessed<P: AsRef<Path>> (path: &P)->Result<()> {
-    let ftimes = FileTimes::new().set_accessed( SystemTime::now());
-    let file = File::open(path.as_ref())?;
-    file.set_times(ftimes)
-}
 
 /// generic notification of file availability (can be used as a message)
 #[derive(Debug,Clone)]

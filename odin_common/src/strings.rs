@@ -152,7 +152,7 @@ pub fn to_string_vec (a: &[&str])->Vec<String>{
     a.iter().map(|s| s.to_string()).collect::<Vec<String>>()
 }
 
-pub fn to_sorted_string_vec (a: &[&str])->Vec<String>{
+pub fn to_sorted_string_vec (a: &[impl ToString])->Vec<String>{
     let mut v = a.iter().map(|s| s.to_string()).collect::<Vec<String>>();
     v.sort();
     v

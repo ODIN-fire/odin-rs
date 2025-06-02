@@ -17,7 +17,7 @@ use std::{ops::Deref, hash::{Hash,Hasher}};
 use chrono::{DateTime,Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{angle,geo::{self, GeoPoint}};
+use crate::{angle,geo::{self, GeoPoint, GeoRect}};
 use crate::*;
 use crate::datetime;
 use num::{Num, ToPrimitive, traits, zero};
@@ -34,17 +34,35 @@ pub struct UtmZone {
 }
 
 impl UtmZone {
-    fn is_north(&self) -> bool { self.band >= 'N' }
-    fn central_meridian(&self) -> f64 { -180.0 + (self.zone as f64)*6.0 - 3.0 }
-}
+    pub fn is_north(&self) -> bool { self.band >= 'N' }
+    pub fn central_meridian(&self) -> f64 { -180.0 + (self.zone as f64)*6.0 - 3.0 }
 
-pub struct UtmRect (BoundingBox<f64>,UtmZone);
-
-impl UtmRect {
-    pub fn from_wsen_meters (wsen: &[f64;4], utm_zone: UtmZone) -> UtmRect {
-        UtmRect(BoundingBox::<f64>::from_wsen(wsen),utm_zone)
+    pub fn epsg (&self)->u32 {
+        if self.is_north() {
+            32600 + self.zone
+        } else {
+            32700 + self.zone
+        }
     }
 }
+
+pub struct UtmRect {
+    pub bbox: BoundingBox<f64>,
+    pub utm_zone: UtmZone
+}
+
+impl UtmRect {
+    pub fn from_wsen_meters (west: f64, south: f64, east: f64, north: f64, utm_zone: UtmZone) -> UtmRect {
+        let bbox = BoundingBox { west, south, east, north };
+        UtmRect { bbox, utm_zone }
+    }
+
+    pub fn epsg (&self)->u32 {
+       self.utm_zone.epsg()
+    }
+}
+
+// we can't impl From<GeoRect> since UTM is only defined between [-80,84] deg latitude, i.e. the conversion can fail
 
 #[derive(Debug,Copy,Clone,Serialize,Deserialize,PartialEq)]
 pub struct UTM {
@@ -187,4 +205,23 @@ pub fn utm_to_geo (utm: &UTM) -> GeoPoint {
     let lon_deg = λ.to_degrees();
 
     GeoPoint::from_lon_lat_degrees( lon_deg, lat_deg)
+}
+
+
+pub fn geo_to_utm_rect (r: &GeoRect)->Option<UtmRect> {
+    let ll = r.sw_point();
+    let ur = r.ne_point();
+
+    if_let! {
+        Some(utm_ll) = { geo_to_utm( &ll) } else { None },
+        Some(utm_ur) = { geo_to_utm( &ur) } else { None } => {
+            let zone_ll = utm_ll.utm_zone;
+            let zone_ur = utm_ur.utm_zone;
+            if zone_ll == zone_ur {
+                Some( UtmRect::from_wsen_meters( utm_ll.easting, utm_ll.northing, utm_ur.easting, utm_ur.northing, zone_ll) )
+            } else {
+                Some( UtmRect::from_wsen_meters( utm_ll.easting, utm_ll.northing, utm_ur.easting + 500_000.0, utm_ur.northing, zone_ll) )
+            }
+        }
+    }
 }

@@ -130,11 +130,11 @@ pub struct Resolution {
 
 /* #endregion  supported image types, SRS and data sources **********************************************************/
 
-fn get_wh_dem_filename (src: &str, epsg: u32, bbox: &BoundingBox<f64>, width: u32, height: u32, file_ext: &str) -> String {
+pub fn get_wh_dem_filename (src: &str, epsg: u32, bbox: &BoundingBox<f64>, width: u32, height: u32, file_ext: &str) -> String {
     format!("{src}_{epsg}_{},{},{},{}_{width}x{height}.{file_ext}",  bbox.west, bbox.south, bbox.east, bbox.north)
 }
 
-fn get_res_dem_filename (src: &str, epsg: u32, bbox: &BoundingBox<f64>, res_x: f64, res_y: f64, file_ext: &str) -> String {
+pub fn get_res_dem_filename (src: &str, epsg: u32, bbox: &BoundingBox<f64>, res_x: f64, res_y: f64, file_ext: &str) -> String {
     format!("{src}_{epsg}_{},{},{},{}_{res_x},{res_y}.{file_ext}",  bbox.west, bbox.south, bbox.east, bbox.north)
 }
 
@@ -175,7 +175,7 @@ pub fn get_wh_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, width: u32, height: 
     let file_path: PathBuf = out_dir.join( fname.as_str());
 
     if !file_path.exists() {
-        odin_gdal::create_wh_image_from_vrt( bbox, srs.epsg(), width, height, ext, &create_opts, &file_path, &vrt_path)?;
+        odin_gdal::create_wh_image_from_vrt( bbox, srs.epsg(), width, height, ext, &create_opts, &vrt_path, &file_path)?;
     } else {
         fs::set_accessed(&file_path)?; // update atime so that we could use it for LRU cache bounds
     }
@@ -195,7 +195,7 @@ pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: 
     let file_path: PathBuf = out_dir.join( fname.as_str());
 
     if !file_path.exists() {
-        odin_gdal::create_res_image_from_vrt( bbox, srs.epsg(), res_x, res_y, ext, &create_opts, &file_path, &vrt_path)?;
+        odin_gdal::create_res_image_from_vrt( bbox, srs.epsg(), res_x, res_y, ext, &create_opts, &vrt_path, &file_path)?;
     } else {
         fs::set_accessed(&file_path)?; // update atime so that we could use it for LRU cache bounds
     }

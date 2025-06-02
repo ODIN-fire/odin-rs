@@ -17,7 +17,7 @@ use odin_common::define_cli;
 use odin_build;
 use odin_action::data_action;
 use odin_hrrr::{
-    load_config, run_downloads, schedule::{get_schedules, HrrrSchedules}, HrrrConfig, HrrrDataSetConfig, HrrrDataSetRequest, HrrrFileAvailable, Result
+    load_config, run_downloads, schedule::{get_hrrr_schedules, HrrrSchedules}, HrrrConfig, HrrrDataSetConfig, HrrrDataSetRequest, HrrrFileAvailable, Result
 };
  
 define_cli! { ARGS [about="NOAA HRRR download tool"] =
@@ -32,7 +32,7 @@ async fn main ()->Result<()> {
     odin_build::set_bin_context!();
 
     let conf: HrrrConfig = load_config( &ARGS.hrrr_config)?;
-    let schedules: HrrrSchedules = get_schedules( &conf, ARGS.statistic_schedules).await?;
+    let schedules: HrrrSchedules = get_hrrr_schedules( &conf, ARGS.statistic_schedules).await?;
     println!("@@ reg: {:?}", schedules.reg);
     println!("@@ ext: {:?}", schedules.ext);
 

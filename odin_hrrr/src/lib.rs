@@ -128,10 +128,7 @@ pub struct HrrrDataSetConfig {
 }
 
 impl HrrrDataSetConfig {
-    pub fn new (name: String, bbox: GeoRect, fields: &[&str], levels: &[&str])->Self {
-        let fields: Vec<String> = to_sorted_string_vec(fields);
-        let levels: Vec<String> = to_sorted_string_vec(levels);
-
+    pub fn new (name: String, bbox: GeoRect, fields: Vec<String>, levels: Vec<String>)->Self {
         HrrrDataSetConfig { name, bbox, fields, levels }
     }
 }
@@ -515,7 +512,7 @@ pub async fn run_downloads<A> (conf: HrrrConfig, dsrs: Vec<Arc<HrrrDataSetReques
 /* #end region download task */
 
 pub fn hrrr_cache_dir()->PathBuf {
-    let path = odin_build::cache_dir().join("hrrr");
+    let path = odin_build::cache_dir().join("odin_hrrr");
     // Ok to panic - this is called during sys init
     ensure_writable_dir(&path).expect( &format!("invalid HRRR cache dir: {path:?}"));
     path

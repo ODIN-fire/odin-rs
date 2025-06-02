@@ -15,7 +15,7 @@
 use std::sync::Arc;
 use odin_common::define_cli;
 use odin_actor::prelude::*;
-use odin_hrrr::{load_config,HrrrActor, AddDataSet, HrrrConfig, schedule::{HrrrSchedules,get_schedules}, HrrrDataSetRequest, HrrrDataSetConfig, HrrrFileAvailable};
+use odin_hrrr::{load_config,HrrrActor, AddDataSet, HrrrConfig, schedule::{HrrrSchedules,get_hrrr_schedules}, HrrrDataSetRequest, HrrrDataSetConfig, HrrrFileAvailable};
 
 define_cli! { ARGS [about="NOAA HRRR download example using HrrrActor"] =
     hrrr_config: String [help="filename of HRRR config file", short,long,default_value="hrrr_conus.ron"],
@@ -25,7 +25,7 @@ define_cli! { ARGS [about="NOAA HRRR download example using HrrrActor"] =
 
 run_actor_system!( actor_system => {
     let hrrr_config: HrrrConfig = load_config( &ARGS.hrrr_config)?;
-    let schedules: HrrrSchedules = get_schedules( &hrrr_config, ARGS.statistic_schedules).await?;
+    let schedules: HrrrSchedules = get_hrrr_schedules( &hrrr_config, ARGS.statistic_schedules).await?;
     let ds: HrrrDataSetConfig = load_config( &ARGS.ds_config)?;
     let req = Arc::new(HrrrDataSetRequest::new(ds));
     

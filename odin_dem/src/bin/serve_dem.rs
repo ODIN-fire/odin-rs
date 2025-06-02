@@ -28,7 +28,7 @@
 //!       height : response data (image) height in pixels - see 'width'
 
 
-use std::{default::Default, error::Error, net::{IpAddr, SocketAddr}, sync::Arc, path::{Path,PathBuf}, collections::HashMap};
+use std::{collections::HashMap, default::Default, error::Error, net::{IpAddr, SocketAddr}, path::{Path,PathBuf}, sync::Arc, time::SystemTime};
 
 use axum::{
     extract::{MatchedPath,Query},
@@ -40,7 +40,7 @@ use axum::{
 use http::StatusCode;
 use serde::{Serialize,Deserialize};
 use structopt::StructOpt;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, task::AbortHandle};
 use tower_http::{
     classify::{ServerErrorsAsFailures, SharedClassifier},
     trace::TraceLayer,
@@ -50,7 +50,7 @@ use tracing_subscriber::{filter, layer::SubscriberExt, util::SubscriberInitExt};
 use anyhow::Result;
 
 use odin_build::set_bin_context;
-use odin_common::{define_serde_struct, fs::ensure_writable_dir, BoundingBox, strings::{deserialize_arr4,parse_array}, if_let};
+use odin_common::{define_serde_struct, fs, BoundingBox, strings::{deserialize_arr4,parse_array}, if_let, datetime };
 use odin_server::{spawn_server_task,ServerConfig, server_error};
 use odin_dem::{load_config, DemSRS, DemImgType, get_wh_dem, get_res_dem};
 
@@ -93,7 +93,7 @@ async fn main () -> Result<()> {
     let dem_config: Arc<DemConfig> = Arc::new( load_config("dem.ron")?);
     let srv_config: ServerConfig = load_config("dem_server.ron")?;
     let cache_dir = Arc::new(odin_build::cache_dir().join("odin_dem"));
-    ensure_writable_dir( cache_dir.as_ref());
+    fs::ensure_writable_dir( cache_dir.as_ref());
 
     let mut router = Router::new()
         .route( "/GetWhDem", get({
@@ -108,7 +108,7 @@ async fn main () -> Result<()> {
         }));
 
     if dem_config.wms_capabilities_path.is_some() {
-        router = router.route( "/WMS", get({
+        router = router.route( "/dem", get({
             let cfg = dem_config.clone();
             let cache_dir = cache_dir.clone();
             move |query: Query<HashMap<String, String>>| { get_wms_handler( query, cfg, cache_dir) }
@@ -117,11 +117,23 @@ async fn main () -> Result<()> {
 
     // start cache cleanup task
     if dem_config.max_cache > 0 {
+        spawn_cache_cleanup_task( cache_dir.clone(), dem_config.max_cache);
     }
 
     println!("serving WMS DEM on {}", srv_config.url());
     let server_task = spawn_server_task( &srv_config, router);
     Ok( server_task.await? )
+}
+
+fn spawn_cache_cleanup_task (cache_dir: Arc<PathBuf>, max_cache: u64)->Result<AbortHandle> {
+    Ok(
+        tokio::spawn( async move {
+            loop {
+                tokio::time::sleep( datetime::hours(1)).await;
+                odin_common::fs::purge_lru_files_above_limit( cache_dir.as_ref(), false, max_cache);
+            }
+        }).abort_handle()
+    )
 }
 
 //--- WMS handlers
@@ -144,13 +156,17 @@ async fn get_map_request( q: Query<HashMap<String, String>>, config: Arc<DemConf
             let bbox = BoundingBox::from_wsen(&bbox);
 
             match get_wh_dem( &bbox, dem_srs, width, height, dem_img, &config.vrt_path, cache_dir.as_ref()) {
-                Ok(file_path) =>  odin_server::file_response( &file_path, true).await.into_response(),
+                Ok(file_path) =>  {
+                    odin_common::fs::set_accessed( &file_path); // set accessed so that we can maintain a LRU list
+                    odin_server::file_response( &file_path, true).await.into_response()
+                }
                 Err(e) => server_error("failed to create DEM file").into_response()
             }
         }
     }
 }
 
+/// this serves requests for "http://HOST:PORT/dem?service=WMS&request=GetCapabilities"
 async fn get_capabilities_request( q: Query<HashMap<String, String>>, config: Arc<DemConfig>, cache_dir: Arc<PathBuf>) -> impl IntoResponse {
     if_let! {
         Some("WMS") = { q.get("service").map(|s| s.as_str()) } else { (StatusCode::BAD_REQUEST, "invalid SERVICE param").into_response() },

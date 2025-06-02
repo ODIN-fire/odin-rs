@@ -21,7 +21,7 @@ use odin_actor::{error,debug,warn,info};
 use odin_common::{datetime::{full_hour,hours}, fs::{remove_old_files, FileAvailable}};
 
 use crate::{errors::*, get_next_base_step, is_extended_forecast, queue_available_forecasts, DownloadCmd, HrrrConfig, HrrrDataSetConfig, HrrrDataSetRequest, HrrrFileAvailable, HrrrFileRequest};
-use crate::{spawn_download_task, hrrr_cache_dir, schedule::{HrrrSchedules, get_statistic_schedules}};
+use crate::{spawn_download_task, hrrr_cache_dir, schedule::{HrrrSchedules, get_hrrr_schedules}};
 
 #[derive(Debug)]
 pub struct AddDataSet (pub Arc<HrrrDataSetRequest>);
@@ -50,6 +50,13 @@ pub struct HrrrActor {
 }
 
 impl HrrrActor {
+    pub async fn with_statistic_schedules <A> (config: HrrrConfig, file_avail_action: A)->Result<Self> 
+        where A: DataAction<HrrrFileAvailable> + 'static
+    {
+        let schedules: HrrrSchedules = get_hrrr_schedules( &config, true).await?;
+        Ok( Self::new( config, schedules, file_avail_action) )
+    }
+
     pub fn new <A> (config: HrrrConfig, schedules: HrrrSchedules, file_avail_action: A)->Self 
         where A: DataAction<HrrrFileAvailable> + 'static
     {

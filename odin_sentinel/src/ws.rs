@@ -70,7 +70,16 @@ pub async fn connect (config: &SentinelConfig)->Result<(WsStream, Response)> {
         .body(())?;
     */
 
-    Ok(connect_async(request).await?)
+    //Ok(connect_async(request).await?)
+    match connect_async(request).await {
+        Ok(ws_stream) => {
+            Ok( ws_stream)
+        }
+        Err(e) => {
+            eprintln!("websocket connection error: {e}");
+            Err(e.into())
+        }
+    }
 }
 
 pub async fn expect_connected_response (ws: &mut WsStream)->Result<()> {

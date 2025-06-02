@@ -2,11 +2,11 @@
 
 HrrrDataSetConfig(
     name: "BigSur",
-    bbox: GeoBoundingBox(
-        west: LonAngle(-122.043),
-        south: LatAngle(35.99),
-        east: LonAngle(-121.231),
-        north: LatAngle(36.594)
+    bbox: GeoRect(
+        west: -122.043,
+        south: 35.99,
+        east: -121.231,
+        north: 36.594
     ),
     fields: ["TCDC", "TMP", "UGRD", "VGRD"],
     levels: ["lev_2_m_above_ground", "lev_10_m_above_ground", "lev_entire_atmosphere"],

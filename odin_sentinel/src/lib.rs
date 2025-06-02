@@ -1152,7 +1152,7 @@ pub async fn get_time_sorted_records <T> (client: &Client, base_uri: &str, acces
 pub async fn get_records_since <T> (client: &Client, base_uri: &str, access_token: &str, uri_path: &str, last: &str) -> Result<Vec<SensorRecord<T>>> 
     where T: RecordDataBounds
 {
-    let uri = format!("{base_uri}/{uri_path}?sort=timeRecorded,DESC&last={last}");
+    let uri = format!("{base_uri}{uri_path}?sort=timeRecorded,DESC&last={last}"); // FIXME - the uri_path has a heading '/'
     let response = client.get(uri).bearer_auth(access_token).send().await?;
     let record_list: RecordList<T> = from_json(response).await?; 
     Ok(record_list.data)

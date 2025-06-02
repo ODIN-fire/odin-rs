@@ -181,7 +181,7 @@ impl_deserialize_struct!{ GeoLine::from_geo_points( start, end) }
 
 /* #region GeoRect ***********************************************************************************************/
 
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,PartialEq)]
 pub struct GeoRect(Rect);
 
 impl GeoRect {
@@ -191,6 +191,10 @@ impl GeoRect {
 
     pub fn from_wsen (west: Longitude, south: Latitude, east: Longitude, north: Latitude) -> Self {
         GeoRect( Rect::new( Point::new( west.degrees(), south.degrees()), Point::new( east.degrees(), north.degrees()) ))
+    }
+
+    pub fn from_wsen_degrees (west: f64, south: f64, east: f64, north: f64) -> Self {
+        GeoRect( Rect::new( Point::new( west, south), Point::new( east, north) ) )
     }
 
     pub fn area (&self) -> Area {
@@ -207,6 +211,14 @@ impl GeoRect {
 
     pub fn to_polygon(&self) -> Polygon {
         self.0.clone().to_polygon()
+    }
+
+    pub fn sw_point (&self)->GeoPoint {
+        GeoPoint::from_lon_lat_degrees( self.west().degrees(), self.south().degrees())
+    }
+
+    pub fn ne_point (&self)->GeoPoint {
+        GeoPoint::from_lon_lat_degrees( self.east().degrees(), self.north().degrees())
     }
 
     #[inline] pub fn west(&self)->Longitude { Longitude::from_degrees( self.0.min().x )}

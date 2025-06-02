@@ -44,6 +44,8 @@ odin_goesr  = { version = "*", path = "odin_goesr" }
 odin_orbital = { version = "*", path = "odin_orbital" }
 odin_sentinel = { version = "*", path = "odin_sentinel" }
 odin_geolayer = { version = "*", path = "odin_geolayer" }
+odin_hrrr   = { version = "*", path = "odin_hrrr" }
+odin_dem    = { version = "*", path = "odin_dem" }
 
 # external crates for which we have to ensure the same version
 axum = { version = "0.8.4", features = [ "http2", "ws", "macros"] }
@@ -58,8 +60,8 @@ futures = { version = "0.3.31" }
 futures-util = { version = "0.3.31", features = ["sink"] }
 async-trait = { version = "0.1.88" }
 tokio = { version = "1.45.0", features = ["full", "tracing"] }
-#tokio-tungstenite = { version = "0.26.2", features = ["native-tls"] }
-tokio-tungstenite = { version = "0.26.2", features = ["rustls"] }
+tokio-tungstenite = { version = "0.26.2", features = ["native-tls"] }
+#tokio-tungstenite = { version = "0.26.2", features = ["rustls"] } # this requires to explicitly handle certificates
 tokio-util = { version = "0.7.15", features = ["full"] }
 rustls = { version = "0.23.27" }
 serde = { version = "1.0.219", features = ["derive", "rc"] }

@@ -224,7 +224,7 @@ impl LiveConnection {
                                 Some(msg) => match msg {
                                     Ok(msg) => {
                                         if let Err(e) = Self::process_incoming_msg( &hself, &client, &config, msg, &mut latest_recs, &cache_dir, &file_request_tx).await {
-                                            warn!("ignoring incoming websocket msg: {}", e)
+                                            warn!("{e}")
                                         };
                                     }
                                     Err(e) => {
@@ -291,31 +291,36 @@ impl LiveConnection {
     async fn process_incoming_msg (hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig,
                                    msg: Message,
                                    latest_recs: &mut HashMap<String,String>, 
-                                   cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest>)->Result<()> {
+                                   cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest>) -> Result<()> 
+    {
         if_let! {
             Message::Text(json) = { msg } else { Err(ws_protocol_error("ignored binary message")) }, // ignore binary messages
-            Ok(msg) = { serde_json::from_str::<WsMsg>(&json) } else { warn!("malformed websocket message {json}"); Err(ws_protocol_error("malformed message")) },
-            WsMsg::Record { device_id, sensor_no, rec_type } = { msg } else { Err(ws_protocol_error("unknown record type")) } => { // ignore other WsMsg variants
-                use SensorCapability::*;
-                match rec_type {
-                    Accelerometer => Self::get_and_send_update::<AccelerometerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Anemometer    => Self::get_and_send_update::<AnemometerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Cloudcover    => Self::get_and_send_update::<CloudcoverData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Event         => Self::get_and_send_update::<EventData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Fire          => Self::get_and_send_update::<FireData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Gas           => Self::get_and_send_update::<GasData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Gps           => Self::get_and_send_update::<GpsData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Gyroscope     => Self::get_and_send_update::<GyroscopeData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Magnetometer  => Self::get_and_send_update::<MagnetometerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Orientation   => Self::get_and_send_update::<OrientationData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Person        => Self::get_and_send_update::<PersonData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Power         => Self::get_and_send_update::<PowerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Smoke         => Self::get_and_send_update::<SmokeData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Thermometer   => Self::get_and_send_update::<ThermometerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Valve         => Self::get_and_send_update::<ValveData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
-                    Voc           => Self::get_and_send_update::<VocData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+            Ok(ws_msg) = { serde_json::from_str::<WsMsg>(&json) } else { warn!("malformed websocket message {json}"); Err(ws_protocol_error("malformed message")) } => {
+                match ws_msg {
+                    WsMsg::Record { device_id, sensor_no, rec_type } => {
+                        use SensorCapability::*;
+                        match rec_type {
+                            Accelerometer => Self::get_and_send_update::<AccelerometerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Anemometer    => Self::get_and_send_update::<AnemometerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Cloudcover    => Self::get_and_send_update::<CloudcoverData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Event         => Self::get_and_send_update::<EventData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Fire          => Self::get_and_send_update::<FireData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Gas           => Self::get_and_send_update::<GasData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Gps           => Self::get_and_send_update::<GpsData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Gyroscope     => Self::get_and_send_update::<GyroscopeData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Magnetometer  => Self::get_and_send_update::<MagnetometerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Orientation   => Self::get_and_send_update::<OrientationData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Person        => Self::get_and_send_update::<PersonData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Power         => Self::get_and_send_update::<PowerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Smoke         => Self::get_and_send_update::<SmokeData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Thermometer   => Self::get_and_send_update::<ThermometerData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Valve         => Self::get_and_send_update::<ValveData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
+                            Voc           => Self::get_and_send_update::<VocData>( hself, client, config, &device_id, sensor_no, latest_recs).await,
 
-                    Image         => Self::get_and_send_image_update( hself, client, config, &device_id, sensor_no, latest_recs, cache_dir, file_request_tx).await,
+                            Image         => Self::get_and_send_image_update( hself, client, config, &device_id, sensor_no, latest_recs, cache_dir, file_request_tx).await,
+                        }
+                    }
+                    _ => Ok(())  // ignore other WsMsg types
                 }
             }
         }

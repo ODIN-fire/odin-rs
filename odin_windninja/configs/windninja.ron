@@ -1,0 +1,8 @@
+// RON config file for odin_windninja
+
+WindNinjaConfig(
+    max_age: Duration( secs: 3600, nanos: 0), // 1h - how long to keep cached data files
+    max_forecasts: 8, // max number of forecasts to keep for each region (in ringbuffer)
+    windninja_path: "WindNinja_cli", // pathname for windninja executable (if not absolute path it has to be in PATH)
+    dem_url: "http://localhost:9019/dem" // url for odin_dem server to use
+)
