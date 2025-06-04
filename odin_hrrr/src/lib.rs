@@ -164,7 +164,7 @@ impl HrrrDataSetRequest {
             query.push_str("=on");
         }
 
-        HrrrDataSetRequest {ds: ds_cfg,query}
+        HrrrDataSetRequest {ds: ds_cfg, query}
     }
 }
 
@@ -310,6 +310,10 @@ pub struct HrrrFileRequest {
     pub ds: Arc<HrrrDataSetRequest>,
     pub base: DateTime<Utc>, // base hour for forecast
     pub step: usize, // forecast hour
+}
+
+impl HrrrFileRequest {
+    pub fn name(&self)->&String { &self.ds.ds.name}
 }
 
 pub enum DownloadCmd {

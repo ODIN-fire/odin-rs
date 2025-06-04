@@ -183,7 +183,7 @@ impl <'a> SimpleWarpBuilder<'a> {
             let mut max_y = self.max_y;
 
             if res_x != 0.0 && res_y != 0.0 { // explicitly given pixel resolution
-                if n_pixels != 0 || n_lines != 0 {
+                if self.force_n_pixels != 0 || self.force_n_lines != 0 {
                     gdal_sys::GDALDestroyGenImgProjTransformer(c_transform_arg);
                     return Err(OdinGdalError::MiscError("cannot specify dimensions and resolution for warped dataset".to_string()))
                 }
@@ -200,6 +200,7 @@ impl <'a> SimpleWarpBuilder<'a> {
                 geo_transform[3] = max_y;
                 geo_transform[1] = res_x;
                 geo_transform[5] = -res_y;
+
             } else if self.force_n_pixels != 0 && self.force_n_lines != 0 { // explicitly given n_pixels, n_lines
                 if min_x == 0.0 && min_y == 0.0 && max_x == 0.0 && max_y == 0.0 {
                     min_x = geo_transform[0];
@@ -218,6 +219,7 @@ impl <'a> SimpleWarpBuilder<'a> {
 
                 n_pixels = self.force_n_pixels;
                 n_lines = self.force_n_lines;
+                
             } else if min_x != 0.0 || min_y != 0.0 || max_x != 0.0 || max_y != 0.0 { // explicitly given min/max values
                 res_x = geo_transform[1];
                 res_y = geo_transform[5].abs();

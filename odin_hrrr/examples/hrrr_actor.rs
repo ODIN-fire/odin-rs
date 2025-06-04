@@ -18,7 +18,7 @@ use odin_actor::prelude::*;
 use odin_hrrr::{load_config,HrrrActor, AddDataSet, HrrrConfig, schedule::{HrrrSchedules,get_hrrr_schedules}, HrrrDataSetRequest, HrrrDataSetConfig, HrrrFileAvailable};
 
 define_cli! { ARGS [about="NOAA HRRR download example using HrrrActor"] =
-    hrrr_config: String [help="filename of HRRR config file", short,long,default_value="hrrr_conus.ron"],
+    hrrr_config: String [help="filename of HRRR config file", short,long,default_value="hrrr_conus-full.ron"],
     statistic_schedules: bool [help="compute schedules of available forecast files from server dir listing", short, long],
     ds_config: String [help="filename of HrrrDataSetConfig file"]
 }

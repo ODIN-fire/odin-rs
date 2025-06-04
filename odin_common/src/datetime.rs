@@ -128,6 +128,10 @@ pub fn naive_local_date_to_utc_datetime (nd: NaiveDate) -> Option<DateTime<Utc>>
     Local.from_local_datetime(&ndt).single().map(|ldt| ldt.with_timezone(&Utc))
 }
 
+pub fn short_utc_datetime_string (dt: &DateTime<Utc>) -> String {
+    format!("{}", dt.format("%Y-%m-%dT%H:%M:%S%Z"))
+}
+
 //--- support for serde
 
 pub fn ser_short_rfc3339<S: Serializer> (dt: &DateTime<Utc>, s: S) -> Result<S::Ok, S::Error>  {

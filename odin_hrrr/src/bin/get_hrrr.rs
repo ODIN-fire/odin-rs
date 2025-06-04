@@ -21,7 +21,7 @@ use odin_hrrr::{
 };
  
 define_cli! { ARGS [about="NOAA HRRR download tool"] =
-    hrrr_config: String [help="filename of HRRR config file", short,long,default_value="hrrr_conus.ron"],
+    hrrr_config: String [help="filename of HRRR config file", short,long,default_value="hrrr_conus-full.ron"],
     statistic_schedules: bool [help="compute schedules of available forecast files from server dir listing", short, long],
     periodic: bool [help="option to continuously download new forecasts", short,long],
     ds_configs: Vec<String> [help="filenames of HrrrDataSetConfig files"]

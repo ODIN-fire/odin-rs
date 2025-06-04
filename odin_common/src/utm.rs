@@ -127,11 +127,9 @@ pub fn geo_to_utm_zone (geo: &GeoPoint, utm_zone: UtmZone) -> Option<UTM> {
 
     if lat_deg < -80.0 || lat_deg > 84.0 { return None } // not valid outside
 
-    let band = LAT_BAND[ (lat_deg + 80.0 / 6.0) as usize ];
-
     let φ = lat_deg.to_radians();
     let λ = lon_deg.to_radians();
-    let λ0 = (((utm_zone.zone -1) * 6 - 180 + 3) as f64).to_radians();
+    let λ0 = (((utm_zone.zone as i64 -1) * 6 - 180 + 3) as f64).to_radians();
     let dλ = λ - λ0;
     let N0 = if φ < 0.0 { 10000.0 } else { 0.0 };
 

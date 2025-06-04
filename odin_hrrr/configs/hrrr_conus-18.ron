@@ -1,4 +1,5 @@
-// config data to download HRRR files and schedules
+// config data to download HRRR files and schedules for forecast cycles limited to 18 steps
+// this cuts off the 0600/1200 extended 48 step forecasts
 HrrrConfig(
     region: "conus",
     url: "https://nomads.ncep.noaa.gov/cgi-bin/filter_hrrr_2d.pl",
@@ -11,7 +12,7 @@ HrrrConfig(
 
     ext_first: 49,
     ext_last: 108,
-    ext_len: 49,
+    ext_len: 19, // we only use the first 18 forecast steps instead of the full 48
 
     delay: Duration(secs:90,nanos:0), // added to each computed schedule minute
 

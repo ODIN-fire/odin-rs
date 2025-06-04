@@ -26,6 +26,7 @@ run_actor_system!( actor_system => {
         odin_windninja::load_config("windninja.ron")?,
         pre_hrrr.to_actor_handle(),
         no_dataref_action(), // no init action as we start empty
+        no_data_action(),
         dataref_action!( => |forecast: &Forecast| {
             println!("forecast available: {forecast:?}");
             Ok(())
@@ -33,7 +34,7 @@ run_actor_system!( actor_system => {
     ))?;
 
     let hrrr = spawn_pre_actor!( actor_system, pre_hrrr, HrrrActor::with_statistic_schedules(
-        odin_hrrr::load_config( "hrrr_conus.ron")?,
+        odin_hrrr::load_config( "hrrr_conus-18.ron")?,
         data_action!( let hwind: ActorHandle<WindNinjaActorMsg> = hwind.clone() => |data: HrrrFileAvailable| {
             Ok( hwind.try_send_msg( data)? )
         })

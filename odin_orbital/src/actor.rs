@@ -238,15 +238,20 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
         info!("{} retrieve moved {} overpasses at {}", self.sat_info.name, n_completed, datetime::local_now());
 
         // now retrieve current hotspot data (might span several completed overpasses) - if the last completed overpass doesn't have data yet
+        // don't short circuit here or we might never compute new overpasses and drain the upcoming queue
         if let Some(last_completed) = self.data.completed.back() {
             if last_completed.data.is_none() { // TODO - we could also check if it had URT entries
-                let retrieved = self.importer.import_hotspots( 1, &mut self.data.completed).await?;
-                info!("{} retrieved {} hotspots", self.sat_info.name, retrieved.len());
-                save_retrieved_hotspots_to( &self.cache_dir, &retrieved, &self.data.completed)?;
+                match self.importer.import_hotspots( 1, &mut self.data.completed).await {
+                    Ok(retrieved) => {
+                        info!("{} retrieved {} hotspots", self.sat_info.name, retrieved.len());
+                        save_retrieved_hotspots_to( &self.cache_dir, &retrieved, &self.data.completed)?;
 
-                let hotspots: Vec<&HotspotList> = retrieved.iter().filter_map( |i| self.data.completed[i].data.as_ref()).collect();
-                if !hotspots.is_empty() {
-                    self.hotspot_action.execute( hotspots).await?;
+                        let hotspots: Vec<&HotspotList> = retrieved.iter().filter_map( |i| self.data.completed[i].data.as_ref()).collect();
+                        if !hotspots.is_empty() {
+                            self.hotspot_action.execute( hotspots).await;
+                        }
+                    }
+                    Err(e) => { error!("failed to retrieve data for {}: {e}", self.sat_info.name) }
                 }
             }
         }
