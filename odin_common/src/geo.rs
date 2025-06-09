@@ -221,6 +221,13 @@ impl GeoRect {
         GeoPoint::from_lon_lat_degrees( self.east().degrees(), self.north().degrees())
     }
 
+    pub fn add_degrees (&self, dw: f64, ds: f64, de: f64, dn: f64)->GeoRect {
+        GeoRect( Rect::new( 
+            Point::new( self.west().degrees()+dw, self.south().degrees()+ds), 
+            Point::new( self.east().degrees()+de, self.north().degrees()+dn)
+        ))
+    }
+
     #[inline] pub fn west(&self)->Longitude { Longitude::from_degrees( self.0.min().x )}
     #[inline] pub fn east(&self)->Longitude { Longitude::from_degrees( self.0.max().x )}
     #[inline] pub fn south(&self)->Latitude { Latitude::from_degrees( self.0.min().y )}

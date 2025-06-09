@@ -27,14 +27,9 @@ use csv;
 use async_trait::async_trait;
 use bit_set::BitSet;
 use odin_common::{
-    sin,cos,
-    angle::{Angle180,Longitude,Latitude}, 
-    cartesian3::{dist_squared, find_closest_index, Cartesian3}, 
-    cartographic::Cartographic, 
-    datetime::{self, minutes, de_duration_from_fractional_secs, de_from_epoch_millis, from_epoch_millis, ser_duration_as_fractional_secs, ser_epoch_millis}, 
-    geo::{GeoPoint, GeoRect}, macros::if_let, 
-    net::download_url 
+    angle::{Angle180, Latitude, Longitude}, cartesian3::{dist_squared, find_closest_index, Cartesian3}, cartographic::{earth_radius_at_geodetic_latitude, Cartographic}, cos, datetime::{self, de_duration_from_fractional_secs, de_from_epoch_millis, from_epoch_millis, minutes, ser_duration_as_fractional_secs, ser_epoch_millis}, geo::{GeoPoint, GeoRect}, macros::if_let, net::download_url, sin 
 };
+use odin_dem::DemSource;
 use odin_macro::public_struct;
 use crate::{errors::{op_failed, OdinOrbitalError, Result}, HotspotList, OrbitalSatelliteInfo};
 use crate::{Hotspot, HotspotConfidence, HotspotImporter, overpass::Overpass, CompletedOverpass};
@@ -46,7 +41,8 @@ struct FirmsConfig {
     base_url: String,
     map_key: String,  // keep this private - it is rate limited
     bounds: GeoRect,
-    satellites: Vec<FirmsSatelliteData>
+    dem: DemSource, // either Server or File - to retrieve heights of hotspot locations
+    satellites: Vec<FirmsSatelliteData>,
 }
 
 impl FirmsConfig {
@@ -163,7 +159,7 @@ impl RawFirmsHotspot for RawViirsHotspot {
         let lat = Latitude::from_degrees(self.latitude);
 
         let geo = Cartographic::from_degrees(self.longitude, self.latitude, 0.0);
-        let pos = Cartesian3::from(&geo);
+        let pos = Cartesian3::from(&geo);  // will be re-computed with height once we have all hotspots (deferred because it might use external DEM server)
 
         let scan_m = self.scan * 1000.0;
         let scan = Length::new::<meter>(scan_m);
@@ -292,7 +288,7 @@ impl RawFirmsHotspot for RawOliHotspot {
         let lat = Latitude::from_degrees(self.latitude);
 
         let geo = Cartographic::from_degrees(self.longitude, self.latitude, 0.0);
-        let pos = Cartesian3::from(&geo);
+        let pos = Cartesian3::from(&geo);  // will be re-computed with height once we have all hotspots (deferred because it might use external DEM server)
 
         let scan_m: f64 = 30.0;
         let track_m: f64 = 30.0;
@@ -378,6 +374,7 @@ async fn import_firms_hotspots<I,R> (importer: &mut I, n_days: usize, cops: &mut
     let source = importer.get_source();
     let url = importer.current_hotspots_request_url( source, n_days);
     let file_path = importer.file_path(source, date);
+    let config = importer.get_config();
     let client = Client::new(); // no need to keep it around as this is only called every couple of hours
 
     let size = download_url( &client, &url, &None, &file_path).await?;
@@ -385,12 +382,36 @@ async fn import_firms_hotspots<I,R> (importer: &mut I, n_days: usize, cops: &mut
     if size > 0 {
         let file = File::open( file_path)?;
         let (retrieved,last_date) = read_hotspots::<R>( file, cops)?;
+
+        // FIRMS hotspots do not have terrain height - fill those in from our configured DEM
+        add_hotspot_heights( &retrieved, &config.dem, cops).await?;
+
         importer.update_last_reported( last_date);
         Ok(retrieved)
 
     } else { 
         Err( op_failed!("no FIRMS data"))
     }
+}
+
+async fn add_hotspot_heights (retrieved: &BitSet, dem_src: &DemSource, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<()> {
+    for i in retrieved {
+        if let Some(hsl) = cops[i].data.as_mut() {
+            let mut hotspots = &mut hsl.hotspots;
+            let locations: Vec<(f64,f64)> = hotspots.iter().map( |h| (h.lon.degrees(), h.lat.degrees())).collect();
+            if let Ok(heights) = dem_src.get_heights(Some(0.0), locations.as_ref()).await {
+                for j in 0..heights.len() {
+                    let mut hs = &mut hotspots[j];
+                    let r = earth_radius_at_geodetic_latitude( hs.lat.radians());
+                    let a = r + heights[j];
+
+                    hs.pos.scale_to_length(a);
+                    hs.pos.round_to_decimals(0); // we don't need more precision than 1m
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// parse the CSV data provided by the reader, convert the RawViirsHotpots from it into (uom-aware) ViirsHotspots,
@@ -444,6 +465,8 @@ fn read_hotspots<R> (reader: impl io::Read, cops: &mut VecDeque<CompletedOverpas
 
     Ok((changed_overpasses,last_date))
 }        
+
+
 
 /// scan and track are cross-scan and along-track dimentions of hotspot in meters
 /// alpha is the outgoing bearing from the hotspot to its closest ground track point

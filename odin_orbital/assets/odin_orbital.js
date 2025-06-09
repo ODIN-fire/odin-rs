@@ -213,7 +213,7 @@ function initSatelliteView() {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "show", tip: "show/hide satellite", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.show, toggleShowSatellite) },
             { name: "sat", tip: "satellite name", width: "4rem", attrs: [], map: e => e.satName },
-            { name: "swath", tip: "half swath width [km]", width: "4rem", attrs:["fixed", "alignRight"], map: e => util.f_0.format(e.avgSwathWidth / 1000.0) },
+            { name: "swt", tip: "half swath width [km]", width: "4rem", attrs:["fixed", "alignRight"], map: e => util.f_0.format(e.avgSwathWidth / 1000.0) },
             { name: "rev", tip: "orbital period [min]", width: "3rem", attrs:["fixed", "alignRight"], map: e => util.f_0.format(e.avgOrbitDuration) },
             { name: "next", tip: "next upcoming overpass (local)", width: "8rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.next) },
             { name: "last", tip: "most recent overpass (local)", width: "8rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.prev) }
@@ -478,6 +478,7 @@ function updateHotspots() {
     // if hsList is still in flight this will be called again after it was loaded
     if (selCompleted && selCompleted.hsList && selCompleted.hsList.hotspots){ 
         ui.setListItems(hotspotView, selCompleted.hsList.hotspots);
+        setHotspotAssets();
     } else {
         ui.clearList(hotspotView);
     }
@@ -618,30 +619,24 @@ function handleHotspotMessage(hotspots) {
 }
 
 function loadHotspots (oe) { 
-    odinCesium.withTopoTerrain( ()=>{  // no point loading hotspots before we have topo terrain
-        let url = "orbital-data/" + oe.hsList.fname;
-        fetch(url).then( (response) => {
-            if (response.ok) {
-                response.json().then( (hsList) => {
-                    oe.hsList = hsList;
-                    computeHotspotFootprints( hsList.hotspots);
-                    return hsList.hotspots.map( (h)=>h.geoPos);
-                }).then( (ps)=> {
-                    odinCesium.withDetailedSampledTerrain( ps, ()=>{
-                        updateHotspots();
-                    })
-                })
-            }
-        })
-    });
+    let url = "orbital-data/" + oe.hsList.fname;
+    fetch(url).then( (response) => {
+        if (response.ok) {
+            response.json().then( (hsList) => {
+                oe.hsList = hsList;
+                computeHotspotFootprints( hsList.hotspots);
+                updateHotspots();
+            })
+        }
+    })
 }
 
 function computeHotspotFootprints (hotspots) {
     for (let h of hotspots) {
         let lon = h.lon;
         let lat = h.lat;
+        h.geoPos = Cesium.Cartographic.fromDegrees( lon, lat); 
 
-        h.geoPos = Cesium.Cartographic.fromDegrees( lon, lat);
         h.area.push( h.area[0]); // close polygon
     }
 }
@@ -704,7 +699,8 @@ function setHotspotAssets() {
                             }));
                             
                             if (i == selIdx) { // points and (small footprint) outlines are only shown for the selected overpass
-                                let position = Cesium.Cartographic.toCartesian(h.geoPos);
+                                let position = h.pos; 
+
                                 // points are not Geometries - PointPrimitives do not support clamp-to-ground so we have project to ellipsoid surface
                                 if (!odinCesium.isUsingTopoTerrain()) {
                                     Cesium.Ellipsoid.WGS84.scaleToGeodeticSurface( position, position);

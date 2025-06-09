@@ -4,13 +4,18 @@ WindNinjaConfig(
     max_age: Duration( secs: 3600, nanos: 0), // 1h - how long to keep cached data files
     max_forecasts: 18, // max number of forecasts to keep for each region (in ringbuffer)
     
-    windninja_path: "WindNinja_cli", // pathname for windninja executable (if not absolute path it has to be in PATH)
+    windninja_cmd: "WindNinja_cli", // pathname for windninja executable (if not absolute path it has to be in PATH)
     mesh_res: 150, // windninja mesh resolution in meters
     wind_height: 10, // above ground in meters
 
-    dem_url: "http://localhost:9019/dem", // url for odin_dem server to use
+    huvw_csv_grid_cmd: "huvw_csv_grid", // the huvw grid CSV generator 
+    huvw_csv_vector_cmd: "huvw_csv_vector", // the huvw vector CSV generator
+
+    dem: Server("http://localhost:9019"), // url for odin_dem server to use
     dem_res: 25.0, // pixel size in meters
 
-    hrrr_fields: ["TCDC", "TMP", "UGRD", "VGRD"], // 
-    hrrr_levels: ["lev_2_m_above_ground", "lev_10_m_above_ground", "lev_entire_atmosphere"]
+    // total cloud cover (entire atmosphere), temp (2m), u/v windspeed (10,80m)
+    // windninja doesn't use higher wind but it might be relevant for ember spread
+    hrrr_fields: ["TCDC", "TMP", "UGRD", "VGRD"], 
+    hrrr_levels: ["lev_2_m_above_ground", "lev_10_m_above_ground", "lev_80_m_above_ground", "lev_entire_atmosphere"]
 )

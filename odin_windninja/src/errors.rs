@@ -41,7 +41,7 @@ pub enum OdinWindNinjaError {
     ActorError( #[from] odin_actor::OdinActorError),
 
     #[error("action failure {0}")]
-    ActionFailure(String),
+    ActionFailure(String), // ActionFailure cannot impl std::error::Error
 
     #[error("execution failed {0}")]
     ExecError(String)

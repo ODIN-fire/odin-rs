@@ -77,6 +77,7 @@ impl <T> SortedCollection<T> for Vec<T> {
 /// VecDeque extension trait to use a VecDeque as a ringbuffer (i.e. constant space) 
 pub trait RingDeque<T> {
     fn new (capacity: usize)->Self;
+    fn is_full (&self)->bool;
     fn push_to_ringbuffer (&mut self, t: T);
     fn insert_into_ringbuffer (&mut self, idx: usize, t: T);
 
@@ -86,6 +87,11 @@ pub trait RingDeque<T> {
 impl <T> RingDeque<T> for VecDeque<T> {
     fn new (capacity: usize)->Self {
         VecDeque::with_capacity( capacity)
+    }
+
+    #[inline]
+    fn is_full (&self)->bool {
+        self.len() == self.capacity()
     }
 
     fn push_to_ringbuffer (&mut self, t: T) {

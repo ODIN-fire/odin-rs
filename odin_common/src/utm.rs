@@ -46,6 +46,7 @@ impl UtmZone {
     }
 }
 
+#[derive(Clone,Debug)]
 pub struct UtmRect {
     pub bbox: BoundingBox<f64>,
     pub utm_zone: UtmZone
@@ -59,6 +60,13 @@ impl UtmRect {
 
     pub fn epsg (&self)->u32 {
        self.utm_zone.epsg()
+    }
+
+    pub fn round (&mut self) {
+        self.bbox.west  = self.bbox.west.round();
+        self.bbox.south = self.bbox.south.round();
+        self.bbox.east  = self.bbox.east.round();
+        self.bbox.north = self.bbox.north.round();
     }
 }
 
@@ -100,9 +108,28 @@ pub fn naive_utm_zone (geo: &GeoPoint) -> UtmZone {
     let zone = (((lon_deg + 180.0) / 6.0).trunc() as u32 % 60) + 1;
 
     let lat_deg = geo.latitude().degrees();
-    let band = LAT_BAND[ (lat_deg / 8.0).trunc() as usize ];
+    let band = latitude_band( lon_deg, lat_deg);
 
 	UtmZone { zone, band }
+}
+
+pub fn latitude_band (lon_deg: f64, lat_deg: f64)->char {
+    // the polar regions are special cases in MGRS
+    if lat_deg < -80.0 { 
+       return if lon_deg < 0.0 { 'A' } else { 'B' } 
+    }
+    if lat_deg >= 72.0 {
+        if lat_deg >= 84.0 { 
+            return if lon_deg < 0.0 { 'Y' } else { 'Z' } 
+        } else {
+            return 'X'
+        }
+    }
+
+    let i = ((lat_deg + 80.0) / 8.0) as usize;    
+    let band = [ 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W']; // no 'I', 'O'
+
+    band[i]
 }
 
 // Krueger approximation - see https://en.wikipedia.org/wiki/Universal_Transverse_Mercator_coordinate_system
@@ -215,6 +242,7 @@ pub fn geo_to_utm_rect (r: &GeoRect)->Option<UtmRect> {
         Some(utm_ur) = { geo_to_utm( &ur) } else { None } => {
             let zone_ll = utm_ll.utm_zone;
             let zone_ur = utm_ur.utm_zone;
+
             if zone_ll == zone_ur {
                 Some( UtmRect::from_wsen_meters( utm_ll.easting, utm_ll.northing, utm_ur.easting, utm_ur.northing, zone_ll) )
             } else {

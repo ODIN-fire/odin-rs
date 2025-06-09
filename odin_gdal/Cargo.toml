@@ -24,9 +24,11 @@ gdal-sys = { workspace = true }
 gdal = { workspace = true }
 
 lazy_static = { workspace = true }
-libc = "0.2.172"
 geo = {workspace = true }
 anyhow = { workspace = true }
 structopt = { workspace = true }
+
+static_init = "1.0.4"
+libc = "0.2.172"
 meshgridrs = "0.1.1"
 ndarray = "0.16.1"

@@ -156,6 +156,12 @@ impl Cartographic {
     }
 }
 
+impl From<Cartographic> for (f64,f64,f64) {
+    fn from (p: Cartographic) -> Self {
+        (p.longitude_deg(), p.latitude_deg(), p.height)
+    }
+}
+
 pub fn geocentric_latitude (geodetic_latitude: f64) -> f64 {
     atan( tan(geodetic_latitude) * ONE_MINUS_E_EARTH_SQUARED)
 }
@@ -168,7 +174,7 @@ pub fn earth_radius_at_geodetic_latitude (geodetic_latitude: f64) -> f64 {
     let cos_φ = cos(geodetic_latitude);
     let sin_φ = sin(geodetic_latitude);
 
-    let n = ((EARTH_RADIUS_RATIO_SQUARED * cos_φ).powi(2)) + ((POLAR_EARTH_RADIUS_SQUARED * sin_φ).powi(2));
+    let n = ((EQUATORIAL_EARTH_RADIUS_SQUARED * cos_φ).powi(2)) + ((POLAR_EARTH_RADIUS_SQUARED * sin_φ).powi(2));
     let d = ((EQUATORIAL_EARTH_RADIUS * cos_φ).powi(2)) + ((POLAR_EARTH_RADIUS * sin_φ).powi(2));
     
     sqrt(n/d)

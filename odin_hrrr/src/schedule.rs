@@ -83,14 +83,14 @@ pub async fn get_statistic_hrrr_schedules (conf: &HrrrConfig) -> Result<HrrrSche
     match response.status() {
         reqwest::StatusCode::OK => {
             let txt = response.text().await?;
-            parse_schedules(&txt, delay_minutes)
+            parse_schedules(&txt, delay_minutes, conf.reg_len as usize, conf.ext_len as usize)
         }
         code => Err(schedule_error(format!("request failed with status {}", code.as_u16())))
     }
 }
 
 // get schedules for both regular (18h) and extended (48h) forecast cycles
-fn parse_schedules (txt: &String, delay_minutes: u32) -> Result<HrrrSchedules> {
+fn parse_schedules (txt: &String, delay_minutes: u32, reg_len: usize, ext_len: usize) -> Result<HrrrSchedules> {
     // WATCH OUT - the HTML format for HRRR dir listings might change. This will cause the "unexpected directory contents.." error below
     // current line format (as of 10/21/2024): 
     // <tr><td><a href="hrrr.t00z.wrfsfcf06.grib2">hrrr.t00z.wrfsfcf06.grib2</a></td><td align="right">21-Oct-2024 00:53  </td><td align="right">137M</td></tr>
@@ -118,8 +118,14 @@ fn parse_schedules (txt: &String, delay_minutes: u32) -> Result<HrrrSchedules> {
 
             if bh % 6 == 0 { // extended schedule at hours 0,6,12,18
                 update_schedule(&mut avg_ext_schedule, &mut max_ext_schedule, &mut ext_data_points, bh, fch, h, m, diff_minutes);
+                if avg_ext_schedule.len() > ext_len {
+                    avg_ext_schedule.truncate( ext_len);
+                }
             } else {
                 update_schedule(&mut avg_reg_schedule, &mut max_reg_schedule, &mut reg_data_points, bh, fch, h, m, diff_minutes);
+                if avg_reg_schedule.len() > reg_len {
+                    avg_reg_schedule.truncate( reg_len);
+                }
             }
         }  
     }

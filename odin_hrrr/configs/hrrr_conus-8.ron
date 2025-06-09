@@ -1,0 +1,23 @@
+// config data to download HRRR files and schedules for forecast cycles limited to 18 steps
+// this cuts off the 0600/1200 extended 48 step forecasts
+HrrrConfig(
+    region: "conus",
+    url: "https://nomads.ncep.noaa.gov/cgi-bin/filter_hrrr_2d.pl",
+    dir_url_pattern: "https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod/hrrr.${yyyyMMdd}/conus",
+
+    // estimated schedules if we don't want to query/compute them
+    reg_first: 49,
+    reg_last: 86,
+    reg_len: 19,
+
+    ext_first: 49,
+    ext_last: 108,
+    ext_len: 9, // we only use the first 8 forecast steps instead of the full 48
+
+    delay: Duration(secs:90,nanos:0), // added to each computed schedule minute
+
+    check_interval: Duration(secs:30,nanos:0), // interval in which we check availability of new forecast steps
+    retry_delay: Duration(secs:60,nanos:0), // how long to wait between consecutive attempts for failed downloads
+    max_retry: 5, // how many times do we try to download not-yet-available files
+    max_age: Duration(secs:21600,nanos:0), // how long to keep downloaded files (6h)
+)

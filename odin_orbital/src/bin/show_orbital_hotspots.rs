@@ -32,9 +32,6 @@ define_cli! { ARGS [about="show overpasses and hotspots for given satellites"] =
 }
 
 run_actor_system!( actor_system => {
-    // make sure our orbit calculation uses up-to-date ephemeris
-    init_orbital_data()?;
-
     // we need to pre-instantiate a server handle since it is used as input for the other actors
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
 

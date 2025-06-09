@@ -36,9 +36,14 @@ struct CliOpts {
 
     /// optional target format (default is GTiff)
     #[structopt(long)]
-    tgt_format: Option<String>,
+    t_format: Option<String>,
 
-    /// optional target create options
+    /// optional target pixel resolution 
+    #[structopt(long,allow_hyphen_values=true,number_of_values=2)]
+    #[structopt(long)]
+    t_res: Option<Vec<f64>>,
+    
+     /// optional target create options
     #[structopt(long, number_of_values=1)]
     co: Vec<String>,
 
@@ -69,7 +74,7 @@ fn main () -> Result<()> {
 
     let co_list_opt = to_csl_string_list(&ARGS.co)?;
 
-    let tgt_format: &str = if let Some(ref fmt) = ARGS.tgt_format {
+    let tgt_format: &str = if let Some(ref fmt) = ARGS.t_format {
         fmt.as_str()
     } else {
         if let Some(driver_name) = get_driver_name_from_filename(ARGS.tgt_filename.as_str()) {
@@ -88,6 +93,9 @@ fn main () -> Result<()> {
     }
     if let Some (ref co_list) = co_list_opt {
         warper.set_create_options(co_list);
+    }
+    if let Some(t_res) = &ARGS.t_res {
+        warper.set_tgt_resolution( t_res[0], t_res[1]);
     }
     if let Some(max_error) = ARGS.err_threshold {
         warper.set_max_error(max_error);

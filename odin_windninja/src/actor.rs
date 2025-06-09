@@ -13,43 +13,26 @@
  */
 #![allow(unused)]
 
-use std::{path::{Path,PathBuf}, sync::Arc, collections::HashMap, process::Command};
+use std::{path::{Path,PathBuf}, sync::Arc, collections::HashMap};
 use chrono::{DateTime,Datelike,Timelike, Utc};
+use odin_dem::DemSRS;
 use reqwest::{self, Client};
+use tokio::process::Command;
 
 use odin_build::pkg_cache_dir;
 use odin_common::{
+    fs::{basename,replace_env_var_path,path_to_unchecked_string},
     datetime::{hours,short_utc_datetime_string}, 
     geo::GeoRect, net::download_url, collections::RingDeque,
     utm::{self,UtmRect,UtmZone,UTM}
 };
 use odin_hrrr::{AddDataSet, HrrrActorMsg, HrrrDataSetConfig, HrrrDataSetRequest, HrrrFileAvailable};
 use odin_actor::prelude::*;
-use crate::{errors::{OdinWindNinjaError,Result}, Forecast, ForecastRegion, ForecastStore, WindNinjaConfig};
+use crate::{errors::{OdinWindNinjaError,Result}, Forecast, ForecastRegion, ForecastStore, WnJob, WindNinjaConfig};
 
 //macro_rules! info { ($fmt:literal $(, $arg:expr )* ) => { {print!("INFO: "); println!( $fmt $(, $arg)* )} } }
 //macro_rules! error { ($fmt:literal $(, $arg:expr )* ) => { {eprint!("\x1b[32;1m \x1b[37m ERROR: "); eprint!( $fmt $(, $arg)* ); eprintln!("\x1b[0m")} } }
 
-/// the internal data structure that represents the input data for a single WindNinja run
-#[derive(Debug)]
-struct WnJob {
-    region: Arc<String>,
-    date: DateTime<Utc>,
-    step: usize,
-    hrrr_path: Arc<PathBuf>,
-    dem_path: Arc<PathBuf>,
-}
-
-impl WnJob {
-    fn into_forecast (self, path: Arc<PathBuf>)->Forecast {
-        Forecast {
-            region: self.region,
-            date: self.date,
-            step: self.step,
-            path
-        }
-    }
-}
 
 struct WnTask {
     abort_handle: AbortHandle,
@@ -60,7 +43,13 @@ struct WnTask {
 pub struct WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: DataAction<Result<AddClientResponse>>, U: DataRefAction<Forecast>
 {
     config: Arc<WindNinjaConfig>,
-    cache_dir: Arc<PathBuf>,              // where to store computed forecasts
+
+    // from config, with env-var pathelements expanded
+    windninja_cmd: String,
+    huvw_csv_grid_cmd: String,
+    huvw_csv_vector_cmd: String,
+
+    cache_dir: Arc<PathBuf>,         // where to store computed forecasts
     hrrr: ActorHandle<HrrrActorMsg>, // where to get new HRRR reports from - this drives our data update
 
     forecast_store: ForecastStore,
@@ -74,16 +63,29 @@ pub struct WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: DataA
 
 impl <I,S,U> WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: DataAction<Result<AddClientResponse>>, U: DataRefAction<Forecast> {
     pub fn new (config: WindNinjaConfig, hrrr: ActorHandle<HrrrActorMsg>, init_action: I, subscribe_action: S, update_action: U)->Self {
+        
+         let windninja_cmd = path_to_unchecked_string( replace_env_var_path( &config.windninja_cmd).unwrap()); // Ok to panic - this is the ctor
+         let huvw_csv_grid_cmd = path_to_unchecked_string( replace_env_var_path( &config.huvw_csv_grid_cmd).unwrap());
+         let huvw_csv_vector_cmd = path_to_unchecked_string( replace_env_var_path( &config.huvw_csv_vector_cmd).unwrap());
+
         let config = Arc::new(config);
         let cache_dir = Arc::new(pkg_cache_dir!());
         let forecast_store = HashMap::new();
  
-        WindNinjaActor { config, cache_dir, hrrr, forecast_store, init_action, subscribe_action, update_action, wn_task: None }
+        WindNinjaActor { 
+            config,
+            windninja_cmd, huvw_csv_grid_cmd, huvw_csv_vector_cmd, 
+            cache_dir, 
+            hrrr, 
+            forecast_store, 
+            init_action, subscribe_action, update_action, 
+            wn_task: None
+        }
     }
 
     fn start (&mut self, hself: ActorHandle<WindNinjaActorMsg>)->Result<()> {
         let (tx, rx) = create_mpsc_sender_receiver::<WnJob>(64);
-        let abort_handle = spawn("wn_task", wn_loop( hself, self.config.clone(), self.cache_dir.clone(), rx))?.abort_handle();
+        let abort_handle = spawn("wn_task", wn_loop( hself, self.windninja_cmd.clone(), self.cache_dir.clone(), rx))?.abort_handle();
 
         self.wn_task = Some( WnTask{abort_handle, tx} );
         Ok(())
@@ -100,7 +102,8 @@ impl <I,S,U> WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: Dat
             }
 
         } else { // new request
-            if let Some(utm_rect) = utm::geo_to_utm_rect( &request.bbox) {
+            if let Some(mut utm_rect) = utm::geo_to_utm_rect( &request.bbox) {
+                utm_rect.round(); // we only need meters
                 match self.get_dem_file( request.region.as_str(), &utm_rect).await {
                     Ok(dem_path) => { // Ok, we have a DEM for the region, now start the HRRR forecast retrieval for it
                         info!("adding region for {request:?}");
@@ -108,7 +111,8 @@ impl <I,S,U> WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: Dat
 
                         let mut fcr = ForecastRegion::new( 
                             Arc::new( request.region.clone()), 
-                            request.bbox.clone(), 
+                            request.bbox.clone(),
+                            utm_rect.clone(), 
                             Arc::new(dem_path), 
                             hrrr_ds_request,
                             self.config.max_forecasts
@@ -132,30 +136,31 @@ impl <I,S,U> WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: Dat
     async fn get_dem_file (&self, region: &str, utm_rect: &UtmRect)->Result<PathBuf> {
         // TODO - should we compute instead of configure the resolution? we could compute from UTM bbox and the mesh resolution
 
-        let fname = odin_dem::get_res_dem_filename( "dem", utm_rect.epsg(), &utm_rect.bbox, self.config.dem_res, self.config.dem_res, "tif");
+        let fname = wn_dem_filename(region, &utm_rect);
         let path = self.cache_dir.join(fname);
 
         if path.is_file() { // we already have it in our cache
             return Ok(path)
 
-        } else { // retrieve then cache
+        } else { // retrieve
             let bbox = &utm_rect.bbox;
-            let uri = format!("{}/GetResDem?crs=EPSG:{}&bbox={:.0},{:.0},{:.0},{:.0}&res_x={}&res_y={}&format=image/tif", 
-                self.config.dem_url, utm_rect.epsg(), 
-                bbox.west, bbox.south, bbox.east, bbox.north,
-                self.config.dem_res, self.config.dem_res
-            );
-            let client = Client::new();
+            let epsg = utm_rect.epsg();
+            let dem_res = self.config.dem_res;
+            let srs = DemSRS::UTM{epsg};
 
-            match download_url( &client, &uri, &None, &path).await {
-                Ok(len) => Ok(path),
-                Err(e) => Err( OdinWindNinjaError::DemError( format!("DEM download failed: {e}")) )
+            match self.config.dem.get_res_dem( bbox, srs, dem_res, dem_res, odin_dem::DemImgType::TIF, &path).await {
+                Ok(()) => Ok(path),
+                Err(e) => {
+                    error!("DEM download failed with {e}");
+                    Err( OdinWindNinjaError::DemError( format!("DEM download failed: {e}")) )
+                }
             }
         }
     }
 
     async fn add_hrrr_region (&self, request: &AddWindNinjaClient)->Result<Arc<HrrrDataSetRequest>> {
-        let mut hrrr_cfg = HrrrDataSetConfig::new( request.region.clone(), request.bbox.clone(), 
+        let mut bbox = request.bbox.add_degrees( -0.5, -0.5, 0.5, 0.5); // make sure we cover the bbox
+        let mut hrrr_cfg = HrrrDataSetConfig::new( request.region.clone(), bbox, 
                                                self.config.hrrr_fields.clone(), self.config.hrrr_levels.clone());
         let hrrr_ds_request = Arc::new( HrrrDataSetRequest::new( hrrr_cfg) );
 
@@ -169,16 +174,57 @@ impl <I,S,U> WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: Dat
             if let Some(fcr) = self.forecast_store.get( hfa.request.name()) {
                 let region = fcr.region.clone();
                 let step = hfa.request.step;   
+                let mesh_res = self.config.mesh_res;
+                let wind_height = self.config.wind_height;
                 let date = hfa.request.base + hours(step as u64);
                 let hrrr_path = Arc::new(hfa.path);
                 let dem_path = fcr.dem_path.clone();
 
-                if let Err(e) = send( &wn_task.tx, WnJob{region,date,step,hrrr_path,dem_path}).await {
+                let bbox = &fcr.utm_rect.bbox;
+                let wn_out_basename = Arc::new( format!("{}_{:.0}_{:.0}_{:.0}_{:.0}_{:02}-{:02}-{:04}_{:02}{:02}_{}m_huvw", 
+                            region, bbox.west, bbox.south, bbox.east, bbox.north,
+                            date.month(), date.day(), date.year(), date.hour(), date.minute(), mesh_res));
+
+                if let Err(e) = send( &wn_task.tx, WnJob{region, date, step, mesh_res, wind_height, hrrr_path, dem_path, wn_out_basename}).await {
                     error!("failed to queue WnJob {} at {}+{} : {e}", fcr.region, hfa.request.base, hfa.request.step);
                 }
             }
         }
         Ok(())
+    }
+    
+    async fn process_forecast (&mut self, forecast: &Forecast)->Result<()> {
+        let huvw_grid = create_huvw_csv_grid( &self.huvw_csv_grid_cmd, &forecast).await?;
+        let huvw_vector = create_huvw_csv_vector( &self.huvw_csv_vector_cmd, &forecast).await?;
+        // TODO - add contour and HRRR grid computation here
+
+        self.add_forecast( forecast.clone());
+
+        info!("completed forecast {:?}", forecast);
+        Ok( self.update_action.execute( &forecast).await.map_err(|e| OdinWindNinjaError::ActionFailure(e.to_string()))? )
+    }
+
+    fn add_forecast(&mut self, forecast: Forecast) {
+        if let Some(fcr) = self.forecast_store.get_mut( &forecast.region) {
+            let mut fcs = &mut fcr.forecasts;
+            for i in 0..fcs.len() {
+                let f = &fcs[i];
+                if f.date == forecast.date  { 
+                    if forecast.step < f.step {  // this replaces an older, now obsolete forecast for the same hour
+                        fcs[i] = forecast;
+                    } else {
+                        warn!("ignoring dead-on-arrival forecast {:?}", forecast);
+                    }
+                    return
+                } else if f.date > forecast.date { 
+                    warn!("inserting previously missing forecast {:?}", forecast);
+                    fcs.insert_into_ringbuffer(i, forecast);
+                    return
+                }
+            }
+            // if we get here we append (and possibly drop the first forecast)
+            fcs.push_to_ringbuffer( forecast);
+        }
     }
 
     fn terminate (&mut self) {
@@ -198,15 +244,15 @@ pub struct AddClientResponse {
     // possibly more in the future
 } 
 
-async fn wn_loop (hself: ActorHandle<WindNinjaActorMsg>, config: Arc<WindNinjaConfig>, cache_dir: Arc<PathBuf>, rx: MpscReceiver<WnJob>) {
+async fn wn_loop (hself: ActorHandle<WindNinjaActorMsg>, windninja_cmd: String, cache_dir: Arc<PathBuf>, rx: MpscReceiver<WnJob>) {
     loop {
         match recv(&rx).await {
             Ok(wn_job) => {
                 info!("processing WnJob {} at {}", wn_job.region, short_utc_datetime_string( &wn_job.date));
-                match run_wn( config.as_ref(), cache_dir.as_ref(), &wn_job) {
-                    Ok( wn_path ) => {
-                        info!("WindNinja forecast step available: {:?}", wn_path);
-                        hself.send_msg( wn_job.into_forecast( Arc::new(wn_path))).await;
+                match run_wn( &windninja_cmd, cache_dir.as_ref(), &wn_job).await {
+                    Ok(()) => {
+                        info!("WindNinja forecast step available: {:?}", wn_job);
+                        hself.send_msg( Forecast::from(wn_job)).await;
                     }
                     Err(e) => { 
                         error!("failed to process region {} at {}: {e}", wn_job.region, wn_job.date) 
@@ -218,70 +264,58 @@ async fn wn_loop (hself: ActorHandle<WindNinjaActorMsg>, config: Arc<WindNinjaCo
     }
 }
 
-fn run_wn (config: &WindNinjaConfig, cache_dir: &PathBuf, wn_job: &WnJob) -> Result<PathBuf> {
-    let output_path = cache_dir.join( wn_filename(&wn_job));
+async fn run_wn (windninja_cmd: &String, cache_dir: &PathBuf, wn_job: &WnJob) -> Result<()> {
     let date = &wn_job.date;
 
-    let mut cmd = Command::new( &config.windninja_path)
-        .arg("--mesh_resolution")
-        .arg(config.mesh_res.to_string())
-        .arg("--units_mesh_resolution")
-        .arg("m")
-        .arg("--output_wind_height")
-        .arg(config.wind_height.to_string())
-        .arg("--units_output_wind_height")
-        .arg("m")
-        .arg("--elevation_file")
-        .arg( wn_job.dem_path.as_os_str())
-        .arg("--initialization_method")
-        .arg("wxModelInitialization")
-        .arg("--forecast_filename")
-        .arg( wn_job.hrrr_path.as_os_str())  // wx model file name 
-        .arg("--forecast_time")
-        .arg( &wn_forecast_time(date)) // datetime string (UTC)
-        .arg("--start_year")
-        .arg( date.year().to_string())
-        .arg("--start_month")
-        .arg( date.month().to_string())
-        .arg("--start_day")
-        .arg( date.day().to_string())
-        .arg("--start_hour")
-        .arg( date.hour().to_string())
-        .arg("--stop_year")
-        .arg( date.year().to_string())
-        .arg("--stop_month")
-        .arg( date.month().to_string())
-        .arg("--stop_day")
-        .arg( date.day().to_string())
-        .arg("--stop_hour")
-        .arg( date.hour().to_string())
-        .arg( "--write_goog_output")
-        .arg( "false")
-        .arg( "--write_shapefile_output")
-        .arg( "false")
-        .arg( "--write_pdf_output")
-        .arg( "false")
-        .arg( "--write_farsite_atm")
-        .arg( "false")
-        .arg( "--write_wx_model_goog_output")
-        .arg( "false")
-        .arg( "--write_wx_model_shapefile_output")
-        .arg( "false")
-        .arg( "--write_wx_model_ascii_output")
-        .arg( "false")
-        .arg( "--write_wx_station_kml")
-        .arg( "false")
-        .arg( "--write_huvw_output")
-        .arg( "true")
-        .arg("--diurnal_winds")
-        .arg( "true")
-        .arg( "--output_path")
-        .arg( output_path.as_os_str());
+    let mut cmd = Command::new( windninja_cmd);
+    cmd
+        .arg("--mesh_resolution").arg(wn_job.mesh_res.to_string())
+        .arg("--units_mesh_resolution").arg("m")
+        .arg("--output_wind_height").arg(wn_job.wind_height.to_string())
+        .arg("--units_output_wind_height").arg("m")
+        .arg("--elevation_file").arg( wn_job.dem_path.as_os_str())
+        .arg("--vegetation").arg("trees")  // FIXME - this should be computed from landfire.gov (grass,brush,trees)
+        .arg("--initialization_method").arg("wxModelInitialization")
+        .arg("--time_zone").arg("UTC")
+        .arg("--forecast_filename").arg( wn_job.hrrr_path.as_os_str())  // wx model file name 
+        .arg("--forecast_time").arg( &wn_forecast_time(date)) // datetime string (UTC)
+        .arg("--start_year").arg( date.year().to_string())
+        .arg("--start_month").arg( date.month().to_string())
+        .arg("--start_day").arg( date.day().to_string())
+        .arg("--start_hour").arg( date.hour().to_string())
+        .arg("--stop_year").arg( date.year().to_string())
+        .arg("--stop_month").arg( date.month().to_string())
+        .arg("--stop_day").arg( date.day().to_string())
+        .arg("--stop_hour").arg( date.hour().to_string())
+        .arg( "--write_goog_output").arg( "false")
+        .arg( "--write_shapefile_output").arg( "false")
+        .arg( "--write_pdf_output").arg( "false")
+        .arg( "--write_farsite_atm").arg( "false")
+        .arg( "--write_wx_model_goog_output").arg( "false")
+        .arg( "--write_wx_model_shapefile_output").arg( "false")
+        .arg( "--write_wx_model_ascii_output").arg( "false")
+        .arg( "--write_wx_station_kml").arg( "false")
+        .arg( "--write_huvw_output").arg( "true")
+        //.arg( "--write_huvw_0_output").arg( "true") // this only makes sense if we need the same grid points (e.g. for diffs)
+        .arg("--diurnal_winds").arg( "true")
+        .arg( "--output_path").arg( cache_dir.as_os_str());
 
+    execute_cmd( &mut cmd).await
+}
+
+async fn execute_cmd( cmd: &mut Command) -> Result<()> {
     debug!("executing {cmd:?}");
 
     match cmd.spawn() {
-        Ok(_) => Ok(output_path),
+        Ok(mut child) => {
+            match child.wait().await {
+                Ok(status) => {
+                    info!("{:?} completed with status {}", cmd.as_std().get_program(), status);
+                    Ok(())
+                }
+                Err(e) => Err( OdinWindNinjaError::ExecError(e.to_string()))
+            }
+        }
         Err(e) => Err( OdinWindNinjaError::ExecError(e.to_string())) 
     }
 }
@@ -290,9 +324,53 @@ fn wn_forecast_time (date: &DateTime<Utc>)->String {
     format!("{:4}{:02}{:02}T{:02}0000", date.year(), date.month(), date.day(), date.hour()) // WindNinja assumes UTC (no zone)
 }
 
-fn wn_filename (wn_job: &WnJob)->PathBuf {
-    let date = wn_job.date;
-    Path::new( &format!("wind_{}_{}-{}-{}_{}.tif", wn_job.region, date.year(), date.month(), date.day(), date.hour())).to_path_buf()
+fn wn_dem_filename (region: &str, utm_rect: &UtmRect)->PathBuf {
+    let bbox = &utm_rect.bbox;
+    Path::new( &format!("{}_{:.0}_{:.0}_{:.0}_{:.0}.tif", region, bbox.west,bbox.south,bbox.east,bbox.north)).to_path_buf()
+}
+
+
+//--- the public output files generated from the WindNinja huvw UTM grid file
+
+/// this takes the WindNinja_cli generated huvw UTM grid and turns it into a WGS84 grid formatted as CSV. Since this conversion
+/// creates no_data edge artifacts that would throw off particle animation and other visualization we have to not only warp to
+/// epsg:4326 but also crop the grid so that it only contains defined data values. Note the CSV file contains a '#' prefixed meta
+/// info line to define the lon/lat grid i.e. it might not be processed correctly by external programs.
+/// TODO - ultimately we want to do this within process but since input and output are both just files we use a child process for now
+async fn create_huvw_csv_grid (cmd: &String, forecast: &Forecast) -> Result<()> {
+    let in_path = forecast.get_huvw_utm_grid_path();
+    println!("@@@ processing {cmd} from {in_path:?}  {}", in_path.is_file());
+
+    if !in_path.is_file() { return Err(OdinWindNinjaError::ExecError(format!("no such WindNinja output file {:?}", in_path))) }
+
+
+    let out_path = forecast.get_huvw_grid_path();
+
+    exec_huvw_csv_gen( cmd, &in_path, &out_path).await
+}
+
+/// this takes the WindNinja_cli generated huvw UTM grid and turns it into a list of ECEF vectors formatted as CSV.
+async fn create_huvw_csv_vector (cmd: &String, forecast: &Forecast) -> Result<()> {
+    let in_path = forecast.get_huvw_utm_grid_path();
+    if !in_path.is_file() { return Err(OdinWindNinjaError::ExecError(format!("no such WindNinja output file {:?}", in_path))) }
+    let out_path = forecast.get_huvw_vector_path();
+
+    exec_huvw_csv_gen( cmd, &in_path, &out_path).await
+}
+
+async fn exec_huvw_csv_gen (cmd_path: &String, in_path: &PathBuf, out_path: &PathBuf) -> Result<()> {
+    let mut cmd = Command::new(cmd_path);
+    cmd
+        .arg( "-z") // compress output
+        .arg( in_path.as_os_str()) // the input file
+        .arg( out_path.as_os_str());
+
+    execute_cmd( &mut cmd).await?;
+    Ok(())
+}
+
+async fn run_huvw_csv_contour (config: &WindNinjaConfig, cache_dir: &PathBuf, huvw_utm_grid: &PathBuf, wn_job: &WnJob) -> Result<PathBuf> {
+    todo!()
 }
 
 /* #region WindNinja actor messages ****************************************************************/
@@ -344,11 +422,13 @@ impl_actor! { match msg for Actor<WindNinjaActor<I,S,U>,WindNinjaActorMsg>
     }
 
     Forecast => cont! {
-        println!("forecast ready: {msg:?}");
+        check_err(self.process_forecast( &msg).await, "failed to process forecast");
     }
 
     // received from client to stop forecasts for given area (if there are no other clients left)
-    RemoveWindNinjaClient => cont! { }
+    RemoveWindNinjaClient => cont! { 
+        // todo
+    }
 
     _Terminate_ => stop! { 
         self.terminate();

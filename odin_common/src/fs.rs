@@ -17,9 +17,11 @@ use std::cmp::max;
 use std::fs::{self,DirEntry,FileTimes,File,OpenOptions};
 use std::io::{self,Read, Write, Error as IOError,ErrorKind};
 use std::time::{SystemTime,Duration};
+use std::env;
 use io::ErrorKind::*;
 use regex::Regex;
 use std::path::{Path,PathBuf};
+use odin_build;
 
 use crate::if_let;
 use crate::macros::io_error;
@@ -82,6 +84,10 @@ pub fn filepath (dir: &str, filename: &str) -> Result<PathBuf> {
 
 pub fn path_to_lossy_string (path: impl AsRef<Path>) -> String {
     path.as_ref().to_string_lossy().as_ref().to_string()
+}
+
+pub fn path_to_unchecked_string (path: impl AsRef<Path>) -> String {
+    path.as_ref().to_str().unwrap().to_string()
 }
 
 pub fn readable_file (dir: &str, filename: &str) -> Result<File> {
@@ -256,7 +262,7 @@ pub fn get_file_basename<'a> (path: &'a str) -> Option<&'a str> {
     }
 }
 
-pub fn basename<'a,T: AsRef<Path>> (path: &'a T)->Option<&'a str> {
+pub fn basename<'a,P: AsRef<Path>> (path: &'a P)->Option<&'a str> {
     filename(path).and_then(|fname| get_file_basename(fname))
 }
 
@@ -398,6 +404,36 @@ pub fn lru_dir_bound <P: AsRef<Path>> (dir: &P, recursive: bool, max_size: u64) 
     } else { Ok(false) } // nothing to shrink, we are under the limit
 }
 
+/// replace '~/' and '$<name>' path elements 
+pub fn replace_env_var_path (path: impl AsRef<Path>)->Result<PathBuf> {
+    let mut p = PathBuf::new();
+    let mut n = 0;
+
+    for c in path.as_ref().iter() {
+        let e = c.to_str().ok_or( IOError::new(ErrorKind::Other, format!("invalid path: {:?}", path.as_ref())))?;
+
+        if e == "~/" && n == 0 { 
+            p.push( env::var("HOME").map_err( |err| IOError::new(ErrorKind::Other, "HOME not set"))?)
+        } else if e.starts_with('$') {
+            if e.len() > 1 {
+                if e == "$ODIN_ROOT" { // this we set automatically
+                    p.push( odin_build::root_dir())
+                } else { // all others have to be set in the environment
+                    p.push( env::var( e.get(1..).unwrap()).map_err( |err| IOError::new(ErrorKind::Other, format!("{e} not set")))?)
+                }
+
+            } else {
+                p.push( e)
+            }
+        } else {
+            p.push(e)
+        }
+
+        n += 1;
+    }
+
+    Ok(p.to_path_buf())
+}
 
 /// generic notification of file availability (can be used as a message)
 #[derive(Debug,Clone)]
@@ -405,3 +441,59 @@ pub struct FileAvailable {
     pub topic: String,
     pub pathname: PathBuf,
 }
+
+/* #region EnvPathBuf *******************************************************************************/
+
+use serde::ser::{Serialize as SerializeTrait, SerializeSeq, Serializer, SerializeStruct};
+use serde::de::{Deserialize as DeserializeTrait, Deserializer};
+use std::{fmt::Debug,ops::Deref,ffi::OsStr};
+
+// a PathBuf that can use env vars as path elements
+pub struct EnvPathBuf(PathBuf);
+
+impl Debug for EnvPathBuf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
+impl Deref for EnvPathBuf {
+    type Target = PathBuf;
+
+    fn deref (&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsRef<Path> for EnvPathBuf {
+    #[inline]
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl AsRef<OsStr> for EnvPathBuf {
+    #[inline]
+    fn as_ref(&self) -> &OsStr {
+        &self.0.as_ref()
+    }
+}
+
+// note this means we serialize the expanded pathbug
+impl SerializeTrait for EnvPathBuf {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> where S: Serializer {
+        self.0.serialize( serializer)
+    }
+}
+
+impl<'de> DeserializeTrait<'de> for EnvPathBuf {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error> where D: Deserializer<'de> {
+        let a = String::deserialize(deserializer)?;
+        let ep = PathBuf::from(a);
+        let p = replace_env_var_path(&ep).map_err(|e| serde::de::Error::custom(&format!("failed to expand path {ep:?}")))?;
+
+        Ok( EnvPathBuf(p) )
+    }
+}
+
+/* #endregion EnvPathBuf */

@@ -19,7 +19,7 @@ use errors::{invalid_filename, op_failed};
 use serde::{Deserialize, Serialize};
 use tokio::io;
 use odin_gdal::{create_wh_image_from_vrt, csl_string_list, get_driver_name_for_extension, CslStringList};
-use odin_common::{fs, BoundingBox,net::mime_type_for_extension};
+use odin_common::{fs::{self,EnvPathBuf}, net::{download_url, mime_type_for_extension}, BoundingBox};
 use odin_build::define_load_config;
 
 pub mod errors;
@@ -79,6 +79,7 @@ impl DemImgType {
 }
 
 /// the spatial reference systems odin_dem can convert to
+#[derive(Clone,Copy,Debug)]
 pub enum DemSRS {
     WGS84,
     UTM { epsg: u32 },
@@ -160,45 +161,127 @@ pub fn dem_cache_dir()->PathBuf {
 
 const DEM_OPTS: &[&'static str] = &[ "COMPRESS=DEFLATE", "PREDICTOR=2"];
 
+pub fn get_local_res_file_path<P> ( vrt_file: &P, bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64,
+                                    img_type: DemImgType, cache_dir: &PathBuf) -> Result<PathBuf> 
+    where P: AsRef<Path>
+{
+    let data_src = fs::basename( vrt_file).ok_or(invalid_filename( format!("{:?}", vrt_file.as_ref())))?;
+    let fname = get_res_dem_filename( data_src, srs.epsg(), bbox, res_x, res_y, img_type.file_extension());
+    Ok( cache_dir.join( fname.as_str()) )
+}
+
+pub fn get_local_wh_file_path<P> ( vrt_file: &P, bbox: &BoundingBox<f64>, srs: DemSRS, width: u32, height: u32, 
+                                   img_type: DemImgType, cache_dir: &PathBuf) -> Result<PathBuf>
+    where P: AsRef<Path>
+{
+    let data_src = fs::basename( vrt_file).ok_or(invalid_filename( format!("{:?}", vrt_file.as_ref())))?;
+    let fname = get_wh_dem_filename( data_src, srs.epsg(), bbox, width, height, img_type.file_extension());
+    Ok( cache_dir.join( fname.as_str()) )
+}
+
 /// for a given bounding box 'bbox' look for a matching file in 'cache_dir'.
 /// If none found yet create a file with the given 'img_type' from the virtual GDAL tileset specified by 'vrt_file'
 /// note that `bbox` has to be in `srs` units (degree for GEO, meters for UTM)
-pub fn get_wh_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, width: u32, height: u32, img_type: DemImgType, vrt_file: &P, out_dir: &PathBuf) -> Result<PathBuf> 
+pub fn get_wh_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, width: u32, height: u32, img_type: DemImgType, vrt_file: &P, file_path: &PathBuf) -> Result<()> 
     where P: AsRef<Path>
 {
     let vrt_path = vrt_file.as_ref();
     vrt_path.try_exists()?;
-    let data_src = fs::basename(vrt_file).ok_or(invalid_filename( format!("{:?}", vrt_path)))?;
-    let ext = img_type.file_extension();
-    let create_opts = img_type.gdal_create_options();
-    let fname = get_wh_dem_filename( data_src, srs.epsg(), bbox, width, height, ext);
-    let file_path: PathBuf = out_dir.join( fname.as_str());
 
     if !file_path.exists() {
-        odin_gdal::create_wh_image_from_vrt( bbox, srs.epsg(), width, height, ext, &create_opts, &vrt_path, &file_path)?;
+        let create_opts = img_type.gdal_create_options();
+        odin_gdal::create_wh_image_from_vrt( bbox, srs.epsg(), width, height, img_type.file_extension(), &create_opts, &vrt_path, &file_path)?;
     } else {
         fs::set_accessed(&file_path)?; // update atime so that we could use it for LRU cache bounds
     }
 
-    Ok( file_path )
+    Ok(())
 }
 
-pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, img_type: DemImgType, vrt_file: &P, out_dir: &PathBuf) -> Result<PathBuf> 
+
+pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, img_type: DemImgType, vrt_file: &P, file_path: &PathBuf) -> Result<()> 
     where P: AsRef<Path>
 {
     let vrt_path = vrt_file.as_ref();
     vrt_path.try_exists()?;
-    let data_src = fs::basename(vrt_file).ok_or(invalid_filename( format!("{:?}", vrt_path)))?;
-    let ext = img_type.file_extension();
-    let create_opts = img_type.gdal_create_options();
-    let fname = get_res_dem_filename( data_src, srs.epsg(), bbox, res_x, res_y, ext);
-    let file_path: PathBuf = out_dir.join( fname.as_str());
 
     if !file_path.exists() {
-        odin_gdal::create_res_image_from_vrt( bbox, srs.epsg(), res_x, res_y, ext, &create_opts, &vrt_path, &file_path)?;
+        let create_opts = img_type.gdal_create_options();
+        odin_gdal::create_res_image_from_vrt( bbox, srs.epsg(), res_x, res_y, img_type.file_extension(), &create_opts, &vrt_path, &file_path)?;
     } else {
         fs::set_accessed(&file_path)?; // update atime so that we could use it for LRU cache bounds
     }
 
-    Ok( file_path )
+    Ok(())
 }
+
+pub async fn query_res_dem (base_url: &str, bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, img_type: DemImgType, file_path: &PathBuf) -> Result<()>  {
+    if !file_path.exists() {
+        let url = format!("{}/GetResDem?crs=EPSG:{}&bbox={:.0},{:.0},{:.0},{:.0}&res_x={}&res_y={}&format=image/tif", 
+            base_url, srs.epsg(), 
+            bbox.west, bbox.south, bbox.east, bbox.north,
+            res_x, res_y
+        );
+        let client = reqwest::Client::new();
+        download_url( &client, &url, &None, &file_path).await?;
+        // we could check here if the length is > 0
+
+    } else {
+        fs::set_accessed(&file_path)?; // update atime so that we could use it for LRU cache bounds
+    }
+
+    Ok(())
+}
+
+/// get heights (in meters) for a slice of (lon,lat) positions (in degrees)
+/// use sub_no_data to specify optional NoData value (which likely is stored in the DEM as a large negative value)
+pub fn get_dem_heights (vrt_file: impl AsRef<Path>, sub_no_data: Option<f64>, pts: &[(f64,f64)]) -> Result<Vec<f64>>  {
+    let vrt_path = vrt_file.as_ref();
+    vrt_path.try_exists()?;
+    Ok( odin_gdal::get_values_for_vrt_positions( vrt_file, 1, sub_no_data, pts)? )
+}
+
+pub async fn query_dem_heights (base_url: &str, no_data: Option<f64>, pts: &[(f64,f64)]) -> Result<Vec<f64>> {
+    let url = match no_data {
+        Some(no_data_value) => format!("{base_url}/GetHeights?no_data={no_data_value}"),
+        None => format!("{base_url}/GetHeights")
+    };
+
+    let client = reqwest::Client::new();
+    let heights: Vec<f64> = odin_common::net::post_json_query( &client, &url, pts).await?;
+
+    Ok(heights)
+}
+
+
+/// potential DEM access alternatives
+/// this is the key abstraction for clients that should work with both a local filesystem DEM and a `serve_dem`` server
+#[derive(Debug,Serialize,Deserialize)]
+pub enum DemSource {
+    Server(String), // get DEM from URL - this has to be a serve_dem
+    File(EnvPathBuf) // get DEM from local (VRT) file
+}
+
+impl DemSource {
+    pub async fn get_heights (&self, no_data: Option<f64>, locations: &[(f64,f64)]) -> Result<Vec<f64>> {
+        match self {
+            DemSource::Server(url) => {
+                query_dem_heights( url.as_str(), no_data, locations).await
+            }
+            DemSource::File(path) => {
+                get_dem_heights( &path, no_data, locations)
+            }
+        }
+    }
+
+    pub async fn get_res_dem (&self, bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, img_type: DemImgType, file_path: &PathBuf) -> Result<()>  {
+        match self {
+            DemSource::Server(base_url) => {
+                query_res_dem(base_url, bbox, srs, res_x, res_y, img_type, file_path).await
+            }
+            DemSource::File(vrt_file) => {
+                get_res_dem( bbox, srs, res_x, res_y, img_type, vrt_file, file_path)
+            }
+        }
+    }
+} 

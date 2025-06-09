@@ -15,10 +15,12 @@
 ///! common utility functions for network operations
 
 use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc};
-use reqwest::{Client,IntoUrl,header::{HeaderMap,HeaderName,HeaderValue}};
+use reqwest::{header::{HeaderMap,HeaderName,HeaderValue,CONTENT_TYPE}, Client, IntoUrl, StatusCode};
 use regex::Regex;
-use crate::{define_error, fs::{self, file_length}, if_let};
 use lazy_static::lazy_static;
+use serde::{Serialize,Deserialize};
+
+use crate::{define_error, fs::{self, file_length}, if_let};
 
 const SCHEME: usize = 1;
 const USR: usize = 2;
@@ -35,6 +37,7 @@ lazy_static! {
 
 define_error!{ pub OdinNetError = 
     IOError(#[from] std::io::Error) : "IO error: {0}",
+    NotFoundError(String) : "not found {0}",
     HttpError(#[from] reqwest::Error) : "http error: {0}",
     OpFailed(String) : "operation failed: {0}"
 }
@@ -93,6 +96,29 @@ pub async fn get_differing_size_file (client: &Client, url: &str, opt_headers: &
     }
 }
 
+pub async fn post_json_query<T,U> (client: &Client, url: &str, data: T) -> Result<U> where T: Serialize, U: for<'a> Deserialize<'a> {
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+    let req = client.post( url)
+        .headers( headers)
+        .json( &data);
+
+    let mut response = req.send().await?;
+
+    match response.status() {
+        StatusCode::OK => {
+            Ok( response.json().await? )
+        }
+        StatusCode::NOT_FOUND => {
+            Err( OdinNetError::NotFoundError(format!("{url}")))
+        }
+        other => {
+            Err( OdinNetError::OpFailed(format!("response status {other:?}")))
+        }
+    }
+}
+
 pub async fn download_url (client: &Client, url: &str, opt_headers: &Option<HeaderMap>, path: impl AsRef<Path>) -> Result<u64> {
     let mut file = File::create(path)?;
     let mut len: u64 = 0;
@@ -104,13 +130,23 @@ pub async fn download_url (client: &Client, url: &str, opt_headers: &Option<Head
     
     let mut response = req.send().await?;
 
-    while let Some(chunk) = response.chunk().await? {
-       len += chunk.len() as u64;
-       file.write_all(&chunk)?;
-    }
+    match response.status() {
+        StatusCode::OK => {
+            while let Some(chunk) = response.chunk().await? {
+                len += chunk.len() as u64;
+                file.write_all(&chunk)?;
+            }
 
-    file.flush()?;
-    Ok(len)
+            file.flush()?;
+            Ok(len)
+        }
+        StatusCode::NOT_FOUND => {
+            Err( OdinNetError::NotFoundError(format!("{url}")))
+        }
+        other => {
+            Err( OdinNetError::OpFailed(format!("response status {other:?}")))
+        }
+    }
 }
 
 /// get content-length of URL without retrieving the actual content

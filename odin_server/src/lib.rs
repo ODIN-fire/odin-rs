@@ -114,6 +114,7 @@ pub async fn file_response<P: AsRef<Path>> (path: &P, with_content_disposition: 
         true = { path.as_ref().is_file() } else { (AxStatusCode::NOT_FOUND, HeaderMap::new(), Body::empty()) },
         Some(mime_type) = { net::mime_type_for_path( path) } else { (AxStatusCode::BAD_REQUEST, HeaderMap::new(), Body::from("unsupported mime type")) },
         Some(flen) = { fs::file_length(path) } else { (AxStatusCode::NO_CONTENT, HeaderMap::new(), Body::from("file empty")) } => {
+
             let mut headers = HeaderMap::new();
             headers.insert( header::CONTENT_TYPE, mime_type.parse().unwrap());
             if with_content_disposition {

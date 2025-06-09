@@ -34,7 +34,7 @@ run_actor_system!( actor_system => {
     ))?;
 
     let hrrr = spawn_pre_actor!( actor_system, pre_hrrr, HrrrActor::with_statistic_schedules(
-        odin_hrrr::load_config( "hrrr_conus-18.ron")?,
+        odin_hrrr::load_config( "hrrr_conus-8.ron")?,
         data_action!( let hwind: ActorHandle<WindNinjaActorMsg> = hwind.clone() => |data: HrrrFileAvailable| {
             Ok( hwind.try_send_msg( data)? )
         })

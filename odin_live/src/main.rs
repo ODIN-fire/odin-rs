@@ -26,9 +26,6 @@ use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, Sentin
 
 
 run_actor_system!( actor_system => {
-    // make sure our orbit calculation uses up-to-date ephemeris
-    init_orbital_data()?;
-
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
 
     // we would normally initialize the store via default_shared_items() but those normally reside outside the repository

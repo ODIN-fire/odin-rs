@@ -10,6 +10,8 @@ FirmsConfig(
         north: 50.1831  
     ),
 
+    dem: Server("http://your_dem_server"), // alternatively use File("your-dem-vrt-path")
+
     satellites: [
         FirmsSatelliteData(
             sat_id: 54234,

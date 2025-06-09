@@ -13,6 +13,7 @@
  */
 use thiserror::Error;
 use odin_gdal::errors::OdinGdalError;
+use odin_common::net::OdinNetError;
 
 #[derive(Error,Debug)]
 pub enum OdinDemError {
@@ -35,6 +36,9 @@ pub enum OdinDemError {
     #[error("ODIN gdal error {0}")]
     OdinGdalError(#[from] OdinGdalError),
 
+    // pass through for OdinNetErrors
+    #[error("ODIN http error {0}")]
+    OdinNetError(#[from] OdinNetError),
 }
 
 pub fn op_failed<S: ToString> (msg: S)->OdinDemError {

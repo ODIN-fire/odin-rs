@@ -18,6 +18,7 @@ use std::{collections::VecDeque, fmt, time::{Duration as StdDuration,SystemTime}
 use nalgebra::{ViewStorage,base::{Matrix,ArrayStorage,dimension::{Const,Dyn}}};
 use chrono::{DateTime,Utc,TimeZone,Datelike,Timelike};
 use satkit::{self,Instant,Duration,frametransform::qteme2itrf};
+use static_init::constructor;
 use serde::{Deserialize,Serialize};
 use async_trait::async_trait;
 use uom::si::{
@@ -410,13 +411,14 @@ pub fn get_time_vec (orbit_duration: Duration, time_step: Duration, start_time: 
 pub type ColumnVec<'a> = Matrix<f64, Const<3>, Const<1>, ViewStorage<'a, f64, Const<3>, Const<1>, Const<1>, Const<3>>>;
 
 
-pub fn init_orbital_data ()->Result<()> {
+#[constructor(0)]
+pub extern "C" fn init_orbital_data () {
     let dir = pkg_cache_dir!().join("satkit");
     println!("using emphemeris from {:?}", dir);
-    ensure_writable_dir(&dir)?;
-    satkit::utils::set_datadir(&dir).map_err(|e| op_failed!("failed to set satkit data dir: {}", e))?;
+    ensure_writable_dir(&dir).expect("failed to create satkit data dir");
+    satkit::utils::set_datadir(&dir).expect("failed to set satkit data dir");
 
-    update_orbital_data()
+    update_orbital_data().expect("failed to update satkit ephemeris");
 }
 
 // in long running servers this should be called periodically (once per day)

@@ -18,14 +18,16 @@ pub mod errors;
 pub mod warp;
 pub mod contour;
 
+use gdal::errors::CplErrType;
 use lazy_static::lazy_static;
+use static_init::{constructor};
 use std::{path::Path, fs::File, sync::Mutex, ops::{Sub,Index,Fn}, ffi::{CString,CStr}, ptr::{null, null_mut}, collections::HashMap};
 use libc::{c_void,c_char,c_uint, c_int};
 
 // we re-export these so that other crates don't have to use a direct gdal depedency to import.
 // this is to ensure we run bindgen for new GDAL versions that don't yet have pre-computed bindings in gdal-sys
-pub use gdal::{self, Driver, DriverManager, Metadata, MetadataEntry, Dataset, errors::GdalError, GeoTransform, cpl::CslStringList};
-pub use gdal::raster::{GdalType,RasterBand,Buffer};
+pub use gdal::{self, Driver, DriverManager, Metadata, MetadataEntry, Dataset, errors::GdalError, GeoTransform, GeoTransformEx, cpl::CslStringList};
+pub use gdal::raster::{GdalType,GdalDataType,RasterBand,Buffer};
 pub use gdal::spatial_ref::{CoordTransform, CoordTransformOptions, SpatialRef};
 
 use gdal_sys::{self,CPLErrorReset, OGRErr, OSRExportToWkt, OSRNewSpatialReference, OSRSetFromUserInput, CPLErr};
@@ -40,6 +42,7 @@ use odin_common::{
     ranges::LinearRange
 };
 use crate::errors::{Result,misc_error, last_gdal_error, OdinGdalError, gdal_error, map_gdal_error};
+
 
 lazy_static! {
     // note that we can't automatically populate this by iterating over DriverManager since some
@@ -72,9 +75,13 @@ lazy_static! {
 /// use this to protect non-threadsafe GDAL operations
 static GLOB_GDAL_MUTEX: Mutex<usize> = Mutex::new(0);
 
-pub fn initialize_gdal() -> bool {
-    EXT_MAP.len() > 0
+#[constructor(0)]
+extern "C" fn _initialize_gdal() {
+    println!("setting GDAL error handler");
+    gdal::config::set_error_handler(no_error_output);
 }
+
+fn no_error_output (cpl_et: CplErrType, ec: i32, msg: &str) {}
 
 /// Note that filename extension has to be lower case
 pub fn get_driver_name_from_filename (filename: &str) -> Option<&'static str> {
@@ -420,29 +427,67 @@ pub fn find_grid_points_in_slice<T,F> (ds: &Dataset, band_index: usize, accumula
     Ok(result)
 }
 
-
-/// get Vec of values for given Vec<GridPoint2D> reference
-pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: usize, sub_no_data: Option<T>, pts: &Vec<GridPoint<U>> )->Result<Vec<T>> 
-    where T: GdalValueType + Into<f64>, U: GdalValueType
-{
+pub fn get_values_for_positions (ds: &Dataset, band_index: usize, sub_no_data: Option<f64>, pts: &[(f64,f64)]) -> Result<Vec<f64>> {
     let band = ds.rasterband(band_index)?;
-    let mut result: Vec<T> = Vec::with_capacity(pts.len());
-    let mut data = [T::from(0u8);1];
+    let pixel_to_geo = ds.geo_transform()?;
+    let geo_to_pixel = pixel_to_geo.invert()?;
+    let mut data = [0.0f64;1];
     let no_data = band.no_data_value();
-
+    let mut result: Vec<f64> = Vec::with_capacity(pts.len());
+    
     if no_data.is_some() && sub_no_data.is_some() {
         let no_data = no_data.unwrap();
         let sub_no_data = sub_no_data.unwrap();
 
-        for p in pts {
-            band.read_into_slice( p.position(), (1,1), (1,1), &mut data, None)?;
-            if data[0].into() == no_data { data[0] = sub_no_data } 
-            result.push( data[0]);
+        for mut p in pts {
+            let xy = geo_to_pixel.apply( p.0, p.1);
+            let xy = (xy.0.round() as isize, xy.1.round() as isize);
+            let v = if band.read_into_slice( xy, (1,1), (1,1), &mut data, None).is_ok() {data[0]} else {sub_no_data};
+            result.push( if v == no_data {sub_no_data} else {v})
         }
     } else {
+        let no_data = sub_no_data.unwrap_or( band.no_data_value().unwrap_or(0.0));
+        
+        for mut p in pts {
+            let xy = geo_to_pixel.apply( p.0, p.1);
+            let xy = (xy.0.round() as isize, xy.1.round() as isize);
+            let v = if band.read_into_slice( xy, (1,1), (1,1), &mut data, None).is_ok() {data[0]} else {no_data};
+            result.push( v)
+        }
+    }
+
+    Ok(result)
+}
+
+/// get Vec of values for given Vec<GridPoint2D> reference
+pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: usize, sub_no_data: Option<T>, pts: &Vec<GridPoint<T>> )->Result<Vec<T>> 
+    where T: GdalValueType + Into<f64> + std::cmp::PartialEq<f64> + std::convert::From<f64>
+{
+    let band = ds.rasterband(band_index)?;
+    let mut result: Vec<T> = Vec::with_capacity(pts.len());
+    let mut data = [T::from(0u8);1];
+
+    if let Some(sub_no_data) = sub_no_data {
+        if let Some(no_data) = band.no_data_value() {
+            for p in pts {
+                let v = if band.read_into_slice( p.position(), (1,1), (1,1), &mut data, None).is_ok() {data[0]} else {sub_no_data};
+                result.push( if v == no_data {sub_no_data} else {v} );
+            }
+        } else { // no no_data value set for band
+            for p in pts {
+                let v = if band.read_into_slice( p.position(), (1,1), (1,1), &mut data, None).is_ok() {data[0]} else {sub_no_data};
+                result.push( v);
+            }
+        }
+    } else { // no substitution set, use sub_no_data or 0 as error fallback
+        let no_data: T = match band.no_data_value() {
+            Some(x) => x.into(),
+            None => T::from( 0u8)
+        };
+        
         for p in pts {
-            band.read_into_slice( p.position(), (1,1), (1,1), &mut data, None)?;
-            result.push( data[0]);
+            let v = if band.read_into_slice( p.position(), (1,1), (1,1), &mut data, None).is_ok() {data[0]} else {no_data};
+            result.push( v);
         }
     }
 
@@ -536,6 +581,12 @@ pub fn create_res_image_from_vrt (bbox: &BoundingBox<f64>, tgt_epsg: u32, res_x:
         
     warp.exec()?;
     Ok(())
+}
+
+pub fn get_values_for_vrt_positions (vrt_path: impl AsRef<Path>, band_index: usize, sub_no_data: Option<f64>, pts: &[(f64,f64)]) -> Result<Vec<f64>> 
+{
+    let ds =  Dataset::open(vrt_path)?;
+    get_values_for_positions( &ds, band_index, sub_no_data, pts)
 }
 
 

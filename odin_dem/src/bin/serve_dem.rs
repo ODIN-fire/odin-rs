@@ -31,14 +31,16 @@
 use std::{collections::HashMap, default::Default, error::Error, net::{IpAddr, SocketAddr}, path::{Path,PathBuf}, sync::Arc, time::SystemTime};
 
 use axum::{
-    extract::{MatchedPath,Query},
-    http::Request,
+    body::Body, 
+    extract::{MatchedPath,Query,Json},
+    http::{Request, StatusCode as AxStatusCode},
     response::{Html,IntoResponse},
     Router,
-    routing::get
+    routing::{get,post}
 };
 use http::StatusCode;
 use serde::{Serialize,Deserialize};
+use serde_json;
 use structopt::StructOpt;
 use tokio::{net::TcpListener, task::AbortHandle};
 use tower_http::{
@@ -50,15 +52,15 @@ use tracing_subscriber::{filter, layer::SubscriberExt, util::SubscriberInitExt};
 use anyhow::Result;
 
 use odin_build::set_bin_context;
-use odin_common::{define_serde_struct, fs, BoundingBox, strings::{deserialize_arr4,parse_array}, if_let, datetime };
+use odin_common::{define_serde_struct, fs::{self,EnvPathBuf}, BoundingBox, strings::{deserialize_arr4,parse_array}, if_let, datetime };
 use odin_server::{spawn_server_task,ServerConfig, server_error};
-use odin_dem::{load_config, DemSRS, DemImgType, get_wh_dem, get_res_dem};
+use odin_dem::{get_dem_heights, get_local_res_file_path, get_local_wh_file_path, get_res_dem, get_wh_dem, load_config, DemImgType, DemSRS};
 
 
 /// DEM configuration data
 define_serde_struct! { pub DemConfig: Debug = 
-    pub vrt_path: String,
-    pub wms_capabilities_path: Option<String>,
+    pub vrt_path: EnvPathBuf,
+    pub wms_capabilities_path: Option<EnvPathBuf>,
     pub max_cache: u64       [default = "default_max_cache"]
 }
 
@@ -73,6 +75,8 @@ define_serde_struct! { GetWhDemQuery: Debug =
     format: String           [default = "default_format"],
 }
 
+type GetMapQuery = GetWhDemQuery; // they have the same parameters
+
 // non-WMS version for given res_x, res_y
 define_serde_struct! { GetResDemQuery: Debug =
     crs: String              [default = "default_crs"],
@@ -80,6 +84,10 @@ define_serde_struct! { GetResDemQuery: Debug =
     res_x: f64,
     res_y: f64,
     format: String           [default = "default_format"]
+}
+
+define_serde_struct! { GetHeightsQuery: Debug =
+    no_data: Option<f64>     // the value to return for NoData source pixels
 }
 
 fn default_crs()->String { "EPSG:4326".into() }
@@ -105,7 +113,12 @@ async fn main () -> Result<()> {
             let cfg = dem_config.clone();
             let cache_dir = cache_dir.clone();
             move |query:Query<GetResDemQuery>| { get_res_dem_handler( query, cfg, cache_dir) }
+        }))
+        .route( "/GetHeights", post({
+            let cfg = dem_config.clone();
+            move |query:Query<GetHeightsQuery>, ps:Json<Vec<(f64,f64)>>| { get_heights_handler( query, cfg, ps) }
         }));
+
 
     if dem_config.wms_capabilities_path.is_some() {
         router = router.route( "/dem", get({
@@ -138,6 +151,7 @@ fn spawn_cache_cleanup_task (cache_dir: Arc<PathBuf>, max_cache: u64)->Result<Ab
 
 //--- WMS handlers
 
+// we can't use a concrete query type here because queries differ based on 'request' value (and WMS supports params than we do here)
 async fn get_wms_handler (q: Query<HashMap<String, String>>, config: Arc<DemConfig>, cache_dir: Arc<PathBuf>) -> impl IntoResponse {
     match q.get("request").map(|s| s.as_str()) {
         Some("GetMap") => get_map_request( q, config, cache_dir).await.into_response(),
@@ -154,13 +168,13 @@ async fn get_map_request( q: Query<HashMap<String, String>>, config: Arc<DemConf
         Some(height) = { q.get("height").and_then(|s| s.parse::<u32>().ok()) } else { (StatusCode::BAD_REQUEST, "bad or missing HEIGHT param").into_response() },
         Some(bbox) = { q.get("bbox").and_then(|s| parse_array::<f64,4>(s, ',').ok()) } else { (StatusCode::BAD_REQUEST, "bad or missing BBOX param").into_response() } => {
             let bbox = BoundingBox::from_wsen(&bbox);
-
-            match get_wh_dem( &bbox, dem_srs, width, height, dem_img, &config.vrt_path, cache_dir.as_ref()) {
-                Ok(file_path) =>  {
-                    odin_common::fs::set_accessed( &file_path); // set accessed so that we can maintain a LRU list
-                    odin_server::file_response( &file_path, true).await.into_response()
+            if let Ok(file_path) = get_local_wh_file_path( &config.vrt_path, &bbox, dem_srs, width, height, DemImgType::TIF, cache_dir.as_ref()) {
+                match get_wh_dem( &bbox, dem_srs, width, height, dem_img, &config.vrt_path, &file_path) {
+                    Ok(()) => odin_server::file_response( &file_path, true).await.into_response(),
+                    Err(e) => server_error("failed to create DEM file").into_response()
                 }
-                Err(e) => server_error("failed to create DEM file").into_response()
+            }else {
+                server_error("failed to cache DEM file").into_response()
             }
         }
     }
@@ -186,10 +200,13 @@ async fn get_wh_dem_handler (Query(q): Query<GetWhDemQuery>, config: Arc<DemConf
         Some(dem_srs) = { DemSRS::from_srs_spec( &q.crs) } else { (StatusCode::BAD_REQUEST, "unsupported target SRS").into_response() },
         Some(dem_img) = { DemImgType::for_mime_type( &q.format) } else { (StatusCode::BAD_REQUEST, "unsupported DEM image type").into_response() } => {
             let bbox = BoundingBox::from_wsen( &q.bbox);
-
-            match get_wh_dem( &bbox, dem_srs, q.width, q.height, dem_img, &config.vrt_path, cache_dir.as_ref()) {
-                Ok(file_path) =>  odin_server::file_response( &file_path, true).await.into_response(),
-                Err(e) => server_error("failed to create DEM file").into_response()
+            if let Ok(file_path) = get_local_wh_file_path( &config.vrt_path, &bbox, dem_srs, q.width, q.height, DemImgType::TIF, cache_dir.as_ref()) {
+                match get_wh_dem( &bbox, dem_srs, q.width, q.height, dem_img, &config.vrt_path, &file_path) {
+                    Ok(()) =>  odin_server::file_response( &file_path, true).await.into_response(),
+                    Err(e) => server_error("failed to create DEM file").into_response()
+                }
+            } else {
+                server_error("failed to cache DEM file").into_response()
             }
         }
     }
@@ -200,11 +217,27 @@ async fn get_res_dem_handler (Query(q): Query<GetResDemQuery>, config: Arc<DemCo
         Some(dem_srs) = { DemSRS::from_srs_spec( &q.crs) } else { (StatusCode::BAD_REQUEST, "unsupported target SRS").into_response() },
         Some(dem_img) = { DemImgType::for_mime_type( &q.format) } else { (StatusCode::BAD_REQUEST, "unsupported DEM image type").into_response() } => {
             let bbox = BoundingBox::from_wsen( &q.bbox);
-
-            match get_res_dem( &bbox, dem_srs, q.res_x, q.res_y, dem_img, &config.vrt_path, cache_dir.as_ref()) {
-                Ok(file_path) =>  odin_server::file_response( &file_path, true).await.into_response(),
-                Err(e) => server_error("failed to create DEM file").into_response()
+            if let Ok(file_path) = get_local_res_file_path( &config.vrt_path, &bbox, dem_srs, q.res_x, q.res_y, DemImgType::TIF, cache_dir.as_ref()) {
+                match get_res_dem( &bbox, dem_srs, q.res_x, q.res_y, dem_img, &config.vrt_path, &file_path) {
+                    Ok(()) =>  odin_server::file_response( &file_path, false).await.into_response(),
+                    Err(e) => server_error("failed to create DEM file").into_response()
+                }
+            } else {
+                server_error("failed to cache DEM file").into_response()
             }
         }
+    }
+}
+
+async fn get_heights_handler (Query(q): Query<GetHeightsQuery>, config: Arc<DemConfig>, pos2d: Json<Vec<(f64,f64)>> ) -> impl IntoResponse {
+
+    match get_dem_heights( &config.vrt_path, q.no_data, pos2d.as_slice()) {
+        Ok(heights) => {
+            match serde_json::to_string(&heights) {
+                Ok(s) => (StatusCode::OK, s),
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, "failed to serialize DEM heights".to_string())
+            }
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, "failed to retrieve DEM heights".to_string())
     }
 }
