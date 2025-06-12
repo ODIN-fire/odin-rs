@@ -14,99 +14,120 @@
 
 #![allow(unused)]
 
-use std::{net::SocketAddr,fs,sync::Arc};
+use std::{net::SocketAddr,fs,sync::Arc,path::{Path,PathBuf}};
 use std::any::type_name;
 use async_trait::async_trait;
-
-use axum::{
-    http::{Uri,StatusCode},
-    body::Body,
-    routing::{Router,get},
-    extract::{Path as AxumPath},
-    response::{Response,IntoResponse},
-};
+use axum::{response::Response, routing::{Router,get}, extract::{Path as AxumPath}};
+use serde_json;
 
 use odin_actor::prelude::*;
 use odin_common::json_writer::JsonWriter;
 use odin_server::prelude::*;
 use odin_cesium::ImgLayerService;
 
+use crate::{
+    actor::{AddWindNinjaClient, RemoveWindNinjaClient, ExecSnapshotAction, WindNinjaActorMsg, WindNinjaRegion}, 
+    forecast_regions_to_json, load_asset, ForecastStore, PKG_CACHE_DIR
+};
+
 pub struct WindNinjaService {
     hwind: ActorHandle<WindNinjaActorMsg>,
     // TODO
 }
 
+impl WindNinjaService {
+    pub fn new (hwind: ActorHandle<WindNinjaActorMsg>)->Self {
+        WindNinjaService { hwind }
+    }
+
+    async fn data_handler (path: AxumPath<String>) -> Response {
+        // this is served from our cache dir as compressed CSV or JSON files
+        odin_server::compressable_file_response::<&Path>( PKG_CACHE_DIR.as_ref(), path.as_str(), "windninja data not found")
+    }
+}
+
+#[async_trait]
 impl SpaService for WindNinjaService {
     fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
         spa_builder
             .add( build_service!( => UiService::new()))
             .add( build_service!( => WsService::new()))
-            .add( build_service!( => CesiumService::new()))
+            .add( build_service!( => ImgLayerService::new()))
     }
 
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {
         spa.add_assets( self_crate!(), load_asset);
 
         spa.add_module( asset_uri!( "odin_windninja_config.js"));
-        spa.add_module( asset_uri!( "odin_orbital.js" ));
+        spa.add_module( asset_uri!( "odin_windninja.js" ));
+
+        //--- the visualization support modules
+        spa.add_module( asset_uri!( "windfield.js" ));
+        spa.add_module( asset_uri!( "wind-particles/windUtils.js" ));
+        spa.add_module( asset_uri!( "wind-particles/particleSystem.js" ));
+        spa.add_module( asset_uri!( "wind-particles/particlesComputing.js" ));
+        spa.add_module( asset_uri!( "wind-particles/particlesRendering.js" ));
 
         spa.add_route( |router, spa_server_state| {
-            router.route( &format!("/{}/orbital-data/{{*unmatched}}", spa_server_state.name.as_str()), get(Self::data_handler))
+            router.route( &format!("/{}/wind-data/{{*unmatched}}", spa_server_state.name.as_str()), get(Self::data_handler))
         });
 
         Ok(())
     }
 
-    async fn data_available (&mut self, hself: &ActorHandle<SpaServerMsg>, has_connections: bool, sender_id: &str, data_type: &str) -> OdinServerResult<bool> {
-        let mut is_our_data = false;
-
-        if let Some(hupdater) = self.satellites.iter().find( |s| *s.hupdater.id == sender_id).map( |s| &s.hupdater) {
-            if data_type == type_name::<HotspotActorData>() {
-                if has_connections { // broadcast overpasses and hotspots to all current connections
-                    let action = dyn_dataref_action!( 
-                        let hself: ActorHandle<SpaServerMsg> = hself.clone() => 
-                        |data: &HotspotActorData| {
-                            //send_hs_data( hself, None, data).await
-                        }
-                    );
-                    hupdater.send_msg( ExecSnapshotAction(action)).await?;
-                }
-                is_our_data = true;
-            }
-        }
-
-        Ok(is_our_data)
-    }
+    // we don't have a data_available() since we only produce in response to Add/RemoveClientRequest messages
 
     async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
         let remote_addr = conn.remote_addr;
 
-        // no matter if we already have data we send our list of satellites (once)
-        send_sat_infos( &hself, Some(remote_addr.clone()), &self.sat_infos()).await?;
-
-        if is_data_available {
-            for sat in &self.satellites {
-                let action = dyn_dataref_action!{ 
-                    let hself: ActorHandle<SpaServerMsg> = hself.clone(), 
-                    let remote_addr: SocketAddr = remote_addr => 
-                    |data: &HotspotActorData| { 
-                        //send_hs_data( hself, Some(*remote_addr), data).await
-                    }
-                };
-                sat.hupdater.send_msg( ExecSnapshotAction(action)).await?;
+        // we send this un-conditionally since we don't know if the wn actor has/produces forecasts
+        let action = dyn_dataref_action!{ 
+            let hself: ActorHandle<SpaServerMsg> = hself.clone(), 
+            let remote_addr: SocketAddr = remote_addr => 
+            |data: &ForecastStore| { 
+                if !data.is_empty() {
+                    let json = forecast_regions_to_json(data);
+                    let ws_msg = ws_msg_from_json( WindNinjaService::mod_path(), "forecastRegions", &json);
+                    let remote_addr = *remote_addr;
+                    hself.send_msg( SendWsMsg{remote_addr,ws_msg}).await;
+                }
+                Ok(())
             }
-        }
+        };
+        self.hwind.send_msg( ExecSnapshotAction(action)).await?;
 
         Ok(())
     }
 
-        /// this is how we get data from clients. Called from ws input task of respective connection
+    /// this is how we get regions from clients. Called from ws input task of respective connection
     async fn handle_ws_msg (&mut self, 
-        hself: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr, ws_msg_parts: &WsMsgParts) -> OdinServerResult<WsMsgReaction> 
+        hserver: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr, ws_msg_parts: &WsMsgParts) -> OdinServerResult<WsMsgReaction> 
     {
-        if ws_msg_parts.mod_path == ShareService::mod_path() {
+        if ws_msg_parts.mod_path == WindNinjaService::mod_path() {
             match ws_msg_parts.msg_type {
+                "addWindClient" => {
+                    let wn_region: WindNinjaRegion = serde_json::from_str(&ws_msg_parts.payload)?;
+                    info!("got addWindClient {:?} from {:?}", wn_region.name, remote_addr);
+                    self.hwind.send_msg( AddWindNinjaClient{wn_region,remote_addr: Some(remote_addr.clone())}).await;
+                }
+                "removeWindClient" => {
+                    let wn_region: WindNinjaRegion = serde_json::from_str(&ws_msg_parts.payload)?;
+                    info!("got removeWindClient {:?} from {:?}", wn_region.name, remote_addr);
+                    let region = Some(wn_region.name);
+                    let remote_addr = Some(remote_addr.clone());
+                    self.hwind.send_msg( RemoveWindNinjaClient{region,remote_addr}).await;
+                }
+                _ => {}
             }
         }
+
+        Ok(WsMsgReaction::None)
+    }
+
+    // let actor know about dropped connection - it might have been a subscriber
+    // unfortunately we have to delegate this to the actor since we don't know if 'addWindClient' requests get rejected
+    async fn remove_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr) -> OdinServerResult<()> {
+        self.hwind.send_msg( RemoveWindNinjaClient{region:None, remote_addr: Some(remote_addr.clone())}).await;
+        Ok(())
     }
 }

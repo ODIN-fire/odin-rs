@@ -2035,14 +2035,11 @@ function keepPolylineWorkersAlive () {
 
 /* #region share interface ***********************************************************************************/
 
-var shareInitialized = false;
-
 function handleShareMessage (msg) {
     if (msg.SHARE_INITIALIZED) { // we get that no matter what the share implementation is
-        shareInitialized = true;
         updateSharedViewPositions();
 
-    } else if (shareInitialized) { // if we aren't initialized yet there is no need for updating the view
+    } else if (main.isShareInitialized()) { // otherwise we still get a SHARE_INITIALIZED
         if (msg.setShared) {
             let sharedItem = msg.setShared;
             if (sharedItem.key.match(VIEW_PATTERN)) {

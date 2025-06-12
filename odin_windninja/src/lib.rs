@@ -13,19 +13,31 @@
  */
 #![allow(unused)]
 
-use std::{collections::{VecDeque,HashMap}, path::{Path,PathBuf}, sync::Arc, time::Duration};
+use std::{collections::{VecDeque,HashMap,HashSet}, path::{Path,PathBuf}, sync::Arc, time::Duration, net::SocketAddr};
+use axum::Json;
 use odin_hrrr::HrrrDataSetRequest;
 use serde::{Serialize,Deserialize};
 use chrono::{DateTime,Utc, Datelike, Timelike};
-use odin_build::{define_load_config, pkg_cache_dir};
-use odin_common::{collections::RingDeque, fs::replace_env_var_path, geo::GeoRect, BoundingBox, utm::UtmRect};
+use odin_build::{define_load_asset, define_load_config, pkg_cache_dir};
+use odin_common::{
+    collections::RingDeque, datetime, fs::replace_env_var_path, geo::GeoRect, json_writer::{JsonWritable,JsonWriter}, utm::UtmRect, BoundingBox
+};
 use odin_dem::DemSource;
+use lazy_static::lazy_static;
 
 //mod fetchdem;
 pub mod actor;
 pub mod errors;
+pub mod windninja_service;
+
+
+lazy_static! {
+    pub static ref PKG_CACHE_DIR: PathBuf = pkg_cache_dir!();
+    pub static ref WX_HRRR: Arc<String> = Arc::new( "hrrr".to_string());
+}
 
 define_load_config!{}
+define_load_asset!{}
 
 #[derive(Serialize,Deserialize,Debug)]
 pub struct WindNinjaConfig {
@@ -56,10 +68,12 @@ struct WnJob {
     step: usize, // informal - the wx forecast steo (hourly distance to base forecast)
     mesh_res: f64, // in meters
     wind_height: f64, // above ground in meters
-    hrrr_path: Arc<PathBuf>, // WindNinja wx input
+    wx_src: Arc<String>,
+    wx_path: Arc<PathBuf>, // WindNinja wx input
     dem_path: Arc<PathBuf>, // WindNinja DEM input
     wn_out_basename: Arc<String>
 }
+
 
 /// NOTE - the wn_out_base_name has to be kept in sync with WindNinja
 impl From<WnJob> for Forecast {
@@ -70,6 +84,7 @@ impl From<WnJob> for Forecast {
             step: wn_job.step,
             mesh_res: wn_job.mesh_res,
             wind_height: wn_job.wind_height,
+            wx_src: wn_job.wx_src,
             wn_out_base_name: wn_job.wn_out_basename,
         }
     }
@@ -77,17 +92,17 @@ impl From<WnJob> for Forecast {
 
 /// aggregate with the results of a single WindNinja run
 /// this is what we distribute as updates so it has to clone efficiently (use ARCs)
-#[derive(Serialize,Deserialize,Debug,Clone)]
+#[derive(Debug,Clone)]
 pub struct Forecast {
     // what we get from the WnJob
     pub region: Arc<String>,
 
-    #[serde(serialize_with = "odin_common::datetime::ser_epoch_millis")]
     pub date: DateTime<Utc>,    // for which this simulation was computed
     pub step: usize,            // hours from forecast (HRRR) base date (0 means latest HRRR data set - indicator for confidence)
     
     pub mesh_res: f64,          // WindNinja mesh resolution in meters
     pub wind_height: f64,       // of WindNinja computed values - above ground in meters
+    pub wx_src: Arc<String>,    // e.g. "HRRR"
 
     // the primary WindNinja output file basename (huvw UTM grid). All other filenames (WGS84 grid/vec and contour) derived from here
     pub wn_out_base_name: Arc<String>, // this does *not* include the extension
@@ -112,6 +127,29 @@ impl Forecast {
     }
 
     // TODO - add grid/contour for HRRR (3km resolution)
+
+    pub fn to_json (&self)->String {
+        let mut w = JsonWriter::with_capacity(512);
+        w.write_object(|w| {
+            w.write_field("region", self.region.as_str());
+            w.write_field("date", datetime::to_epoch_millis(self.date));
+            w.write_field("step", self.step as u64);
+            w.write_field("mesh", self.mesh_res);
+            w.write_field("wxSrc", self.wx_src.as_ref());
+            w.write_field("urlBase", self.wn_out_base_name.as_str());
+        });
+        w.to_string()
+    }
+
+    pub fn write_partial_json_to (&self, w: &mut JsonWriter) {
+         w.write_object(|w| {
+            w.write_field("date", datetime::to_epoch_millis(self.date));
+            w.write_field("step", self.step as u64);
+            w.write_field("mesh", self.mesh_res);
+            w.write_field("wxSrc", self.wx_src.as_ref());
+            w.write_field("urlBase", self.wn_out_base_name.as_str());
+        })
+    }
 }
 
 /// all available forecasts for a region, plus tracking of clients 
@@ -123,6 +161,8 @@ pub struct ForecastRegion {
     pub hrrr_ds_request: Arc<HrrrDataSetRequest>,
 
     pub n_clients: usize,       // if this drops to 0 we stop computing forecasts for this region
+    pub client_addrs: HashSet<SocketAddr>,
+
     pub forecasts: VecDeque<Forecast> // this is a ringbuffer ordered by forecast date (note we only keep the most recent forecast for each hour)
 }
 
@@ -134,11 +174,67 @@ impl ForecastRegion {
             utm_rect,
             dem_path,
             hrrr_ds_request,
-            n_clients: 1,
+            n_clients: 0,
+            client_addrs: HashSet::new(),
             forecasts: VecDeque::with_capacity( max_steps)
         }
+    }
+
+    pub fn add_client (&mut self, remote_addr: Option<SocketAddr>) {
+        if let Some(addr) = remote_addr {
+            let len0 = self.client_addrs.len();
+            self.client_addrs.insert( addr);
+            if self.client_addrs.len() > len0 {
+                self.n_clients += 1;
+            }
+        } else {
+            self.n_clients +=1;
+        }
+    }
+
+    pub fn remove_client (&mut self, remote_addr: &Option<SocketAddr>)->bool {
+        if let Some(addr) = remote_addr {
+            let len0 = self.client_addrs.len();
+            self.client_addrs.remove( addr);
+            if self.client_addrs.len() < len0 {
+                self.n_clients -= 1;
+                true
+            } else {
+                false
+            }
+        } else {
+            self.n_clients -=1;
+            true
+        }
+    }
+}
+
+impl JsonWritable for ForecastRegion {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w| {
+            w.write_field("region", self.region.as_str());
+            w.write_json_field("bbox", &self.bbox);
+            w.write_array_field("forecasts", |w| {
+                for f in &self.forecasts {
+                    f.write_partial_json_to(w);
+                }
+            });
+        })
     }
 }
 
 /// this is the data store snapshots are based on
 pub type ForecastStore = HashMap<Arc<String>,ForecastRegion>;
+
+pub fn forecast_regions_to_json (fcs: &ForecastStore)->String {
+    let mut  w = JsonWriter::with_capacity( fcs.len() * 1024);
+    w.write_object(|w| {
+        w.write_array_field("regions", |w| {
+            for fcr in fcs.values() {
+                fcr.write_json_to(w);
+            }
+        });
+    });
+
+    w.to_string()
+}

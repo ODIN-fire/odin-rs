@@ -122,6 +122,18 @@ impl<K> NormalizedAngle<K> where K: AngleKind {
 
 //--- formatting
 
+impl <K> From<NormalizedAngle<K>> for f64 where K: AngleKind {
+    fn from(a: NormalizedAngle<K>) -> Self {
+        a.value
+    }
+}
+
+impl <K> From<&NormalizedAngle<K>> for f64 where K: AngleKind {
+    fn from(a: &NormalizedAngle<K>) -> Self {
+        a.value
+    }
+}
+
 impl<K> fmt::Display for NormalizedAngle<K> where K: AngleKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { K::fmt_display( self.value, f) }
 }

@@ -31,7 +31,7 @@ use tokio::{time::{Duration,Sleep}};
 use odin_common::{
     angle::{Longitude,Latitude}, 
     datetime::{self,elapsed_minutes_since,secs,full_hour}, 
-    fs::{ensure_writable_dir, remove_old_files}, 
+    fs::{ensure_writable_dir, remove_old_files, path_str_to_fname}, 
     geo::GeoRect, 
     strings::{mk_string,to_sorted_string_vec}
 };
@@ -223,7 +223,8 @@ async fn wait_for (minutes: i64) {
 
 /// generate hrrr filename for given base hour and forecast step (hour from base hour)
 fn get_filename (cfg: &HrrrConfig, ds: &HrrrDataSetConfig, dt: &DateTime<Utc>, step: usize) -> String {
-    format!("hrrr-wrfsfcf-{}-{}-{:4}{:02}{:02}-{:02}+{:02}.grib2", cfg.region, ds.name, dt.year(),dt.month(),dt.day(),dt.hour(), step)
+    let ds_name = path_str_to_fname(&ds.name);
+    format!("hrrr-wrfsfcf-{}-{}-{:4}{:02}{:02}-{:02}+{:02}.grib2", cfg.region, ds_name, dt.year(),dt.month(),dt.day(),dt.hour(), step)
 } 
 
 // NOMADS file name: hrrr.t15z.wrfsfcf08.grib2
@@ -434,8 +435,10 @@ pub async fn queue_available_forecasts (tx: &MpscSender<DownloadCmd>, ds: Arc<Hr
         sched = schedules.schedule_for(&base);
     }
 
+    let max_steps = if is_extended_forecast(&base) {schedules.ext.len()} else {schedules.reg.len()}; 
+
     //--- (1) queue what is available from current cycle
-    while (step < sched.len()) && (dm >= sched[step]) {
+    while (step < max_steps) && (dm >= sched[step]) {
         tx.send( DownloadCmd::GetFile( HrrrFileRequest{ds: ds.clone(),base,step}) ).await;
         step += 1;
     }
@@ -444,7 +447,7 @@ pub async fn queue_available_forecasts (tx: &MpscSender<DownloadCmd>, ds: Arc<Hr
     base -= ONE_HOUR;
     sched = schedules.schedule_for(&base);
     step += 1;
-    while step < sched.len() {
+    while step < max_steps {
         tx.send( DownloadCmd::GetFile( HrrrFileRequest{ds: ds.clone(),base,step}) ).await;
         step += 1;
     }

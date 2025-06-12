@@ -118,14 +118,9 @@ fn parse_schedules (txt: &String, delay_minutes: u32, reg_len: usize, ext_len: u
 
             if bh % 6 == 0 { // extended schedule at hours 0,6,12,18
                 update_schedule(&mut avg_ext_schedule, &mut max_ext_schedule, &mut ext_data_points, bh, fch, h, m, diff_minutes);
-                if avg_ext_schedule.len() > ext_len {
-                    avg_ext_schedule.truncate( ext_len);
-                }
+
             } else {
                 update_schedule(&mut avg_reg_schedule, &mut max_reg_schedule, &mut reg_data_points, bh, fch, h, m, diff_minutes);
-                if avg_reg_schedule.len() > reg_len {
-                    avg_reg_schedule.truncate( reg_len);
-                }
             }
         }  
     }
@@ -134,6 +129,9 @@ fn parse_schedules (txt: &String, delay_minutes: u32, reg_len: usize, ext_len: u
         Err( schedule_error("unexpected directory content - at least one schedule is empty"))
 
     } else {
+        if avg_ext_schedule.len() > ext_len { avg_ext_schedule.truncate( ext_len); }
+        if avg_reg_schedule.len() > reg_len { avg_reg_schedule.truncate( reg_len); }
+
         check_schedule( &avg_reg_schedule)?;
         check_schedule( &avg_ext_schedule)?;
 

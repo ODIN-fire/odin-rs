@@ -13,26 +13,33 @@
  */
 #![allow(unused)]
 
-use std::{path::{Path,PathBuf}, sync::Arc, collections::HashMap};
+use std::{collections::{HashMap,HashSet}, net::SocketAddr, path::{Path,PathBuf}, sync::Arc};
 use chrono::{DateTime,Datelike,Timelike, Utc};
 use odin_dem::DemSRS;
 use reqwest::{self, Client};
 use tokio::process::Command;
+use serde::{Serialize,Deserialize};
 
 use odin_build::pkg_cache_dir;
 use odin_common::{
-    fs::{basename,replace_env_var_path,path_to_unchecked_string},
+    fs::{basename,replace_env_var_path,path_to_unchecked_string,path_str_to_fname},
     datetime::{hours,short_utc_datetime_string}, 
     geo::GeoRect, net::download_url, collections::RingDeque,
     utm::{self,UtmRect,UtmZone,UTM}
 };
-use odin_hrrr::{AddDataSet, HrrrActorMsg, HrrrDataSetConfig, HrrrDataSetRequest, HrrrFileAvailable};
+use odin_hrrr::{AddDataSet, RemoveDataSet, HrrrActorMsg, HrrrDataSetConfig, HrrrDataSetRequest, HrrrFileAvailable};
 use odin_actor::prelude::*;
-use crate::{errors::{OdinWindNinjaError,Result}, Forecast, ForecastRegion, ForecastStore, WnJob, WindNinjaConfig};
+use odin_server::prelude::*;
+use crate::{
+    errors::{OdinWindNinjaError,Result},
+    windninja_service::WindNinjaService,
+    Forecast, ForecastRegion, ForecastStore, WnJob, WindNinjaConfig, WX_HRRR,
+};
 
 //macro_rules! info { ($fmt:literal $(, $arg:expr )* ) => { {print!("INFO: "); println!( $fmt $(, $arg)* )} } }
 //macro_rules! error { ($fmt:literal $(, $arg:expr )* ) => { {eprint!("\x1b[32;1m \x1b[37m ERROR: "); eprint!( $fmt $(, $arg)* ); eprintln!("\x1b[0m")} } }
 
+// TODO - put HRRR behind a Wx abstraction to support other weather sources
 
 struct WnTask {
     abort_handle: AbortHandle,
@@ -40,7 +47,7 @@ struct WnTask {
 }
 
 /// the WindNinjaActor state
-pub struct WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: DataAction<Result<AddClientResponse>>, U: DataRefAction<Forecast>
+pub struct WindNinjaActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefAction<Forecast>
 {
     config: Arc<WindNinjaConfig>,
 
@@ -54,15 +61,14 @@ pub struct WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: DataA
 
     forecast_store: ForecastStore,
 
-    init_action: I,
     subscribe_action: S,
     update_action: U,
 
     wn_task: Option<WnTask>
 }
 
-impl <I,S,U> WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: DataAction<Result<AddClientResponse>>, U: DataRefAction<Forecast> {
-    pub fn new (config: WindNinjaConfig, hrrr: ActorHandle<HrrrActorMsg>, init_action: I, subscribe_action: S, update_action: U)->Self {
+impl <S,U> WindNinjaActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefAction<Forecast> {
+    pub fn new (config: WindNinjaConfig, hrrr: ActorHandle<HrrrActorMsg>, subscribe_action: S, update_action: U)->Self {
         
          let windninja_cmd = path_to_unchecked_string( replace_env_var_path( &config.windninja_cmd).unwrap()); // Ok to panic - this is the ctor
          let huvw_csv_grid_cmd = path_to_unchecked_string( replace_env_var_path( &config.huvw_csv_grid_cmd).unwrap());
@@ -78,7 +84,7 @@ impl <I,S,U> WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: Dat
             cache_dir, 
             hrrr, 
             forecast_store, 
-            init_action, subscribe_action, update_action, 
+            subscribe_action, update_action, 
             wn_task: None
         }
     }
@@ -92,45 +98,84 @@ impl <I,S,U> WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: Dat
     }
 
     async fn add_client (&mut self, hself: ActorHandle<WindNinjaActorMsg>, request: AddWindNinjaClient)->Result<()> {
-        let res = if let Some(fcr) = self.forecast_store.get_mut( &request.region) { // do we already have this region?
-            if fcr.bbox != request.bbox { // check if coordinates are the same
-                Err(OdinWindNinjaError::RegionInUseError(request))
+        let rr = &request.wn_region;
+
+        let maybe_rejection: Option<String> = if let Some(fcr) = self.forecast_store.get_mut( &rr.name) { // do we already have this region?
+            if fcr.bbox != rr.bbox { // check if coordinates are the same
+                Some("region in use".to_string())
                 
             } else {
-                fcr.n_clients += 1;
-                Ok( AddClientResponse{ request, n_clients: fcr.n_clients})
+                fcr.add_client(request.remote_addr);
+                Some("active".to_string()) // standard response if a client selects region
             }
 
-        } else { // new request
-            if let Some(mut utm_rect) = utm::geo_to_utm_rect( &request.bbox) {
+        } else { // new region request
+            if let Some(mut utm_rect) = utm::geo_to_utm_rect( &rr.bbox) {
                 utm_rect.round(); // we only need meters
-                match self.get_dem_file( request.region.as_str(), &utm_rect).await {
+                match self.get_dem_file( rr.name.as_str(), &utm_rect).await {
                     Ok(dem_path) => { // Ok, we have a DEM for the region, now start the HRRR forecast retrieval for it
-                        info!("adding region for {request:?}");
-                        let hrrr_ds_request = self.add_hrrr_region( &request).await?;
+                        info!("adding region for {rr:?}");
+                        let hrrr_ds_request = self.add_hrrr_region( rr).await?;
 
                         let mut fcr = ForecastRegion::new( 
-                            Arc::new( request.region.clone()), 
-                            request.bbox.clone(),
+                            Arc::new( rr.name.clone()), 
+                            rr.bbox.clone(),
                             utm_rect.clone(), 
                             Arc::new(dem_path), 
                             hrrr_ds_request,
                             self.config.max_forecasts
                         );
+                        fcr.add_client(request.remote_addr);
                         self.forecast_store.insert( fcr.region.clone(), fcr);
 
-                        Ok( AddClientResponse{ request, n_clients: 1})
+                        None // no rejection
                     },
-                    Err(e) => Err( OdinWindNinjaError::DemError(e.to_string()) )
+                    Err(e) => Some("no elevation data".to_string())
                 }
 
             } else {
-                Err( OdinWindNinjaError::InvalidRegionError(request))
+                Some("invalid region".to_string())
             }
         };
 
-        self.subscribe_action.execute(res).await.map_err(|e| OdinWindNinjaError::ActionFailure(e.to_string()))
+        let response = SubscribeResponse::Add(AddClientResponse { 
+            wn_region: request.wn_region, 
+            rejection: maybe_rejection,
+            remote_addr: request.remote_addr 
+        });
+        self.subscribe_action.execute(response).await.map_err(|e| OdinWindNinjaError::ActionFailure(e.to_string()))
 
+    }
+
+    async fn remove_client( &mut self, hself: ActorHandle<WindNinjaActorMsg>, request: RemoveWindNinjaClient)->Result<()> {
+
+        if let Some(region) = &request.region {
+            if let Some(fr) = self.forecast_store.get_mut( region) {
+                if fr.remove_client( &request.remote_addr) && (fr.n_clients == 0) {
+                    self.remove_region( region).await?
+                }
+            }
+        } else { // we have to check all our regions
+            let mut dropped: Vec<Arc<String>> = Vec::new();
+            for (region,fr) in self.forecast_store.iter_mut() {
+                if fr.remove_client( &request.remote_addr) && (fr.n_clients == 0) { dropped.push( fr.region.clone()); }
+            }
+            for region in dropped {
+                self.remove_region( region.as_ref()).await?
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn remove_region (&mut self, region: &String)->Result<()> {
+        if let Some(fr) = self.forecast_store.remove(region) {
+            info!("removed region {}", region);
+            self.hrrr.send_msg( RemoveDataSet(fr.hrrr_ds_request)).await?;
+
+            let response = SubscribeResponse::Remove( RemoveClientResponse{region: region.to_string()} );
+            self.subscribe_action.execute(response).await.map_err(|e| OdinWindNinjaError::ActionFailure(e.to_string()))
+        } else { Ok(()) }
     }
 
     async fn get_dem_file (&self, region: &str, utm_rect: &UtmRect)->Result<PathBuf> {
@@ -158,10 +203,10 @@ impl <I,S,U> WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: Dat
         }
     }
 
-    async fn add_hrrr_region (&self, request: &AddWindNinjaClient)->Result<Arc<HrrrDataSetRequest>> {
-        let mut bbox = request.bbox.add_degrees( -0.5, -0.5, 0.5, 0.5); // make sure we cover the bbox
-        let mut hrrr_cfg = HrrrDataSetConfig::new( request.region.clone(), bbox, 
-                                               self.config.hrrr_fields.clone(), self.config.hrrr_levels.clone());
+    async fn add_hrrr_region (&self, wn_region: &WindNinjaRegion)->Result<Arc<HrrrDataSetRequest>> {
+        let mut bbox = wn_region.bbox.add_degrees( -0.25, -0.25, 0.25, 0.25); // make sure we cover the bbox
+        let region = wn_region.name.clone();
+        let mut hrrr_cfg = HrrrDataSetConfig::new( region, bbox,  self.config.hrrr_fields.clone(), self.config.hrrr_levels.clone());
         let hrrr_ds_request = Arc::new( HrrrDataSetRequest::new( hrrr_cfg) );
 
         self.hrrr.send_msg( AddDataSet( hrrr_ds_request.clone())).await?;
@@ -172,21 +217,25 @@ impl <I,S,U> WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: Dat
     async fn schedule_wn_job (&self, hfa: HrrrFileAvailable)->Result<()> {
         if let Some(wn_task) = &self.wn_task {
             if let Some(fcr) = self.forecast_store.get( hfa.request.name()) {
-                let region = fcr.region.clone();
-                let step = hfa.request.step;   
-                let mesh_res = self.config.mesh_res;
-                let wind_height = self.config.wind_height;
-                let date = hfa.request.base + hours(step as u64);
-                let hrrr_path = Arc::new(hfa.path);
-                let dem_path = fcr.dem_path.clone();
+                if fcr.n_clients > 0 { // maybe it got unsubscribed in the meantime
+                    let region = fcr.region.clone();
+                    let step = hfa.request.step;   
+                    let mesh_res = self.config.mesh_res;
+                    let wind_height = self.config.wind_height;
+                    let date = hfa.request.base + hours(step as u64);
+                    let wx_path = Arc::new(hfa.path);
+                    let dem_path = fcr.dem_path.clone();
 
-                let bbox = &fcr.utm_rect.bbox;
-                let wn_out_basename = Arc::new( format!("{}_{:.0}_{:.0}_{:.0}_{:.0}_{:02}-{:02}-{:04}_{:02}{:02}_{}m_huvw", 
-                            region, bbox.west, bbox.south, bbox.east, bbox.north,
-                            date.month(), date.day(), date.year(), date.hour(), date.minute(), mesh_res));
+                    let rn = path_str_to_fname( &fcr.region);
+                    let bbox = &fcr.utm_rect.bbox;
+                    let wn_out_basename = Arc::new( format!("{}_{:.0}_{:.0}_{:.0}_{:.0}_{:02}-{:02}-{:04}_{:02}{:02}_{}m_huvw", 
+                                rn, bbox.west, bbox.south, bbox.east, bbox.north,
+                                date.month(), date.day(), date.year(), date.hour(), date.minute(), mesh_res));
+                    let wx_src = WX_HRRR.clone(); // FIXME - this shouldn't be hardcoded (there will be other sources)
 
-                if let Err(e) = send( &wn_task.tx, WnJob{region, date, step, mesh_res, wind_height, hrrr_path, dem_path, wn_out_basename}).await {
-                    error!("failed to queue WnJob {} at {}+{} : {e}", fcr.region, hfa.request.base, hfa.request.step);
+                    if let Err(e) = send( &wn_task.tx, WnJob{region, date, step, mesh_res, wind_height, wx_src, wx_path, dem_path, wn_out_basename}).await {
+                        error!("failed to queue WnJob {} at {}+{} : {e}", fcr.region, hfa.request.base, hfa.request.step);
+                    }
                 }
             }
         }
@@ -235,14 +284,26 @@ impl <I,S,U> WindNinjaActor<I,S,U> where I: DataRefAction<ForecastStore>, S: Dat
     }
 }
 
-/// the response data for a successful subscription
-/// (we can use this in the future to transmit session data or access keys)
 #[derive(Debug)]
+pub enum SubscribeResponse {
+    Add(AddClientResponse),
+    Remove(RemoveClientResponse)
+}
+
+/// the response to a AddWindNinjaClient message. This is fed into the subscribe_action
+#[derive(Debug,Serialize)]
 pub struct AddClientResponse {
-    request: AddWindNinjaClient,
-    n_clients: usize,
-    // possibly more in the future
-} 
+    pub wn_region: WindNinjaRegion,
+    pub rejection: Option<String>, // if None then region was accepted
+
+    #[serde(skip_serializing)] // SocketAddr is internal
+    pub remote_addr: Option<SocketAddr>
+}
+
+#[derive(Debug,Serialize)]
+pub struct RemoveClientResponse {
+    pub region: String,
+}
 
 async fn wn_loop (hself: ActorHandle<WindNinjaActorMsg>, windninja_cmd: String, cache_dir: Arc<PathBuf>, rx: MpscReceiver<WnJob>) {
     loop {
@@ -277,7 +338,7 @@ async fn run_wn (windninja_cmd: &String, cache_dir: &PathBuf, wn_job: &WnJob) ->
         .arg("--vegetation").arg("trees")  // FIXME - this should be computed from landfire.gov (grass,brush,trees)
         .arg("--initialization_method").arg("wxModelInitialization")
         .arg("--time_zone").arg("UTC")
-        .arg("--forecast_filename").arg( wn_job.hrrr_path.as_os_str())  // wx model file name 
+        .arg("--forecast_filename").arg( wn_job.wx_path.as_os_str())  // wx model file name 
         .arg("--forecast_time").arg( &wn_forecast_time(date)) // datetime string (UTC)
         .arg("--start_year").arg( date.year().to_string())
         .arg("--start_month").arg( date.month().to_string())
@@ -325,10 +386,10 @@ fn wn_forecast_time (date: &DateTime<Utc>)->String {
 }
 
 fn wn_dem_filename (region: &str, utm_rect: &UtmRect)->PathBuf {
+    let rn = path_str_to_fname( region);
     let bbox = &utm_rect.bbox;
-    Path::new( &format!("{}_{:.0}_{:.0}_{:.0}_{:.0}.tif", region, bbox.west,bbox.south,bbox.east,bbox.north)).to_path_buf()
+    Path::new( &format!("{}_{:.0}_{:.0}_{:.0}_{:.0}.tif", rn, bbox.west,bbox.south,bbox.east,bbox.north)).to_path_buf()
 }
-
 
 //--- the public output files generated from the WindNinja huvw UTM grid file
 
@@ -339,11 +400,7 @@ fn wn_dem_filename (region: &str, utm_rect: &UtmRect)->PathBuf {
 /// TODO - ultimately we want to do this within process but since input and output are both just files we use a child process for now
 async fn create_huvw_csv_grid (cmd: &String, forecast: &Forecast) -> Result<()> {
     let in_path = forecast.get_huvw_utm_grid_path();
-    println!("@@@ processing {cmd} from {in_path:?}  {}", in_path.is_file());
-
     if !in_path.is_file() { return Err(OdinWindNinjaError::ExecError(format!("no such WindNinja output file {:?}", in_path))) }
-
-
     let out_path = forecast.get_huvw_grid_path();
 
     exec_huvw_csv_gen( cmd, &in_path, &out_path).await
@@ -375,17 +432,30 @@ async fn run_huvw_csv_contour (config: &WindNinjaConfig, cache_dir: &PathBuf, hu
 
 /* #region WindNinja actor messages ****************************************************************/
 
-#[derive(Debug)] 
-pub struct AddWindNinjaClient {
-    pub region: String,
-    pub bbox: GeoRect
+#[derive(Debug,Serialize,Deserialize)] 
+pub struct WindNinjaRegion {
+    pub name: String,
+    pub bbox: GeoRect,
 }
+
+#[derive(Debug)]
+pub struct AddWindNinjaClient {
+    pub wn_region: WindNinjaRegion,
+    pub remote_addr: Option<SocketAddr>
+}
+
 impl AddWindNinjaClient {
-    pub fn new<T: ToString> (region: T, bbox: GeoRect)-> Self { AddWindNinjaClient { region: region.to_string(), bbox } }
+    pub fn new<T: ToString> (name: T, bbox: GeoRect, remote_addr: Option<SocketAddr>)-> Self { 
+        let name = name.to_string();
+        AddWindNinjaClient { wn_region: WindNinjaRegion{name, bbox}, remote_addr } 
+    }
 }
 
 #[derive(Debug)] 
-pub struct RemoveWindNinjaClient (String);
+pub struct RemoveWindNinjaClient {
+    pub region: Option<String>, // of region
+    pub remote_addr: Option<SocketAddr>
+}
 
 /// external message to request action execution with the current HotspotStore
 #[derive(Debug)] 
@@ -397,8 +467,8 @@ define_actor_msg_set!{ pub WindNinjaActorMsg = AddWindNinjaClient | ExecSnapshot
 
 /* #region WindNinja actor impl ********************************************************************/
 
-impl_actor! { match msg for Actor<WindNinjaActor<I,S,U>,WindNinjaActorMsg> 
-    where I: DataRefAction<ForecastStore> + Sync, S: DataAction<Result<AddClientResponse>> + Sync, U: DataRefAction<Forecast> + Sync as
+impl_actor! { match msg for Actor<WindNinjaActor<S,U>,WindNinjaActorMsg> 
+    where S: DataAction<SubscribeResponse> + Sync, U: DataRefAction<Forecast> + Sync as
 
     _Start_ => cont! {
         let hself = self.hself.clone();
@@ -427,7 +497,8 @@ impl_actor! { match msg for Actor<WindNinjaActor<I,S,U>,WindNinjaActorMsg>
 
     // received from client to stop forecasts for given area (if there are no other clients left)
     RemoveWindNinjaClient => cont! { 
-        // todo
+        let hself = self.hself.clone();
+        check_err( self.remove_client( hself, msg).await, "failed to remove windninja client")
     }
 
     _Terminate_ => stop! { 
@@ -436,3 +507,42 @@ impl_actor! { match msg for Actor<WindNinjaActor<I,S,U>,WindNinjaActorMsg>
 }
 
 /* #endregion WindNinja actor impl */
+
+/// standard subscribe action that sends/broadcasts add/rejectForecastRegion websocket messages through a SpaServer
+pub fn server_subscribe_action (hserver: ActorHandle<SpaServerMsg>) -> impl DataAction<SubscribeResponse> {
+    data_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |response: SubscribeResponse| {
+        match response {
+            SubscribeResponse::Add(response) => {
+                if let Some(cause) = &response.rejection {
+                    // tell only the requester why it was rejected
+                    if let Some(remote_addr) = response.remote_addr {
+                        let json =  serde_json::to_string( &response)?;
+                        let ws_msg = ws_msg_from_json( WindNinjaService::mod_path(), "rejectForecastRegion", &json);
+                        hserver.send_msg( SendWsMsg{ remote_addr, ws_msg}).await;
+                    }
+                } else {
+                    // tell everybody there is a new forecast region
+                    let json = serde_json::to_string( &response.wn_region)?;
+                    let ws_msg = ws_msg_from_json( WindNinjaService::mod_path(), "startForecastRegion", &json);
+                    hserver.send_msg( BroadcastWsMsg{ws_msg}).await;
+                }
+            }
+            SubscribeResponse::Remove(response) => {
+                let json = serde_json::to_string( &response)?;
+                let ws_msg = ws_msg_from_json( WindNinjaService::mod_path(), "stopForecastRegion", &json);
+                hserver.send_msg( BroadcastWsMsg{ws_msg}).await;
+            }
+        }
+        Ok(())
+    })
+}
+
+/// standard update action that broadcasts `forecast` websocket messages through a SpaServer
+pub fn server_update_action (hserver: ActorHandle<SpaServerMsg>) -> impl DataRefAction<Forecast> {
+    dataref_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |forecast: &Forecast| {  // update action
+        let json = forecast.to_json();
+        let ws_msg = ws_msg_from_json( WindNinjaService::mod_path(), "forecast", &json);
+        hserver.send_msg( BroadcastWsMsg{ws_msg}).await;
+        Ok(())
+    })
+}

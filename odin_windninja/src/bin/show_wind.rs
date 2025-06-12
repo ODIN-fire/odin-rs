@@ -11,28 +11,34 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
+
 #![allow(unused)]
 
-use tokio::main;
-use odin_common::geo::GeoRect;
+/// example application to show WindNinja computed micro grid wind
+
 use odin_actor::prelude::*;
+use odin_common::define_cli;
+use odin_server::prelude::*;
+use odin_share::prelude::*;
 use odin_hrrr::{self,HrrrActor,HrrrConfig,HrrrFileAvailable,schedule::{HrrrSchedules,get_hrrr_schedules}};
-use odin_windninja::{actor::{WindNinjaActor,WindNinjaActorMsg,AddWindNinjaClient,RemoveWindNinjaClient}, ForecastStore, Forecast};
+use odin_windninja::{self, 
+    actor::{WindNinjaActor,WindNinjaActorMsg, AddClientResponse, server_subscribe_action, server_update_action}, 
+    ForecastStore, Forecast, 
+    windninja_service::WindNinjaService
+};
 
 run_actor_system!( actor_system => {
+    let pre_server = PreActorHandle::new( &actor_system, "server", 64);
     let pre_hrrr = PreActorHandle::new( &actor_system, "hrrr", 8);
+
+    // spawn a shared store actor - the JS module only allows forecast region requests for shared GeoRects
+    let hshare = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
 
     let hwind = spawn_actor!( actor_system, "wind", WindNinjaActor::new(
         odin_windninja::load_config("windninja.ron")?,
         pre_hrrr.to_actor_handle(),
-        data_action!( => |res: Result<AddClientResponse>| {
-            println!("add client response: {res:?}");
-            Ok(())
-        }),
-        dataref_action!( => |forecast: &Forecast| {
-            println!("forecast available: {forecast:?}");
-            Ok(())
-        })
+        server_subscribe_action( pre_server.to_actor_handle()),
+        server_update_action( pre_server.to_actor_handle()) 
     ))?;
 
     let hrrr = spawn_pre_actor!( actor_system, pre_hrrr, HrrrActor::with_statistic_schedules(
@@ -42,8 +48,13 @@ run_actor_system!( actor_system => {
         })
     ).await? )?;
 
-    // test driver - this will kick off computation
-    hwind.try_send_msg( AddWindNinjaClient::new("BigSur",GeoRect::from_wsen_degrees( -122.043, 35.99, -121.231, 36.594), None))?;
+    let hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(
+        odin_server::load_config("spa_server.ron")?,
+        "wind",
+        SpaServiceList::new()
+            .add( build_service!( let hshare = hshare.clone() => ShareService::new( "odin_share_schema.js", hshare)) )
+            .add( build_service!( => WindNinjaService::new( hwind) ))
+    ))?;
 
-    Ok(())
+    Ok(())   
 });

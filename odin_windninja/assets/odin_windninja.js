@@ -23,547 +23,342 @@ import * as data from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
+import * as wf from "./windfield.js";
 
-import * as windUtils from "./wind-particles/windUtils.js";
-import { ParticleSystem } from "./wind-particles/particleSystem.js";
+/* #region types **************************************************************************************/
 
-const MODULE_PATH ="odin_windninjs::windninja_service::WindNinjaService";
+const MODULE_PATH ="odin_windninja::windninja_service::WindNinjaService";
 
-var viewerParameters = {
-    lonRange: new Cesium.Cartesian2(),
-    latRange: new Cesium.Cartesian2(),
-    pixelSize: 0.0
+const RegionStatus = {
+    ACTIVE: "active",
+    WAITING: "⧖",
+    INACTIVE: ""
 };
 
-var globeBoundingSphere = new Cesium.BoundingSphere(Cesium.Cartesian3.ZERO, 0.99 * 6378137.0);
+class ForecastRegion {
+    constructor (name, bbox, status) {
+        this.name = name; // this is the key (path) of a shared GeoRect
+        this.bbox = bbox;
+        this.status = status;
+        this.isSubscribed = false;
+        this.asset = undefined; // set when we show the bbox
 
-// those are just initial values (should come from config)
-
-const defaultVectorRender = config.windlayer.vectorRender;
-const defaultAnimRender = config.windlayer.animRender;
-const defaultContourRender = config.windlayer.contourRender;
-
-const WindFieldType = {
-    GRID: "grid",
-    VECTOR: "vector",
-    CONTOUR: "contour"
-}
-
-const REMOTE = "";
-const LOADING = "…";
-const LOADED = "○";
-const SHOWING = "●";
-
-const csvGridPrefixLine = /^# *nx: *(\d+), *x0: *(.+) *, *dx: *(.+) *, *ny: *(\d+), *y0: *(.+) *, *dy: *(.+)$/;
-const csvVectorPrefixLine = /^# *length: *(\d+)$/;
-
-const polyLineColorAppearance = new Cesium.PolylineColorAppearance();
-
-// one per each windField message received from the server
-// wraps the server spec plus our internal state for this windField
-class WindFieldEntry {
-
-    // factory method
-    static create (windField) {
-        if (windField.wfType == WindFieldType.GRID) return new AnimFieldEntry(windField);
-        if (windField.wfType == WindFieldType.VECTOR) return new VectorFieldEntry(windField);
-        if (windField.wfType == WindFieldType.CONTOUR) return new ContourFieldEntry(windField);
-        throw "unknown windField type: " + windField.wfType;
+        this.forecasts = [];
     }
 
-    static compareFiltered (a,b) {
-        switch (util.compare(a.forecastDate,b.forecastDate)) {
-            case -1: return -1;
-            case 0: return util.compare(a.wfSource, b.wfSource);
-            case 1: return 1;
-        }
-    }
+    isInactive() { return this.status === RegionStatus.INACTIVE }
+    setActive(cond) { this.status = cond ? RegionStatus.ACTIVE : RegionStatus.INACTIVE; }
+    nForecasts() { return this.forecasts.length; }
+    isRectShowing() { return (this.asset != null); }
 
-    constructor(windField) {
-        //--- those come from the server message
-        this.area = windField.area;
-        this.forecastDate = windField.forecastDate; // forecast time for this windfield
-        this.baseDate = windField.baseDate; // when the windfield was created
-        this.wfType = windField.wfType;  // grid or vector
-        this.wfSrs = windField.wfSrs; // the underlying spatial reference system
-        this.wfSource = windField.wfSource; // HRRR or station
-        this.url = windField.url; // wherer to get the data
-        this.bounds = windField.bounds; // rectangle in which windfield was computed
+    addForecast (newForecast) {
+        this.purgeOldForecasts();
 
-        //--- local data
-        this.status = REMOTE;
-        this.show = false;
-        // assets (such as primitives) are subclass specific
-    }
+        let forecasts = this.forecasts;
+        let len = forecasts.length;
 
-    setStatus (newStatus) {
-        this.status = newStatus;
-        // update view
-    }
-
-    replaceWith (other) {
-        console.log("not yet.");
-    }
-
-    //--- override in subclasses
-    setVisible (showIt) {}
-    startViewChange() {}
-    endViewChange() {}
-    renderChanged() {}
-    updateDisplayPanel() {}
-}
-
-class AnimFieldEntry extends WindFieldEntry {
-    constructor (windField) {
-        super(windField);
-        this.particleSystem = undefined; // only lives while we show the grid animation, owns a number of CustomPrimitives
-        this.render = {...defaultAnimRender};
-    }
-
-    static animShowing = 0;
-
-    setVisible (showIt) {
-        if (showIt != this.show) {
-            if (showIt) {
-                AnimFieldEntry.animShowing++;
-                if (!this.particleSystem) {
-                    this.loadParticleSystemFromUrl(); // async
-                } else {
-                    this.particleSystem.forEachPrimitive( p=> p.show = true);
-                    uiCesium.setRequestRenderMode(false);
-
-                }
-                this.setStatus( SHOWING);
-
-            } else {
-                AnimFieldEntry.animShowing--;
-                if (this.particleSystem) {
-                    // TODO - do we have to stop rendering first ?
-                    this.particleSystem.forEachPrimitive( p=> p.show = false);
-                    if (AnimFieldEntry.animShowing == 0) {
-                        uiCesium.setRequestRenderMode(true);
-                        uiCesium.requestRender();
-                    }
-                    this.setStatus( LOADED);
-                }
+        for (let i=0; i<len; i++) {
+            let f = forecasts[i];
+            if (newForecast.date < f.date) {
+                forecasts.splice(i, 0, newForecast);
+                return;
+            } else if (newForecast.date == f.date) {
+                if (newForecast.step <= f.step) { // this replaces an outdated forecast
+                    forecasts[i] = newForecast;
+                } // otherwise the new forecast was dead on arrival
+                return;
             }
-            this.show = showIt;
+        }
+
+        forecasts.push( newForecast);
+    }
+
+    purgeOldForecasts () {
+        let forecasts = this.forecasts;
+        let now = Date.now(); // TODO = should use simTime
+        let n = 0;
+        for (let f of forecasts) {
+            let dh = util.hoursBetween(now, f.date);
+            if (dh < 0) break; // the rest is in the future
+            if (dh > config.back_hours) n++; 
+        }
+        if (n>0) {
+            forecasts.splice(0,n);
         }
     }
 
-    startViewChange() {
-        if (this.status == SHOWING) {
-            this.particleSystem.forEachPrimitive( p=> p.show = false);
-            uiCesium.requestRender();
-        }
-    }
+    createAndShowAsset () {
+        if (this.asset) return;
 
-    endViewChange() {
-        if (this.status == SHOWING) {
-            this.particleSystem.applyViewerParameters(viewerParameters);
-            this.particleSystem.forEachPrimitive( p=> p.show = true);
-            uiCesium.requestRender();
-        }
-    }
+        let renderOpts = config.regionRender;
+        let d = this.bbox;
 
-    async loadParticleSystemFromUrl() {
+        let colorMaterial = new Cesium.ColorMaterialProperty();
+        colorMaterial.color = new Cesium.CallbackProperty( ()=>renderOpts.color, false);
 
-        let nx, x0, dx, ny, y0, dy; // grid bounds and cell size
-        let hs, us, vs, ws; // the data arrays
-        let hMin = 1e6, uMin = 1e6, vMin = 1e6, wMin = 1e6;
-        let hMax = -1e6, uMax = -1e6, vMax = -1e6, wMax = -1e6;
-    
-        let i = 0;
-    
-        function procLine (line) {
-            if (i > 1) { // grid data line
-                let values = util.parseCsvValues(line);
-                if (values.length == 5) {
-                    const h = values[0];
-                    const u = values[1];
-                    const v = values[2];
-                    const w = values[3];
-    
-                    if (h < hMin) hMin = h;
-                    if (h > hMax) hMax = h;
-                    if (u < uMin) uMin = u;
-                    if (u > uMax) uMax = u;
-                    if (v < vMin) vMin = v;
-                    if (v > vMax) vMax = v;
-                    if (w < wMin) wMin = w;
-                    if (w > wMax) wMax = w;
-    
-                    const j = i-2;
-                    hs[j] = h;
-                    us[j] = u;
-                    vs[j] = v;
-                    ws[j] = w;
-                }
-            } else if (i > 0) { // ignore header line
-            } else { // prefix comment line with grid bounds
-                let m = line.match(csvGridPrefixLine);
-                if (m && m.length == 7) {
-                    nx = parseInt(m[1]);
-                    x0 = Number(m[2]);
-                    dx = Number(m[3]);
-                    ny = parseInt(m[4]);
-                    y0 = Number(m[5]);
-                    dy = Number(m[6]);
-    
-                    let len = (nx * ny);
-                    hs = new Float32Array(len);
-                    us = new Float32Array(len);
-                    vs = new Float32Array(len);
-                    ws = new Float32Array(len);
-                }
+        // Cesium rect properties do not support outlines that are clampToGround so we turn this into a polygon
+        let points = [];
+        points.push( new Cesium.Cartesian3.fromDegrees( d.west, d.north));
+        points.push( new Cesium.Cartesian3.fromDegrees( d.east, d.north));
+        points.push( new Cesium.Cartesian3.fromDegrees( d.east, d.south));
+        points.push( new Cesium.Cartesian3.fromDegrees( d.west, d.south));
+        points.push( points[0]);
+
+        let entity = new Cesium.Entity({
+            id: this.name,
+            polyline: {
+                positions: points,
+                clampToGround: true,
+                material: colorMaterial,
+                width: new Cesium.CallbackProperty( ()=>renderOpts.lineWidth, false)
             }
-            i++;
-        };
-    
-        function axisData (nv,v0,dv) {
-            let a = new Float32Array(nv);
-            for (let i=0, v=v0; i<nv; i++, v += dv) { a[i] = v; }
-            let vMin, vMax;
-            if (dv < 0) {
-                vMin = a[nv-1];
-                vMax = a[0];
-            } else {
-                vMin = a[0];
-                vMax = a[nv-1];
-            }
-        
-            return { array: a, min: vMin, max: vMax };
-        }
-    
-        this.setStatus( LOADING);
-        await util.forEachTextLine(this.url, procLine);
+        });
 
-        console.log("loaded ", i-2, " grid points from ", this.url);
-    
-        let data = {
-            dimensions: { lon: nx, lat: ny, lev:1 },
-            lon: axisData(nx, x0 < 0 ? 360 + x0 : x0, dx),  // normalize to 0..360
-            lat: axisData(ny, y0, dy),
-            lev: { array: new Float32Array([1]), min: 1, max: 1 },
-            H: { array: hs, min: hMin, max: hMax },
-            U: { array: us, min: uMin, max: uMax },
-            V: { array: vs, min: vMin, max: vMax },
-            W: { array: ws, min: wMin, max: wMax }
-        };
-        //console.log("@@ data:", data);
-    
-        this.particleSystem = new ParticleSystem(uiCesium.viewer.scene.context, data, this.render, viewerParameters);
-        this.particleSystem.forEachPrimitive( p=> uiCesium.addPrimitive(p));
-        uiCesium.setRequestRenderMode(false);
+        if (renderOpts.fill) {
+            let fillOpts = renderOpts.fill;
+            let fillColorMaterial = new Cesium.ColorMaterialProperty();
+            fillColorMaterial.color = new Cesium.CallbackProperty( ()=>fillOpts.color.withAlpha(fillOpts.alpha), false);
+
+            entity.polygon = {
+                hierarchy: points,
+                heightReference: Cesium.CLAMP_TO_GROUND,
+                fill: new Cesium.CallbackProperty( ()=>renderOpts.fill != undefined, false),
+                material: fillColorMaterial,
+                zIndex: 2,
+            };
+        }
+
+        this.asset = entity;
+        odinCesium.addEntity( entity);
     }
 
-    renderChanged() {
-        if (this.particleSystem) {
-            this.particleSystem.applyUserInput(this.render);
+    clearAsset () {
+        if (this.asset) {
+            this.asset.show = false;
+            odinCesium.removeEntity( this.asset);
+            this.asset = null;
         }
-    }
-
-    // TODO - this needs a general suspend/resume mode, also for pan, zoom etc.
-    updatePrimitives() {
-        if (this.isAnimShowing()) { 
-            this.showAnim(false);
-            this.particleSystem.canvasResize(uiCesium.viewer.scene.context);
-            this.showAnim(true);
-        }
-    }
-
-    updateDisplayPanel() {
-        let r = this.render;
-
-        ui.setSliderValue( ui.getSlider("wind.anim.particles"), r.particlesTextureSize);
-        ui.setSliderValue( ui.getSlider("wind.anim.height"), r.particleHeight);
-        ui.setSliderValue( ui.getSlider("wind.anim.fade_opacity"), r.fadeOpacity);
-        ui.setSliderValue( ui.getSlider("wind.anim.drop"), r.dropRate);
-        ui.setSliderValue( ui.getSlider("wind.anim.drop_bump"), r.dropRateBump);
-        ui.setSliderValue( ui.getSlider("wind.anim.speed"), r.speedFactor);
-        ui.setSliderValue( ui.getSlider("wind.anim.width"), r.lineWidth);
-
-        ui.setField( ui.getField("wind.anim.color"), r.color.toCssHexString());
     }
 }
 
-class VectorFieldEntry extends WindFieldEntry {
-    constructor (windField) {
-        super(windField);
-        this.render = {...defaultVectorRender};
+class Forecast {
+    constructor (date,step,mesh,wxSrc,urlBase) {
+        this.date = date;
+        this.step = step;
+        this.mesh = mesh;
+        this.wxSrc = wxSrc;
+        this.urlBase = urlBase;
 
-        this.pointPrimitive = undefined; // Cesium.Primitive instantiated when showing the static vector field
-        this.linePrimitive = undefined;
+        this.windField = {};
+        this.windField[wf.DisplayType.DISPLAY_ANIM] = new wf.AnimField( urlBase, animRender, wfStatusChanged);
+        this.windField[wf.DisplayType.DISPLAY_VECTOR] = new wf.VectorField( urlBase, vectorRender, wfStatusChanged);
+        this.windField[wf.DisplayType.DISPLAY_CONTOUR] = new wf.ContourField( urlBase, animRender, wfStatusChanged);
+        //.. and more to follow
     }
 
+    status () { return this.windField[displayType].status; }
 
+    startViewChange () { this.windField[displayType].startViewChange(); }
 
-    setVisible (showIt) {
-        if (showIt != this.show) {
-            this.show = showIt;
-            if (showIt) {
-                if (!this.pointPrimitive) {
-                    this.loadVectorsFromUrl(); // this is async, it will set vectorPrimitives when done
-                } else {
-                    uiCesium.showPrimitive(this.pointPrimitive, true);
-                    uiCesium.showPrimitive(this.linePrimitive, true);
-                    uiCesium.requestRender();
-                }
-                this.setStatus( SHOWING);
+    endViewChange () { this.windField[displayType].endViewChange(); }
 
-            } else {
-                if (this.pointPrimitive) {
-                    uiCesium.showPrimitive(this.pointPrimitive, false);
-                    uiCesium.showPrimitive(this.linePrimitive, false);
-                    uiCesium.requestRender();
-                    this.setStatus( LOADED);
-                }
-            }
-        }
-    }
+    renderChanged () { this.windField[displayType].renderChanged(); }
 
-    async loadVectorsFromUrl() {
-        let points = new Cesium.PointPrimitiveCollection();
-        let vectors = []; // array of GeometryInstances
-        let i = 0;
-        let j = 0;
-        let render = this.render;
-
-        let dc = new Cesium.DistanceDisplayConditionGeometryInstanceAttribute(0,50000);
-        let vecAttrs = {  distanceDisplayCondition: dc };
-        let vecClrs = [render.color];
-        
-        function procLine (line) {
-            if (i > 1) { // vector line
-                let values = util.parseCsvValues(line);
-                if (values.length == 7) {
-                    let p0 = new Cesium.Cartesian3(values[0],values[1],values[2]);
-                    let p1 = new Cesium.Cartesian3(values[3],values[4],values[5]);
-    
-                    //let spd = values[6];
-            
-                    let pp = points.add({
-                        position: p0,
-                        pixelSize: render.pointSize,
-                        color: render.color
-                    });
-                    pp.distanceDisplayCondition = new Cesium.DistanceDisplayCondition(0,150000);
-                    // pp.scaleByDistance = new Cesium.NearFarScalar(1.5e2, 15, 8.0e6, 0.0);
-                                
-                    vectors[j++] = new Cesium.GeometryInstance({
-                        geometry: new Cesium.PolylineGeometry({
-                            positions: [p0,p1],
-                            colors: vecClrs,
-                            width: render.strokeWidth,
-                        }),
-                        attributes:  vecAttrs
-                    });
-                }
-            } else if (i > 0) { // header line (ignore)
-            } else { // prefix comment line "# columns: X, rows: Y"
-                let m = line.match(csvVectorPrefixLine);
-                if (m) {
-                    let len = parseInt(m[1]);
-                    vectors = Array(len);
-                }
-            }
-            i++;
-        };
-    
-        this.setStatus( LOADING);
-        await util.forEachTextLine( this.url, procLine);
-        console.log("loaded ", i-2, " vectors from ", this.url);
-
-        this.vectors = vectors;
-        this.pointPrimitive = points;
-        this.linePrimitive = this.createVectorPrimitive(vectors);
-
-        uiCesium.addPrimitive(this.pointPrimitive);
-        if (this.linePrimitive) uiCesium.addPrimitive(this.linePrimitive);
-        uiCesium.requestRender();
-    }
-
-    createVectorPrimitive(vectors) {
-        if (this.render.strokeWidth) {
-            return new Cesium.Primitive({
-                geometryInstances: this.vectors,
-                appearance: polyLineColorAppearance,
-                releaseGeometryInstances: false
-            });
-        } else {
-            return null; // no point creating a primitive if there is nothing to render
-        }
-    }
-
-    renderChanged() {
-        let render = this.render;
-        let oldLinePrimitive = this.pointPrimitive;
-        if (oldLinePrimitive) {
-            let len = oldLinePrimitive.length;
-            for (let i=0; i<len; i++) {
-                let pt = oldLinePrimitive.get(i);
-                pt.color = render.color;
-                pt.pixelSize = render.pointSize;
-            }
-        }
-
-        oldLinePrimitive = this.linePrimitive;
-        if (oldLinePrimitive) {
-            // unfortunately we cannot change display of rendered primitive GeometryInstances - we have to re-create it
-            let vectors = this.vectors;
-            vectors.forEach( gi=> gi.geometry._colors[0] = render.color );
-            this.linePrimitive = this.createVectorPrimitive(vectors);
-            uiCesium.removePrimitive(oldLinePrimitive);
-            uiCesium.addPrimitive(this.linePrimitive);
-        }
-
-        uiCesium.requestRender();
-    }
-
-    updateDisplayPanel() {
-        let render = this.render;
-        ui.setSliderValue("wind.vector.point_size", render.pointSize);
-        ui.setSliderValue("wind.vector.width", render.strokeWidth);
-        ui.setField("wind.vector.color", render.color.toCssHexString());
-    }
+    getDisplayWindField () { return this.windField[displayType]; }
 }
 
-class ContourFieldEntry extends WindFieldEntry {
-    constructor (windField) {
-        super(windField);
-        this.dataSource = undefined;
-        this.render = {...defaultContourRender};
-    }
+/* #endregion types */
 
-    setVisible (showIt) {
-        if (showIt != this.show) {
-            this.show = showIt;
-            if (showIt) {
-                if (!this.dataSource) {
-                    this.loadContoursFromUrl(); // this is async, it will set vectorPrimitives when done
-                } else {
-                    this.dataSource.show = true;
-                    uiCesium.requestRender();
-                }
-                this.setStatus( SHOWING);
+ws.addWsHandler( MODULE_PATH, handleWsMessages);
+main.addShareHandler( handleShareMessage);
 
-            } else {
-                if (this.dataSource) {
-                    this.dataSource.show = false;
-                    uiCesium.requestRender();
-                    this.setStatus( LOADED);
-                }
-            }
-        }
-    }
+//--- our data model
+var forecastRegions = new Map(); // name -> ForecastRegion
 
-    async loadContoursFromUrl() {
-        let renderOpts = this.getRenderOpts();
-        let response = await fetch(this.url);
-        let data = await response.json();
+//--- UI state we track
+var displayType = wf.DisplayType.DISPLAY_ANIM;
+var regionView = undefined;
+var forecastView = undefined;
 
-        Cesium.GeoJsonDataSource.load(data, renderOpts).then(  // TODO - does this support streams? 
-            ds => {
-                this.dataSource = ds;
-                this.postProcessDataSource();
+var selectedRegion = undefined;
+var selectedForecast = undefined;
 
-                uiCesium.addDataSource(ds);
-                uiCesium.requestRender();
-                //setTimeout( () => uiCesium.requestRender(), 300); // ??
-            }
-        );
-    }
+//--- render parameters
+var animRender = {...config.animRender};
+var vectorRender = {...config.vectorRender};
+var contourRender = {...config.contourRender};
 
-    getRenderOpts() {
-        return { 
-            stroke: this.render.strokeColor, 
-            strokeWidth: this.render.strokeWidth, 
-            fill: this.render.fillColors[0]
-        };
-    }
-
-    postProcessDataSource() {
-        let entities = this.dataSource.entities.values;
-        let render = this.render;
-
-        for (const e of entities) {
-            let props = e.properties;
-            if (props) {
-                let spd = this.getPropValue(props, "spd");
-                if (spd) {
-                    let i = Math.max(0, Math.min( Math.trunc(spd / 5), render.fillColors.length-1)); // spd < 0 ??
-                    e.polygon.material = render.fillColors[i];
-                }
-            }
-        }
-    }
-
-    getPropValue(props,key) {
-        let p = props[key];
-        return p ? p._value : undefined;
-    }
-
-    updateDisplayPanel() {
-    }
-}
-
-class WindFieldArea {
-    constructor (area, bounds) {
-        this.label = area;
-        this.bounds = bounds;
-        this.show = false;
-        this.entity = undefined; // display
-    }
-
-    setVisible (showIt) {
-
-    }
-
-    static compare (a,b) { return util.compare(a.label, b.label); }
-}
-
-//--- module data
-
-const windFieldEntries = new Map(); // unique-key -> WindFieldEntry
-
-var areas = [] // sorted list of areas
-var selectedArea = undefined;
-var displayEntries = [];  // time/source sorted entries for selected area and type
-var selectedEntry = undefined;
-var selectedType = "vector";
+setupEventListeners();
 
 createIcon();
 createWindow();
 
-var areaView = ui.getChoice("wind.areas");
-var entryView = initEntryView();
+initRegionView();
+initForecastView();
 initAnimDisplayControls();
 initVectorDisplayControls();
 initContourDisplayControls();
 
-ws.addWsHandler(handleWsWindMessages);
-setupEventListeners();
+odinCesium.initLayerPanel("wind", config, showWind);
+console.log("odin_windninja initialized");
 
-console.log("ui_cesium_wind initialized");
+/* #region websocket message handler ***********************************************************************/
+
+function handleWsMessages(msgType, msg) {
+    switch (msgType) {
+        case "forecastRegions": handleForecastRegions(msg); break;
+        case "startForecastRegion": handleStartForecastRegion(msg); break;
+        case "stopForecastRegion": handleStopForecastRegion(msg); break;
+        case "rejectForecastRegion": handleRejectForecastRegion(msg); break;
+        case "forecast": handleForecast(msg); break;
+        default: console.log("unknown websock message ", msgType, " ignored");
+    }
+}
+
+// this is the response to connecting - all forecast regions that are currently active
+function handleForecastRegions (frsMsg) {
+    for (let r of frsMsg.regions) {
+        let fr = new ForecastRegion( r.region, r.bbox, RegionStatus.ACTIVE);
+        forecastRegions.set(fr.name, fr);
+
+        for (let fc of r.forecasts) { // those are reported without region name, no need to recreate
+            fc.wxSrc = util.intern(fc.wxSrc);
+            fr.addForecast( fc);
+        }
+    }
+
+    let tree = data.ExpandableTreeNode.from( forecastRegions.values(), e=>e.name);
+    ui.setTree( regionView, tree);
+    ui.clearList( forecastView);
+}
+
+// this is the notification everybody gets when a new region becomes active
+function handleStartForecastRegion (startFcr) {
+    let fr = forecastRegions.get(startFcr.name);
+    if (fr) { 
+        fr.setActive(true);
+        ui.updateListItem( regionView, fr);
+
+    } else {
+        // TODO - should we add regions that are not (yet) shared here? Sharing should always happen before this
+        console.log("ignore unknown forecast region ", fr.name);
+    }
+}
+
+// this is the notification the requester gets when a region request is rejected
+function handleRejectForecastRegion (rejectFcr) {
+    let fr = forecastRegions.get(rejectFcr.name);
+    if (fr) { 
+        fr.setActive(false);
+        ui.updateListItem( regionView, fr);
+        alert( `region request rejected: ${rejectFcr.rejection}` );
+    }
+}
+
+function handleStopForecastRegion (stopFcr) {
+    let fr = forecastRegions.get(stopFcr.region);
+    if (fr) { 
+        fr.setActive(false);
+        ui.updateListItem( regionView, fr);
+    }
+}
+
+// this is the notification everybody gets when a new forecast for one of the active regions becomes available
+function handleForecast (fcMsg) {
+    let fr = forecastRegions.get(fcMsg.region);
+    if (fr) {
+        let fc = new Forecast( fcMsg.date, fcMsg.step, fcMsg.mesh, util.intern(fcMsg.wxSrc), fcMsg.urlBase);
+        fr.addForecast( fc);
+        ui.updateListItem( regionView, fr);
+        if (Object.is( fr, selectedRegion)) {
+            ui.setListItems( forecastView, fr.forecasts);
+        }
+    }
+}
+
+/* #endregion websocket message handler */
+
+/* #region share message handler ***************************************************************************/
+
+const BBOX_PATTERN = util.glob2regexp("{rect/**,**/rect/**,**/rect}"); // any pathname with 'rect' in it
+
+function handleShareMessage (msg) {
+    if (msg.SHARE_INITIALIZED) { // we get that no matter what the share implementation is
+        setSharedGeoRects();
+
+    } else if (main.isShareInitialized()) { // if not we still get a SHARE_INITIALIZED
+        if (msg.setShared) {
+            let sharedItem = msg.setShared;
+            if (sharedItem.key.match(BBOX_PATTERN)) {
+                addSharedGeoRect(sharedItem);// 
+            }
+        } else if (msg.removeShared) {
+            removeSharedGeoRect( msg.removeShared);
+            // if subscribed unsubscribe then remove from regionView
+        }
+    }
+}
+
+// note this might come *after* we got a 'forecastRegions` websocket message - don't overwrite
+function setSharedGeoRects() {
+    let sharedItems = getSharedGeoRects();
+
+    for (let si of sharedItems) {
+        if (!forecastRegions.get( si.key)) {
+            let fr = new ForecastRegion( si.key, si.value.data, RegionStatus.INACTIVE);
+            forecastRegions.set( fr.name, fr);
+        }
+    }
+
+    let tree = data.ExpandableTreeNode.from( forecastRegions.values(), e=>e.name);
+    ui.setTree( regionView, tree);
+}
+
+function addSharedGeoRect(si) {
+    let fr = new ForecastRegion( si.key, si.value.data, RegionStatus.INACTIVE);
+    forecastRegions.set( fr.name, fr);
+    ui.sortInTreeItem( regionView, fr, fr.name);
+}
+
+function removeSharedGeoRect(sharedItemKey) {
+
+}
+
+function getSharedGeoRects() {
+    let rects = [];
+    let items = main.getAllMatchingSharedItems( BBOX_PATTERN);
+    for (let item of items) {
+        if (item.value.type == "GeoRect") {
+            let p = item.value.data;
+            rects.push( item);
+        }
+    }
+
+    return rects;
+}
+
+/* #endregion share message handler */
+
+/* #region UI window ***************************************************************************************/
 
 function createIcon() {
-    return ui.Icon("wind-icon.svg", (e)=> ui.toggleWindow(e,'wind'), "local wind prediction");
+    return ui.Icon("./asset/odin_windninja/wind-icon.svg", (e)=> ui.toggleWindow(e,'wind'), "local wind prediction");
 }
 
 function createWindow() {
-    return ui.Window("Wind", "wind", "wind-icon.svg")(
+    return ui.Window("Wind", "wind", "./asset/odin_windninja/wind-icon.svg")(
+        ui.LayerPanel("wind", toggleShowWind),
+        
         ui.Panel("wind-fields", true)(
             ui.RowContainer()(
-                ui.Choice("area","wind.areas",selectArea),
-                ui.CheckBox("show area", toggleShowArea),
-                ui.HorizontalSpacer(6)
+                (regionView = ui.TreeList("wind.regions", 10, "25rem", selectRegion, null,null, zoomRegion)),
             ),
             ui.RowContainer()(
-                ui.Radio("vector", selectVectorWindFields,null,true),
-                ui.Radio("anim", selectGridWindFields),
-                ui.Radio("contour", selectContourWindFields)
+                ui.Radio("anim", setAnimDisplay, "wind.field.anim", true),
+                ui.Radio("vector", setVectorDisplay, "wind.field.vector"),
+                ui.Radio("contour", setContourDisplay, "wind.field.contour")
             ),
-            ui.List("wind.entries", 6, selectWindFieldEntry)
+            (forecastView = ui.List("wind.forecasts", 6, selectForecast))
         ),
         ui.Panel("anim display")(
             ui.ColumnContainer("align_right")(
@@ -595,16 +390,30 @@ function createWindow() {
     );
 }
 
-function initEntryView() {
-    let view = ui.getList("wind.entries");
+function initRegionView() {
+    let view = regionView;
+    if (view) {
+        ui.setListItemDisplayColumns(view, ["fit", "header"], [
+            { name: "status", width: "3rem", attrs: [], map: e => e.status },
+            { name: "fcs", tip: "number of available forecasts",  width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.nForecasts() },
+            ui.listItemSpacerColumn(1),
+            { name: "sub", tip: "subscribe", width: "2.1rem", attrs: [], map: e => ui.createCheckBox(e.isSubscribed, toggleRegionSubscribe) },
+            { name: "show", tip: "show region bbox", width: "2.1rem", attrs: [], map: e => ui.createCheckBox( e.isRectShowing(), toggleShowRegion) }
+        ]);
+    }
+}
+
+function initForecastView() {
+    let view = forecastView;
     if (view) {
         ui.setListItemDisplayColumns(view, ["header"], [
-            { name: "", width: "2rem", attrs: [], map: e => e.status },
-            { name: "forecast", width: "9.5rem",  attrs: ["fixed"], map: e => util.toLocalDateHMTimeString(e.forecastDate) },
-            { name: "Δt", tip: "forecast hour", width: "2rem", attrs: ["fixed", "alignRight"], map: e => util.hoursBetween(e.baseDate, e.forecastDate) },
+            { name: "forecast", width: "9.5rem",  attrs: ["fixed"], map: e => util.toLocalDateHMTimeString( e.date) },
+            { name: "Δt", tip: "hours from forecast creation", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.step },
             ui.listItemSpacerColumn(1),
-            { name: "src", width: "4rem", attrs:[], map: e=> e.wfSource },
-            ui.listItemSpacerColumn(2),
+            { name: "res", tip: "mesh resolution in meters", width: "3rem", attrs: ["fixed"], map: e => e.mesh },
+            { name: "src", tip: "weather forecast source", width: "4rem", attrs:[], map: e => e.wxSrc },
+            ui.listItemSpacerColumn(1),
+            { name: "", width: "1rem", attrs:[], map: e => e.status() },
             { name: "show", tip: "toggle windfield visibility", width: "2.1rem", attrs: [], map: e => ui.createCheckBox(e.show, toggleShowWindField) },
         ]);
     }
@@ -613,9 +422,8 @@ function initEntryView() {
 
 function initAnimDisplayControls() {
     var e = undefined;
-    //e = ui.getChoice("wind.max_particles");
-    //ui.setChoiceItems(e, ["0", "16", "32", "64", "128", "256"], 3);
-    let r = defaultAnimRender;
+
+    let r = animRender;
 
     e = ui.getSlider("wind.anim.particles");
     ui.setSliderRange(e, 0, 128, 16);
@@ -654,14 +462,14 @@ function initVectorDisplayControls() {
 
     e = ui.getSlider("wind.vector.point_size");
     ui.setSliderRange(e, 0, 8, 0.5);
-    ui.setSliderValue(e, defaultVectorRender.pointSize);
+    ui.setSliderValue(e, vectorRender.pointSize);
 
     e = ui.getSlider("wind.vector.width");
     ui.setSliderRange(e, 0, 5, 0.2);
-    ui.setSliderValue(e, defaultVectorRender.strokeWidth);
+    ui.setSliderValue(e, vectorRender.strokeWidth);
 
     e = ui.getField("wind.vector.color");
-    ui.setField(e, defaultVectorRender.color.toCssHexString());
+    ui.setField(e, vectorRender.color.toCssHexString());
 }
 
 function initContourDisplayControls() {
@@ -669,269 +477,29 @@ function initContourDisplayControls() {
 
     e = ui.getSlider("wind.contour.stroke_width");
     ui.setSliderRange(e, 0, 3, 0.5);
-    ui.setSliderValue(e, defaultContourRender.strokeWidth);
+    ui.setSliderValue(e, contourRender.strokeWidth);
 
     e = ui.getField("wind.contour.stroke_color");
-    ui.setField(e, defaultContourRender.strokeColor.toCssHexString());
+    ui.setField(e, contourRender.strokeColor.toCssHexString());
 
-    for (var i = 0; i<defaultContourRender.fillColors.length; i++) {
+    for (var i = 0; i<contourRender.fillColors.length; i++) {
         e = ui.getField(`wind.contour.color${i}`);
         if (e) {
-            ui.setField(e, defaultContourRender.fillColors[i].toCssHexString());
+            ui.setField(e, contourRender.fillColors[i].toCssHexString());
         }
     }
 }
 
-//--- WS messages
+/* #endregion UI window */
 
-function handleWsWindMessages(msgType, msg) {
-    switch (msgType) {
-        case "windField":
-            handleWindFieldMessage(msg.windField);
-            return true;
-        default:
-            return false;
-    }
-}
+/* #region UI callbacks *************************************************************************************/
 
-function handleWindFieldMessage(windField) {
-    let we = WindFieldEntry.create(windField);
-    windFieldEntries.set(windField.url, we);
-    addArea(we);
-    if (isSelected(we)) updateEntryView();
-}
-
-function addArea (we) {
-    if (!areas.find( a=> a.label == we.area)) {
-        let wa = new WindFieldArea(we.area, we.bounds);
-        uiData.sortInUnique( areas, wa, WindFieldArea.compare);
-        ui.setChoiceItems(areaView, areas);
-        if (!selectedArea) ui.selectChoiceItem(areaView, wa);
-    }
-}
-
-function updateEntryView() {
-    displayEntries = util.filterMapValues(windFieldEntries, we=> isSelected(we));
-    displayEntries.sort(WindFieldEntry.compareFiltered);
-
-    ui.setListItems(entryView, displayEntries);
-}
-
-function isSelected (we) {
-    return (we.area == selectedArea.label) && (we.wfType == selectedType);
-}
-
-//--- rendering suspend/resume
-
-function startViewChange() {
-    windFieldEntries.forEach( (e,k) => e.startViewChange() );
-}
-
-function endViewChange() {
-    updateViewerParameters();
-    windFieldEntries.forEach( (e,k) => e.endViewChange() );
-}
-
-//--- interaction
-
-function selectArea(event) {
-    selectedArea = ui.getSelectedChoiceValue(areaView);
-    updateEntryView();
-};
-
-function toggleShowArea(event) {
-    toggleShow( event, (ae,showIt) => ae.showArea(showIt));
-};
-
-function selectGridWindFields(event) {
-    selectedType = "grid";
-    updateEntryView();
-}
-
-function selectVectorWindFields(event) {
-    selectedType = "vector";
-    updateEntryView();
-}
-
-function selectContourWindFields(event) {
-    selectedType = "contour";
-    updateEntryView();
-}
-
-function toggleShowWindField(event) {
-    let we = ui.getListItemOfElement(event.target);
-    if (we) {
-        we.setVisible(ui.isCheckBoxSelected(event));
-        ui.updateListItem(entryView, we);
-    }
-};
-
-
-function selectWindFieldEntry(event) {
-    selectedEntry = ui.getSelectedListItem(entryView);
-    if (selectedEntry) selectedEntry.updateDisplayPanel();
-}
-
-//--- vector controls
-
-function vectorPointSizeChanged(event) {
-    if (selectedEntry) {
-        let n = ui.getSliderValue(event.target);
-        selectedEntry.render.pointSize = n;
-        selectedEntry.renderChanged();
-    }
-}
-
-function vectorLineWidthChanged(event) {
-    if (selectedEntry) {
-        let n = ui.getSliderValue(event.target);
-        selectedEntry.render.strokeWidth = n;
-        selectedEntry.renderChanged();
-    }
-}
-
-function vectorLineColorChanged(event) {
-    if (selectedEntry) {
-        let clrSpec = event.target.value;
-        if (clrSpec) {
-            selectedEntry.render.color = Cesium.Color.fromCssColorString(clrSpec);
-            selectedEntry.renderChanged();
-        }
-    }
-}
-
-//--- contour controls
-
-function contourStrokeWidthChanged(event) {
-
-}
-
-function contourStrokeColorChanged(event) {
-
-}
-
-function contourFillColorChanged(event) {
-
-}
-
-//--- grid animation sliders
-
-// we have to delay particleSystem updates while user moves the slider
-var pendingUserInputChange = false; 
-
-function triggerAnimRenderChange(windEntry, newInput) {
-    if (newInput) pendingUserInputChange = true;
-
-    setTimeout(() => {
-        if (pendingUserInputChange) {
-            pendingUserInputChange = false;
-            triggerAnimRenderChange(windEntry, false);
-        } else {
-            windEntry.renderChanged();
-        }
-    }, 300);
-}
-
-function windParticlesChanged(event) {
-    let e = ui.getSelectedListItem(entryView);
-    if (e) {
-        let n = ui.getSliderValue(event.target);
-        // todo - shall we adjust here?
-        e.render.particlesTextureSize = n;
-        e.render.maxParticles = n*n;
-        triggerAnimRenderChange(e, true);
-    }
-}
-
-function windFadeOpacityChanged(event) {
-    let e = ui.getSelectedListItem(entryView);
-    if (e) {
-        e.render.fadeOpacity = ui.getSliderValue(event.target);
-        triggerAnimRenderChange(e, true);
-    }
-}
-
-function windSpeedChanged(event) {
-    let e = ui.getSelectedListItem(entryView);
-    if (e) {
-        e.render.speedFactor = ui.getSliderValue(event.target);
-        triggerAnimRenderChange(e, true);
-    }
-}
-
-function windWidthChanged(event) {
-    let e = ui.getSelectedListItem(entryView);
-    if (e) {
-        e.render.lineWidth = ui.getSliderValue(event.target);
-        triggerAnimRenderChange(e, true);
-    }
-}
-
-function windHeightChanged(event) {
-    let e = ui.getSelectedListItem(entryView);
-    if (e) {
-        e.render.particleHeight = ui.getSliderValue(event.target);
-        triggerAnimRenderChange(e, true);
-    }
-}
-
-function windDropRateChanged(event) {
-    let e = ui.getSelectedListItem(entryView);
-    if (e) {
-        e.render.dropRate = ui.getSliderValue(event.target);
-        triggerAnimRenderChange(e, true);
-    }
-}
-
-function windDropRateBumpChanged(event) {
-    let e = ui.getSelectedListItem(entryView);
-    if (e) {
-        e.render.dropRateBump = ui.getSliderValue(event.target);
-        triggerAnimRenderChange(e, true);
-    }
-}
-
-function animColorChanged(event) {
-    let e = ui.getSelectedListItem(entryView);
-    if (e) {
-        let clrSpec = event.target.value;
-        if (clrSpec) {
-            e.render.color = Cesium.Color.fromCssColorString(clrSpec);
-            triggerAnimRenderChange(e, true);
-        }
-    }
-}
-
-
-//--- viewer callbacks
-
-function updateViewerParameters() {
-    let viewer = uiCesium.viewer;
-
-    var viewRectangle = viewer.camera.computeViewRectangle(viewer.scene.globe.ellipsoid);
-    var lonLatRange = windUtils.viewRectangleToLonLatRange(viewRectangle);
-
-    viewerParameters.lonRange.x = lonLatRange.lon.min;
-    viewerParameters.lonRange.y = lonLatRange.lon.max;
-    viewerParameters.latRange.x = lonLatRange.lat.min;
-    viewerParameters.latRange.y = lonLatRange.lat.max;
-
-    var pixelSize = viewer.camera.getPixelSize(
-        globeBoundingSphere,
-        viewer.scene.drawingBufferWidth,
-        viewer.scene.drawingBufferHeight
-    );
-
-    if (pixelSize > 0) {
-        viewerParameters.pixelSize = pixelSize;
-    }
-}
-
+/// some of our windfield visualizations have to be aware of view changes
 function setupEventListeners() {
-    let scene = uiCesium.viewer.scene;
+    let scene = odinCesium.viewer.scene;
 
-    uiCesium.viewer.camera.moveStart.addEventListener(startViewChange);
-    uiCesium.viewer.camera.moveEnd.addEventListener(endViewChange);
+    odinCesium.viewer.camera.moveStart.addEventListener(startViewChange);
+    odinCesium.viewer.camera.moveEnd.addEventListener(endViewChange);
 
     var resized = false;
 
@@ -950,34 +518,248 @@ function setupEventListeners() {
     });
 }
 
-//--- data acquisition and display
-
-var restoreRequestRenderMode = false;
-
-function suspendRequestRenderMode (){
-    if (uiCesium.isRequestRenderMode) {
-        restoreRequestRenderMode = true;
-        uiCesium.setRequestRenderMode(false);
+function startViewChange() {
+    for (let region of forecastRegions.values()) {
+        for (let forecast of region.forecasts) {
+            forecast.startViewChange();
+        }
     }
 }
 
-function resumeRequestRenderMode (){
-    if (restoreRequestRenderMode) {
-        uiCesium.setRequestRenderMode(true);
-        restoreRequestRenderMode = false;
+function endViewChange() {
+    wf.updateViewerParameters();
+    for (let region of forecastRegions.values()) {
+        for (let forecast of region.forecasts) {
+            forecast.endViewChange();
+        }
     }
 }
 
-//--- CSV (local wind vectors)
-
-
-async function loadCsvVector(windEntry) {
- 
-    return windEntry.data;
+function toggleShowWind (event) { // our local show/hide
+    // show/hide wind assets
 }
 
-//--- CSV grid based particle system data
+function showWind (cond) { // layer mgnt interface
+
+}
+
+function toggleRegionSubscribe (event) {
+    let cb = ui.getCheckBox(event.target);
+    if (cb) {
+        let fcr = ui.getListItemOfElement(cb);
+        if (ui.isCheckBoxSelected(cb)) {
+            fcr.status = RegionStatus.WAITING;
+            fcr.isSubscribed = true;
+            ui.updateListItem( regionView, fcr);
+            ws.sendWsMessage( MODULE_PATH, "addWindClient", {name: fcr.name, bbox: fcr.bbox});
+
+        } else {
+            fcr.status = RegionStatus.WAITING;
+            fcr.isSubscribed = false;
+            ui.updateListItem( regionView, fcr);
+            ws.sendWsMessage( MODULE_PATH, "removeWindClient", {name: fcr.name, bbox: fcr.bbox});
+        }
+    }
+}
+
+function toggleShowRegion (event) {
+    let cb = ui.getCheckBox(event.target);
+    if (cb) {
+        let fcr = ui.getListItemOfElement(cb);
+        if (ui.isCheckBoxSelected(cb)) { // show fcr.bbox
+            fcr.createAndShowAsset();
+        } else { // hide fcr.bbox
+            fcr.clearAsset();
+        }
+    }
+}
+
+function toggleShowWindField (event) {
+    let cb = ui.getCheckBox(event.target);
+    if (cb) {
+        let fc = ui.getListItemOfElement(cb);
+        let wf = fc.getDisplayWindField();
+        let showIt = ui.isCheckBoxSelected(cb);
+
+        wf.setVisible( showIt);
+    }
+}
+
+// callback when a wind field visualization has changed status (it might not be showing)
+function wfStatusChanged (wf) {
+    if (selectedRegion) {
+        if (wf.displayType === displayType) { // shortcut - otherwise it is not showing
+            for (let forecast of selectRegion.forecasts) {
+                if (Object.is(wf, forecast.getDisplayWindField())) ui.updateListItem( forecastView, forecast);
+            }
+        }
+    }
+}
+
+function setAnimDisplay () { 
+    displayType = wf.DisplayType.DISPLAY_ANIM;
+    updateForecasts();
+}
+
+function isAnimDisplay() { Object.is( displayType, wf.DisplayType.DISPLAY_ANIM) }
+
+function setVectorDisplay () { 
+    displayType = wf.DisplayType.DISPLAY_VECTOR; 
+    updateForecasts();
+}
+
+function isVectorDisplay() { Object.is( displayType, wf.DisplayType.DISPLAY_VECTOR) }
+
+function setContourDisplay () { 
+    displayType = wf.DisplayType.DISPLAY_CONTOUR; 
+    updateForecasts();
+}
+
+function isContourDisplay() { Object.is( displayType, wf.DisplayType.DISPLAY_CONTOUR) }
+
+function updateForecasts () {
+    if (selectedRegion) {
+        for (let forecast of selectedRegion.forecasts) {
+            ui.updateListItem( forecastView, forecast);
+        }
+    }
+}
+
+function selectRegion (event) {
+    selectedRegion = ui.getSelectedListItem( regionView);
+    if (selectedRegion) {
+        ui.setListItems( forecastView, selectedRegion.forecasts);
+    } else {
+        ui.clearList( forecastView);
+    }
+}
+
+function zoomRegion (event) {
+    if (selectedRegion) {
+        let bbox = selectedRegion.bbox;
+        let margin = config.zoomMargin;
+        let rect = Cesium.Rectangle.fromDegrees( bbox.west - margin, bbox.south - margin, bbox.east + margin, bbox.north + margin);
+        let cameraPos = odinCesium.viewer.camera.getRectangleCameraCoordinates(rect);
+        odinCesium.zoomTo(cameraPos);
+    }
+}
+
+function selectForecast (event) {
+    selectedForecast = ui.getSelectedListItem( forecastView);
+}
 
 
+/* #endregion UI callbacks */
+
+
+/* #region anim display settings ****************************************************************************/
+
+// we have to delay particleSystem updates while user moves the slider
+var pendingUserInputChange = false; 
+
+function triggerAnimRenderChange(forecast, newInput) {
+    if (isAnimDisplay()) {
+        if (newInput) pendingUserInputChange = true;
+
+        setTimeout(() => {
+            if (pendingUserInputChange) {
+                pendingUserInputChange = false;
+                triggerAnimRenderChange(forecast, false);
+            } else {
+                forecast.renderChanged();
+            }
+        }, 500);
+    }
+}
+
+function windParticlesChanged(event) {
+    let n = ui.getSliderValue(event.target);
+    animRender.particlesTextureSize = n;
+    animRender.maxParticles = n*n;
+    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
+}
+
+function windFadeOpacityChanged(event) {
+    animRender.fadeOpacity = ui.getSliderValue(event.target);
+    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
+}
+
+function windSpeedChanged(event) {
+    animRender.speedFactor = ui.getSliderValue(event.target);
+    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
+}
+
+function windWidthChanged(event) {
+    animRender.lineWidth = ui.getSliderValue(event.target);
+    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
+}
+
+function windHeightChanged(event) {
+    animRender.particleHeight = ui.getSliderValue(event.target);
+    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
+}
+
+function windDropRateChanged(event) {
+    animRender.dropRate = ui.getSliderValue(event.target);
+    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
+}
+
+function windDropRateBumpChanged(event) {
+    animRender.dropRateBump = ui.getSliderValue(event.target);
+    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
+}
+
+function animColorChanged(event) {
+    let clr= Cesium.Color.fromCssColorString( event.target.value);
+    if (clr) {
+        animRender.color = clr;
+        if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
+    }
+}
+
+/* #endregion anim display settings */
+
+/* #region vector display settings **************************************************************************/
+
+function vectorPointSizeChanged(event) {
+    vectorRender.pointSize =  ui.getSliderValue(event.target);
+    if (selectedForecast && isVectorDisplay()) { selectedForecast.renderChanged();}
+}
+
+function vectorLineWidthChanged(event) {
+    vectorRender.strokeWidth =  ui.getSliderValue(event.target);
+    if (selectedForecast && isVectorDisplay()) { selectedForecast.renderChanged();}
+}
+
+function vectorLineColorChanged(event) {
+    let clr= Cesium.Color.fromCssColorString( event.target.value);
+    if (clr) {
+        vectorRender.color = clr;
+        if (selectedForecast && isVectorDisplay()) { selectedForecast.renderChanged();}
+    }
+}
+
+/* #endregion vector display settings */
+
+/* #region contour display settigns *************************************************************************/
+
+function contourStrokeWidthChanged(event) {
+    contourRender.strokeWidth =  ui.getSliderValue(event.target);
+    if (selectedForecast && isContourDisplay()) { selectedForecast.renderChanged();}
+}
+
+function contourStrokeColorChanged(event) {
+    let clr= Cesium.Color.fromCssColorString( event.target.value);
+    if (clr) {
+        contourRender.strokeColor = clr;
+        if (selectedForecast && isContourDisplay()) { selectedForecast.renderChanged();}
+    }
+}
+
+function contourFillColorChanged(event) {
+    // TODO
+}
+
+/* #endregion contour display settings */
 
 

@@ -8,11 +8,11 @@ HrrrConfig(
     // estimated schedules if we don't want to query/compute them
     reg_first: 49,
     reg_last: 86,
-    reg_len: 19,
+    reg_len: 4,
 
     ext_first: 49,
     ext_last: 108,
-    ext_len: 9, // we only use the first 8 forecast steps instead of the full 48
+    ext_len: 4, // we only use the first 8 forecast steps instead of the full 48
 
     delay: Duration(secs:90,nanos:0), // added to each computed schedule minute
 

@@ -45,6 +45,7 @@ use chrono::{DateTime,TimeZone,Utc};
 use crate::{impl_deserialize_struct, impl_deserialize_seq};
 use crate::angle::{normalize_180, normalize_90, Longitude, Latitude};
 use crate::datetime::{Dated, EpochMillis};
+use crate::json_writer::{JsonWritable,JsonWriter};
 
 pub type GeoCoord = Coord<f64>;
 
@@ -246,6 +247,17 @@ impl SerializeTrait for GeoRect {
 }
 
 impl_deserialize_struct!{ GeoRect::from_wsen(west, south, east, north) }
+
+impl JsonWritable for GeoRect {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w| {
+            w.write_field("west", self.west().degrees());
+            w.write_field("south", self.south().degrees());
+            w.write_field("east", self.east().degrees());
+            w.write_field("north", self.north().degrees());      
+        });
+    }
+}
 
 /* #endregion GeoRect */
 

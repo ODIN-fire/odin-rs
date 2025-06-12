@@ -154,8 +154,13 @@ function connect () {
                         }
 
                     } else { // everything else is supposed to be a structured JSON message with a JS_MODULE receiver spec
-                        let msg = JSON.parse(data);
-                        handleServerMessage(msg);
+                        try {
+                            let msg = JSON.parse(data);
+                            handleServerMessage(msg);
+                        } catch(error) {
+                            console.error(error);
+                            //console.log("parsing websocket message:", data);
+                        }
                     }
                 };
 

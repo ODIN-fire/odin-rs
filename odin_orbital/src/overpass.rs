@@ -185,7 +185,7 @@ impl Overpass {
         w.write_field("start", self.start.timestamp_millis());
         w.write_field("end", self.end.timestamp_millis());
         w.write_field("timeStep", &format!("{:.3}", self.time_step.as_secs_f64()));
-        w.write_string_field("fname", &self.fname);
+        w.write_field("fname", &self.fname);
     }
 
     pub fn write_collapsed_json_to (&self, w: &mut JsonWriter) {

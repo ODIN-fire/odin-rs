@@ -227,3 +227,20 @@ lazy_static! {
         // and many more to follow..
     ]);
 }
+
+lazy_static! {
+    pub static ref ENC_MAP: HashMap<&'static str, &'static str> = HashMap::from( [ // file extension -> content-encoding value
+        ("gz", "gzip"),
+        ("br", "br"),
+
+        // and more to follow..
+    ]);
+}
+
+pub fn encoding_for_extension (ext: &str) -> Option<&'static str> {
+    ENC_MAP.get(ext).map(|v| &**v)
+}
+
+pub fn encoding_for_path<'a,T: AsRef<Path>> (path: &'a T) -> Option<&'static str> {
+    fs::extension(path).and_then(|ext| encoding_for_extension(ext))
+}

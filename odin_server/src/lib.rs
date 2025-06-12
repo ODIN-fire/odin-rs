@@ -18,6 +18,7 @@ use std::{net::SocketAddr, path::{Path,PathBuf}, time::Duration};
 
 use axum::{body::Body, response::{Response,IntoResponse}, Router, http::{header,StatusCode as AxStatusCode, HeaderMap, HeaderName}};
 use axum_server::{service::MakeService, tls_rustls::RustlsConfig};
+use http::{header::CONTENT_ENCODING, HeaderValue};
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
 
@@ -141,6 +142,26 @@ pub async fn file_response<P: AsRef<Path>> (path: &P, with_content_disposition: 
 
 pub fn server_error (msg: &str) -> impl IntoResponse {
     (AxStatusCode::INTERNAL_SERVER_ERROR, msg.to_string())
+}
+
+// TODO - this should be merged with file_response()
+pub fn compressable_file_response<P: AsRef<Path>> (dir: P, path: &str, not_found_msg: &str)->Response {
+    for (ext,enc) in net::ENC_MAP.iter() {
+        let pathname = dir.as_ref().join( format!("{path}.{ext}"));
+        if pathname.is_file() {
+            let mut headers = HeaderMap::new();
+            headers.insert( CONTENT_ENCODING, HeaderValue::from_static(enc));
+            return (AxStatusCode::OK, headers, std::fs::read(pathname).unwrap()).into_response()
+        }
+    }
+
+    // try original path if no compressed version found
+    let pathname = dir.as_ref().join( path);
+    if pathname.is_file() {
+        (AxStatusCode::OK, std::fs::read(pathname).unwrap()).into_response()
+    } else {
+        (AxStatusCode::NOT_FOUND, not_found_msg.to_string()).into_response()
+    }
 }
 
 //--- syntactic sugar macros

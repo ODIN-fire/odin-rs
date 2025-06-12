@@ -143,7 +143,7 @@ export class ParticlesComputing {
                     }
                 },
                 fragmentShaderSource: new Cesium.ShaderSource({
-                    sources: [Util.loadText('wind-particles/glsl/calculateSpeed.frag')]
+                    sources: [Util.loadText('./asset/odin_windninja/wind-particles/glsl/calculateSpeed.frag')]
                 }),
                 outputTexture: this.particlesTextures.particlesSpeed,
                 preExecute: function() {
@@ -170,7 +170,7 @@ export class ParticlesComputing {
                     }
                 },
                 fragmentShaderSource: new Cesium.ShaderSource({
-                    sources: [Util.loadText('wind-particles/glsl/updatePosition.frag')]
+                    sources: [Util.loadText('./asset/odin_windninja/wind-particles/glsl/updatePosition.frag')]
                 }),
                 outputTexture: this.particlesTextures.nextParticlesPosition,
                 preExecute: function() {
@@ -208,7 +208,7 @@ export class ParticlesComputing {
                     }
                 },
                 fragmentShaderSource: new Cesium.ShaderSource({
-                    sources: [Util.loadText('wind-particles/glsl/postProcessingPosition.frag')]
+                    sources: [Util.loadText('./asset/odin_windninja/wind-particles/glsl/postProcessingPosition.frag')]
                 }),
                 outputTexture: this.particlesTextures.postProcessingPosition,
                 preExecute: function() {

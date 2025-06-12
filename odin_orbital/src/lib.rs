@@ -113,8 +113,8 @@ impl OrbitalSatelliteInfo {
     pub fn write_basic_json_to (&self, w: &mut JsonWriter) {
         w.write_object(|w| {
             w.write_field("satId", self.sat_id);
-            w.write_string_field("name", &self.name);
-            w.write_string_field("instrument", &self.instrument);
+            w.write_field("name", &self.name);
+            w.write_field("instrument", &self.instrument);
             w.write_field( "maxScanAngle", self.max_scan_angle.degrees());
             w.write_field("avgHeight", self.avg_height.get::<meter>());
             w.write_field( "avgSwathWidth", self.avg_swath_width.get::<meter>());
@@ -192,7 +192,7 @@ impl JsonWritable for Hotspot {
             w.write_field("dist", self.dist.get::<meter>().round() as i64);
 
             w.write_field("date", self.date.timestamp_millis());
-            if let Some(conf) = self.conf { w.write_field("conf", conf.index()) }
+            if let Some(conf) = self.conf { w.write_field("conf", conf.index() as u64) }
 
             if let Some(temp) = self.temp { w.write_field("temp", temp.get::<kelvin>().round() as i64) }
             if let Some(frp) = self.frp { w.write_field("frp", frp.get::<megawatt>().round() as i64) }
@@ -287,10 +287,10 @@ impl HotspotList {
         w.write_field( "satId", self.sat_id);
         w.write_field( "start", self.start.timestamp_millis());
         w.write_field( "end", self.end.timestamp_millis());
-        w.write_field( "high", self.high);
-        w.write_field( "nominal", self.nominal);
-        w.write_field( "low", self.low);
-        w.write_string_field( "fname", &self.fname);
+        w.write_field( "high", self.high as u64);
+        w.write_field( "nominal", self.nominal as u64);
+        w.write_field( "low", self.low as u64);
+        w.write_field( "fname", &self.fname);
     }
 
     pub fn write_collapsed_json_to (&self, w: &mut JsonWriter) {

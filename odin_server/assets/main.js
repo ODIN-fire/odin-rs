@@ -62,6 +62,8 @@ export function postInitialize() {
 // we keep those outside of the share object since we don't want to impose the constraint that
 // handlers can only be set from a module's postInitialize()
 
+var shareInitialized = false; // set when sending SHARE_INITIALIZED
+
 var shareHandlers = []; // the list of share message handlers set by other modules
 var shareEditors = new Map(); // item_type -> {label,editor} map populated by client modules
 // var shareViewers = []; // TODO - item_type -> Entity ctor to display shared value
@@ -72,10 +74,16 @@ export function addShareHandler (newHandler) {
 }
 
 export function notifyShareHandlers (msg) {
+    if (msg.SHARE_INITIALIZED) { 
+        shareInitialized = true;
+    }
+
     for (let h of shareHandlers) {
         h(msg);
     }
 }
+
+export function isShareInitialized() { return shareInitialized; }
 
 /// shareEditors are functions that take two arguments: `edit( selValue, processEditResult(value))`
 /// - `selValue` is the (optional) value that is used to initialize the editor

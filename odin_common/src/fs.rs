@@ -230,6 +230,11 @@ pub fn append_line_to_file (path: impl AsRef<Path>, s: &str) -> Result<()> {
     writeln!( file, "{s}")
 }
 
+/// used to turn a path-like string slice into a String that can be used within filenames 
+pub fn path_str_to_fname (path: &str)->String {
+    path.replace('/', "∕")
+}
+
 pub fn get_filename_extension<'a> (path: &'a str) -> Option<&'a str> {
     if let Some(idx) = path.rfind('.') {
         if idx < path.len()-1 { 

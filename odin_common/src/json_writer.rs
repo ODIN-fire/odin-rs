@@ -15,6 +15,7 @@
 #![allow(unused)]
 
 use std::fmt::{Write,Display,Debug};
+use std::borrow::Borrow;
 
 /// a simple standalone JSON writer that produces JSON strings from  (nested) closures.
 /// Useful for conditional serialization that would overstress serde (e.g. because of
@@ -97,45 +98,26 @@ impl JsonWriter {
         f(self)
     }
     
-    pub fn write_field<T:Display> (&mut self, prop_name: &str, value: T) {
+    /// this is a catch-all for proper string/number formatting
+    pub fn write_field<T:Debug> (&mut self, prop_name: &str, value: T) {
         self.check_separator();
         write!( self.buf, "\"{prop_name}\":");
-        write!( self.buf, "{value}");
+        write!( self.buf, "{:?}", value);
     }
-
-    pub fn write_dbg_field<T:Debug> (&mut self, prop_name: &str, value: T) {
+    
+    pub fn write_json_field<T:JsonWritable> (&mut self, prop_name: &str, value: &T) {
         self.check_separator();
         write!( self.buf, "\"{prop_name}\":");
-        write!( self.buf, "{value:?}");
+        value.write_json_to(self);
     }
     
-    pub fn write_fmt_value (&mut self, value: &str) {
-        self.check_separator();
-        write!( self.buf, "{value}");
-    }
-
-    pub fn write_string_field (&mut self, prop_name: &str, value: &str) {
-        self.check_separator();
-        write!( self.buf, "\"{prop_name}\":");
-        write!( self.buf, "\"{value}\"");
-    }
-    
-    pub fn write_string_value (&mut self, value: &str) {
-        self.check_separator();
-        write!( self.buf, "\"{value}\"");
-    }
-    
-    pub fn write_value<T:Display> (&mut self, value: T) {
-        self.check_separator();
-        write!( self.buf, "{value}");
-    }
-    
-    pub fn write_dbg_value<T:Debug> (&mut self, value: T) {
+    pub fn write_value<T:Debug> (&mut self, value: T) {
         self.check_separator();
         write!( self.buf, "{value:?}");
     }
     
     
+
     pub fn to_string(self)->String { self.buf }
     
     pub fn len (&self)->usize {

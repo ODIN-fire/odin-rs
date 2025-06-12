@@ -120,7 +120,7 @@ export function viewRectangleToLonLatRange(viewRectangle) {
     range.lon = {
         min: Cesium.Math.toDegrees(longitudeMin),
         max: Cesium.Math.toDegrees(longitudeMax)
-    }
+    };
 
     var south = viewRectangle.south;
     var north = viewRectangle.north;
@@ -141,7 +141,7 @@ export function viewRectangleToLonLatRange(viewRectangle) {
     range.lat = {
         min: Cesium.Math.toDegrees(extendedSouth),
         max: Cesium.Math.toDegrees(extendedNorth)
-    }
+    };
 
     return range;
 }

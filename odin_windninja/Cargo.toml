@@ -18,6 +18,8 @@ ron = { workspace = true }
 regex = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true }
 
 odin_common = { workspace = true }
 odin_hrrr = { workspace = true }
@@ -25,6 +27,9 @@ odin_actor = { workspace = true }
 odin_build = { workspace = true }
 odin_action = { workspace = true }
 odin_dem = { workspace = true }
+odin_server = { workspace = true }
+odin_cesium = { workspace = true }
+odin_share = { workspace = true }
 
 [features]
 ## inline crate-specific resources (configs and assets) into the executable (see odin_build)

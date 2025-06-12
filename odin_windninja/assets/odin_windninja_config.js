@@ -1,6 +1,19 @@
 // example windninja_service.js module config
 
 export const config = {
+    back_hours: 1, // number of past forecast hours we keep
+
+    zoomMargin: 0.03, // in degrees lon/lat when zooming in on region bbox
+
+    regionRender: {
+        color: Cesium.Color.fromCssColorString('yellow'),
+        lineWidth: 1.5,
+        //fill: {
+        //    color: Cesium.Color.fromCssColorString('yellow'),
+        //    alpha: 0.3
+        //}
+    },
+
     vectorRender: { 
         pointSize: 4.0, 
         strokeWidth: 1.5, 
