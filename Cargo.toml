@@ -14,7 +14,7 @@ members = [
   "odin_gdal",
   "odin_dem",
   "odin_hrrr",
-  "odin_windninja",
+  "odin_wind",
 
   "odin_sentinel",
   "odin_goesr",
@@ -46,6 +46,7 @@ odin_sentinel = { version = "*", path = "odin_sentinel" }
 odin_geolayer = { version = "*", path = "odin_geolayer" }
 odin_hrrr   = { version = "*", path = "odin_hrrr" }
 odin_dem    = { version = "*", path = "odin_dem" }
+odin_wind   = { version = "*", path = "odin_wind" }
 
 # external crates for which we have to ensure the same version
 axum = { version = "0.8.4", features = [ "http2", "ws", "macros"] }

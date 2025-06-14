@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { config } from "./odin_windninja_config.js";
+import { config } from "./odin_wind_config.js";
 
 import * as main from "../odin_server/main.js";
 import * as util from "../odin_server/ui_util.js";
@@ -27,7 +27,7 @@ import * as wf from "./windfield.js";
 
 /* #region types **************************************************************************************/
 
-const MODULE_PATH ="odin_windninja::windninja_service::WindNinjaService";
+const MODULE_PATH ="odin_wind::wind_service::WindService";
 
 const RegionStatus = {
     ACTIVE: "active",

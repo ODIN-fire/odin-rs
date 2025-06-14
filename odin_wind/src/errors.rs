@@ -15,24 +15,24 @@
 use odin_actor::OdinActionFailure;
 use thiserror::Error;
 
-use crate::actor::AddWindNinjaClient;
+use crate::actor::AddWindClient;
 
-pub type Result<T> = std::result::Result<T, OdinWindNinjaError>;
+pub type Result<T> = std::result::Result<T, OdinWindError>;
 
 #[derive(Error,Debug)]
-pub enum OdinWindNinjaError {
+pub enum OdinWindError {
 
     #[error("config error {0}")]
     ConfigError( #[from] odin_build::OdinBuildError),
 
     #[error("region name already in use {0:?}")]
-    RegionInUseError(AddWindNinjaClient),
+    RegionInUseError(AddWindClient),
 
     #[error("invalid region coordinates {0:?}")]
-    InvalidRegionError(AddWindNinjaClient),
+    InvalidRegionError(AddWindClient),
 
     #[error("max number of regions exceeded {0:?}")]
-    MaxRegionsExceeded(AddWindNinjaClient),
+    MaxRegionsExceeded(AddWindClient),
 
     #[error("internal DEM error {0}")]
     DemError(String),

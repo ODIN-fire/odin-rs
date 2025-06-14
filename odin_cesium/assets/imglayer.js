@@ -77,12 +77,20 @@ function initSourceView() {
     let view = ui.getList("imglayer.source.list");
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "exclusive", tip: "only one of each group visible", width: "10rem", attrs: ["alignRight", "small"], map: e=> util.mkString(e.exclusive,',')},
+            { name: "exclusive", tip: "only one of each group visible", width: "10rem", attrs: ["alignRight", "small"], map: e=> exclusivesOf(e)},
             ui.listItemSpacerColumn(),
             { name: "show", tip: "toggle visibility", width: "2.1rem", attrs: [], map: e => ui.createCheckBox(e.show, toggleShowSource) }
         ]);
     }
     return view;
+}
+
+function exclusivesOf(e) {
+    if (e.exclusive && e.exclusive.length > 0) {
+        return util.mkString(e.exclusive,',');
+    } else {
+        return "";
+    }
 }
 
 function toggleShowSource(event) {

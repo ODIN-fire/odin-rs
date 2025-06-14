@@ -489,11 +489,13 @@ export class ContourField extends WindFieldVisualization {
         for (const e of entities) {
             let props = e.properties;
             if (props) {
-                let spd = this.getPropValue(props, "spd");
-                if (spd) {
-                    let i = Math.max(0, Math.min( Math.trunc(spd / 5), renderOpts.fillColors.length-1)); // spd < 0 ??
-                    e.polygon.material = renderOpts.fillColors[i];
-                }
+                let minSpeed = this.getPropValue(props, "minSpeed");
+                let maxSpeed = this.getPropValue(props, "maxSpeed");
+
+                //if (minSpeed) {
+                //    let i = Math.max(0, Math.min( Math.trunc(minSpeed / 5), renderOpts.fillColors.length-1)); // minSpeed < 0 ??
+                //    e.polygon.material = renderOpts.fillColors[i];
+                //}
             }
         }
     }

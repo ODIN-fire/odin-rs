@@ -14,17 +14,17 @@
 
 #![allow(unused)]
 
-/// example application to show WindNinja computed micro grid wind
+/// example application to show Wind computed micro grid wind
 
 use odin_actor::prelude::*;
 use odin_common::define_cli;
 use odin_server::prelude::*;
 use odin_share::prelude::*;
 use odin_hrrr::{self,HrrrActor,HrrrConfig,HrrrFileAvailable,schedule::{HrrrSchedules,get_hrrr_schedules}};
-use odin_windninja::{self, 
-    actor::{WindNinjaActor,WindNinjaActorMsg, AddClientResponse, server_subscribe_action, server_update_action}, 
+use odin_wind::{self, 
+    actor::{WindActor,WindActorMsg, AddClientResponse, server_subscribe_action, server_update_action}, 
     ForecastStore, Forecast, 
-    windninja_service::WindNinjaService
+    wind_service::WindService
 };
 
 run_actor_system!( actor_system => {
@@ -34,8 +34,8 @@ run_actor_system!( actor_system => {
     // spawn a shared store actor - the JS module only allows forecast region requests for shared GeoRects
     let hshare = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
 
-    let hwind = spawn_actor!( actor_system, "wind", WindNinjaActor::new(
-        odin_windninja::load_config("windninja.ron")?,
+    let hwind = spawn_actor!( actor_system, "wind", WindActor::new(
+        odin_wind::load_config("windninja.ron")?,
         pre_hrrr.to_actor_handle(),
         server_subscribe_action( pre_server.to_actor_handle()),
         server_update_action( pre_server.to_actor_handle()) 
@@ -43,7 +43,7 @@ run_actor_system!( actor_system => {
 
     let hrrr = spawn_pre_actor!( actor_system, pre_hrrr, HrrrActor::with_statistic_schedules(
         odin_hrrr::load_config( "hrrr_conus-8.ron")?,
-        data_action!( let hwind: ActorHandle<WindNinjaActorMsg> = hwind.clone() => |data: HrrrFileAvailable| {
+        data_action!( let hwind: ActorHandle<WindActorMsg> = hwind.clone() => |data: HrrrFileAvailable| {
             Ok( hwind.try_send_msg( data)? )
         })
     ).await? )?;
@@ -53,7 +53,7 @@ run_actor_system!( actor_system => {
         "wind",
         SpaServiceList::new()
             .add( build_service!( let hshare = hshare.clone() => ShareService::new( "odin_share_schema.js", hshare)) )
-            .add( build_service!( => WindNinjaService::new( hwind) ))
+            .add( build_service!( => WindService::new( hwind) ))
     ))?;
 
     Ok(())   

@@ -13,10 +13,17 @@
  */
 #![allow(unused)]
 
-use std::{net::SocketAddr,any::type_name};
-use odin_common::{datetime::epoch_millis, strings::to_string_vec, collections::empty_vec};
+use std::{any::type_name, collections::HashMap, net::SocketAddr, sync::Arc, path::{Path,PathBuf}, fs};
+use axum::{
+    http::StatusCode,
+    extract::{Path as AxumPath},
+    routing::{Router,get},
+    response::{Response,IntoResponse}
+};
 use async_trait::async_trait;
+use serde::Deserialize;
 
+use odin_common::{collections::empty_vec, datetime::epoch_millis, fs::replace_env_var_path, strings::to_string_vec};
 use odin_build::prelude::*;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
@@ -104,13 +111,61 @@ impl SpaService for CesiumService {
 
 /* #region ImgLayerService ***********************************************************************************/
 
+#[derive(Debug,Deserialize)]
+pub struct ImgLayerConfig {
+    // this allows us to run local TMS services from the same server, i.e. without the need to add CORS headers
+    // please note this is a potential bottleneck - use only for a small number of users and for development
+    // the entries will be available under `http://<hostname>:<port>/tms/<key>``
+    pub tms_map: HashMap<String,PathBuf> // key -> local dir
+}
+
+impl ImgLayerConfig {
+    fn expand_tms_map (&self) -> HashMap<String,PathBuf> {
+        let mut tms_map = HashMap::with_capacity( self.tms_map.len());
+        for (k,path) in self.tms_map.iter() {
+            if let Ok(path) = replace_env_var_path( &path) {
+                if path.is_dir() {
+                    tms_map.insert(k.clone(), path);
+                } else {
+                    eprintln!("local TMS directory does not exist {path:?}");
+                }
+            } else {
+                eprintln!("failed to expand local TMS directory path {path:?}");
+            }
+        }
+        tms_map
+    }
+}
+
 /// this is a resource-only SpaService that provides a configurable imagery layer (globe tiles plus imagery overlays)
 pub struct ImgLayerService {
-    // nothing yet
+    config: ImgLayerConfig,
+
+    tms_map: Arc<HashMap<String,PathBuf>>
 }
 
 impl ImgLayerService {
-    pub fn new()->Self { ImgLayerService{} }
+    pub fn new ()->Self {
+        Self::from( load_config("imglayer.ron").unwrap()) // Ok to panic - this is called from a toplevel ctor
+    }
+
+    pub fn from (config: ImgLayerConfig)->Self { 
+        let tms_map = Arc::new( config.expand_tms_map());
+        ImgLayerService{config, tms_map}
+    }
+
+    async fn tms_handler ( AxumPath((tms_root,request_path)): AxumPath<(String,String)>, tms_map: Arc<HashMap<String,PathBuf>>) -> Response {
+        if let Some(dir) = tms_map.get( tms_root.as_str()) {
+            let path = dir.join(request_path.as_str());
+            if path.is_file() {
+                (StatusCode::OK, fs::read(path).unwrap()).into_response()
+            } else {
+                (StatusCode::NOT_FOUND, "tile not found").into_response()
+            }
+        } else {
+            (StatusCode::NOT_FOUND, "unknown TMS service").into_response()
+        }
+    }
 }
 
 // headers to copy from the proxied request for OpenStreetMap tiles - see https://operations.osmfoundation.org/policies/tiles/
@@ -131,6 +186,15 @@ impl SpaService for ImgLayerService {
         spa.add_proxy("globe-natgeo", "https://services.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer");
         spa.add_modified_proxy("globe-osm", "https://tile.openstreetmap.org", to_string_vec(OSM_HDR), empty_vec(), true, empty_vec());
         spa.add_modified_proxy("globe-otm", "https://tile.opentopomap.org", to_string_vec(OSM_HDR), empty_vec(), true, empty_vec());
+
+        if !self.tms_map.is_empty() {
+            let tms_map = self.tms_map.clone();
+            spa.add_route( |router, spa_server_state| {
+                router.route( &format!("/{}/tms/{{tms_root}}/{{*unmatched}}", spa_server_state.name.as_str()), get({
+                    move |path_elems| Self::tms_handler( path_elems, tms_map.clone()) 
+                }))
+            });
+        }
 
         Ok(())
     }

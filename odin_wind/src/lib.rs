@@ -28,7 +28,7 @@ use lazy_static::lazy_static;
 //mod fetchdem;
 pub mod actor;
 pub mod errors;
-pub mod windninja_service;
+pub mod wind_service;
 
 
 lazy_static! {
@@ -40,7 +40,7 @@ define_load_config!{}
 define_load_asset!{}
 
 #[derive(Serialize,Deserialize,Debug)]
-pub struct WindNinjaConfig {
+pub struct WindConfig {
     max_age: Duration, // how long to keep cached data files
     max_forecasts: usize, // max number of forecasts to keep for each region (in ringbuffer)
     windninja_cmd: String, // pathname for windninja executable

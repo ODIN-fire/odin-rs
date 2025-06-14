@@ -26,18 +26,18 @@ use odin_server::prelude::*;
 use odin_cesium::ImgLayerService;
 
 use crate::{
-    actor::{AddWindNinjaClient, RemoveWindNinjaClient, ExecSnapshotAction, WindNinjaActorMsg, WindNinjaRegion}, 
+    actor::{AddWindClient, RemoveWindClient, ExecSnapshotAction, WindActorMsg, WindRegion}, 
     forecast_regions_to_json, load_asset, ForecastStore, PKG_CACHE_DIR
 };
 
-pub struct WindNinjaService {
-    hwind: ActorHandle<WindNinjaActorMsg>,
+pub struct WindService {
+    hwind: ActorHandle<WindActorMsg>,
     // TODO
 }
 
-impl WindNinjaService {
-    pub fn new (hwind: ActorHandle<WindNinjaActorMsg>)->Self {
-        WindNinjaService { hwind }
+impl WindService {
+    pub fn new (hwind: ActorHandle<WindActorMsg>)->Self {
+        WindService { hwind }
     }
 
     async fn data_handler (path: AxumPath<String>) -> Response {
@@ -47,7 +47,7 @@ impl WindNinjaService {
 }
 
 #[async_trait]
-impl SpaService for WindNinjaService {
+impl SpaService for WindService {
     fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
         spa_builder
             .add( build_service!( => UiService::new()))
@@ -58,8 +58,8 @@ impl SpaService for WindNinjaService {
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {
         spa.add_assets( self_crate!(), load_asset);
 
-        spa.add_module( asset_uri!( "odin_windninja_config.js"));
-        spa.add_module( asset_uri!( "odin_windninja.js" ));
+        spa.add_module( asset_uri!( "odin_wind_config.js"));
+        spa.add_module( asset_uri!( "odin_wind.js" ));
 
         //--- the visualization support modules
         spa.add_module( asset_uri!( "windfield.js" ));
@@ -87,7 +87,7 @@ impl SpaService for WindNinjaService {
             |data: &ForecastStore| { 
                 if !data.is_empty() {
                     let json = forecast_regions_to_json(data);
-                    let ws_msg = ws_msg_from_json( WindNinjaService::mod_path(), "forecastRegions", &json);
+                    let ws_msg = ws_msg_from_json( WindService::mod_path(), "forecastRegions", &json);
                     let remote_addr = *remote_addr;
                     hself.send_msg( SendWsMsg{remote_addr,ws_msg}).await;
                 }
@@ -103,19 +103,19 @@ impl SpaService for WindNinjaService {
     async fn handle_ws_msg (&mut self, 
         hserver: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr, ws_msg_parts: &WsMsgParts) -> OdinServerResult<WsMsgReaction> 
     {
-        if ws_msg_parts.mod_path == WindNinjaService::mod_path() {
+        if ws_msg_parts.mod_path == WindService::mod_path() {
             match ws_msg_parts.msg_type {
                 "addWindClient" => {
-                    let wn_region: WindNinjaRegion = serde_json::from_str(&ws_msg_parts.payload)?;
+                    let wn_region: WindRegion = serde_json::from_str(&ws_msg_parts.payload)?;
                     info!("got addWindClient {:?} from {:?}", wn_region.name, remote_addr);
-                    self.hwind.send_msg( AddWindNinjaClient{wn_region,remote_addr: Some(remote_addr.clone())}).await;
+                    self.hwind.send_msg( AddWindClient{wn_region,remote_addr: Some(remote_addr.clone())}).await;
                 }
                 "removeWindClient" => {
-                    let wn_region: WindNinjaRegion = serde_json::from_str(&ws_msg_parts.payload)?;
+                    let wn_region: WindRegion = serde_json::from_str(&ws_msg_parts.payload)?;
                     info!("got removeWindClient {:?} from {:?}", wn_region.name, remote_addr);
                     let region = Some(wn_region.name);
                     let remote_addr = Some(remote_addr.clone());
-                    self.hwind.send_msg( RemoveWindNinjaClient{region,remote_addr}).await;
+                    self.hwind.send_msg( RemoveWindClient{region,remote_addr}).await;
                 }
                 _ => {}
             }
@@ -127,7 +127,7 @@ impl SpaService for WindNinjaService {
     // let actor know about dropped connection - it might have been a subscriber
     // unfortunately we have to delegate this to the actor since we don't know if 'addWindClient' requests get rejected
     async fn remove_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr) -> OdinServerResult<()> {
-        self.hwind.send_msg( RemoveWindNinjaClient{region:None, remote_addr: Some(remote_addr.clone())}).await;
+        self.hwind.send_msg( RemoveWindClient{region:None, remote_addr: Some(remote_addr.clone())}).await;
         Ok(())
     }
 }
