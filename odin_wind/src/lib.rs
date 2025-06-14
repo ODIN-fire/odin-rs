@@ -49,6 +49,7 @@ pub struct WindConfig {
 
     huvw_csv_grid_cmd: String, // where to find the HUVW CSV file generator
     huvw_csv_vector_cmd: String, // where to find the HUVW CSV vector generator
+    huvw_json_contour_cmd: String, // where to find the GeoJSON contour generator
 
     dem: DemSource, // where to get the DEM grid from
     dem_res: f64, // dem pixel sizes in meters

@@ -1,6 +1,6 @@
 // RON config file for odin_windninja
 
-WindNinjaConfig(
+WindConfig(
     max_age: Duration( secs: 3600, nanos: 0), // 1h - how long to keep cached data files
     max_forecasts: 18, // max number of forecasts to keep for each region (in ringbuffer)
     

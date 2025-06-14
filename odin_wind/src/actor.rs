@@ -55,6 +55,7 @@ pub struct WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
     windninja_cmd: String,
     huvw_csv_grid_cmd: String,
     huvw_csv_vector_cmd: String,
+    huvw_json_contour_cmd: String,
 
     cache_dir: Arc<PathBuf>,         // where to store computed forecasts
     hrrr: ActorHandle<HrrrActorMsg>, // where to get new HRRR reports from - this drives our data update
@@ -73,6 +74,7 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
          let windninja_cmd = path_to_unchecked_string( replace_env_var_path( &config.windninja_cmd).unwrap()); // Ok to panic - this is the ctor
          let huvw_csv_grid_cmd = path_to_unchecked_string( replace_env_var_path( &config.huvw_csv_grid_cmd).unwrap());
          let huvw_csv_vector_cmd = path_to_unchecked_string( replace_env_var_path( &config.huvw_csv_vector_cmd).unwrap());
+         let huvw_json_contour_cmd = path_to_unchecked_string( replace_env_var_path( &config.huvw_json_contour_cmd).unwrap());
 
         let config = Arc::new(config);
         let cache_dir = Arc::new(pkg_cache_dir!());
@@ -80,7 +82,7 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
  
         WindActor { 
             config,
-            windninja_cmd, huvw_csv_grid_cmd, huvw_csv_vector_cmd, 
+            windninja_cmd, huvw_csv_grid_cmd, huvw_csv_vector_cmd, huvw_json_contour_cmd,
             cache_dir, 
             hrrr, 
             forecast_store, 
@@ -245,7 +247,7 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
     async fn process_forecast (&mut self, forecast: &Forecast)->Result<()> {
         let huvw_grid = create_huvw_csv_grid( &self.huvw_csv_grid_cmd, &forecast).await?;
         let huvw_vector = create_huvw_csv_vector( &self.huvw_csv_vector_cmd, &forecast).await?;
-        // TODO - add contour and HRRR grid computation here
+        let huvw_contour = create_huvw_json_contour( &self.huvw_json_contour_cmd, &forecast).await?;
 
         self.add_forecast( forecast.clone());
 
@@ -403,7 +405,7 @@ async fn create_huvw_csv_grid (cmd: &String, forecast: &Forecast) -> Result<()> 
     if !in_path.is_file() { return Err(OdinWindError::ExecError(format!("no such Wind output file {:?}", in_path))) }
     let out_path = forecast.get_huvw_grid_path();
 
-    exec_huvw_csv_gen( cmd, &in_path, &out_path).await
+    exec_huvw_gen( cmd, &in_path, &out_path).await
 }
 
 /// this takes the Wind_cli generated huvw UTM grid and turns it into a list of ECEF vectors formatted as CSV.
@@ -412,7 +414,7 @@ async fn create_huvw_csv_vector (cmd: &String, forecast: &Forecast) -> Result<()
     if !in_path.is_file() { return Err(OdinWindError::ExecError(format!("no such Wind output file {:?}", in_path))) }
     let out_path = forecast.get_huvw_vector_path();
 
-    exec_huvw_csv_gen( cmd, &in_path, &out_path).await
+    exec_huvw_gen( cmd, &in_path, &out_path).await
 }
 
 async fn create_huvw_json_contour (cmd: &String, forecast: &Forecast) -> Result<()> {
@@ -420,10 +422,10 @@ async fn create_huvw_json_contour (cmd: &String, forecast: &Forecast) -> Result<
     if !in_path.is_file() { return Err(OdinWindError::ExecError(format!("no such Wind output file {:?}", in_path))) }
     let out_path = forecast.get_huvw_contour_path();
 
-    exec_huvw_csv_gen( cmd, &in_path, &out_path).await
+    exec_huvw_gen( cmd, &in_path, &out_path).await
 }
 
-async fn exec_huvw_csv_gen (cmd_path: &String, in_path: &PathBuf, out_path: &PathBuf) -> Result<()> {
+async fn exec_huvw_gen (cmd_path: &String, in_path: &PathBuf, out_path: &PathBuf) -> Result<()> {
     let mut cmd = Command::new(cmd_path);
     cmd
         .arg( "-z") // compress output
@@ -432,10 +434,6 @@ async fn exec_huvw_csv_gen (cmd_path: &String, in_path: &PathBuf, out_path: &Pat
 
     execute_cmd( &mut cmd).await?;
     Ok(())
-}
-
-async fn run_huvw_csv_contour (config: &WindConfig, cache_dir: &PathBuf, huvw_utm_grid: &PathBuf, wn_job: &WnJob) -> Result<PathBuf> {
-    todo!()
 }
 
 /* #region Wind actor messages ****************************************************************/

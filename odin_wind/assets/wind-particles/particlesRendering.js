@@ -196,10 +196,10 @@ export class ParticlesRendering {
                     }
                 },
                 vertexShaderSource: new Cesium.ShaderSource({
-                    sources: [Util.loadText('./asset/odin_windninja/wind-particles/glsl/segmentDraw.vert')]
+                    sources: [Util.loadText('./asset/odin_wind/wind-particles/glsl/segmentDraw.vert')]
                 }),
                 fragmentShaderSource: new Cesium.ShaderSource({
-                    sources: [Util.loadText('./asset/odin_windninja/wind-particles/glsl/segmentDraw.frag')]
+                    sources: [Util.loadText('./asset/odin_wind/wind-particles/glsl/segmentDraw.frag')]
                 }),
                 rawRenderState: Util.createRawRenderState({
                     // undefined value means let Cesium deal with it
@@ -241,11 +241,11 @@ export class ParticlesRendering {
                 // prevent Cesium from writing depth because the depth here should be written manually
                 vertexShaderSource: new Cesium.ShaderSource({
                     defines: ['DISABLE_GL_POSITION_LOG_DEPTH'],
-                    sources: [Util.loadText('./asset/odin_windninja/wind-particles/glsl/fullscreen.vert')]
+                    sources: [Util.loadText('./asset/odin_wind/wind-particles/glsl/fullscreen.vert')]
                 }),
                 fragmentShaderSource: new Cesium.ShaderSource({
                     defines: ['DISABLE_LOG_DEPTH_FRAGMENT_WRITE'],
-                    sources: [Util.loadText('./asset/odin_windninja/wind-particles/glsl/trailDraw.frag')]
+                    sources: [Util.loadText('./asset/odin_wind/wind-particles/glsl/trailDraw.frag')]
                 }),
                 rawRenderState: Util.createRawRenderState({
                     viewport: undefined,
@@ -289,11 +289,11 @@ export class ParticlesRendering {
                 // prevent Cesium from writing depth because the depth here should be written manually
                 vertexShaderSource: new Cesium.ShaderSource({
                     defines: ['DISABLE_GL_POSITION_LOG_DEPTH'],
-                    sources: [Util.loadText('./asset/odin_windninja/wind-particles/glsl/fullscreen.vert')]
+                    sources: [Util.loadText('./asset/odin_wind/wind-particles/glsl/fullscreen.vert')]
                 }),
                 fragmentShaderSource: new Cesium.ShaderSource({
                     defines: ['DISABLE_LOG_DEPTH_FRAGMENT_WRITE'],
-                    sources: [Util.loadText('./asset/odin_windninja/wind-particles/glsl/screenDraw.frag')]
+                    sources: [Util.loadText('./asset/odin_wind/wind-particles/glsl/screenDraw.frag')]
                 }),
                 rawRenderState: Util.createRawRenderState({
                     viewport: undefined,

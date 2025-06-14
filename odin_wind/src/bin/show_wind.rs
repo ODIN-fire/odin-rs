@@ -35,7 +35,7 @@ run_actor_system!( actor_system => {
     let hshare = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
 
     let hwind = spawn_actor!( actor_system, "wind", WindActor::new(
-        odin_wind::load_config("windninja.ron")?,
+        odin_wind::load_config("wind.ron")?,
         pre_hrrr.to_actor_handle(),
         server_subscribe_action( pre_server.to_actor_handle()),
         server_update_action( pre_server.to_actor_handle()) 

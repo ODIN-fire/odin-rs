@@ -455,31 +455,28 @@ export class ContourField extends WindFieldVisualization {
     }
 
     async loadContoursFromUrl() {
-        let url = `./wind-data/${this.urlBase}.json`;
+        let url = `./wind-data/${this.urlBase}_contour.json`;
 
-        let geoJsonRenderOpts = this.getGeoJsonRenderOpts;
-        let response = await fetch( url);
-        let data = await response.json();
-        console.log("loaded contour from", url);
-
-        Cesium.GeoJsonDataSource.load(data, geoJsonRenderOpts).then(  // TODO - does this support streams? 
-            ds => {
-                this.dataSource = ds;
-                this.postProcessDataSource();
-
-                odinCesium.addDataSource(ds);
-                odinCesium.requestRender();
-                //setTimeout( () => odinCesium.requestRender(), 300); // ??
-            }
-        );
-    }
-
-    getGeoJsonRenderOpts() {
-        return { 
+        let geoJsonRenderOpts = { 
             stroke: this.renderOpts.strokeColor, 
             strokeWidth: this.renderOpts.strokeWidth, 
             fill: this.renderOpts.fillColors[0]
         };
+
+        let response = await fetch( url);
+        let data = await response.json();
+
+        Cesium.GeoJsonDataSource.load(data, geoJsonRenderOpts).then(  // TODO - does this support streams? 
+            (ds) => {
+                this.dataSource = ds;
+                this.postProcessDataSource();
+                console.log("loaded contour from", url);
+
+                odinCesium.addDataSource(ds);
+                odinCesium.requestRender();
+                setTimeout( () => odinCesium.requestRender(), 300); // ??
+            }
+        );
     }
 
     postProcessDataSource() {
@@ -492,10 +489,10 @@ export class ContourField extends WindFieldVisualization {
                 let minSpeed = this.getPropValue(props, "minSpeed");
                 let maxSpeed = this.getPropValue(props, "maxSpeed");
 
-                //if (minSpeed) {
-                //    let i = Math.max(0, Math.min( Math.trunc(minSpeed / 5), renderOpts.fillColors.length-1)); // minSpeed < 0 ??
-                //    e.polygon.material = renderOpts.fillColors[i];
-                //}
+                if (minSpeed) {
+                    let i = Math.max(0, Math.min( Math.trunc(minSpeed / 5), renderOpts.fillColors.length-1)); // minSpeed < 0 ??
+                    e.polygon.material = renderOpts.fillColors[i];
+                }
             }
         }
     }

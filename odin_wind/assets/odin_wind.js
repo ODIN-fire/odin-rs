@@ -152,7 +152,7 @@ class Forecast {
         this.windField = {};
         this.windField[wf.DisplayType.DISPLAY_ANIM] = new wf.AnimField( urlBase, animRender, wfStatusChanged);
         this.windField[wf.DisplayType.DISPLAY_VECTOR] = new wf.VectorField( urlBase, vectorRender, wfStatusChanged);
-        this.windField[wf.DisplayType.DISPLAY_CONTOUR] = new wf.ContourField( urlBase, animRender, wfStatusChanged);
+        this.windField[wf.DisplayType.DISPLAY_CONTOUR] = new wf.ContourField( urlBase, contourRender, wfStatusChanged);
         //.. and more to follow
     }
 
@@ -165,6 +165,8 @@ class Forecast {
     renderChanged () { this.windField[displayType].renderChanged(); }
 
     getDisplayWindField () { return this.windField[displayType]; }
+
+    isShowing() { return Object.is( this.status(), wf.WindFieldStatus.SHOWING); }
 }
 
 /* #endregion types */
@@ -200,7 +202,7 @@ initVectorDisplayControls();
 initContourDisplayControls();
 
 odinCesium.initLayerPanel("wind", config, showWind);
-console.log("odin_windninja initialized");
+console.log("odin_wind initialized");
 
 /* #region websocket message handler ***********************************************************************/
 
@@ -342,11 +344,11 @@ function getSharedGeoRects() {
 /* #region UI window ***************************************************************************************/
 
 function createIcon() {
-    return ui.Icon("./asset/odin_windninja/wind-icon.svg", (e)=> ui.toggleWindow(e,'wind'), "local wind prediction");
+    return ui.Icon("./asset/odin_wind/wind-icon.svg", (e)=> ui.toggleWindow(e,'wind'), "local wind prediction");
 }
 
 function createWindow() {
-    return ui.Window("Wind", "wind", "./asset/odin_windninja/wind-icon.svg")(
+    return ui.Window("Wind", "wind", "./asset/odin_wind/wind-icon.svg")(
         ui.LayerPanel("wind", toggleShowWind),
         
         ui.Panel("wind-fields", true)(
@@ -414,7 +416,7 @@ function initForecastView() {
             { name: "src", tip: "weather forecast source", width: "4rem", attrs:[], map: e => e.wxSrc },
             ui.listItemSpacerColumn(1),
             { name: "", width: "1rem", attrs:[], map: e => e.status() },
-            { name: "show", tip: "toggle windfield visibility", width: "2.1rem", attrs: [], map: e => ui.createCheckBox(e.show, toggleShowWindField) },
+            { name: "show", tip: "toggle windfield visibility", width: "2.1rem", attrs: [], map: e => ui.createCheckBox(e.isShowing(), toggleShowWindField) },
         ]);
     }
     return view;
@@ -588,10 +590,8 @@ function toggleShowWindField (event) {
 // callback when a wind field visualization has changed status (it might not be showing)
 function wfStatusChanged (wf) {
     if (selectedRegion) {
-        if (wf.displayType === displayType) { // shortcut - otherwise it is not showing
-            for (let forecast of selectRegion.forecasts) {
-                if (Object.is(wf, forecast.getDisplayWindField())) ui.updateListItem( forecastView, forecast);
-            }
+        if (Object.is( displayType, wf.displayType)) { // shortcut - otherwise it is not showing
+            ui.updateListItem( forecastView, forecast);
         }
     }
 }
