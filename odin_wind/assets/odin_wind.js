@@ -52,6 +52,7 @@ class ForecastRegion {
     isRectShowing() { return (this.asset != null); }
 
     addForecast (newForecast) {
+        let isRegionSelected = Object.is( this, selectedRegion); 
         this.purgeOldForecasts();
 
         let forecasts = this.forecasts;
@@ -61,16 +62,21 @@ class ForecastRegion {
             let f = forecasts[i];
             if (newForecast.date < f.date) {
                 forecasts.splice(i, 0, newForecast);
+                if (isRegionSelected) ui.insertListItem( forecastView, newForecast, i);
+
                 return;
             } else if (newForecast.date == f.date) {
                 if (newForecast.step <= f.step) { // this replaces an outdated forecast
                     forecasts[i] = newForecast;
+                    if (isRegionSelected) ui.appendListItem( forecastView, newForecast);
+
                 } // otherwise the new forecast was dead on arrival
                 return;
             }
         }
 
         forecasts.push( newForecast);
+        if (isRegionSelected) ui.appendListItem( forecastView, newForecast);
     }
 
     purgeOldForecasts () {
@@ -153,6 +159,11 @@ class Forecast {
         this.windField[wf.DisplayType.DISPLAY_ANIM] = new wf.AnimField( urlBase, animRender, wfStatusChanged);
         this.windField[wf.DisplayType.DISPLAY_VECTOR] = new wf.VectorField( urlBase, vectorRender, wfStatusChanged);
         this.windField[wf.DisplayType.DISPLAY_CONTOUR] = new wf.ContourField( urlBase, contourRender, wfStatusChanged);
+
+        this.windField[wf.DisplayType.DISPLAY_ANIM_WX_10] = new wf.AnimFieldWx10( urlBase, animRenderWx, wfStatusChanged);
+        this.windField[wf.DisplayType.DISPLAY_ANIM_WX_80] = new wf.AnimFieldWx80( urlBase, animRenderWx, wfStatusChanged);
+
+
         //.. and more to follow
     }
 
@@ -189,6 +200,7 @@ var selectedForecast = undefined;
 var animRender = {...config.animRender};
 var vectorRender = {...config.vectorRender};
 var contourRender = {...config.contourRender};
+var animRenderWx = {...config.animRenderWx};
 
 setupEventListeners();
 
@@ -270,11 +282,8 @@ function handleForecast (fcMsg) {
     let fr = forecastRegions.get(fcMsg.region);
     if (fr) {
         let fc = new Forecast( fcMsg.date, fcMsg.step, fcMsg.mesh, util.intern(fcMsg.wxSrc), fcMsg.urlBase);
-        fr.addForecast( fc);
+        fr.addForecast( fc); // this takes care of updating the forecastView if the region is selected
         ui.updateListItem( regionView, fr);
-        if (Object.is( fr, selectedRegion)) {
-            ui.setListItems( forecastView, fr.forecasts);
-        }
     }
 }
 
@@ -358,7 +367,10 @@ function createWindow() {
             ui.RowContainer()(
                 ui.Radio("anim", setAnimDisplay, "wind.field.anim", true),
                 ui.Radio("vector", setVectorDisplay, "wind.field.vector"),
-                ui.Radio("contour", setContourDisplay, "wind.field.contour")
+                ui.Radio("contour", setContourDisplay, "wind.field.contour"),
+                ui.HorizontalSpacer(1),
+                ui.Radio("wx_10m", setWx10Display, "wind.field.wx10"),
+                //ui.Radio("wx_80m", setWx80Display, "wind.field.wx80"),
             ),
             (forecastView = ui.List("wind.forecasts", 6, selectForecast))
         ),
@@ -601,21 +613,33 @@ function setAnimDisplay () {
     updateForecasts();
 }
 
-function isAnimDisplay() { Object.is( displayType, wf.DisplayType.DISPLAY_ANIM) }
+function isAnimDisplay() { 
+    return Object.is( displayType, wf.DisplayType.DISPLAY_ANIM) || Object.is( displayType, wf.DisplayType.DISPLAY_ANIM_WX_10);
+}
 
 function setVectorDisplay () { 
     displayType = wf.DisplayType.DISPLAY_VECTOR; 
     updateForecasts();
 }
 
-function isVectorDisplay() { Object.is( displayType, wf.DisplayType.DISPLAY_VECTOR) }
+function isVectorDisplay() { return Object.is( displayType, wf.DisplayType.DISPLAY_VECTOR); }
 
 function setContourDisplay () { 
     displayType = wf.DisplayType.DISPLAY_CONTOUR; 
     updateForecasts();
 }
 
-function isContourDisplay() { Object.is( displayType, wf.DisplayType.DISPLAY_CONTOUR) }
+function isContourDisplay() { return Object.is( displayType, wf.DisplayType.DISPLAY_CONTOUR); }
+
+function setWx10Display() {
+    displayType = wf.DisplayType.DISPLAY_ANIM_WX_10;
+    updateForecasts();
+}
+
+function setWx80Display() {
+    displayType = wf.DisplayType.DISPLAY_ANIM_WX_80;
+    updateForecasts();
+}
 
 function updateForecasts () {
     if (selectedRegion) {

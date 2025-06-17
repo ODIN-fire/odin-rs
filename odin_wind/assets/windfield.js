@@ -29,10 +29,13 @@ const polyLineColorAppearance = new Cesium.PolylineColorAppearance();
 
 const globeBoundingSphere = new Cesium.BoundingSphere(Cesium.Cartesian3.ZERO, 0.99 * 6378137.0);
 
-export const DisplayType = {
+export const DisplayType = { // those values are used as field names in odin_wind.js so they have to be valid identifiers
     DISPLAY_ANIM: "anim",
     DISPLAY_VECTOR: "vector",
-    DISPLAY_CONTOUR: "contour"
+    DISPLAY_CONTOUR: "contour",
+
+    DISPLAY_ANIM_WX_10: "animWx10",
+    DISPLAY_ANIM_WX_80: "animWx80"
 };
 
 /// the status of WindFieldVisualization objects as exposed to our owning forecast object
@@ -81,7 +84,7 @@ export class WindFieldVisualization {
         this.urlBase = urlBase;
         this.status = WindFieldStatus.REMOTE;
         this.show = false;
-        this.renderOpts = {...defaultRenderOpts};
+        this.renderOpts = defaultRenderOpts;
     }
 
     setStatus (newStatus) {
@@ -157,6 +160,10 @@ export class AnimField extends WindFieldVisualization {
         }
     }
 
+    dataUrl() { // overloaded by subclasses
+        return `./wind-data/${this.urlBase}.csv`;
+    }
+
     async loadParticleSystemFromUrl() {
 
         let nx, x0, dx, ny, y0, dy; // grid bounds and cell size
@@ -226,7 +233,7 @@ export class AnimField extends WindFieldVisualization {
             return { array: a, min: vMin, max: vMax };
         }
     
-        let url = `./wind-data/${this.urlBase}.csv`;
+        let url = this.dataUrl();
 
         this.setStatus( WindFieldStatus.LOADING);
         await util.forEachTextLine( url, procLine);
@@ -277,6 +284,30 @@ export class AnimField extends WindFieldVisualization {
         ui.setSliderValue( ui.getSlider("wind.anim.width"), r.lineWidth);
 
         ui.setField( ui.getField("wind.anim.color"), r.color.toCssHexString());
+    }
+}
+
+//--- specialized AnimFields (based on Wx data)
+
+export class AnimFieldWx10 extends AnimField {
+    constructor (urlBase, defaultRenderOpts, statusChangeCallback=null) {
+        super( urlBase, defaultRenderOpts, statusChangeCallback); // watch out - displayType will be overwritten
+        this.displayType = DisplayType.DISPLAY_ANIM_WX_10;
+    }
+
+    dataUrl() { // overloaded by subclasses
+        return `./wind-data/${this.urlBase}_hrrr_10.csv`;
+    }
+}
+
+export class AnimFieldWx80 extends AnimField {
+    constructor (urlBase, defaultRenderOpts, statusChangeCallback=null) {
+        super( urlBase, defaultRenderOpts, statusChangeCallback); // watch out - displayType will be overwritten
+        this.displayType = DisplayType.DISPLAY_ANIM_WX_80;
+    }
+
+    dataUrl() { // overloaded by subclasses
+        return `./wind-data/${this.urlBase}_hrrr_80.csv`;
     }
 }
 

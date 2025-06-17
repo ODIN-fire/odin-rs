@@ -21,7 +21,7 @@ use gdal::cpl::CslStringList;
 use gdal::spatial_ref::SpatialRef;
 use gdal_sys::{GDALDatasetH, GDALProgressFunc, GDALWarpOptions, CPLErr::CE_None, CPLErr};
 use libc::{c_void,c_char,c_int, c_double};
-use odin_common::BoundingBox;
+use odin_common::{BoundingBox,geo::GeoRect};
 use crate::{ok_non_null, ok_mut_non_null, ok_not_zero, ok_ce_none};
 use crate::errors::{Result,last_gdal_error, misc_error, OdinGdalError, reset_last_gdal_error};
 
@@ -85,6 +85,14 @@ impl <'a> SimpleWarpBuilder<'a> {
         self.max_x = bbox.east;
         self.min_y = bbox.south;
         self.max_y = bbox.north;
+        self
+    }
+
+    pub fn set_tgt_extent_from_rect (&mut self, bbox: &GeoRect) ->  &mut SimpleWarpBuilder<'a> {
+        self.min_x = bbox.west().degrees();
+        self.max_x = bbox.east().degrees();
+        self.min_y = bbox.south().degrees();
+        self.max_y = bbox.north().degrees();
         self
     }
 
@@ -361,3 +369,22 @@ impl <'a> SimpleWarpBuilder<'a> {
     }
 }
 
+
+//--- high level warpers
+
+pub fn warp_to_rect (src_path: &PathBuf, tgt_path: &PathBuf, epsg: u32, bbox: &GeoRect, tgt_res: Option<f64>) -> Result<Dataset> {
+    let src_ds = Dataset::open(src_path)?;
+    let tgt_srs = SpatialRef::from_epsg(epsg)?;
+    let tgt_format = "GTiff";
+
+    let mut warper = SimpleWarpBuilder::new( &src_ds, tgt_path)?;
+    warper.set_tgt_extent_from_rect(bbox);
+    warper.set_tgt_srs( &tgt_srs);
+    warper.set_tgt_format( tgt_format);
+
+    if let Some(res) = tgt_res {
+        warper.set_tgt_resolution(res, res);
+    }
+
+    warper.exec()
+}

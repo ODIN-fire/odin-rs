@@ -45,9 +45,10 @@ var moveTimer = undefined; // set once we get the first upcoming overpass
 var selCompleted = undefined;
 var showHistory = false;  // shall we show footprints of past entries?
 var followLatest = false; // always show latest completed overpass
+var areaHotspotsOnly = false; // should we only show hotspots in area (if there is one set)
 
 var areaAsset = undefined;
-var area = undefined;  // bounds as Rectangle
+var area = undefined;  // bounds (as Rectangle) of on-demand region of interest
 var areaVertices = [];
 
 var zoomHeight = 20000;
@@ -181,9 +182,10 @@ function createWindow() {
                 )
             ),
             ui.RowContainer()(
-                ui.CheckBox("sel sat only", toggleSelSatOnly, "orbital.sel_sat"),
-                ui.CheckBox("follow latest", toggleFollowLatest, "orbital.follow_latest"),
-                ui.CheckBox("show history", toggleShowHistory, "orbital.show_history"),
+                ui.CheckBox("sel sat", toggleSelSatOnly, "orbital.sel_sat"),
+                ui.CheckBox("area", toggleAreaHotspotsOnly, "orbital.area_hs_only"),
+                ui.CheckBox("follow", toggleFollowLatest, "orbital.follow_latest"),
+                ui.CheckBox("history", toggleShowHistory, "orbital.show_history"),
                 ui.HorizontalSpacer(2),
                 ui.ListControls("orbital.past",null,null,null,null,clearOrbits)
             )
@@ -378,9 +380,13 @@ function hotspotClassifier (he) {
 }
 
 function isHotspotInArea (hs) {
-    let lat = hs.lat;
-    let lon = hs.lon;
-    return (lat > area.south) && (lat < area.north) && (lon > area.west) && (lon < area.east);
+    if (area && areaHotspotsOnly) {
+        let lat = hs.lat;
+        let lon = hs.lon;
+        return (lat > area.south) && (lat < area.north) && (lon > area.west) && (lon < area.east);
+    } else {
+        return true;
+    }
 }
 
 function updateSatellites () {
@@ -527,18 +533,24 @@ function handleOverpassMessage(overpasses) {
 function sortInOverpass (newEntry, now) {
     if (newEntry.end <= now) { // completed overpass - latest on top
         for (let i =0; i<completedEntries.length; i++) {
-            if (newEntry.end > completedEntries[i].end) {
+            let e = completedEntries[i];
+            if (newEntry.end > e.end) {
                 completedEntries.splice(i,0,newEntry);
                 return;
+            } else if (isSameOverpass(newEntry, e)) {
+                return; // we already have this one
             }
         }  
         completedEntries.push( newEntry);
 
     } else { // upcoming overpass - next on top
         for (let i =0; i<upcomingEntries.length; i++) {
-            if (newEntry.end <= upcomingEntries[i].end) {
+            let e = upcomingEntries[i];
+            if (newEntry.end <= e.end) {
                 upcomingEntries.splice(i,0,newEntry);
                 return;
+            } else if (isSameOverpass(newEntry, e)) {
+                return; // we already have this one
             }
         }
         upcomingEntries.push( newEntry);
@@ -547,6 +559,13 @@ function sortInOverpass (newEntry, now) {
             moveTimer = setInterval( moveCompletedOverpasses, config.checkInterval);
         }
     }
+}
+
+function isSameOverpass (a, b) {
+    let maxDeltaMs = 1000;
+    return (a.satId == b.satId) 
+            &&  (Math.abs(a.start - b.start) < maxDeltaMs) 
+            &&  (Math.abs(a.end - b.end) < maxDeltaMs);
 }
 
 // this returns a future that resolves once we have the full track
@@ -914,6 +933,14 @@ function toggleFollowLatest(event){
     followLatest = ui.isCheckBoxSelected(event);
     if (followLatest) {
         ui.selectFirstListItem( completedView);
+    }
+}
+
+function toggleAreaHotspotsOnly(event){
+    areaHotspotsOnly = ui.isCheckBoxSelected(event);
+    if (area) {
+        updateHotspots(); 
+        showHotspots();
     }
 }
 

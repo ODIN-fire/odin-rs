@@ -50,6 +50,7 @@ pub struct WindConfig {
     huvw_csv_grid_cmd: String, // where to find the HUVW CSV file generator
     huvw_csv_vector_cmd: String, // where to find the HUVW CSV vector generator
     huvw_json_contour_cmd: String, // where to find the GeoJSON contour generator
+    hrrr_csv_grid_cmd: String, // the direct HRRR to CSV grid generator
 
     dem: DemSource, // where to get the DEM grid from
     dem_res: f64, // dem pixel sizes in meters
@@ -70,7 +71,7 @@ struct WnJob {
     mesh_res: f64, // in meters
     wind_height: f64, // above ground in meters
     wx_src: Arc<String>,
-    wx_path: Arc<PathBuf>, // WindNinja wx input
+    wx_path: Arc<PathBuf>, // WindNinja wx input (HRRR)
     dem_path: Arc<PathBuf>, // WindNinja DEM input
     wn_out_basename: Arc<String>
 }
@@ -78,7 +79,7 @@ struct WnJob {
 
 /// NOTE - the wn_out_base_name has to be kept in sync with WindNinja
 impl From<WnJob> for Forecast {
-    fn from (wn_job: WnJob) -> Self {
+    fn from (wn_job: WnJob) -> Self { // this consumes the WnJob so no need to clone
         Forecast {
             region: wn_job.region,
             date: wn_job.date,
@@ -86,6 +87,8 @@ impl From<WnJob> for Forecast {
             mesh_res: wn_job.mesh_res,
             wind_height: wn_job.wind_height,
             wx_src: wn_job.wx_src,
+            wx_path: wn_job.wx_path,
+            dem_path: wn_job.dem_path,
             wn_out_base_name: wn_job.wn_out_basename,
         }
     }
@@ -104,6 +107,8 @@ pub struct Forecast {
     pub mesh_res: f64,          // WindNinja mesh resolution in meters
     pub wind_height: f64,       // of WindNinja computed values - above ground in meters
     pub wx_src: Arc<String>,    // e.g. "HRRR"
+    pub wx_path: Arc<PathBuf>,  // the HRRR data this forecast is based on
+    pub dem_path: Arc<PathBuf>, // the DEM data this forecast is based on
 
     // the primary WindNinja output file basename (huvw UTM grid). All other filenames (WGS84 grid/vec and contour) derived from here
     pub wn_out_base_name: Arc<String>, // this does *not* include the extension
@@ -113,6 +118,10 @@ pub struct Forecast {
 impl Forecast {
     pub fn get_huvw_utm_grid_path (&self)->PathBuf {
         pkg_cache_dir!().join( format!("{}.tif", self.wn_out_base_name))
+    }
+
+    pub fn get_huvw0_utm_grid_path (&self)->PathBuf {
+        pkg_cache_dir!().join( format!("{}_0.tif", self.wn_out_base_name))
     }
 
     pub fn get_huvw_grid_path (&self)->PathBuf {
@@ -125,6 +134,14 @@ impl Forecast {
 
     pub fn get_huvw_contour_path (&self)->PathBuf {
         pkg_cache_dir!().join( format!("{}_contour.json", self.wn_out_base_name))
+    }
+
+    pub fn get_hrrr_10_grid_path (&self)->PathBuf {
+        pkg_cache_dir!().join( format!("{}_hrrr_10.csv.gz", self.wn_out_base_name))
+    }
+
+    pub fn get_hrrr_80_grid_path (&self)->PathBuf {
+        pkg_cache_dir!().join( format!("{}_hrrr_80.csv.gz", self.wn_out_base_name))
     }
 
     // TODO - add grid/contour for HRRR (3km resolution)

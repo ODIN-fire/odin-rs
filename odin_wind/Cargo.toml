@@ -30,6 +30,7 @@ odin_dem = { workspace = true }
 odin_server = { workspace = true }
 odin_cesium = { workspace = true }
 odin_share = { workspace = true }
+odin_gdal = { workspace = true }
 
 [features]
 ## inline crate-specific resources (configs and assets) into the executable (see odin_build)

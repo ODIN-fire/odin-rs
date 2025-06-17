@@ -11,6 +11,7 @@ WindConfig(
     huvw_csv_grid_cmd: "huvw_csv_grid", // the huvw grid CSV generator 
     huvw_csv_vector_cmd: "huvw_csv_vector", // the huvw vector CSV generator
     huvw_json_contour_cmd: "huvw_json_contour", // the GeoJSON contour generator
+    hrrr_csv_grid_cmd: "hrrr_csv_grid", // to generate CSV grid directly from selected HRRR U,V layers
 
     dem: Server("http://localhost:9019"), // url for odin_dem server to use
     dem_res: 25.0, // pixel size in meters

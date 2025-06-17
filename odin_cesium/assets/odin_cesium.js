@@ -157,6 +157,7 @@ export function withTopoTerrain (f) {
 
 var terrainProvider = ellipsoidTerrainProvider; // this is our initial terrain as it is immediately available. Switched on demand in postInitialize
 
+var osmBuildings = undefined; // OSM buildings 3D tileset loaded on demand
 
 export const viewer = new Cesium.Viewer('cesiumContainer', {
     terrainProvider: terrainProvider,
@@ -255,6 +256,25 @@ export function isOrthoView () {
     return Math.abs(ORTHO_PITCH - pitch) < 0.0005;
 }
 
+function toggleOsmBuildings (event) {
+    let cb = ui.getCheckBox(event.target);
+    if (cb) {
+        if (ui.isCheckBoxSelected(cb)) {
+            // ?? it seems we can't just re-add an already loaded tileset ??
+            Cesium.createOsmBuildingsAsync( config.osmBuildingOpts).then( (tileset) => {
+                osmBuildings = tileset;
+                console.log("osmBuildings 3D tileset initialized");
+                viewer.scene.primitives.add(tileset);
+            })
+
+        } else { // hide
+            viewer.scene.primitives.remove( osmBuildings);
+            console.log("osmBuildings 3D tileset removed");
+            osmBuildings = null;
+        }
+    }
+}
+
 function useEllipsoidTerrain() {
     if (!isOrthoView()) {
         let height = viewer.camera.positionCartographic.height;
@@ -348,6 +368,7 @@ function createViewWindow() {
             ui.CheckBox("fullscreen", toggleFullScreen),
             ui.HorizontalSpacer(1),
             ui.CheckBox("terrain", toggleTerrain, "view.show_terrain"),
+            ui.CheckBox("OSM bldgs", toggleOsmBuildings, "view.show_bldgs"),
             ui.HorizontalSpacer(1),
             ui.Button("⟘", setDownView, 2.5),  // ⇩  ⊾ ⟘
             ui.Button("⌂", setHomeView, 2.5) // ⌂ ⟐ ⨁
@@ -2072,7 +2093,6 @@ function handleSyncMessage (msg) {
 }
 
 /* #endregion share interface */
-
 
 // executed after all modules have been loaded and initialized
 export function postInitialize() {

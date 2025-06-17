@@ -497,11 +497,11 @@ impl <T,M> MsgReceiver <T> for ActorHandle <M>
 impl <T,M> DynMsgReceiverTrait <T> for ActorHandle <M>
     where T: Send + Debug + 'static,  M: From<T> + MsgTypeConstraints
 {
-    fn send_msg (&self, msg: T) -> MsgSendFuture {
+    fn send_msg (&self, msg: T) -> MsgSendFuture<'_> {
         Box::pin( self.send_actor_msg( msg.into()))
     }
 
-    fn timeout_send_msg (&self, msg: T, to: Duration) -> MsgSendFuture {
+    fn timeout_send_msg (&self, msg: T, to: Duration) -> MsgSendFuture<'_> {
         Box::pin( self.timeout_send_actor_msg( msg.into(), to))
     }
 }
@@ -524,16 +524,16 @@ impl <T,M> TryMsgReceiver <T> for ActorHandle <M>
 
 impl <M> SysMsgReceiver for ActorHandle<M> where M: MsgTypeConstraints 
 {
-    fn send_start (&self,msg: _Start_, to: Duration)->MsgSendFuture {
+    fn send_start (&self,msg: _Start_, to: Duration)->MsgSendFuture<'_> {
         Box::pin(self.timeout_send_actor_msg(msg.into(),to)) 
     }
-    fn send_pause (&self, msg: _Pause_, to: Duration)->MsgSendFuture {
+    fn send_pause (&self, msg: _Pause_, to: Duration)->MsgSendFuture<'_> {
         Box::pin(self.timeout_send_actor_msg(msg.into(),to)) 
     }
-    fn send_resume (&self, msg: _Resume_, to: Duration)->MsgSendFuture {
+    fn send_resume (&self, msg: _Resume_, to: Duration)->MsgSendFuture<'_> {
         Box::pin(self.timeout_send_actor_msg(msg.into(),to)) 
     }
-    fn send_terminate (&self, msg: _Terminate_, to: Duration)->MsgSendFuture {
+    fn send_terminate (&self, msg: _Terminate_, to: Duration)->MsgSendFuture<'_> {
         Box::pin(self.timeout_send_actor_msg(msg.into(),to)) 
     }
     fn send_ping (&self, msg: _Ping_)->Result<()> {

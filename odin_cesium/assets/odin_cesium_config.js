@@ -26,6 +26,19 @@ export const config = {
     pointSize: 3,
 
     isMetric: false,
+
+    osmBuildingOpts: { // attributes for on-demand loaded OSM buildings 3d tiles
+      style: new Cesium.Cesium3DTileStyle( {
+          color: {
+              conditions: [
+                  ["${feature['building']} === 'hospital'", "color('#ff00000')"],
+                  [true, "color('#ffffff')"] // default white
+              ]
+          },
+          // for other features see https://github.com/CesiumGS/3d-tiles/tree/main/specification/Styling
+      })
+    },
+
     scale: {
       width: 400, // this is a max width - actual width will be computed
       height: 30,

@@ -413,10 +413,10 @@ pub fn read_goesr_data (data: &GoesrData) -> Result<GoesrHotspotSet> {
     let proj = GoesrProjection::from_dataset( &mask_ds)?;
     let hs = find_grid_points_in_slice( &mask_ds, 1, find_fire_pixels_in_slice)?;
 
-    let area: Vec<f32> = get_grid_point_values( &quiet_nc_dataset( &data.file, "Area")?, 1, Some(NAN), &hs)?;
-    let power: Vec<f32> = get_grid_point_values( &quiet_nc_dataset( &data.file, "Power")?, 1, Some(NAN), &hs)?;
-    let temp: Vec<f32> = get_grid_point_values( &quiet_nc_dataset( &data.file, "Temp")?, 1, Some(NAN), &hs)?;
-    let dqf: Vec<u8> = get_grid_point_values( &quiet_nc_dataset( &data.file, "DQF")?, 1, None, &hs)?;
+    let area: Vec<f32> = get_grid_point_values( &quiet_nc_dataset( &data.file, "Area")?, 1, NAN, &hs)?;
+    let power: Vec<f32> = get_grid_point_values( &quiet_nc_dataset( &data.file, "Power")?, 1, NAN, &hs)?;
+    let temp: Vec<f32> = get_grid_point_values( &quiet_nc_dataset( &data.file, "Temp")?, 1, NAN, &hs)?;
+    let dqf: Vec<u8> = get_grid_point_values( &quiet_nc_dataset( &data.file, "DQF")?, 1, DQF_UNKNOWN, &hs)?;
 
     let x_range = get_linear_range::<f64>( &nc_dataset(&data.file,"x")?, 1)?;
     let y_range = get_linear_range::<f64>( &nc_dataset(&data.file,"y")?, 1)?;

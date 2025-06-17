@@ -38,7 +38,7 @@ export const schema = {
 
         // example of keys where the variable name is an infix path element
         { pattern: "incident", completion: ["/◻"] },
-        { pattern: "incident/*", completion: ["/view", "/org", "/cause", "/bbox", "/origin", "/perimeter", "/line", "/fta"] },
+        { pattern: "incident/*", completion: ["/view", "/org", "/cause", "/rect", "/origin", "/perimeter", "/line", "/fta"] },
     ],
 
     // shared item types associated with key patterns

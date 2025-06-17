@@ -43,6 +43,9 @@ pub enum OdinWindError {
     #[error("action failure {0}")]
     ActionFailure(String), // ActionFailure cannot impl std::error::Error
 
+    #[error("GDAL error {0}")]
+    GdalError( #[from] odin_gdal::errors::OdinGdalError),
+
     #[error("execution failed {0}")]
     ExecError(String)
 }

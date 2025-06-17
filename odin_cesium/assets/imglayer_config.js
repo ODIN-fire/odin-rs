@@ -77,10 +77,10 @@ export const config = {
         //},
         { 
             pathName: "fuel/cover",
-            info: "landfire fuel vegetation cover (FVC 220)",
+            info: "landfire fuel vegetation cover (FVC 230)",
             provider: new Cesium.WebMapServiceImageryProvider({
-              url: "https://edcintl.cr.usgs.gov/geoserver/landfire/us_220/ows",
-              layers: "LC22_FVC_220",
+              url: "https://edcintl.cr.usgs.gov/geoserver/landfire/us_230/ows",
+              layers: "LC22_FVC_230",
               parameters: "format=image/png"
             }),
             exclusive:["fuel"],
@@ -88,10 +88,10 @@ export const config = {
         },
         {
             pathName: "fuel/type",
-            info: "landfire fuel vegetation type (FVT 220)",
+            info: "landfire fuel vegetation type (FVT 230)",
             provider: new Cesium.WebMapServiceImageryProvider({
-                url: "https://edcintl.cr.usgs.gov/geoserver/landfire/us_220/ows",
-                layers: "LC22_FVT_220",
+                url: "https://edcintl.cr.usgs.gov/geoserver/landfire/us_230/ows",
+                layers: "LC22_FVT_230",
                 parameters: "format=image/png"
             }),
             exclusive: ["fuel"],

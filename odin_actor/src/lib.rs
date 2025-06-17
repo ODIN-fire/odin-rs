@@ -151,8 +151,8 @@ pub trait MsgReceiver<T>: TryMsgReceiver<T> + MsgReceiverConstraints + Clone {
 /// TODO.- explore if we can reduce runtime cost by means of specialized allocators (e.g. one that is actor
 /// specific, i.e. only has to deal with one allocation at a time)
 pub trait DynMsgReceiverTrait<T>: TryMsgReceiver<T> + MsgReceiverConstraints {
-    fn send_msg (&self, msg: T) -> MsgSendFuture;
-    fn timeout_send_msg (&self, msg: T, to: Duration) -> MsgSendFuture;
+    fn send_msg (&self, msg: T) -> MsgSendFuture<'_>;
+    fn timeout_send_msg (&self, msg: T, to: Duration) -> MsgSendFuture<'_>;
 }
 
 pub type DynMsgReceiver<T> = Box<dyn DynMsgReceiverTrait<T>>;
@@ -263,10 +263,10 @@ pub trait FromSysMsg: From<_Start_> + From<_Ping_> + From<_Timer_> + From<_Exec_
 /// object-safe trait for each actor handle to send system messages
 // TODO - should sent_timer() be async too?
 pub trait SysMsgReceiver where Self: Send + Sync + 'static {
-    fn send_start (&self,msg: _Start_, to: Duration) -> MsgSendFuture;
-    fn send_pause (&self, msg: _Pause_, to: Duration) -> MsgSendFuture;
-    fn send_resume (&self, msg: _Resume_, to: Duration) -> MsgSendFuture;
-    fn send_terminate (&self, msg: _Terminate_, to: Duration) -> MsgSendFuture;
+    fn send_start (&self,msg: _Start_, to: Duration) -> MsgSendFuture<'_>;
+    fn send_pause (&self, msg: _Pause_, to: Duration) -> MsgSendFuture<'_>;
+    fn send_resume (&self, msg: _Resume_, to: Duration) -> MsgSendFuture<'_>;
+    fn send_terminate (&self, msg: _Terminate_, to: Duration) -> MsgSendFuture<'_>;
 
     // the whole purpose of ping is to measure response time - if we can't even send the Ping that's obviously exceeded
     fn send_ping (&self, msg: _Ping_) -> Result<()>;

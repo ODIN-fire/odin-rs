@@ -19,17 +19,35 @@ use odin_common::arc;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_goesr::{GoesrHotspotService, actor::spawn_goesr_hotspot_actors};
-use odin_orbital::{init_orbital_data,actor::spawn_orbital_hotspot_actors,hotspot_service::OrbitalHotspotService};
+use odin_orbital::{actor::spawn_orbital_hotspot_actors,hotspot_service::OrbitalHotspotService};
 use odin_share::prelude::*;
 use odin_geolayer::GeoLayerService;
 use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, SentinelActor, sentinel_service::SentinelService};
-
+use odin_hrrr::{self,HrrrActor,HrrrFileAvailable};
+use odin_wind::{self, actor::{WindActor,WindActorMsg, server_subscribe_action, server_update_action}, wind_service::WindService};
 
 run_actor_system!( actor_system => {
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
+    let pre_hrrr = PreActorHandle::new( &actor_system, "hrrr", 8);
 
-    // we would normally initialize the store via default_shared_items() but those normally reside outside the repository
+    //--- spawn the shared item store actor (needed by WindService)
     let hstore = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
+
+    //--- spawn the micro grid wind simulator
+    let hwind = spawn_actor!( actor_system, "wind", WindActor::new(
+        odin_wind::load_config("wind.ron")?,
+        pre_hrrr.to_actor_handle(),
+        server_subscribe_action( pre_server.to_actor_handle()),
+        server_update_action( pre_server.to_actor_handle()) 
+    ))?;
+
+    //--- spawn the HRRR weather forecast importer
+    let _hrrr = spawn_pre_actor!( actor_system, pre_hrrr, HrrrActor::with_statistic_schedules(
+        odin_hrrr::load_config( "hrrr_conus-8.ron")?,
+        data_action!( let hwind: ActorHandle<WindActorMsg> = hwind.clone() => |data: HrrrFileAvailable| {
+            Ok( hwind.try_send_msg( data)? )
+        })
+    ).await? )?;
 
     //--- spawn the GOES-R actors
     let goesr_sat_configs = vec![ "goes_18.ron", "goes_19.ron" ];
@@ -71,6 +89,7 @@ run_actor_system!( actor_system => {
         SpaServiceList::new()
             .add( build_service!( let hstore = hstore.clone() => ShareService::new( "odin_share_schema.js", hstore)))
             .add( build_service!( => GeoLayerService::new( &odin_geolayer::default_data_dir())))
+            .add( build_service!( => WindService::new( hwind) ))
             .add( build_service!( let hsentinel = hsentinel.clone() => SentinelService::new( hsentinel)))
             .add( build_service!( => GoesrHotspotService::new( goesr_sats)) )
             .add( build_service!( => OrbitalHotspotService::new( orbital_sats) ))

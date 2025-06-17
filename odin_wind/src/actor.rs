@@ -30,6 +30,7 @@ use odin_common::{
 use odin_hrrr::{AddDataSet, RemoveDataSet, HrrrActorMsg, HrrrDataSetConfig, HrrrDataSetRequest, HrrrFileAvailable};
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
+use odin_gdal::warp::warp_to_rect;
 use crate::{
     errors::{OdinWindError,Result},
     wind_service::WindService,
@@ -56,6 +57,7 @@ pub struct WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
     huvw_csv_grid_cmd: String,
     huvw_csv_vector_cmd: String,
     huvw_json_contour_cmd: String,
+    hrrr_csv_grid_cmd: String,
 
     cache_dir: Arc<PathBuf>,         // where to store computed forecasts
     hrrr: ActorHandle<HrrrActorMsg>, // where to get new HRRR reports from - this drives our data update
@@ -75,6 +77,8 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
          let huvw_csv_grid_cmd = path_to_unchecked_string( replace_env_var_path( &config.huvw_csv_grid_cmd).unwrap());
          let huvw_csv_vector_cmd = path_to_unchecked_string( replace_env_var_path( &config.huvw_csv_vector_cmd).unwrap());
          let huvw_json_contour_cmd = path_to_unchecked_string( replace_env_var_path( &config.huvw_json_contour_cmd).unwrap());
+         let hrrr_csv_grid_cmd = path_to_unchecked_string( replace_env_var_path( &config.hrrr_csv_grid_cmd).unwrap());
+         // TODO - we should check here if comands are valid executables
 
         let config = Arc::new(config);
         let cache_dir = Arc::new(pkg_cache_dir!());
@@ -82,7 +86,7 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
  
         WindActor { 
             config,
-            windninja_cmd, huvw_csv_grid_cmd, huvw_csv_vector_cmd, huvw_json_contour_cmd,
+            windninja_cmd, huvw_csv_grid_cmd, huvw_csv_vector_cmd, huvw_json_contour_cmd, hrrr_csv_grid_cmd,
             cache_dir, 
             hrrr, 
             forecast_store, 
@@ -198,7 +202,7 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
             match self.config.dem.get_res_dem( bbox, srs, dem_res, dem_res, odin_dem::DemImgType::TIF, &path).await {
                 Ok(()) => Ok(path),
                 Err(e) => {
-                    error!("DEM download failed with {e}");
+                    error!("DEM download of {:?} failed with {e}", &path);
                     Err( OdinWindError::DemError( format!("DEM download failed: {e}")) )
                 }
             }
@@ -206,7 +210,7 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
     }
 
     async fn add_hrrr_region (&self, wn_region: &WindRegion)->Result<Arc<HrrrDataSetRequest>> {
-        let mut bbox = wn_region.bbox.add_degrees( -0.25, -0.25, 0.25, 0.25); // make sure we cover the bbox
+        let mut bbox = wn_region.bbox.add_degrees( -0.3, -0.3, 0.3, 0.3); // make sure we cover the bbox after warping to 4326
         let region = wn_region.name.clone();
         let mut hrrr_cfg = HrrrDataSetConfig::new( region, bbox,  self.config.hrrr_fields.clone(), self.config.hrrr_levels.clone());
         let hrrr_ds_request = Arc::new( HrrrDataSetRequest::new( hrrr_cfg) );
@@ -248,6 +252,12 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
         let huvw_grid = create_huvw_csv_grid( &self.huvw_csv_grid_cmd, &forecast).await?;
         let huvw_vector = create_huvw_csv_vector( &self.huvw_csv_vector_cmd, &forecast).await?;
         let huvw_contour = create_huvw_json_contour( &self.huvw_json_contour_cmd, &forecast).await?;
+
+        if let Some(fcr) = self.forecast_store.get( &forecast.region) {
+            let hrrr_10_grid = create_hrrr_10_csv_grid( &self.hrrr_csv_grid_cmd, &forecast, &fcr.bbox).await?;
+            //let hrrr_80_grid = create_hrrr_80_csv_grid( &self.hrrr_csv_grid_cmd, &forecast).await?;
+        }
+
 
         self.add_forecast( forecast.clone());
 
@@ -405,8 +415,41 @@ async fn create_huvw_csv_grid (cmd: &String, forecast: &Forecast) -> Result<()> 
     if !in_path.is_file() { return Err(OdinWindError::ExecError(format!("no such Wind output file {:?}", in_path))) }
     let out_path = forecast.get_huvw_grid_path();
 
-    exec_huvw_gen( cmd, &in_path, &out_path).await
+    exec_huvw_gen( cmd, &in_path, true, None, &out_path).await
 }
+
+/*
+async fn create_hrrr_10_csv_grid (cmd: &String, forecast: &Forecast) -> Result<()> {
+    let in_path = forecast.get_huvw0_utm_grid_path();
+    let out_path = forecast.get_hrrr_10_grid_path();
+
+    exec_huvw_gen( cmd, &in_path, true, None, &out_path).await // TODO - lookup band numbers
+}
+*/
+
+// FIXME - this does not render correctly
+
+async fn create_hrrr_10_csv_grid (cmd: &String, forecast: &Forecast, bbox: &GeoRect) -> Result<()> {
+    let out_path = forecast.get_hrrr_10_grid_path();
+    let wx_path = forecast.wx_path.as_ref();
+    let wx_4326_path = pkg_cache_dir!().join( format!( "{}_hrrr_4326.tif", forecast.wn_out_base_name));
+
+    // warp to our target rect
+    warp_to_rect( wx_path, &wx_4326_path, 4326, bbox, None)?;
+
+    let bands = &[4,5];
+
+    exec_huvw_gen( cmd, &wx_4326_path, true, Some(bands), &out_path).await // TODO - lookup band numbers
+}
+
+async fn create_hrrr_80_csv_grid (cmd: &String, forecast: &Forecast) -> Result<()> {
+    let out_path = forecast.get_hrrr_80_grid_path();
+    let wx_path = forecast.wx_path.as_ref();
+    let bands = &[1, 2];
+
+    exec_huvw_gen( cmd, wx_path, true, Some(bands), &out_path).await // TODO - lookup band numbers
+}
+
 
 /// this takes the Wind_cli generated huvw UTM grid and turns it into a list of ECEF vectors formatted as CSV.
 async fn create_huvw_csv_vector (cmd: &String, forecast: &Forecast) -> Result<()> {
@@ -414,7 +457,7 @@ async fn create_huvw_csv_vector (cmd: &String, forecast: &Forecast) -> Result<()
     if !in_path.is_file() { return Err(OdinWindError::ExecError(format!("no such Wind output file {:?}", in_path))) }
     let out_path = forecast.get_huvw_vector_path();
 
-    exec_huvw_gen( cmd, &in_path, &out_path).await
+    exec_huvw_gen( cmd, &in_path, true, None, &out_path).await
 }
 
 async fn create_huvw_json_contour (cmd: &String, forecast: &Forecast) -> Result<()> {
@@ -422,13 +465,21 @@ async fn create_huvw_json_contour (cmd: &String, forecast: &Forecast) -> Result<
     if !in_path.is_file() { return Err(OdinWindError::ExecError(format!("no such Wind output file {:?}", in_path))) }
     let out_path = forecast.get_huvw_contour_path();
 
-    exec_huvw_gen( cmd, &in_path, &out_path).await
+    exec_huvw_gen( cmd, &in_path, true, None, &out_path).await
 }
 
-async fn exec_huvw_gen (cmd_path: &String, in_path: &PathBuf, out_path: &PathBuf) -> Result<()> {
+async fn exec_huvw_gen (cmd_path: &String, in_path: &PathBuf, compress: bool, bands: Option<&[u8]>,out_path: &PathBuf) -> Result<()> {
     let mut cmd = Command::new(cmd_path);
+
+    if compress { cmd.arg("-z"); }
+
+    if let Some(bs) = bands {
+        for b in bs { 
+            cmd.arg("-b").arg( b.to_string());
+        }
+    }
+
     cmd
-        .arg( "-z") // compress output
         .arg( in_path.as_os_str()) // the input file
         .arg( out_path.as_os_str());
 

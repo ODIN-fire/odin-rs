@@ -460,33 +460,21 @@ pub fn get_values_for_positions (ds: &Dataset, band_index: usize, sub_no_data: O
 }
 
 /// get Vec of values for given Vec<GridPoint2D> reference
-pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: usize, sub_no_data: Option<T>, pts: &Vec<GridPoint<T>> )->Result<Vec<T>> 
-    where T: GdalValueType + Into<f64> + std::cmp::PartialEq<f64> + std::convert::From<f64>
+pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: usize, sub_no_data: T, pts: &Vec<GridPoint<U>> )->Result<Vec<T>> 
+    where T: GdalValueType + Into<f64>, U: GdalValueType
 {
     let band = ds.rasterband(band_index)?;
     let mut result: Vec<T> = Vec::with_capacity(pts.len());
     let mut data = [T::from(0u8);1];
 
-    if let Some(sub_no_data) = sub_no_data {
-        if let Some(no_data) = band.no_data_value() {
-            for p in pts {
-                let v = if band.read_into_slice( p.position(), (1,1), (1,1), &mut data, None).is_ok() {data[0]} else {sub_no_data};
-                result.push( if v == no_data {sub_no_data} else {v} );
-            }
-        } else { // no no_data value set for band
-            for p in pts {
-                let v = if band.read_into_slice( p.position(), (1,1), (1,1), &mut data, None).is_ok() {data[0]} else {sub_no_data};
-                result.push( v);
-            }
-        }
-    } else { // no substitution set, use sub_no_data or 0 as error fallback
-        let no_data: T = match band.no_data_value() {
-            Some(x) => x.into(),
-            None => T::from( 0u8)
-        };
-        
+    if let Some(no_data) = band.no_data_value() {
         for p in pts {
-            let v = if band.read_into_slice( p.position(), (1,1), (1,1), &mut data, None).is_ok() {data[0]} else {no_data};
+            let v = if band.read_into_slice( p.position(), (1,1), (1,1), &mut data, None).is_ok() {data[0]} else {sub_no_data};
+            result.push( if v.into() == no_data {sub_no_data} else {v} );
+        }
+    } else { // no no_data value set for band
+        for p in pts {
+            let v = if band.read_into_slice( p.position(), (1,1), (1,1), &mut data, None).is_ok() {data[0]} else {sub_no_data};
             result.push( v);
         }
     }
