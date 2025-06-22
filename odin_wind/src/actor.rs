@@ -255,7 +255,7 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
 
         if let Some(fcr) = self.forecast_store.get( &forecast.region) {
             let hrrr_10_grid = create_hrrr_10_csv_grid( &self.hrrr_csv_grid_cmd, &forecast, &fcr.bbox).await?;
-            //let hrrr_80_grid = create_hrrr_80_csv_grid( &self.hrrr_csv_grid_cmd, &forecast).await?;
+            let hrrr_80_grid = create_hrrr_80_csv_grid( &self.hrrr_csv_grid_cmd, &forecast, &fcr.bbox).await?;
         }
 
 
@@ -442,12 +442,19 @@ async fn create_hrrr_10_csv_grid (cmd: &String, forecast: &Forecast, bbox: &GeoR
     exec_huvw_gen( cmd, &wx_4326_path, true, Some(bands), &out_path).await // TODO - lookup band numbers
 }
 
-async fn create_hrrr_80_csv_grid (cmd: &String, forecast: &Forecast) -> Result<()> {
+async fn create_hrrr_80_csv_grid (cmd: &String, forecast: &Forecast, bbox: &GeoRect) -> Result<()> {
     let out_path = forecast.get_hrrr_80_grid_path();
     let wx_path = forecast.wx_path.as_ref();
-    let bands = &[1, 2];
+    let wx_4326_path = pkg_cache_dir!().join( format!( "{}_hrrr_4326.tif", forecast.wn_out_base_name));
 
-    exec_huvw_gen( cmd, wx_path, true, Some(bands), &out_path).await // TODO - lookup band numbers
+    // warp to our target rect
+    let res = (bbox.east().degrees() - bbox.west().degrees()) / 300.0;
+    println!("@@ res = {res}"); 
+    warp_to_rect( wx_path, &wx_4326_path, 4326, bbox, Some(res))?;
+
+    let bands = &[1,2];
+
+    exec_huvw_gen( cmd, &wx_4326_path, true, Some(bands), &out_path).await // TODO - lookup band numbers
 }
 
 

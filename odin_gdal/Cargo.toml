@@ -27,8 +27,9 @@ lazy_static = { workspace = true }
 geo = {workspace = true }
 anyhow = { workspace = true }
 structopt = { workspace = true }
+bit-set = { workspace = true }
+ndarray = { workspace = true }
 
 static_init = "1.0.4"
-libc = "0.2.172"
+libc = "0.2.174"
 meshgridrs = "0.1.1"
-ndarray = "0.16.1"

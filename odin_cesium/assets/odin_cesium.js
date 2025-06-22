@@ -223,6 +223,7 @@ viewer.scene.canvas.addEventListener('dblclick', handleMouseDblClick);
 
 document.addEventListener('keydown', handleKeyDown); // does not work on canvas
 registerKeyDownHandler( globalKeyDownHandler); // global hotkeys
+registerMouseClickHandler( globalMouseClickHandler); // global click
 
 // FIXME - this seems to be broken as of Cesium 105.1
 //viewer.scene.postRender.addEventListener(function() {
@@ -1266,12 +1267,22 @@ function handleKeyDown(e) {
 // global hotkeys - make sure these don't collide with module specific handlers
 function globalKeyDownHandler (event) {
     if (Object.is( event.target, document.body)) { // otherwise this wasn't for us
-        if (event.ctrlKey) {
+        if (event.shiftKey) {
             if (event.keyCode >= 49 && event.keyCode <= 57) {
                 let i = Math.min(event.keyCode - 49, config.zoomLevels.length-1);
                 zoomToHeight( config.zoomLevels[i]);
             }
         }
+    }
+}
+
+function globalMouseClickHandler (event) {
+    if (event.shiftKey) {
+        let camera = viewer.camera;
+        let cp = camera.positionCartographic;
+        let pos = getCartographicMousePosition(event);
+        pos.height = cp.height;
+        zoomTo( Cesium.Cartographic.toCartesian(pos));
     }
 }
 

@@ -16,14 +16,37 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::ptr::{null,null_mut};
 use std::error::Error;
+use gdal::raster::GdalDataType;
 use gdal::{DriverManager,Dataset,DatasetOptions, GeoTransform};
 use gdal::cpl::CslStringList;
 use gdal::spatial_ref::SpatialRef;
-use gdal_sys::{GDALDatasetH, GDALProgressFunc, GDALWarpOptions, CPLErr::CE_None, CPLErr};
-use libc::{c_void,c_char,c_int, c_double};
+use gdal_sys::{GDALDatasetH, GDALProgressFunc, GDALWarpOptions, CPLErr::CE_None, CPLErr, GDALResampleAlg};
+use libc::{c_void,c_char,c_int, c_double, c_uint};
+use bit_set::BitSet;
 use odin_common::{BoundingBox,geo::GeoRect};
 use crate::{ok_non_null, ok_mut_non_null, ok_not_zero, ok_ce_none};
 use crate::errors::{Result,last_gdal_error, misc_error, OdinGdalError, reset_last_gdal_error};
+
+#[derive(Clone)]
+pub enum ResampleAlg {
+    NearestNeighbour = GDALResampleAlg::GRA_NearestNeighbour as isize,
+    Bilinear         = GDALResampleAlg::GRA_Bilinear as isize,
+    Cubic            = GDALResampleAlg::GRA_Cubic as isize,
+    CubicSpline      = GDALResampleAlg::GRA_CubicSpline as isize,
+    Lanczos          = GDALResampleAlg::GRA_Lanczos as isize,
+    Average          = GDALResampleAlg::GRA_Average as isize,
+    Mode             = GDALResampleAlg::GRA_Mode as isize,
+    Max              = GDALResampleAlg::GRA_Max as isize,
+    Min              = GDALResampleAlg::GRA_Min as isize,
+    Med              = GDALResampleAlg::GRA_Med as isize,
+    Q1               = GDALResampleAlg::GRA_Q1 as isize,
+    Q3               = GDALResampleAlg::GRA_Q3 as isize,
+    Sum              = GDALResampleAlg::GRA_Sum as isize,
+    RMS              = GDALResampleAlg::GRA_RMS as isize,
+    //LastValue        = GDALResampleAlg::GRA_LAST_VALUE as isize  // NOTE - LastValue is the same as RMS
+}
+
+
 
 pub struct SimpleWarpBuilder <'a> {
     src_ds: &'a Dataset,
@@ -45,8 +68,17 @@ pub struct SimpleWarpBuilder <'a> {
     create_options: Option<&'a CslStringList>,
     src_srs: Option<&'a SpatialRef>,
 
+    n_tgt_bands: Option<c_uint>,
+    src_bands: Option<Vec<c_uint>>,
+    tgt_bands: Option<Vec<c_uint>>,
+
+    data_type: Option<GdalDataType>,
+    src_nodatas: Option<Vec<c_double>>,
+    tgt_nodatas: Option<Vec<c_double>>,
+
     axis_order: c_int,
     max_error: c_double,
+    resample_alg: ResampleAlg,
 }
 
 impl <'a> SimpleWarpBuilder<'a> {
@@ -67,8 +99,18 @@ impl <'a> SimpleWarpBuilder<'a> {
             tgt_format: None,
             create_options: None,
             src_srs: None,
+
+            n_tgt_bands: None, // compute number of target bands
+            src_bands: None, // means process all bands
+            tgt_bands: None,
+
+            data_type: None,
+            src_nodatas: None,
+            tgt_nodatas: None,
+
             axis_order: 0,
             max_error: 0.0,
+            resample_alg: ResampleAlg::NearestNeighbour,
         })
     }
 
@@ -118,10 +160,41 @@ impl <'a> SimpleWarpBuilder<'a> {
         self
     }
 
+    // sets eResampleAlt
+    pub fn set_resample_alg (&mut self, alg: ResampleAlg) -> &mut SimpleWarpBuilder<'a> {
+        self.resample_alg = alg;
+        self
+    }
+
+    pub fn set_src_bands (&mut self, src_bands: Vec<c_uint>) -> &mut SimpleWarpBuilder<'a> {
+        self.src_bands = Some(src_bands);
+        self
+    }
+
+    pub fn set_tgt_bands (&mut self, tgt_bands: Vec<c_uint>) -> &mut SimpleWarpBuilder<'a> {
+        self.tgt_bands = Some(tgt_bands);
+        self
+    }
+
     pub fn set_tgt_format (&mut self, tgt_format: &str) -> Result<&mut SimpleWarpBuilder<'a>> {
         self.tgt_format = Some(CString::new(tgt_format)?);
         Ok(self)
     }
+
+    pub fn set_data_type (&mut self, data_type: GdalDataType) -> &mut SimpleWarpBuilder<'a> {
+        self.data_type = Some(data_type);
+        self
+    }
+
+    pub fn set_src_nodatas (&mut self, no_data_values: Vec<c_double>) -> &mut SimpleWarpBuilder<'a> {
+        self.src_nodatas = Some(no_data_values);
+        self
+    } 
+
+    pub fn set_tgt_nodatas (&mut self, no_data_values: Vec<c_double>) -> &mut SimpleWarpBuilder<'a> {
+        self.tgt_nodatas = Some(no_data_values);
+        self
+    } 
 
     pub fn set_create_options (&mut self, create_options: &'a CslStringList) -> &mut SimpleWarpBuilder<'a> {
         self.create_options = Some(create_options);
@@ -141,8 +214,8 @@ impl <'a> SimpleWarpBuilder<'a> {
     // version without C shim functions
 
     pub fn exec(&self) -> Result<Dataset> {
-        let tgt_ds = self.create_tgt_ds()?;
-        self.chunk_and_warp(&tgt_ds).map(|_| tgt_ds)
+        let mut tgt_ds = self.create_tgt_ds()?;
+        self.chunk_and_warp( &mut tgt_ds).map(|_| tgt_ds)
     }
 
     fn create_tgt_ds (&self) -> Result<Dataset> {
@@ -239,10 +312,14 @@ impl <'a> SimpleWarpBuilder<'a> {
                 geo_transform[3] = max_y;
             }
 
-            let n_bands = gdal_sys::GDALGetRasterCount(c_src_ds);
+            let n_bands = self.get_n_tgt_bands( &self.src_ds)?;
+            let data_type: c_uint = if let Some(dt) = self.data_type {
+                dt as c_uint
+            } else {
+                gdal_sys::GDALGetRasterDataType(gdal_sys::GDALGetRasterBand(c_src_ds, 1))
+            };
 
-            let c_tgt_ds = gdal_sys::GDALCreate(c_driver, self.tgt_filename.as_ptr(), n_pixels, n_lines,
-                                                n_bands, gdal_sys::GDALGetRasterDataType(gdal_sys::GDALGetRasterBand(c_src_ds, 1)), c_create_options);
+            let c_tgt_ds = gdal_sys::GDALCreate(c_driver, self.tgt_filename.as_ptr(), n_pixels, n_lines, n_bands, data_type, c_create_options);
             if c_tgt_ds == null_mut() {
                 let last_error = last_gdal_error();
                 gdal_sys::GDALDestroyGenImgProjTransformer(c_transform_arg);
@@ -254,6 +331,7 @@ impl <'a> SimpleWarpBuilder<'a> {
             gdal_sys::GDALSetProjection(c_tgt_ds, tgt_wkt.as_ptr());
             gdal_sys::GDALSetGeoTransform(c_tgt_ds, &mut geo_transform as *mut c_double);
 
+            /* TODO this causes explicit no_data setting to fail and sets a '0' value for the target if the src doesn't have one
             // preserve no-data values and color tables
             for i in 1..=n_bands {
                 let c_src_band = gdal_sys::GDALGetRasterBand(c_src_ds, i);
@@ -267,12 +345,31 @@ impl <'a> SimpleWarpBuilder<'a> {
                     gdal_sys::GDALSetRasterColorTable(c_tgt_band, c_color_tbl);
                 }
             }
+            */
 
             Ok(Dataset::from_c_dataset(c_tgt_ds))
         }
     }
 
-    fn chunk_and_warp (&self, tgt_ds: &Dataset) -> Result<()> {
+    fn get_n_tgt_bands (&self, src_ds: &Dataset) -> Result<c_int> {
+        if let Some(n_bands) = self.n_tgt_bands {
+            if let Some(src_bands) = &self.src_bands {
+                if src_bands.len() > n_bands as usize {
+                    return Err(OdinGdalError::MiscError("number of input bands exceeds target bands".to_string()))
+                }
+            }
+            Ok(n_bands as c_int)
+
+        } else { // no explicit number of target bands set
+            if let Some(src_bands) = &self.src_bands { // we have explicitly specified src (input) bands
+                Ok(src_bands.len() as c_int) // band numbers are 1-based
+            } else { // no input / target bands specified -> warp all src bands
+                Ok(src_ds.raster_count() as c_int)
+            }
+        }
+    } 
+
+    fn chunk_and_warp (&self, tgt_ds: &mut Dataset) -> Result<()> {
         unsafe {
             reset_last_gdal_error();
 
@@ -289,22 +386,14 @@ impl <'a> SimpleWarpBuilder<'a> {
             let warp_options: &mut GDALWarpOptions = c_warp_options.as_mut().ok_or(last_gdal_error())?;
             warp_options.hSrcDS = self.src_ds.c_dataset();
             warp_options.hDstDS = c_tgt_ds;
+            warp_options.dfWarpMemoryLimit = 1073741824 as c_double; // 1G
 
-            // process all bands
-            warp_options.nBandCount = n_bands as c_int;
-            // note we need to allocate this with CPLMalloc since it is freed by GDAL
-            let c_src_bands = gdal_sys::CPLMalloc(std::mem::size_of::<c_int>() * n_bands) as *mut c_int;
-            let c_tgt_bands = gdal_sys::CPLMalloc(std::mem::size_of::<c_int>() * n_bands) as *mut c_int;
-            for i in 0..n_bands as isize {
-                let band_no = (i+1) as c_int;
-                *(c_src_bands.offset(i)) = band_no;
-                *(c_tgt_bands.offset(i)) = band_no;
-            }
-            warp_options.panSrcBands = c_src_bands;
-            warp_options.panDstBands = c_tgt_bands;
+            self.set_bands( warp_options, n_bands)?;
+            self.set_no_data_values( warp_options, tgt_ds);
+
+            warp_options.eResampleAlg = self.resample_alg.clone() as c_uint;
 
             warp_options.pfnProgress = Some(gdal_sys::GDALDummyProgress);
-            //warp_options.pProgressArg = null_mut();
 
             //--- proj transformers
             let c_gen_transformer_arg= gdal_sys::GDALCreateGenImgProjTransformer(
@@ -365,6 +454,88 @@ impl <'a> SimpleWarpBuilder<'a> {
             } else {
                 Err(last_gdal_error())
             }
+        }
+    }
+
+    fn set_bands (&self, warp_options: &mut GDALWarpOptions, n_tgt_bands: usize)->Result<()> {
+        if let Some(src_bands) = &self.src_bands {
+            if src_bands.len() > n_tgt_bands {
+                return Err(OdinGdalError::MiscError("number of source exceeds target".to_string()))
+            }
+
+            if let Some(tgt_bands) = &self.tgt_bands {
+                if src_bands.len() != tgt_bands.len() {
+                    return Err(OdinGdalError::MiscError("number of source and target bands differ".to_string()))
+                }
+
+                unsafe {
+                    let c_tgt_bands = gdal_sys::CPLMalloc(std::mem::size_of::<c_int>() * tgt_bands.len()) as *mut c_int;
+                    for i in 0..tgt_bands.len() { *(c_tgt_bands.offset(i as isize)) = tgt_bands[i] as c_int }
+                    warp_options.panDstBands = c_tgt_bands;
+                }
+            } else {
+                unsafe {
+                    // set from src_bands
+                    let c_tgt_bands = gdal_sys::CPLMalloc(std::mem::size_of::<c_int>() * src_bands.len()) as *mut c_int;
+                    for i in 0..src_bands.len() { *(c_tgt_bands.offset(i as isize)) = (i+1) as c_int }
+                    warp_options.panDstBands = c_tgt_bands;
+                }
+            }
+
+            warp_options.nBandCount = src_bands.len() as c_int; // number of bands to process
+            // NOTE this is freed by GDAL
+            unsafe {
+                let c_src_bands = gdal_sys::CPLMalloc(std::mem::size_of::<c_int>() * src_bands.len()) as *mut c_int;
+                for i in 0..src_bands.len() { *(c_src_bands.offset(i as isize)) = src_bands[i] as c_int }
+                warp_options.panSrcBands = c_src_bands;
+            }
+
+        } else { // no src/dst band specs - process all bands
+            warp_options.nBandCount = 0;
+            warp_options.panSrcBands = null_mut();  // TODO - check if that now works with warp API
+            warp_options.panDstBands = null_mut();
+        }
+
+        Ok(())
+    }
+
+    fn set_no_data_values (&self, warp_options: &mut GDALWarpOptions, tgt_ds: &mut Dataset) ->Result<()> {
+
+        //let n_input_bands = if let Some(src_bands) = &self.src_bands { src_bands.len() } else { n_bands };
+        //warp_options.padfSrcNoDataReal = self.create_no_datas( n_input_bands, &self.src_nodata)?;
+
+        /* TODO has no effect
+        let n_output_bands = if let Some(tgt_bands) = &self.tgt_bands { tgt_bands.len() } else { n_input_bands };
+        warp_options.padfDstNoDataReal = self.create_no_datas( n_output_bands, &self.tgt_nodata)?;
+        */
+
+        if let Some(no_datas) = &self.tgt_nodatas {
+            for i in 0..no_datas.len() {
+                let band_index = if let Some(tgt_bands) = &self.tgt_bands { tgt_bands[i] as usize } else { i+1 };
+                let mut band = tgt_ds.rasterband(band_index)?;
+                println!("@@ [{}] -> {}", band_index, no_datas[i]);
+                band.set_no_data_value( Some(no_datas[i]))?;
+                println!("@@     {}", band.no_data_value().unwrap());
+            }
+        }
+        //warp_options.padfDstNoDataReal = self.create_no_datas(  &self.tgt_nodatas)?;
+
+
+        Ok(())
+    }
+
+    fn create_no_datas (&self, no_datas: &Option<Vec<c_double>>)->Result<*mut f64> {
+        if let Some(no_datas) = no_datas {
+            let n_bands = no_datas.len();
+            unsafe {
+                let c_no_datas = gdal_sys::CPLMalloc(std::mem::size_of::<c_double>() * n_bands) as *mut c_double;
+                for i in 0..n_bands { 
+                    *(c_no_datas.offset(i as isize)) = no_datas[i] // FIXME - doesn't work
+                }
+                Ok(c_no_datas)
+            }
+        } else {
+            Ok(null_mut())
         }
     }
 }

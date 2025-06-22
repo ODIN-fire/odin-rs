@@ -84,6 +84,8 @@ structopt = { version = "0.3.26" }
 paste = { version ="1.0.15" }
 regex = { version = "1.11.1" }
 hashbrown = { version = "0.15.3" }
+bit-set = { version = "0.8.0" }
+ndarray = { version = "0.16.1" }
 
 
 [profile.release]

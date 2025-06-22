@@ -134,7 +134,7 @@ p.standout {
     display: block;
     padding: 0.5em;
     margin: 0.5em;
-    text-align: Center;
+    text-align: center;
     font-weight: bolder;
 }
 

@@ -370,7 +370,7 @@ function createWindow() {
                 ui.Radio("contour", setContourDisplay, "wind.field.contour"),
                 ui.HorizontalSpacer(1),
                 ui.Radio("wx_10m", setWx10Display, "wind.field.wx10"),
-                //ui.Radio("wx_80m", setWx80Display, "wind.field.wx80"),
+                ui.Radio("wx_80m", setWx80Display, "wind.field.wx80"),
             ),
             (forecastView = ui.List("wind.forecasts", 6, selectForecast))
         ),

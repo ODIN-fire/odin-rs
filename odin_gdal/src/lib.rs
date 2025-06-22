@@ -77,7 +77,7 @@ static GLOB_GDAL_MUTEX: Mutex<usize> = Mutex::new(0);
 
 #[constructor(0)]
 extern "C" fn _initialize_gdal() {
-    println!("setting GDAL error handler");
+    //println!("setting GDAL error handler");
     gdal::config::set_error_handler(no_error_output);
 }
 

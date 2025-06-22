@@ -17,7 +17,7 @@ export const config = {
       {key: "view/state/CA/Big Sur", default: { lat: 36.29400, lon: -121.77800, alt: 90000} },
       {key: "view/state/CA/Los Angeles",   default: { lat: 34.04000, lon: -118.02000, alt: 120000} }
     ],
-    zoomLevels: [ 10000, 30000, 100000, 500000, 3000000, 7000000],
+    zoomLevels: [ 3500, 25000, 100000, 500000, 3000000, 7000000, 10000000 ],
     localTimeZone: 'America/Los_Angeles',
     color: Cesium.Color.fromCssColorString('red'),
     outlineColor: Cesium.Color.fromCssColorString('yellow'),
