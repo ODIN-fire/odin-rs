@@ -1,6 +1,6 @@
 [book]
-title = "ODIN"
-description = "the Open Data Integration Framework"
+title = "ODIN-fire"
+description = "the Open Data Integration Framework for Wildfire Mitigation"
 authors = ["Peter Mehlitz"]
 
 [build]
@@ -11,6 +11,8 @@ extra-watch-dirs = [ "../odin_action/doc", "../odin_actor/doc" ]
 [output.html]
 additional-css = ["odin.css"]
 no-section-label = true
+default-theme = "Ayu"
+preferred-dark-theme = "Ayu"
 
 [output.html.fold]
 enable = true

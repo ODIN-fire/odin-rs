@@ -196,6 +196,7 @@ impl <'a> SimpleWarpBuilder<'a> {
         self
     } 
 
+    /// this has to be used to set compression, e.g. with "--co COMPRESS=DEFLATE --co PREDICTOR=2"
     pub fn set_create_options (&mut self, create_options: &'a CslStringList) -> &mut SimpleWarpBuilder<'a> {
         self.create_options = Some(create_options);
         self
@@ -509,17 +510,16 @@ impl <'a> SimpleWarpBuilder<'a> {
         warp_options.padfDstNoDataReal = self.create_no_datas( n_output_bands, &self.tgt_nodata)?;
         */
 
+        // NOTE - most GDAL raster drivers (including GTiff) don't support per-band target nodata values
+
         if let Some(no_datas) = &self.tgt_nodatas {
             for i in 0..no_datas.len() {
                 let band_index = if let Some(tgt_bands) = &self.tgt_bands { tgt_bands[i] as usize } else { i+1 };
                 let mut band = tgt_ds.rasterband(band_index)?;
-                println!("@@ [{}] -> {}", band_index, no_datas[i]);
                 band.set_no_data_value( Some(no_datas[i]))?;
-                println!("@@     {}", band.no_data_value().unwrap());
             }
         }
         //warp_options.padfDstNoDataReal = self.create_no_datas(  &self.tgt_nodatas)?;
-
 
         Ok(())
     }

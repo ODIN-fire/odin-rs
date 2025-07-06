@@ -37,9 +37,9 @@ ODIN also has to work with existing software. There is a large collection of exi
 
 - language intrinsic memory- and thread- safety
 - a well defined [Application Binary Interface](https://en.wikipedia.org/wiki/Application_binary_interface)
-- a comprehensive cross-platform standard library
+- a comprehensive cross-platform [standard library](https://doc.rust-lang.org/std/index.html)
 - a huge external [eco-system](https://crates.io/)
-- good asynchronous programming support, both in the language and its libraries
+- good [asynchronous programming support](https://rust-lang.github.io/async-book/), both in the language and its libraries
 - powerful abstraction features for large scale program design
 - a mature, consistent tool chain (especially including dependency management)
 - high efficiency / low system overhead (one of Rusts design goals is "zero cost abstraction")

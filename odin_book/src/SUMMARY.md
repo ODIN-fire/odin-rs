@@ -3,10 +3,14 @@
 - [Installation](install.md)
 
 - [1. Introduction](intro.md)
+
+- [2. Common Ascpects](common.md)
+  - [Project Structure](structure.md)
   - [Design Principles](design_principles.md)
+  - [Conventions](conventions.md)
+  - [Documentation](documentation.md)
 
-- [2. System Crates](sys_crates.md)
-
+- [3. System Crates](sys_crates.md)
   - [odin_build](odin_build/odin_build.md)
   - [odin_action](odin_action/odin_action.md)
   - [odin_actor](odin_actor/odin_actor.md)
@@ -39,7 +43,7 @@
   - [odin-dem](odin_dem/odin_dem.md)
   - [odin-gdal](odin_gdal/odin_gdal.md)
 
-- [3. Application Domain Crates](app_crates.md)
+- [4. Application Domain Crates](app_crates.md)
   - [odin_geolayer](odin_geolayer/odin_geolayer.md)
   - [odin_hrrr](odin_hrrr/odin_hrrr.md)
   - [odin_sentinel](odin_sentinel/odin_sentinel.md)

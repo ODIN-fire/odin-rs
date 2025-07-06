@@ -11,11 +11,28 @@
     img.mono[src*=".png"] {
       filter: invert(80%);
     }
+
+    h1.menu-title {
+      color: #ffff00;
+      font-weight: normal;
+      text-shadow: 2px 2px 3px #ff0000, -2px -2px 3px #ff0000;
+    }
 }
+
 
 .light,.rust {
     img.mono[src*=".svg"] {
       filter: none;
+    }
+    
+    h1.menu-title {
+      color: #ffff00;
+      font-weight: bold;
+      text-shadow:
+         -1px -1px 1px #000000,
+         1px -1px 1px #000000,
+         -1px 1px 1px #000000,
+         1px 1px 1px #000000;
     }
 }
 
