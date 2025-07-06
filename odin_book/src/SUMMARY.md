@@ -4,7 +4,7 @@
 
 - [1. Introduction](intro.md)
 
-- [2. Common Ascpects](common.md)
+- [2. Common Aspects](common.md)
   - [Project Structure](structure.md)
   - [Design Principles](design_principles.md)
   - [Conventions](conventions.md)
