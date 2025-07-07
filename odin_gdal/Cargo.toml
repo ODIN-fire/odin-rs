@@ -15,6 +15,10 @@ path = "src/bin/utm_bbox.rs"
 name = "translate_bbox"
 path = "src/bin/translate_bbox.rs"
 
+[[bin]]
+name = "crop_nodata"
+path = "src/bin/crop_nodata.rs"
+
 [dependencies]
 odin_common = { workspace = true }
 thiserror = { workspace = true }

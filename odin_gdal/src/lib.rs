@@ -583,14 +583,14 @@ pub fn get_values_for_vrt_positions (vrt_path: impl AsRef<Path>, band_index: usi
 /// crop the provided dataset by cutting top/bottom lines that contain more nodata values than the given threshold and
 /// skip leading/trailing columns with nodata from the rest.
 /// This function is mainly useful when warping a dataset between different SRS that do not preserve bounds (e.g. from UTM to WGS84)
-pub fn crop_no_data<P> (ds: &Dataset, nodata_threshold: f64, path: P, create_opts: Option<RasterCreationOptions>) -> Result<()> 
+pub fn crop_no_data<P> (ds: &Dataset, nodata_threshold: f64, path: P, create_opts: Option<RasterCreationOptions>) -> Result<BoundingBox<usize>> 
     where P: AsRef<Path>
 {
     let n_bands = ds.raster_count();
     if n_bands < 1 { return Err( OdinGdalError::MiscError("no rasterbands to crop".into())) }
     if ! is_homogenous(ds) { return Err( OdinGdalError::MiscError("dataset not homogenous".into())) }
 
-    let bbox = get_data_bounds(ds, 1, 0.2)?;
+    let bbox = get_data_bounds(ds, 1, nodata_threshold)?;
     let width = bbox.east - bbox.west + 1;
     let height = bbox.south - bbox.north + 1;
 
@@ -601,10 +601,10 @@ pub fn crop_no_data<P> (ds: &Dataset, nodata_threshold: f64, path: P, create_opt
     for k in 1..=n_bands {
         let src_band = ds.rasterband(k)?;
         let mut tgt_band = tgt_ds.rasterband(k)?;
-        copy_rasterband( &src_band, &mut tgt_band, bbox.east, bbox.north, bbox.west, bbox.south)?;
+        copy_rasterband( &src_band, &mut tgt_band, bbox.west, bbox.north, bbox.east, bbox.south)?;
     }
 
-    Ok(())
+    Ok(bbox)
 }
 
 /// check if dimensions and raster type of all bands are the same
@@ -671,29 +671,29 @@ pub fn copy_rasterband( src: &RasterBand, tgt: &mut RasterBand, min_x: usize, mi
     if data_type != tgt.band_type() { return Err( OdinGdalError::MiscError("different rasterband types".into()) ) }
 
     match data_type {
-        UInt8   => copy_rasterband_type::<u8>( src, tgt, min_x, min_y, max_x, max_y),
-        UInt16  => copy_rasterband_type::<u16>( src, tgt, min_x, min_y, max_x, max_y),
-        UInt32  => copy_rasterband_type::<u32>( src, tgt, min_x, min_y, max_x, max_y),
-        UInt64  => copy_rasterband_type::<u64>( src, tgt, min_x, min_y, max_x, max_y),
-        Int8    => copy_rasterband_type::<i8>( src, tgt, min_x, min_y, max_x, max_y),
-        Int16   => copy_rasterband_type::<i16>( src, tgt, min_x, min_y, max_x, max_y),
-        Int32   => copy_rasterband_type::<i32>( src, tgt, min_x, min_y, max_x, max_y),
-        Int64   => copy_rasterband_type::<i64>( src, tgt, min_x, min_y, max_x, max_y),
-        Float32 => copy_rasterband_type::<f32>( src, tgt, min_x, min_y, max_x, max_y),
-        Float64 => copy_rasterband_type::<f64>( src, tgt, min_x, min_y, max_x, max_y),
+        UInt8   => copy_rasterband_type::<u8>( src, tgt, min_x, min_y, max_x, max_y, 0),
+        UInt16  => copy_rasterband_type::<u16>( src, tgt, min_x, min_y, max_x, max_y, 0),
+        UInt32  => copy_rasterband_type::<u32>( src, tgt, min_x, min_y, max_x, max_y, 0),
+        UInt64  => copy_rasterband_type::<u64>( src, tgt, min_x, min_y, max_x, max_y, 0),
+        Int8    => copy_rasterband_type::<i8>( src, tgt, min_x, min_y, max_x, max_y, 0),
+        Int16   => copy_rasterband_type::<i16>( src, tgt, min_x, min_y, max_x, max_y, 0),
+        Int32   => copy_rasterband_type::<i32>( src, tgt, min_x, min_y, max_x, max_y, 0),
+        Int64   => copy_rasterband_type::<i64>( src, tgt, min_x, min_y, max_x, max_y, 0),
+        Float32 => copy_rasterband_type::<f32>( src, tgt, min_x, min_y, max_x, max_y, 0.0),
+        Float64 => copy_rasterband_type::<f64>( src, tgt, min_x, min_y, max_x, max_y, 0.0),
         _ => Err( OdinGdalError::MiscError("unsupported GDAL data type".into()))
     }
 }
 
-fn copy_rasterband_type <T: Copy + GdalType> (src: &RasterBand, tgt: &mut RasterBand, min_x: usize, min_y: usize, max_x: usize, max_y: usize)->Result<()> {
+fn copy_rasterband_type <T: Copy + GdalType> (src: &RasterBand, tgt: &mut RasterBand, min_x: usize, min_y: usize, max_x: usize, max_y: usize, init: T)->Result<()> {
     let (src_width,src_height) = src.size();
     let (tgt_width,tgt_height) = tgt.size();
 
-    let mut src_buf: Vec<T> = Vec::with_capacity(src_width);
-    let mut tgt_buf: Buffer<T> = Buffer::new((tgt_width,1), Vec::with_capacity(tgt_width));
+    let mut src_buf: Vec<T> = vec![init; src_width];
+    let mut tgt_buf: Buffer<T> = Buffer::new((tgt_width,1), vec![init; tgt_width]);
 
     for j in 0..=max_y - min_y {
-        src.read_into_slice((0 as isize, (j + min_y) as isize), (src_width,1), (src_width,1), &mut src_buf, None)?;
+        src.read_into_slice( (0 as isize, (j + min_y) as isize), (src_width,1), (src_width,1), &mut src_buf, None)?;
         copy_scanline( &src_buf, tgt_buf.data_mut(), min_x, max_x)?;
         tgt.write( (0 as isize, j as isize), (tgt_width,1), &mut tgt_buf)?;
     }
@@ -749,7 +749,7 @@ pub fn get_data_bounds (ds: &Dataset, ref_band: usize, nodata_threshold: f64) ->
         if !has_data { return Err(OdinGdalError::MiscError("no data in dataset".into())) }
 
         //--- prune bottom nodata rows
-        for j in n_rows-1..=0 {
+        for j in (0..n_rows).rev() {
             band.read_into_slice( (0 as isize, j as isize), (n_cols,1), (n_cols,1), &mut scanline, None)?;
             let (n_leading, n_trailing, n_total) = count_nodata( &scanline, nodata_value);
             if n_total == n_leading + n_trailing { // no nodata inside leading..trailing allowed
@@ -763,9 +763,10 @@ pub fn get_data_bounds (ds: &Dataset, ref_band: usize, nodata_threshold: f64) ->
         }
 
         //--- get min/max cols in-between
-        for j in min_y+1..=max_y-1 {
+        for j in min_y+1..max_y {
             band.read_into_slice( (0 as isize, j as isize), (n_cols,1), (n_cols,1), &mut scanline, None)?;
             let (n_leading, n_trailing, n_total) = count_nodata( &scanline, nodata_value);
+
             if n_total == n_leading + n_trailing { // no nodata inside leading..trailing
                 min_x = usize::max(min_x, n_leading);
                 max_x = usize::min(max_x, n_cols - n_trailing -1);
@@ -792,14 +793,16 @@ fn count_nodata (scanline: &[f64], nodata_value: f64)->(usize,usize,usize) {
 
     if n_leading < scanline.len() {
         //--- count trailing nodata 
-        for i in scanline.len()-1..=0 {
+        for i in (0..scanline.len()).rev() {
             if scanline[i] == nodata_value { n_trailing += 1 } else { break }
         }
 
         //--- count nodata in-between leading and trailing
         n_total += n_trailing;
         for i in n_leading..scanline.len()-n_trailing {
-            if scanline[i] == nodata_value { n_total += 1 }
+            if scanline[i] == nodata_value { 
+                n_total += 1 
+            }
         }
 
     } else { // scanline does not contain any data

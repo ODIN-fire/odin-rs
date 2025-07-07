@@ -12,14 +12,32 @@
  * and limitations under the License.
  */
 
-use std::{path::{Path,PathBuf}};
-use odin_common::{define_cli, BoundingBox};
+use std::path::Path;
+use gdal::Dataset;
+use odin_common::define_cli;
+use odin_gdal::{crop_no_data,to_csl_string_list};
+use odin_gdal::errors::Result;
 
 define_cli! { ARGS [about="crop provided GDAL raster file so that it does not contain NO_DATA values"] =
-    input: String [help="input filename"],
-    output: String [help="output filename"]
+    nodata_threshold: f64 [help="nodata threshold [0..1]", long, short, default_value="0.2"],
+    co: Vec<String> [help="create options", long],
+    src_path: String [help="input filename"],
+    tgt_path: String [help="output filename"]
 }
 
 fn main()->Result<()> {
-    Ok(())
+    let src_path = Path::new(ARGS.src_path.as_str());
+    let src_ds = Dataset::open(src_path)?;
+    let tgt_path = Path::new(ARGS.tgt_path.as_str());
+
+    let create_opts = to_csl_string_list(&ARGS.co)?;
+    let nodata_threshold = ARGS.nodata_threshold;
+
+    match crop_no_data( &src_ds, nodata_threshold, tgt_path, create_opts)  {
+        Ok(bbox) => {
+            println!("cropped to {bbox:?}");
+            Ok(())
+        }
+        Err(e) => Err(e)
+    }
 }

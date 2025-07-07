@@ -47,10 +47,10 @@ struct CliOpts {
     #[structopt(long,allow_hyphen_values=true,number_of_values=2)]
     t_res: Option<Vec<f64>>,
 
-    #[structopt(long)]
+    #[structopt(long,allow_hyphen_values=true)]
     s_nodata: Vec<f64>,
 
-    #[structopt(long)]
+    #[structopt(long,allow_hyphen_values=true)]
     t_nodata: Vec<f64>,
 
     #[structopt(short,long)]
