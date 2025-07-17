@@ -29,7 +29,8 @@ vec2 mapPositionToNormalizedIndex2D(vec3 lonLatLev) {
     vec3 index3D = vec3(0.0);
     index3D.x = (lonLatLev.x - minimum.x) / interval.x;
     index3D.y = (lonLatLev.y - minimum.y) / interval.y;
-    index3D.z = (lonLatLev.z - minimum.z) / interval.z;
+    index3D.z = (interval.z != 0.0) ? (lonLatLev.z - minimum.z) / interval.z : 1.0; // WATCH OUT - interval.z might be 0
+    //index3D.z = (lonLatLev.z - minimum.z) / interval.z; // WATCH OUT - interval.z must not be 0 (checked in particlesComputing.js as GPUs don't like branches)
 
     // the st texture coordinate corresponding to (col, row) index
     // example

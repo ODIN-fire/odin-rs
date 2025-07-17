@@ -40,8 +40,9 @@ vec2 mapPositionToNormalizedIndex2D(vec3 lonLatLev) {
     vec3 index3D = vec3(0.0);
     index3D.x = (lonLatLev.x - minimum.x) / interval.x;
     index3D.y = (lonLatLev.y - minimum.y) / interval.y;
-    index3D.z = (lonLatLev.z - minimum.z) / interval.z;
-
+    index3D.z = (interval.z != 0.0) ? (lonLatLev.z - minimum.z) / interval.z : 1.0; // WATCH OUT - interval.z might be 0
+    //index3D.z = (lonLatLev.z - minimum.z) / interval.z; // WATCH OUT - interval.z must not be 0 (checked in particlesRendering.js as GPUs don't like branches)
+    
     vec2 index2D = vec2(index3D.x, index3D.z * dimension.y + index3D.y);
     vec2 normalizedIndex2D = vec2(index2D.x / dimension.x, 1.0 - index2D.y / (dimension.y * dimension.z));
     return normalizedIndex2D;

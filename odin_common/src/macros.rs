@@ -148,6 +148,16 @@ macro_rules! str {
 pub use str;
 
 #[macro_export]
+macro_rules! push_all_str {
+    ( $o:ident, $($arg:expr),+ ) =>
+    {
+        $( $o.push_str( $arg) );+
+    }
+}
+pub use push_all_str;
+
+
+#[macro_export]
 macro_rules! max {
     ($x:expr) => ( $x );
     ($x:expr, $($xs:expr),+) => {

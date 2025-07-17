@@ -13,7 +13,7 @@
  */
 #![allow(unused)]
 
-use std::{collections::{HashMap,HashSet}, net::SocketAddr, path::{Path,PathBuf}, sync::Arc};
+use std::{collections::{HashMap,HashSet}, net::SocketAddr, path::{Path,PathBuf}, sync::Arc, fs::remove_file};
 use chrono::{DateTime,Datelike,Timelike, Utc};
 use odin_dem::DemSRS;
 use reqwest::{self, Client};
@@ -22,19 +22,30 @@ use serde::{Serialize,Deserialize};
 
 use odin_build::pkg_cache_dir;
 use odin_common::{
-    fs::{basename,replace_env_var_path,path_to_unchecked_string,path_str_to_fname},
+    pow2, sqrt, BoundingBox, 
+    collections::RingDeque, 
     datetime::{hours,short_utc_datetime_string}, 
-    geo::GeoRect, net::download_url, collections::RingDeque,
-    utm::{self,UtmRect,UtmZone,UTM}
+    fs::{basename, gzip_path, odin_data_filename, path_str_to_fname, path_to_unchecked_string, remove_old_files, replace_env_var_path}, 
+    geo::GeoRect, 
+    net::download_url,
+    utm::{self,UtmRect,UtmZone,UTM}, 
 };
 use odin_hrrr::{AddDataSet, RemoveDataSet, HrrrActorMsg, HrrrDataSetConfig, HrrrDataSetRequest, HrrrFileAvailable};
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
-use odin_gdal::warp::warp_to_rect;
+use odin_gdal::{
+    gdal::Dataset, GdalType, RasterInfo, 
+    copy_full_rasterband, compute_rasterband_lines, get_raster_info, rasterband_index_for, 
+    warp::{warp_to_raster_info, warp_to_rect, ResampleAlg}
+};
 use crate::{
-    errors::{OdinWindError,Result},
-    wind_service::WindService,
-    Forecast, ForecastRegion, ForecastStore, WnJob, WindConfig, WX_HRRR,
+    Forecast, ForecastRegion, ForecastStore, WindConfig, WnJob, WX_HRRR,
+    errors::{OdinWindError,Result}, 
+    get_tmp_path,
+    huvw_wgs84_suffix, huvw_contour_suffix, huvw_grid_suffix, huvw_vector_suffix,
+    hrrr_wgs84_suffix, hrrr_10_grid_suffix, hrrr_10_vector_suffix, hrrr_80_grid_suffix, hrrr_80_vector_suffix, hrrr_10_contour_suffix, hrrr_80_contour_suffix,
+    write_huvw_csv_cell_vectors, write_huvw_csv_grid, write_windspeed_contour, 
+    wind_service::WindService, 
 };
 
 //macro_rules! info { ($fmt:literal $(, $arg:expr )* ) => { {print!("INFO: "); println!( $fmt $(, $arg)* )} } }
@@ -43,7 +54,7 @@ use crate::{
 // TODO - put HRRR behind a Wx abstraction to support other weather sources
 
 struct WnTask {
-    abort_handle: AbortHandle,
+    join_handle: JoinHandle<()>,
     tx: MpscSender<WnJob>
 }
 
@@ -54,10 +65,6 @@ pub struct WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
 
     // from config, with env-var pathelements expanded
     windninja_cmd: String,
-    huvw_csv_grid_cmd: String,
-    huvw_csv_vector_cmd: String,
-    huvw_json_contour_cmd: String,
-    hrrr_csv_grid_cmd: String,
 
     cache_dir: Arc<PathBuf>,         // where to store computed forecasts
     hrrr: ActorHandle<HrrrActorMsg>, // where to get new HRRR reports from - this drives our data update
@@ -67,17 +74,14 @@ pub struct WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
     subscribe_action: S,
     update_action: U,
 
-    wn_task: Option<WnTask>
+    wn_task: Option<WnTask>,
+    timer: Option<AbortHandle>,
 }
 
 impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefAction<Forecast> {
     pub fn new (config: WindConfig, hrrr: ActorHandle<HrrrActorMsg>, subscribe_action: S, update_action: U)->Self {
         
          let windninja_cmd = path_to_unchecked_string( replace_env_var_path( &config.windninja_cmd).unwrap()); // Ok to panic - this is the ctor
-         let huvw_csv_grid_cmd = path_to_unchecked_string( replace_env_var_path( &config.huvw_csv_grid_cmd).unwrap());
-         let huvw_csv_vector_cmd = path_to_unchecked_string( replace_env_var_path( &config.huvw_csv_vector_cmd).unwrap());
-         let huvw_json_contour_cmd = path_to_unchecked_string( replace_env_var_path( &config.huvw_json_contour_cmd).unwrap());
-         let hrrr_csv_grid_cmd = path_to_unchecked_string( replace_env_var_path( &config.hrrr_csv_grid_cmd).unwrap());
          // TODO - we should check here if comands are valid executables
 
         let config = Arc::new(config);
@@ -86,20 +90,21 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
  
         WindActor { 
             config,
-            windninja_cmd, huvw_csv_grid_cmd, huvw_csv_vector_cmd, huvw_json_contour_cmd, hrrr_csv_grid_cmd,
+            windninja_cmd,
             cache_dir, 
             hrrr, 
             forecast_store, 
             subscribe_action, update_action, 
-            wn_task: None
+            wn_task: None,
+            timer: None,
         }
     }
 
     fn start (&mut self, hself: ActorHandle<WindActorMsg>)->Result<()> {
         let (tx, rx) = create_mpsc_sender_receiver::<WnJob>(64);
-        let abort_handle = spawn("wn_task", wn_loop( hself, self.windninja_cmd.clone(), self.cache_dir.clone(), rx))?.abort_handle();
+        let join_handle = spawn("wn_task", wn_loop( hself, self.windninja_cmd.clone(), self.cache_dir.clone(), rx))?;
 
-        self.wn_task = Some( WnTask{abort_handle, tx} );
+        self.wn_task = Some( WnTask{join_handle, tx} );
         Ok(())
     }
 
@@ -212,7 +217,8 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
     async fn add_hrrr_region (&self, wn_region: &WindRegion)->Result<Arc<HrrrDataSetRequest>> {
         let mut bbox = wn_region.bbox.add_degrees( -0.3, -0.3, 0.3, 0.3); // make sure we cover the bbox after warping to 4326
         let region = wn_region.name.clone();
-        let mut hrrr_cfg = HrrrDataSetConfig::new( region, bbox,  self.config.hrrr_fields.clone(), self.config.hrrr_levels.clone());
+        let set_name = "hrrr-wind".to_string();
+        let mut hrrr_cfg = HrrrDataSetConfig::new( region, bbox, set_name, self.config.hrrr_fields.clone(), self.config.hrrr_levels.clone());
         let hrrr_ds_request = Arc::new( HrrrDataSetRequest::new( hrrr_cfg) );
 
         self.hrrr.send_msg( AddDataSet( hrrr_ds_request.clone())).await?;
@@ -220,10 +226,11 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
         Ok(hrrr_ds_request)
     }
 
-    async fn schedule_wn_job (&self, hfa: HrrrFileAvailable)->Result<()> {
+    async fn schedule_wn_job (&mut self, hfa: HrrrFileAvailable)->Result<()> {
         if let Some(wn_task) = &self.wn_task {
             if let Some(fcr) = self.forecast_store.get( hfa.request.name()) {
                 if fcr.n_clients > 0 { // maybe it got unsubscribed in the meantime
+
                     let region = fcr.region.clone();
                     let step = hfa.request.step;   
                     let mesh_res = self.config.mesh_res;
@@ -231,16 +238,18 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
                     let date = hfa.request.base + hours(step as u64);
                     let wx_path = Arc::new(hfa.path);
                     let dem_path = fcr.dem_path.clone();
-
-                    let rn = path_str_to_fname( &fcr.region);
-                    let bbox = &fcr.utm_rect.bbox;
-                    let wn_out_basename = Arc::new( format!("{}_{:.0}_{:.0}_{:.0}_{:.0}_{:02}-{:02}-{:04}_{:02}{:02}_{}m_huvw", 
-                                rn, bbox.west, bbox.south, bbox.east, bbox.north,
-                                date.month(), date.day(), date.year(), date.hour(), date.minute(), mesh_res));
                     let wx_src = WX_HRRR.clone(); // FIXME - this shouldn't be hardcoded (there will be other sources)
+                    let wn_out_basename = Arc::new( Self::get_wn_out_basename( &fcr.region, date, &fcr.utm_rect.bbox, mesh_res) );
 
-                    if let Err(e) = send( &wn_task.tx, WnJob{region, date, step, mesh_res, wind_height, wx_src, wx_path, dem_path, wn_out_basename}).await {
-                        error!("failed to queue WnJob {} at {}+{} : {e}", fcr.region, hfa.request.base, hfa.request.step);
+                    let wn_job = WnJob{region, date, step, mesh_res, wind_height, wx_src, wx_path, dem_path, wn_out_basename};
+
+                    if !wn_job.output_files_exist() {
+                        if let Err(e) = send( &wn_task.tx, wn_job).await {
+                            error!("failed to queue WnJob {} at {}+{} : {e}", fcr.region, hfa.request.base, hfa.request.step);
+                        }
+                    } else { // no need to run WindNinja - add and notify
+                        let forecast = Forecast::from(wn_job);
+                        self.finish_forecast( &forecast).await?;
                     }
                 }
             }
@@ -248,21 +257,133 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
         Ok(())
     }
     
+    fn get_wn_out_basename (region: &str, date: DateTime<Utc>, bbox: &BoundingBox<f64>, mesh_res: f64) -> String {
+        //let sbb = format!("{:.0}_{:.0}_{:.0}_{:.0}", bbox.west, bbox.south, bbox.east, bbox.north);
+        let mr = format!("{:.0}m", mesh_res);
+        let attrs = &[ mr.as_str(), "huvw" ];
+        odin_data_filename( region, Some(date), attrs, None)
+    }
+
     async fn process_forecast (&mut self, forecast: &Forecast)->Result<()> {
-        let huvw_grid = create_huvw_csv_grid( &self.huvw_csv_grid_cmd, &forecast).await?;
-        let huvw_vector = create_huvw_csv_vector( &self.huvw_csv_vector_cmd, &forecast).await?;
-        let huvw_contour = create_huvw_json_contour( &self.huvw_json_contour_cmd, &forecast).await?;
 
-        if let Some(fcr) = self.forecast_store.get( &forecast.region) {
-            let hrrr_10_grid = create_hrrr_10_csv_grid( &self.hrrr_csv_grid_cmd, &forecast, &fcr.bbox).await?;
-            let hrrr_80_grid = create_hrrr_80_csv_grid( &self.hrrr_csv_grid_cmd, &forecast, &fcr.bbox).await?;
-        }
+        let huvw_wgs84_path = forecast.get_wn_path( huvw_wgs84_suffix());
+        let huvw_ds = self.get_cropped_wgs84_ds( forecast, &huvw_wgs84_path, false)?; // this is the basis for derived data
+        let huvw_bands: &[usize] = &[1, 2, 3, 4]; // GDAL band numbers are 1-based 
+        let s_band = 5; // the windspeed band
+
+        Self::create_grid_csv( &forecast.get_wn_path( huvw_grid_suffix()), &huvw_ds, huvw_bands)?;
+        Self::create_vector_csv( &forecast.get_wn_path( huvw_vector_suffix()), &huvw_ds, huvw_bands, forecast.mesh_res)?;
+        Self::create_contour_json( &forecast.get_wn_path( huvw_contour_suffix()), &huvw_ds, s_band)?;
+
+        // compute the HRRR based data products (directly from HRRR forecasts)
+        let wx_ds = Dataset::open( forecast.wx_path.as_ref())?;
+        let hrrr_wgs84_path = forecast.get_wn_path( hrrr_wgs84_suffix());
+        let mut hrrr_ds = self.get_hrrr_wgs84_ds( &wx_ds, &huvw_ds, &hrrr_wgs84_path)?; // this creates a {u10,v10, u80,v80, s10, s80, h} dataset
+
+        let hrrr_10_bands: &[usize] = &[7, 1, 2];
+        Self::create_grid_csv( &forecast.get_wn_path( hrrr_10_grid_suffix()), &hrrr_ds, hrrr_10_bands);
+        Self::create_vector_csv( &forecast.get_wn_path( hrrr_10_vector_suffix()), &hrrr_ds, hrrr_10_bands, forecast.mesh_res)?;
+        Self::create_contour_json( &forecast.get_wn_path( hrrr_10_contour_suffix()), &hrrr_ds, 5)?;
 
 
+        let hrrr_80_bands: &[usize] = &[7, 3, 4];
+        Self::create_grid_csv( &forecast.get_wn_path( hrrr_80_grid_suffix()), &hrrr_ds, hrrr_80_bands);
+        Self::create_vector_csv( &forecast.get_wn_path( hrrr_80_vector_suffix()), &hrrr_ds, hrrr_80_bands, forecast.mesh_res)?;
+        Self::create_contour_json( &forecast.get_wn_path( hrrr_80_contour_suffix()), &hrrr_ds, 6)?;
+
+        remove_file( &huvw_wgs84_path)?;
+        remove_file( &hrrr_wgs84_path)?;
+
+        self.finish_forecast(forecast).await
+    }
+
+    fn create_grid_csv (path: &PathBuf, ds: &Dataset, bands: &[usize])->Result<()> {
+        write_huvw_csv_grid( ds, path, bands)?;
+        gzip_path( path)?; // this stores as "*.gz" so we can delete the uncompressed version
+        remove_file( path)?;
+        Ok(())
+    }
+
+    fn create_vector_csv (path: &PathBuf, ds: &Dataset, bands: &[usize], mesh_res: f64)->Result<()> {
+        write_huvw_csv_cell_vectors( ds, path, mesh_res, bands)?;
+        gzip_path( path)?; // this stores as "*.gz" so we can delete the uncompressed version
+        remove_file( path)?;
+        Ok(())
+    }
+
+    fn create_contour_json (path: &PathBuf, ds: &Dataset, band: usize)->Result<()> {
+        write_windspeed_contour( ds, path, band)?;
+        gzip_path( path)?;
+        remove_file( path)?;
+        Ok(())
+    }
+
+    async fn finish_forecast (&mut self, forecast: &Forecast)->Result<()> {
         self.add_forecast( forecast.clone());
+        info!("added forecast {:?}", forecast);
+        Ok( self.update_action.execute( forecast).await.map_err(|e| OdinWindError::ActionFailure(e.to_string()))? )    
+    }
 
-        info!("completed forecast {:?}", forecast);
-        Ok( self.update_action.execute( &forecast).await.map_err(|e| OdinWindError::ActionFailure(e.to_string()))? )
+    fn get_cropped_wgs84_ds <P> (&self, forecast: &Forecast, path: P, keep_utm: bool) -> Result<Dataset> 
+        where P: AsRef<Path> 
+    {
+        let huvw_wn = forecast.get_wn_output_path(); // the WindNinja huvw output filename
+        let huvw_tmp = get_tmp_path( forecast.wn_out_base_name.as_str()); // the (temp) non-cropped output in WGS84 (contains nodata) 
+
+        let tmp_ds = odin_gdal::warp::warp_to_wgs84( &huvw_wn, &huvw_tmp, vec![-9999.0])?;
+        let huvw_ds = odin_gdal::crop_no_data( &tmp_ds, 0.2, path, Some(odin_gdal::compress_create_opts()))?;
+
+        std::fs::remove_file( &huvw_tmp)?;
+        if !keep_utm { std::fs::remove_file( &huvw_wn)? }
+
+        Ok(huvw_ds)
+    }
+
+    /// warp the HRRR dataset into the same WGS84 grid as the WindNinja huvw output and compute the windspeed bands for 10m and 08m
+    /// since we need them for respective contours
+    /// this will produce a [u10, v10, u80, v80, s10, s80, h] dataset
+    fn get_hrrr_wgs84_ds<P> ( &self, hrrr_ds: &Dataset, huvw_ds: &Dataset, tgt_path: P) -> Result<Dataset> 
+        where P: AsRef<Path> 
+    {
+        // since the HRRR data set is configured and might contain extra fields we have to query/check the band numbers
+        if let Some(id_u10) = rasterband_index_for!( hrrr_ds, ("", "GRIB_ELEMENT", Some("UGRD")), ("", "GRIB_SHORT_NAME", Some("10-HTGL")))
+        && let Some(id_v10) = rasterband_index_for!( hrrr_ds, ("", "GRIB_ELEMENT", Some("VGRD")), ("", "GRIB_SHORT_NAME", Some("10-HTGL")))
+        && let Some(id_u80) = rasterband_index_for!( hrrr_ds, ("", "GRIB_ELEMENT", Some("UGRD")), ("", "GRIB_SHORT_NAME", Some("80-HTGL")))
+        && let Some(id_v80) = rasterband_index_for!( hrrr_ds, ("", "GRIB_ELEMENT", Some("VGRD")), ("", "GRIB_SHORT_NAME", Some("80-HTGL"))) {
+            let tgt_ri = get_raster_info( huvw_ds)?;
+            let src_bands = vec![ id_u10, id_v10, id_u80, id_v80 ];
+
+            // we add tgt bands for height (which we copy from the wn_output) and for the wind speeds at 10m, 80m (which we compute)
+            let mut tgt_ds = warp_to_raster_info( &hrrr_ds, tgt_path, 4326, &tgt_ri, ResampleAlg::CubicSpline, 
+                                     Some(src_bands), Some(3), Some(odin_gdal::GdalDataType::Float32))?;
+
+            // compute the wind speed bands
+            Self::set_hrrr_wind_spd_band::<f32>( &mut tgt_ds, 1, 2, 5)?; // 10m
+            Self::set_hrrr_wind_spd_band::<f32>( &mut tgt_ds, 3, 4, 6)?; // 80m
+
+            // copy the height band from huvw_ds
+            let h_src_band = huvw_ds.rasterband(1)?;
+            let mut h_tgt_band = tgt_ds.rasterband(7)?;
+            copy_full_rasterband( &h_src_band, &mut h_tgt_band)?;
+
+            Ok(tgt_ds)
+        } else {
+            Err( OdinWindError::OpFailedError("invalid HRRR dataset".into()))
+        }
+    }
+
+    /// we need  wind speed bands for computing contours
+    fn set_hrrr_wind_spd_band<T> ( ds: &mut Dataset, u_band_nr: usize, v_band_nr: usize, s_band_nr: usize) -> Result<()> where T: Copy + GdalType {
+        let u_band = ds.rasterband(u_band_nr)?;
+        let v_band = ds.rasterband(v_band_nr)?;
+        let mut s_band = ds.rasterband(s_band_nr)?;
+
+        compute_rasterband_lines( &[&u_band, &v_band], &mut s_band, 0.0f32, |inputs,output| {
+            for i in 0..output.len() {
+                output[i] = (inputs[0][i].powi(2) + inputs[1][i].powi(2)).sqrt();
+            }
+        });
+        Ok(())
     }
 
     fn add_forecast(&mut self, forecast: Forecast) {
@@ -288,10 +409,18 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
         }
     }
 
-    fn terminate (&mut self) {
+    async fn terminate (&mut self) {
         if let Some(wn_task) = &self.wn_task {
-            wn_task.abort_handle.abort();
-            self.wn_task = None;
+            println!("terminating wn_task...");
+            wn_task.tx.close();
+            wn_task.join_handle.abort();
+            println!("wn_task terminated.");
+        }
+    }
+
+    fn cleanup (&mut self) {
+        if remove_old_files( &pkg_cache_dir!(), hours(6)).is_err() {
+            warn!("failed to cleanup cache");
         }
     }
 }
@@ -378,6 +507,7 @@ async fn run_wn (windninja_cmd: &String, cache_dir: &PathBuf, wn_job: &WnJob) ->
 
 async fn execute_cmd( cmd: &mut Command) -> Result<()> {
     debug!("executing {cmd:?}");
+    cmd.kill_on_drop(true);
 
     match cmd.spawn() {
         Ok(mut child) => {
@@ -393,106 +523,21 @@ async fn execute_cmd( cmd: &mut Command) -> Result<()> {
     }
 }
 
+/// note this is for WindNinja, which implicitly assumes UTC (no zone)
 fn wn_forecast_time (date: &DateTime<Utc>)->String {
-    format!("{:4}{:02}{:02}T{:02}0000", date.year(), date.month(), date.day(), date.hour()) // Wind assumes UTC (no zone)
+    format!("{:4}{:02}{:02}T{:02}0000", date.year(), date.month(), date.day(), date.hour()) 
 }
 
+/// this has to adhere to our data filename conventions
 fn wn_dem_filename (region: &str, utm_rect: &UtmRect)->PathBuf {
-    let rn = path_str_to_fname( region);
-    let bbox = &utm_rect.bbox;
-    Path::new( &format!("{}_{:.0}_{:.0}_{:.0}_{:.0}.tif", rn, bbox.west,bbox.south,bbox.east,bbox.north)).to_path_buf()
+    let mut rn = path_str_to_fname( region);
+    //Path::new( &format!("{}__{:.0}_{:.0}_{:.0}_{:.0}.tif", rn, bbox.west,bbox.south,bbox.east,bbox.north)).to_path_buf()
+    rn.push_str(".tif");
+    Path::new( &rn).to_path_buf()
 }
 
 //--- the public output files generated from the Wind huvw UTM grid file
 
-/// this takes the Wind_cli generated huvw UTM grid and turns it into a WGS84 grid formatted as CSV. Since this conversion
-/// creates no_data edge artifacts that would throw off particle animation and other visualization we have to not only warp to
-/// epsg:4326 but also crop the grid so that it only contains defined data values. Note the CSV file contains a '#' prefixed meta
-/// info line to define the lon/lat grid i.e. it might not be processed correctly by external programs.
-/// TODO - ultimately we want to do this within process but since input and output are both just files we use a child process for now
-async fn create_huvw_csv_grid (cmd: &String, forecast: &Forecast) -> Result<()> {
-    let in_path = forecast.get_huvw_utm_grid_path();
-    if !in_path.is_file() { return Err(OdinWindError::ExecError(format!("no such Wind output file {:?}", in_path))) }
-    let out_path = forecast.get_huvw_grid_path();
-
-    exec_huvw_gen( cmd, &in_path, true, None, &out_path).await
-}
-
-/*
-async fn create_hrrr_10_csv_grid (cmd: &String, forecast: &Forecast) -> Result<()> {
-    let in_path = forecast.get_huvw0_utm_grid_path();
-    let out_path = forecast.get_hrrr_10_grid_path();
-
-    exec_huvw_gen( cmd, &in_path, true, None, &out_path).await // TODO - lookup band numbers
-}
-*/
-
-// FIXME - this does not render correctly
-
-async fn create_hrrr_10_csv_grid (cmd: &String, forecast: &Forecast, bbox: &GeoRect) -> Result<()> {
-    let out_path = forecast.get_hrrr_10_grid_path();
-    let wx_path = forecast.wx_path.as_ref();
-    let wx_4326_path = pkg_cache_dir!().join( format!( "{}_hrrr_4326.tif", forecast.wn_out_base_name));
-
-    // warp to our target rect
-    warp_to_rect( wx_path, &wx_4326_path, 4326, bbox, None)?;
-
-    let bands = &[4,5];
-
-    exec_huvw_gen( cmd, &wx_4326_path, true, Some(bands), &out_path).await // TODO - lookup band numbers
-}
-
-async fn create_hrrr_80_csv_grid (cmd: &String, forecast: &Forecast, bbox: &GeoRect) -> Result<()> {
-    let out_path = forecast.get_hrrr_80_grid_path();
-    let wx_path = forecast.wx_path.as_ref();
-    let wx_4326_path = pkg_cache_dir!().join( format!( "{}_hrrr_4326.tif", forecast.wn_out_base_name));
-
-    // warp to our target rect
-    let res = (bbox.east().degrees() - bbox.west().degrees()) / 300.0;
-    println!("@@ res = {res}"); 
-    warp_to_rect( wx_path, &wx_4326_path, 4326, bbox, Some(res))?;
-
-    let bands = &[1,2];
-
-    exec_huvw_gen( cmd, &wx_4326_path, true, Some(bands), &out_path).await // TODO - lookup band numbers
-}
-
-
-/// this takes the Wind_cli generated huvw UTM grid and turns it into a list of ECEF vectors formatted as CSV.
-async fn create_huvw_csv_vector (cmd: &String, forecast: &Forecast) -> Result<()> {
-    let in_path = forecast.get_huvw_utm_grid_path();
-    if !in_path.is_file() { return Err(OdinWindError::ExecError(format!("no such Wind output file {:?}", in_path))) }
-    let out_path = forecast.get_huvw_vector_path();
-
-    exec_huvw_gen( cmd, &in_path, true, None, &out_path).await
-}
-
-async fn create_huvw_json_contour (cmd: &String, forecast: &Forecast) -> Result<()> {
-    let in_path = forecast.get_huvw_utm_grid_path();
-    if !in_path.is_file() { return Err(OdinWindError::ExecError(format!("no such Wind output file {:?}", in_path))) }
-    let out_path = forecast.get_huvw_contour_path();
-
-    exec_huvw_gen( cmd, &in_path, true, None, &out_path).await
-}
-
-async fn exec_huvw_gen (cmd_path: &String, in_path: &PathBuf, compress: bool, bands: Option<&[u8]>,out_path: &PathBuf) -> Result<()> {
-    let mut cmd = Command::new(cmd_path);
-
-    if compress { cmd.arg("-z"); }
-
-    if let Some(bs) = bands {
-        for b in bs { 
-            cmd.arg("-b").arg( b.to_string());
-        }
-    }
-
-    cmd
-        .arg( in_path.as_os_str()) // the input file
-        .arg( out_path.as_os_str());
-
-    execute_cmd( &mut cmd).await?;
-    Ok(())
-}
 
 /* #region Wind actor messages ****************************************************************/
 
@@ -535,8 +580,16 @@ impl_actor! { match msg for Actor<WindActor<S,U>,WindActorMsg>
     where S: DataAction<SubscribeResponse> + Sync, U: DataRefAction<Forecast> + Sync as
 
     _Start_ => cont! {
+        if let Ok(timer) = self.start_repeat_timer( 1, hours(1), false) {
+            self.timer = Some(timer);
+        } else { error!("failed to start cleanup timer") }
+
         let hself = self.hself.clone();
         self.start( hself);
+    }
+
+    _Timer_ => cont! {
+        self.cleanup();
     }
 
     // received from a client to start forecasts for the given area
@@ -566,7 +619,7 @@ impl_actor! { match msg for Actor<WindActor<S,U>,WindActorMsg>
     }
 
     _Terminate_ => stop! { 
-        self.terminate();
+        self.terminate().await;
     }
 }
 

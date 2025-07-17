@@ -35,6 +35,23 @@ const RegionStatus = {
     INACTIVE: ""
 };
 
+// the supported display types
+const AnimDisplay = "animation";
+const VectorDisplay = "vector";
+const ContourDisplay = "contour";
+var selDisplay = undefined;
+
+// the supported wind sources
+const WindNinjaSource = "windNinja";
+const Hrrr10Source = "hrrr_10m";
+const Hrrr80Source = "hrrr_80m";
+var selSource = undefined;
+
+//--- render parameters
+var animRender = {...config.animRender};
+var vectorRender = {...config.vectorRender};
+var contourRender = {...config.contourRender};
+
 class ForecastRegion {
     constructor (name, bbox, status) {
         this.name = name; // this is the key (path) of a shared GeoRect
@@ -155,29 +172,39 @@ class Forecast {
         this.wxSrc = wxSrc;
         this.urlBase = urlBase;
 
-        this.windField = {};
-        this.windField[wf.DisplayType.DISPLAY_ANIM] = new wf.AnimField( urlBase, animRender, wfStatusChanged);
-        this.windField[wf.DisplayType.DISPLAY_VECTOR] = new wf.VectorField( urlBase, vectorRender, wfStatusChanged);
-        this.windField[wf.DisplayType.DISPLAY_CONTOUR] = new wf.ContourField( urlBase, contourRender, wfStatusChanged);
+        // note - property names have to match display type and wind source values defined above
+        this.animation = {};
+        this.vector = {};
+        this.contour = {};
 
-        this.windField[wf.DisplayType.DISPLAY_ANIM_WX_10] = new wf.AnimFieldWx10( urlBase, animRenderWx, wfStatusChanged);
-        this.windField[wf.DisplayType.DISPLAY_ANIM_WX_80] = new wf.AnimFieldWx80( urlBase, animRenderWx, wfStatusChanged);
+        this.animation.windNinja = new wf.AnimField( urlBase, "__grid.csv", animRender, wfStatusChanged);
+        this.vector.windNinja = new wf.VectorField( urlBase, "__vector.csv", vectorRender, wfStatusChanged);
+        this.contour.windNinja = new wf.ContourField( urlBase, "__contour.json", contourRender, wfStatusChanged);
 
+        this.animation.hrrr_10m = new wf.AnimField( urlBase, "__hrrr__10__grid.csv", animRender, wfStatusChanged);
+        this.vector.hrrr_10m = new wf.VectorField( urlBase, "__hrrr__10__vector.csv", vectorRender, wfStatusChanged);
+        this.contour.hrrr_10m = new wf.ContourField( urlBase, "__hrrr__10__contour.json", contourRender, wfStatusChanged);
 
-        //.. and more to follow
+        this.animation.hrrr_80m = new wf.AnimField( urlBase, "__hrrr__80__grid.csv", animRender, wfStatusChanged);
+        this.vector.hrrr_80m = new wf.VectorField( urlBase, "__hrrr__80__vector.csv", vectorRender, wfStatusChanged);
+        this.contour.hrrr_80m = new wf.ContourField( urlBase, "__hrrr__80__contour.json", contourRender, wfStatusChanged);
     }
 
-    status () { return this.windField[displayType].status; }
+    status () { return this[selDisplay][selSource].status; }
 
-    startViewChange () { this.windField[displayType].startViewChange(); }
+    startViewChange () { this[selDisplay][selSource].startViewChange(); }
 
-    endViewChange () { this.windField[displayType].endViewChange(); }
+    endViewChange () { this[selDisplay][selSource].endViewChange(); }
 
-    renderChanged () { this.windField[displayType].renderChanged(); }
-
-    getDisplayWindField () { return this.windField[displayType]; }
+    renderChanged () { this[selDisplay][selSource].renderChanged(); }
 
     isShowing() { return Object.is( this.status(), wf.WindFieldStatus.SHOWING); }
+
+    getResolution() { return Object.is( selSource, WindNinjaSource) ? this.mesh : 3000; }
+
+    showWindField (showIt) { 
+        this[selDisplay][selSource].setVisible( showIt); 
+    }
 }
 
 /* #endregion types */
@@ -189,26 +216,25 @@ main.addShareHandler( handleShareMessage);
 var forecastRegions = new Map(); // name -> ForecastRegion
 
 //--- UI state we track
-var displayType = wf.DisplayType.DISPLAY_ANIM;
 var regionView = undefined;
 var forecastView = undefined;
+var displayCb = undefined;
+var sourceCb = undefined;
 
 var selectedRegion = undefined;
 var selectedForecast = undefined;
-
-//--- render parameters
-var animRender = {...config.animRender};
-var vectorRender = {...config.vectorRender};
-var contourRender = {...config.contourRender};
-var animRenderWx = {...config.animRenderWx};
 
 setupEventListeners();
 
 createIcon();
 createWindow();
 
+initDisplayCb();
+initSourceCb();
+
 initRegionView();
 initForecastView();
+
 initAnimDisplayControls();
 initVectorDisplayControls();
 initContourDisplayControls();
@@ -365,12 +391,9 @@ function createWindow() {
                 (regionView = ui.TreeList("wind.regions", 10, "25rem", selectRegion, null,null, zoomRegion)),
             ),
             ui.RowContainer()(
-                ui.Radio("anim", setAnimDisplay, "wind.field.anim", true),
-                ui.Radio("vector", setVectorDisplay, "wind.field.vector"),
-                ui.Radio("contour", setContourDisplay, "wind.field.contour"),
+                (displayCb = ui.Choice( "display", "wind.field.display", selectWindDisplay)),
                 ui.HorizontalSpacer(1),
-                ui.Radio("wx_10m", setWx10Display, "wind.field.wx10"),
-                ui.Radio("wx_80m", setWx80Display, "wind.field.wx80"),
+                (sourceCb = ui.Choice( "source", "wind.field.source", selectWindSource))
             ),
             (forecastView = ui.List("wind.forecasts", 6, selectForecast))
         ),
@@ -404,6 +427,16 @@ function createWindow() {
     );
 }
 
+function initDisplayCb() {
+    ui.setChoiceItems( displayCb, [AnimDisplay, VectorDisplay, ContourDisplay], 0);
+    selDisplay = ui.getSelectedChoiceValue( displayCb);
+}
+
+function initSourceCb() {
+    ui.setChoiceItems( sourceCb, [WindNinjaSource, Hrrr10Source, Hrrr80Source], 0);
+    selSource = ui.getSelectedChoiceValue( sourceCb);
+}
+
 function initRegionView() {
     let view = regionView;
     if (view) {
@@ -421,11 +454,10 @@ function initForecastView() {
     let view = forecastView;
     if (view) {
         ui.setListItemDisplayColumns(view, ["header"], [
-            { name: "forecast", width: "9.5rem",  attrs: ["fixed"], map: e => util.toLocalDateHMTimeString( e.date) },
+            { name: "forecast", width: "10rem",  attrs: ["fixed"], map: e => util.toLocalDateHMTimeString( e.date) },
             { name: "Δt", tip: "hours from forecast creation", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.step },
             ui.listItemSpacerColumn(1),
-            { name: "res", tip: "mesh resolution in meters", width: "3rem", attrs: ["fixed"], map: e => e.mesh },
-            { name: "src", tip: "weather forecast source", width: "4rem", attrs:[], map: e => e.wxSrc },
+            { name: "res", tip: "mesh resolution in meters", width: "3rem", attrs: ["fixed", "alignRight"], map: e => e.getResolution() },
             ui.listItemSpacerColumn(1),
             { name: "", width: "1rem", attrs:[], map: e => e.status() },
             { name: "show", tip: "toggle windfield visibility", width: "2.1rem", attrs: [], map: e => ui.createCheckBox(e.isShowing(), toggleShowWindField) },
@@ -592,53 +624,22 @@ function toggleShowWindField (event) {
     let cb = ui.getCheckBox(event.target);
     if (cb) {
         let fc = ui.getListItemOfElement(cb);
-        let wf = fc.getDisplayWindField();
-        let showIt = ui.isCheckBoxSelected(cb);
-
-        wf.setVisible( showIt);
+        if (fc) {
+            fc.showWindField( ui.isCheckBoxSelected(cb));
+        }
     }
 }
 
 // callback when a wind field visualization has changed status (it might not be showing)
 function wfStatusChanged (wf) {
     if (selectedRegion) {
-        if (Object.is( displayType, wf.displayType)) { // shortcut - otherwise it is not showing
-            ui.updateListItem( forecastView, forecast);
+        for (let forecast of selectedRegion.forecasts) {
+            if (Object.is( forecast[selDisplay][selSource], wf)) {
+                ui.updateListItem( forecastView, forecast);
+                return;
+            }
         }
     }
-}
-
-function setAnimDisplay () { 
-    displayType = wf.DisplayType.DISPLAY_ANIM;
-    updateForecasts();
-}
-
-function isAnimDisplay() { 
-    return Object.is( displayType, wf.DisplayType.DISPLAY_ANIM) || Object.is( displayType, wf.DisplayType.DISPLAY_ANIM_WX_10);
-}
-
-function setVectorDisplay () { 
-    displayType = wf.DisplayType.DISPLAY_VECTOR; 
-    updateForecasts();
-}
-
-function isVectorDisplay() { return Object.is( displayType, wf.DisplayType.DISPLAY_VECTOR); }
-
-function setContourDisplay () { 
-    displayType = wf.DisplayType.DISPLAY_CONTOUR; 
-    updateForecasts();
-}
-
-function isContourDisplay() { return Object.is( displayType, wf.DisplayType.DISPLAY_CONTOUR); }
-
-function setWx10Display() {
-    displayType = wf.DisplayType.DISPLAY_ANIM_WX_10;
-    updateForecasts();
-}
-
-function setWx80Display() {
-    displayType = wf.DisplayType.DISPLAY_ANIM_WX_80;
-    updateForecasts();
 }
 
 function updateForecasts () {
@@ -672,6 +673,15 @@ function selectForecast (event) {
     selectedForecast = ui.getSelectedListItem( forecastView);
 }
 
+function selectWindDisplay (event) {
+    selDisplay = ui.getSelectedChoiceValue( event.target);
+    updateForecasts();
+}
+
+function selectWindSource (event) {
+    selSource = ui.getSelectedChoiceValue( event.target);
+    updateForecasts();
+}
 
 /* #endregion UI callbacks */
 

@@ -17,7 +17,7 @@ use tokio::main;
 use odin_common::geo::GeoRect;
 use odin_actor::prelude::*;
 use odin_hrrr::{self,HrrrActor,HrrrConfig,HrrrFileAvailable,schedule::{HrrrSchedules,get_hrrr_schedules}};
-use odin_wind::{actor::{WindActor,WindActorMsg,AddWindClient,RemoveWindClient}, ForecastStore, Forecast};
+use odin_wind::{actor::{AddClientResponse, AddWindClient, RemoveWindClient, SubscribeResponse, WindActor, WindActorMsg}, errors::Result, Forecast, ForecastStore};
 
 run_actor_system!( actor_system => {
     let pre_hrrr = PreActorHandle::new( &actor_system, "hrrr", 8);
@@ -25,25 +25,25 @@ run_actor_system!( actor_system => {
     let hwind = spawn_actor!( actor_system, "wind", WindActor::new(
         odin_wind::load_config("wind.ron")?,
         pre_hrrr.to_actor_handle(),
-        data_action!( => |res: Result<AddClientResponse>| {
-            println!("add client response: {res:?}");
+        data_action!( => |res: SubscribeResponse| {
+            println!("add client response: {res:#?}");
             Ok(())
         }),
         dataref_action!( => |forecast: &Forecast| {
-            println!("forecast available: {forecast:?}");
+            println!("forecast available: {forecast:#?}");
             Ok(())
         })
     ))?;
 
     let hrrr = spawn_pre_actor!( actor_system, pre_hrrr, HrrrActor::with_statistic_schedules(
-        odin_hrrr::load_config( "hrrr_conus-8.ron")?,
+        odin_hrrr::load_config( "hrrr_conus-1.ron")?,
         data_action!( let hwind: ActorHandle<WindActorMsg> = hwind.clone() => |data: HrrrFileAvailable| {
             Ok( hwind.try_send_msg( data)? )
         })
     ).await? )?;
 
     // test driver - this will kick off computation
-    hwind.try_send_msg( AddWindClient::new("BigSur",GeoRect::from_wsen_degrees( -122.043, 35.99, -121.231, 36.594), None))?;
+    hwind.try_send_msg( AddWindClient::new("region/ca/BigSur",GeoRect::from_wsen_degrees( -122.043, 35.99, -121.231, 36.594), None))?;
 
     Ok(())
 });

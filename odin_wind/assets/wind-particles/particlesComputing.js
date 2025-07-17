@@ -84,19 +84,21 @@ export class ParticlesComputing {
     }
 
     createComputingPrimitives(data, userInput, viewerParameters) {
-        const dimension = new Cesium.Cartesian3(data.dimensions.lon, data.dimensions.lat, data.dimensions.lev);
-        const minimum = new Cesium.Cartesian3(data.lon.min, data.lat.min, data.lev.min);
-        const maximum = new Cesium.Cartesian3(data.lon.max, data.lat.max, data.lev.max);
-        const interval = new Cesium.Cartesian3(
+        let dimension = new Cesium.Cartesian3(data.dimensions.lon, data.dimensions.lat, data.dimensions.lev);
+        let minimum = new Cesium.Cartesian3(data.lon.min, data.lat.min, data.lev.min);
+        let maximum = new Cesium.Cartesian3(data.lon.max, data.lat.max, data.lev.max);
+        let interval = new Cesium.Cartesian3(
             (maximum.x - minimum.x) / (dimension.x - 1),
             (maximum.y - minimum.y) / (dimension.y - 1),
             dimension.z > 1 ? (maximum.z - minimum.z) / (dimension.z - 1) : 1.0
         );
-        const uSpeedRange = new Cesium.Cartesian2(data.U.min, data.U.max);
-        const vSpeedRange = new Cesium.Cartesian2(data.V.min, data.V.max);
-        const wSpeedRange = new Cesium.Cartesian2(data.W.min, data.W.max);
+        //if (interval.z == 0) interval.z = 1; // this is used as a quotient in shaders - avoid divZero
 
-        const that = this;
+        let uSpeedRange = new Cesium.Cartesian2(data.U.min, data.U.max);
+        let vSpeedRange = new Cesium.Cartesian2(data.V.min, data.V.max);
+        let wSpeedRange = new Cesium.Cartesian2(data.W.min, data.W.max);
+
+        let that = this;
 
         this.primitives = {
             calculateSpeed: new CustomPrimitive({

@@ -23,8 +23,8 @@ use gdal::spatial_ref::SpatialRef;
 use gdal_sys::{GDALDatasetH, GDALProgressFunc, GDALWarpOptions, CPLErr::CE_None, CPLErr, GDALResampleAlg};
 use libc::{c_void,c_char,c_int, c_double, c_uint};
 use bit_set::BitSet;
-use odin_common::{BoundingBox,geo::GeoRect};
-use crate::{ok_non_null, ok_mut_non_null, ok_not_zero, ok_ce_none};
+use odin_common::{abs,BoundingBox,geo::GeoRect};
+use crate::{ok_non_null, ok_mut_non_null, ok_not_zero, ok_ce_none, RasterInfo};
 use crate::errors::{Result,last_gdal_error, misc_error, OdinGdalError, reset_last_gdal_error};
 
 #[derive(Clone)]
@@ -69,6 +69,7 @@ pub struct SimpleWarpBuilder <'a> {
     src_srs: Option<&'a SpatialRef>,
 
     n_tgt_bands: Option<c_uint>,
+    extra_tgt_bands: usize,           // number of un-initialized extra bands to add to tgt dataset
     src_bands: Option<Vec<c_uint>>,
     tgt_bands: Option<Vec<c_uint>>,
 
@@ -101,6 +102,8 @@ impl <'a> SimpleWarpBuilder<'a> {
             src_srs: None,
 
             n_tgt_bands: None, // compute number of target bands
+            extra_tgt_bands: 0,
+
             src_bands: None, // means process all bands
             tgt_bands: None,
 
@@ -173,6 +176,11 @@ impl <'a> SimpleWarpBuilder<'a> {
 
     pub fn set_tgt_bands (&mut self, tgt_bands: Vec<c_uint>) -> &mut SimpleWarpBuilder<'a> {
         self.tgt_bands = Some(tgt_bands);
+        self
+    }
+
+    pub fn set_extra_tgt_bands (&mut self, extra_tgt_bands: usize) -> &mut SimpleWarpBuilder<'a> {
+        self.extra_tgt_bands = extra_tgt_bands;
         self
     }
 
@@ -257,63 +265,72 @@ impl <'a> SimpleWarpBuilder<'a> {
                 return Err(last_gdal_error())
             }
 
-            let mut res_x = self.res_x;
-            let mut res_y = self.res_y;
+            // sort so that min/max is east/north up
             let mut min_x = self.min_x;
             let mut max_x = self.max_x;
             let mut min_y = self.min_y;
             let mut max_y = self.max_y;
+
+            if max_x < min_x { std::mem::swap( &mut max_x, &mut min_x) }
+            if max_y < min_y { std::mem::swap( &mut max_y, &mut min_y) }
+
+            let mut res_x = abs( self.res_x); // positive
+            let mut res_y = - abs( self.res_y); // negative
 
             if res_x != 0.0 && res_y != 0.0 { // explicitly given pixel resolution
                 if self.force_n_pixels != 0 || self.force_n_lines != 0 {
                     gdal_sys::GDALDestroyGenImgProjTransformer(c_transform_arg);
                     return Err(OdinGdalError::MiscError("cannot specify dimensions and resolution for warped dataset".to_string()))
                 }
+
+                // if we don't have explicit min/max values init from suggested transform
                 if min_x == 0.0 && min_y == 0.0 && max_x == 0.0 && max_y == 0.0 {
                     min_x = geo_transform[0];
-                    max_x = geo_transform[0] + geo_transform[1] * n_pixels as c_double;
+                    max_x = min_x + geo_transform[1] * n_pixels as c_double;
                     max_y = geo_transform[3];
-                    min_y = geo_transform[3] + geo_transform[5] * n_lines as c_double;
+                    min_y = max_y + geo_transform[5] * n_lines as c_double;
                 }
 
                 n_pixels = ((max_x - min_x + (res_x / 2.0)) / res_x).to_int_unchecked();
-                n_lines = ((max_y - min_y + (res_y / 2.0)) / res_y).to_int_unchecked();
-                geo_transform[0] = min_x;
-                geo_transform[3] = max_y;
-                geo_transform[1] = res_x;
-                geo_transform[5] = -res_y;
+                n_lines = ((min_y - max_y + (res_y / 2.0)) / res_y).to_int_unchecked();  // res_y < 0
 
-            } else if self.force_n_pixels != 0 && self.force_n_lines != 0 { // explicitly given n_pixels, n_lines
+                // east/north up
+                geo_transform[0] = min_x;
+                geo_transform[1] = res_x;
+                geo_transform[3] = max_y;
+                geo_transform[5] = res_y;
+
+            } else if self.force_n_pixels != 0 && self.force_n_lines != 0 { // explicitly given n_pixels, n_lines raster size
                 if min_x == 0.0 && min_y == 0.0 && max_x == 0.0 && max_y == 0.0 {
                     min_x = geo_transform[0];
-                    max_x = geo_transform[0] + geo_transform[1] * n_pixels as c_double;
+                    max_x = min_x + geo_transform[1] * n_pixels as c_double;
                     max_y = geo_transform[3];
-                    min_y = geo_transform[3] + geo_transform[5] * n_lines as c_double;
+                    min_y = max_y + geo_transform[5] * n_lines as c_double;
                 }
 
                 res_x = (max_x - min_x) / self.force_n_pixels as c_double;
-                res_y = (max_y - min_y) / self.force_n_lines as c_double;
+                res_y = (min_y - max_y) / self.force_n_lines as c_double; // negative
 
                 geo_transform[0] = min_x;
-                geo_transform[3] = max_y;
                 geo_transform[1] = res_x;
-                geo_transform[5] = -res_y;
+                geo_transform[3] = max_y;
+                geo_transform[5] = res_y;
 
                 n_pixels = self.force_n_pixels;
                 n_lines = self.force_n_lines;
                 
             } else if min_x != 0.0 || min_y != 0.0 || max_x != 0.0 || max_y != 0.0 { // explicitly given min/max values
                 res_x = geo_transform[1];
-                res_y = geo_transform[5].abs();
+                res_y = geo_transform[5];
 
-                n_pixels = ((max_x - min_x + (res_x / 2.0)) / res_y).to_int_unchecked();
-                n_lines = ((max_y - min_y + (res_y / 2.0)) / res_y).to_int_unchecked();
+                n_pixels = ((max_x - min_x + (res_x / 2.0)) / res_x).to_int_unchecked();
+                n_lines = ((min_y - max_y + (res_y / 2.0)) / res_y).to_int_unchecked();  // res_y < 0
 
                 geo_transform[0] = min_x;
                 geo_transform[3] = max_y;
             }
 
-            let n_bands = self.get_n_tgt_bands( &self.src_ds)?;
+            let n_bands = self.get_n_tgt_bands( &self.src_ds)? + self.extra_tgt_bands as i32;
             let data_type: c_uint = if let Some(dt) = self.data_type {
                 dt as c_uint
             } else {
@@ -352,6 +369,7 @@ impl <'a> SimpleWarpBuilder<'a> {
         }
     }
 
+    /// note this is only the number of tgt bands used in the warp op and we might have un-initialized extra bands
     fn get_n_tgt_bands (&self, src_ds: &Dataset) -> Result<c_int> {
         if let Some(n_bands) = self.n_tgt_bands {
             if let Some(src_bands) = &self.src_bands {
@@ -543,7 +561,38 @@ impl <'a> SimpleWarpBuilder<'a> {
 
 //--- high level warpers
 
-pub fn warp_to_rect (src_path: &PathBuf, tgt_path: &PathBuf, epsg: u32, bbox: &GeoRect, tgt_res: Option<f64>) -> Result<Dataset> {
+pub fn warp_to_raster_info<P> (src_ds: &Dataset, tgt_path: P, epsg: u32, tgt_ri: &RasterInfo, alg: ResampleAlg, 
+                               src_bands: Option<Vec<u32>>, extra_tgt_bands: Option<usize>, data_type: Option<GdalDataType>) -> Result<Dataset> 
+    where P: AsRef<Path>
+{
+    let tgt_srs = SpatialRef::from_epsg(epsg)?;
+    let tgt_format = "GTiff";
+
+    let mut warper = SimpleWarpBuilder::new( &src_ds, tgt_path)?;
+    warper.set_tgt_srs( &tgt_srs);
+    warper.set_tgt_format( tgt_format);
+    warper.set_tgt_extent( tgt_ri.left, tgt_ri.bottom, tgt_ri.right, tgt_ri.top); // FIXME - min/max vs. top/bottom not defined
+    warper.set_tgt_resolution( tgt_ri.dx, tgt_ri.dy);
+    warper.set_resample_alg(alg);
+
+    if let Some(src_bands) = src_bands {
+        warper.set_src_bands(src_bands);
+    }
+
+    if let Some(extra_tgt_bands) = extra_tgt_bands {
+        warper.set_extra_tgt_bands(extra_tgt_bands);
+    }
+
+    if let Some(data_type) = data_type {
+        warper.set_data_type(data_type);
+    }
+
+    warper.exec()
+}
+
+pub fn warp_to_rect<P,Q> (src_path: P, tgt_path: Q, epsg: u32, bbox: &GeoRect, tgt_res: Option<f64>) -> Result<Dataset> 
+    where P: AsRef<Path>, Q: AsRef<Path>
+{
     let src_ds = Dataset::open(src_path)?;
     let tgt_srs = SpatialRef::from_epsg(epsg)?;
     let tgt_format = "GTiff";
@@ -559,3 +608,20 @@ pub fn warp_to_rect (src_path: &PathBuf, tgt_path: &PathBuf, epsg: u32, bbox: &G
 
     warper.exec()
 }
+
+/// warp to WGS84. Note this requires nodata values since the src bbox might not map to a lon/lat bbox (e.g. for a UTM input SRS) 
+pub fn warp_to_wgs84<P,Q> (src_path: P, tgt_path: Q, nodatas: Vec<f64>) -> Result<Dataset> 
+    where P: AsRef<Path>, Q: AsRef<Path> 
+{
+    let src_ds = Dataset::open(src_path)?;
+    let tgt_srs = SpatialRef::from_epsg(4326)?;
+    let tgt_format = "GTiff";
+
+    let mut warper = SimpleWarpBuilder::new( &src_ds, tgt_path)?;
+    warper.set_tgt_srs( &tgt_srs);
+    warper.set_tgt_format( tgt_format);
+    warper.set_tgt_nodatas(nodatas);
+
+    warper.exec()
+}
+

@@ -131,18 +131,19 @@ export class ParticlesRendering {
     }
 
     createRenderingPrimitives(context, data, userInput, viewerParameters, particlesComputing) {
-        const that = this;
-        const minimum = new Cesium.Cartesian3(data.lon.min, data.lat.min, data.lev.min);
-        const maximum = new Cesium.Cartesian3(data.lon.max, data.lat.max, data.lev.max);
+        let that = this;
+        let minimum = new Cesium.Cartesian3(data.lon.min, data.lat.min, data.lev.min);
+        let maximum = new Cesium.Cartesian3(data.lon.max, data.lat.max, data.lev.max);
 
-        const dimension = new Cesium.Cartesian3(data.dimensions.lon, data.dimensions.lat, data.dimensions.lev);
-        const interval = new Cesium.Cartesian3(
+        let dimension = new Cesium.Cartesian3(data.dimensions.lon, data.dimensions.lat, data.dimensions.lev);
+        let interval = new Cesium.Cartesian3(
             (maximum.x - minimum.x) / (dimension.x - 1),
             (maximum.y - minimum.y) / (dimension.y - 1),
             dimension.z > 1 ? (maximum.z - minimum.z) / (dimension.z - 1) : 1.0
         );
+        //if (interval.z == 0) interval.z = 1; // this is used as a quotient in shaders - avoid divZero
 
-        const clr = new Cesium.Cartesian4( userInput.color.red, userInput.color.green, userInput.color.blue, userInput.color.alpha);
+        let clr = new Cesium.Cartesian4( userInput.color.red, userInput.color.green, userInput.color.blue, userInput.color.alpha);
 
         this.primitives = {
             segments: new CustomPrimitive({

@@ -67,32 +67,37 @@ Many `odin-rs` crates generate files that are stored in the `ODIN_ROOT/data/` or
 and might be shared between different modules/crates. Such filenames should be composed of components that reflect
 associated meta information. 
 
-The general rules apply:
+These general rules apply:
 
 - primary use of structured filenames is to support programmatic lookup 
+- filenames for cached items should be suitable to determine if the content needs to be recomputed 
 - filename length is of secondary concern
 - filenames should be compatible with native filesystems (windows, Linux, macOS)
-- filenames should be readable/compatible with external programs
+- filenames should be readable by and compatible with external programs
+- filenames can be composed of components such as region name, date/time etc. 
+- region names of files that are accessed by multiple crates/modules should be keys (paths) of [shared items](odin_share/odin_share.md)
+  to ensure the same spelling  
 - naming convention should support region as primary and date as secondary lexicographic order
-- whitespace characters and punctuation within components are replaced with a single underscore (`_`) 
+- whitespace characters and non-numeric punctuation within components are replaced with a single underscore (`_`) 
+- numeric components that have decimal points should replace those with 'p': "12.34" -> "12p45"
 - components are separated with double underscore (`__`)
 - name components can use CamelCase
-- only one '.' marking the file format (e.g. `.csv`)
+- only one '.' marking the file extension (e.g. `.csv`) representing the storage format
 
-Filename components should follow the following order (note that not all component 
-categories might apply)
+To keep related files listed together filename components should follow this order (note that not all component categories might apply):
 
-- area name - if this refers to a [shared item](odin_share/odin_share.md) key name path separators ('/') should
+1. area name - if this refers to a [shared item](odin_share/odin_share.md) key name path separators ('/') should
   be replaced with '-' to avoid conflicts with native filesystems
-- related date/time in UTC following an abbreviated `YYYY-MM-DD[THHMM[SS]]Z` format (note that date can refer to
+2. related date/time in UTC following an abbreviated `YYYY-MM-DD[THHMM[SS]]Z` format (note that date can refer to
   a forecast- or snapshot time and there is no need to encode creation time of the file). Time does not need
-  to be present and does not have to include seconds. This follow the [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601)
+  to be present and does not have to include seconds. This follows the [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601)
   specification
-- semantic meta information components:
+3. semantic meta information components:
    + forecast step
    + spatial reference system
    + region coordinates
-   + data specifiers
+   + content specifiers such as data fields (e.g. "huvw" for [height, u,v,w] data) or formats (e.g. "vec" for vector field)
+   + ...
 
 Example: `geometry-rect-SantaCruzMtns__2025-06-22T2200Z__2__epsg32610__532097_4087019_620341_4166466__huvw__vec.csv` :
 

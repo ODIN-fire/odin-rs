@@ -31,18 +31,6 @@ export const config = {
         dropRate: 0.002, 
         dropRateBump: 0.01
     },
-    
-    animRenderWx: { 
-        particlesTextureSize: 64, 
-        maxParticles: 4096, 
-        lineWidth: 1.5, 
-        color: Cesium.Color.fromCssColorString('yellow'), 
-        speedFactor: 0.2, 
-        particleHeight: 0.0, 
-        fadeOpacity: 0.99, 
-        dropRate: 0.002, 
-        dropRateBump: 0.01
-    },
 
     contourRender: { 
         strokeWidth: 2.0, 

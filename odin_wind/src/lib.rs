@@ -13,21 +13,25 @@
  */
 #![allow(unused)]
 
-use std::{collections::{VecDeque,HashMap,HashSet}, path::{Path,PathBuf}, sync::Arc, time::Duration, net::SocketAddr};
+use std::{collections::{HashMap, HashSet, VecDeque}, fs::File, io::{BufWriter,Write}, net::SocketAddr, path::{Path,PathBuf}, sync::Arc, time::Duration};
 use axum::Json;
 use odin_hrrr::HrrrDataSetRequest;
 use serde::{Serialize,Deserialize};
 use chrono::{DateTime,Utc, Datelike, Timelike};
 use odin_build::{define_load_asset, define_load_config, pkg_cache_dir};
 use odin_common::{
-    collections::RingDeque, datetime, fs::replace_env_var_path, geo::GeoRect, json_writer::{JsonWritable,JsonWriter}, utm::UtmRect, BoundingBox
+    cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque, datetime, 
+    fs::{path_str_to_fname, replace_env_var_path, replace_filename}, 
+    geo::GeoRect, json_writer::{JsonWritable,JsonWriter}, sqrt, utm::UtmRect, BoundingBox, push_all_str
 };
 use odin_dem::DemSource;
 use lazy_static::lazy_static;
+use odin_gdal::{{gdal::{Dataset,raster::RasterBand}}, contour::ContourBuilder, read_row};
 
 //mod fetchdem;
 pub mod actor;
 pub mod errors;
+use errors::Result;
 pub mod wind_service;
 
 
@@ -46,11 +50,6 @@ pub struct WindConfig {
     windninja_cmd: String, // pathname for windninja executable
     mesh_res: f64, // WindNinja mesh resolution in meters
     wind_height: f64, // above ground in meters
-
-    huvw_csv_grid_cmd: String, // where to find the HUVW CSV file generator
-    huvw_csv_vector_cmd: String, // where to find the HUVW CSV vector generator
-    huvw_json_contour_cmd: String, // where to find the GeoJSON contour generator
-    hrrr_csv_grid_cmd: String, // the direct HRRR to CSV grid generator
 
     dem: DemSource, // where to get the DEM grid from
     dem_res: f64, // dem pixel sizes in meters
@@ -76,6 +75,41 @@ struct WnJob {
     wn_out_basename: Arc<String>
 }
 
+impl WnJob {
+    // WindNinja has a different naming convention: BigSur_07-10-2025_1900_150m_huvw.tif
+    pub fn get_wn_filename (&self)->String {
+        let d = &self.date;
+        format!("{}_{:02}-{:02}-{:4}_{:2}{:2}_{:.0}m_huvw.tif", 
+            path_str_to_fname( self.region.as_str()), d.month(), d.day(), d.year(), d.hour(), d.minute(), self.mesh_res)
+    }
+
+    pub fn get_wn_path (&self, suffix: &str) -> PathBuf {
+        let mut filename = self.wn_out_basename.as_ref().clone();
+        filename.push_str(suffix);
+        pkg_cache_dir!().join( filename)
+    } 
+
+    pub fn output_files_exist (&self)->bool {
+        let mut filename = self.wn_out_basename.as_ref().clone();
+        let l = filename.len();
+
+        push_all_str!( filename, huvw_grid_suffix(), ".gz");
+        let mut path = pkg_cache_dir!().join( &filename);
+        if !path.is_file() { return false } 
+
+        filename.truncate(l);
+        push_all_str!( filename, huvw_vector_suffix(),".gz");
+        replace_filename( &mut path, &filename);
+        if !path.is_file() { return false } 
+
+        filename.truncate(l);
+        push_all_str!( filename, huvw_contour_suffix(),".gz");
+        replace_filename( &mut path, &filename);
+        if !path.is_file() { return false }   
+
+        true
+    }
+}
 
 /// NOTE - the wn_out_base_name has to be kept in sync with WindNinja
 impl From<WnJob> for Forecast {
@@ -111,38 +145,47 @@ pub struct Forecast {
     pub dem_path: Arc<PathBuf>, // the DEM data this forecast is based on
 
     // the primary WindNinja output file basename (huvw UTM grid). All other filenames (WGS84 grid/vec and contour) derived from here
-    pub wn_out_base_name: Arc<String>, // this does *not* include the extension
-    // TODO - add HRRR-based grid/vector/contour base_name (with 3000m resolution)
+    pub wn_out_base_name: Arc<String>, // this does *not* include the extension as we use it as the base for several products
 }
 
+//--- the various paths of WindNinja computed products we derive from wn_out_base_name
+
+pub fn get_tmp_path (wn_out_base_name: &str) -> PathBuf { pkg_cache_dir!().join( format!("{}_.tif", wn_out_base_name)) }
+
+// the WindNinja huvw grid based product suffixes
+pub fn huvw_wgs84_suffix ()->&'static str { "__wgs84.tif" }
+pub fn huvw_grid_suffix ()->&'static str { "__grid.csv" }
+pub fn huvw_vector_suffix ()->&'static str { "__vector.csv" }
+pub fn huvw_contour_suffix ()->&'static str { "__contour.json" }
+
+// the HRRR based product suffixes
+pub fn hrrr_wgs84_suffix ()->&'static str { "__hrrr__wgs84.tif" }
+
+pub fn hrrr_10_grid_suffix ()->&'static str { "__hrrr__10__grid.csv" }
+pub fn hrrr_10_vector_suffix ()->&'static str { "__hrrr__10__vector.csv" }
+pub fn hrrr_10_contour_suffix ()->&'static str { "__hrrr__10__contour.json" }
+
+pub fn hrrr_80_grid_suffix ()->&'static str { "__hrrr__80__grid.csv" }
+pub fn hrrr_80_vector_suffix ()->&'static str { "__hrrr__80__vector.csv" }
+pub fn hrrr_80_contour_suffix ()->&'static str { "__hrrr__80__contour.json" }
+
 impl Forecast {
-    pub fn get_huvw_utm_grid_path (&self)->PathBuf {
-        pkg_cache_dir!().join( format!("{}.tif", self.wn_out_base_name))
+
+    /// the WindNinja output filename
+    /// Note that WindNinja has a different naming convention: BigSur_07-10-2025_1900_150m_huvw.tif
+    /// (it does not capture the forecast step, i.e. we could overwrite a more actual forecast)
+    pub fn get_wn_output_path (&self) -> PathBuf {
+        let d = &self.date;
+        let fname = format!("{}_{:02}-{:02}-{:4}_{:02}{:02}_{:.0}m_huvw.tif", 
+            path_str_to_fname( self.region.as_str()), d.month(), d.day(), d.year(), d.hour(), d.minute(), self.mesh_res);
+        pkg_cache_dir!().join( fname)
     }
 
-    pub fn get_huvw0_utm_grid_path (&self)->PathBuf {
-        pkg_cache_dir!().join( format!("{}_0.tif", self.wn_out_base_name))
-    }
-
-    pub fn get_huvw_grid_path (&self)->PathBuf {
-        pkg_cache_dir!().join( format!("{}.csv.gz", self.wn_out_base_name))
-    }
-
-    pub fn get_huvw_vector_path (&self)->PathBuf {
-        pkg_cache_dir!().join( format!("{}_vector.csv.gz", self.wn_out_base_name))
-    }
-
-    pub fn get_huvw_contour_path (&self)->PathBuf {
-        pkg_cache_dir!().join( format!("{}_contour.json", self.wn_out_base_name))
-    }
-
-    pub fn get_hrrr_10_grid_path (&self)->PathBuf {
-        pkg_cache_dir!().join( format!("{}_hrrr_10.csv.gz", self.wn_out_base_name))
-    }
-
-    pub fn get_hrrr_80_grid_path (&self)->PathBuf {
-        pkg_cache_dir!().join( format!("{}_hrrr_80.csv.gz", self.wn_out_base_name))
-    }
+    pub fn get_wn_path (&self, suffix: &str) -> PathBuf {
+        let mut filename = self.wn_out_base_name.as_ref().clone();
+        filename.push_str(suffix);
+        pkg_cache_dir!().join( filename)
+    } 
 
     // TODO - add grid/contour for HRRR (3km resolution)
 
@@ -255,4 +298,153 @@ pub fn forecast_regions_to_json (fcs: &ForecastStore)->String {
     });
 
     w.to_string()
+}
+
+pub fn write_huvw_csv_grid<P> (ds: &Dataset, path: P, bands: &[usize])->Result<()> where P: AsRef<Path> {
+    if bands.len() < 3 { return Err( errors::OdinWindError::OpFailedError("not enough bands for huvw grid".into())) }
+
+    let (cols,rows) = ds.raster_size();
+    let a = ds.geo_transform()?;
+
+    let x0 = a[0];
+    let cx = a[1];
+    let y0 = a[3];
+    let cy = a[5];
+
+    let h_band = ds.rasterband(bands[0])?;
+    let u_band = ds.rasterband(bands[1])?;
+    let v_band = ds.rasterband(bands[2])?;
+
+    // the w band is optional (we might only have horizontal wind components in the input dataset)
+    let w_band = if bands.len() > 3 { Some(ds.rasterband(3)?) } else { None };
+
+    let mut h_line: Vec<f32> = vec![0.0; cols];
+    let mut u_line: Vec<f32> = vec![0.0; cols];
+    let mut v_line: Vec<f32> = vec![0.0; cols];
+    let mut w_line: Vec<f32> = vec![0.0; cols];
+
+    for i in 0..cols { if i % 2 == 0 { w_line[i] = 0.1; }}  // FIXME - something in the shaders breaks if there is only one w value
+
+    let mut file = File::create(path)?;
+    let mut buf = BufWriter::new( file);
+
+    write!( buf, "# nx:{}, x0:{}, dx:{}, ny:{}, y0:{}, dy:{}\n", cols, x0, cx, rows, y0, cy);
+    write!( buf, "h, u, v, w, spd\n");
+
+    for j in 0..rows {
+        read_row( &h_band, j as isize, h_line.as_mut_slice())?;
+        read_row( &u_band, j as isize, u_line.as_mut_slice())?;
+        read_row( &v_band, j as isize, v_line.as_mut_slice())?;
+
+        if let Some(w_band) = &w_band { read_row( w_band, j as isize, w_line.as_mut_slice())?; }
+
+        for i in 0..cols {
+            let h = h_line[i];
+            let u = u_line[i];
+            let v = v_line[i];
+            let w = w_line[i];
+            let spd = (u*u + v*v + w*w).sqrt();
+            write!( buf, "{:.1},{:.1},{:.1},{:.1},{:.1}\n", h, u, v, w, spd);
+        }
+    }
+
+    buf.flush()?;
+    Ok(())
+}
+
+/// note that vector origins are in ECEF and the length is relative (to the cell size) for display purposes.
+/// Note also that the input dataset has to be a WGS84 grid and x- and y- resolution (cell size) should be the same
+pub fn write_huvw_csv_cell_vectors<P> (ds: &Dataset, path: P, mesh_res: f64, bands: &[usize])->Result<()> where P: AsRef<Path> {
+    if bands.len() < 3 { return Err( errors::OdinWindError::OpFailedError("not enough bands for huvw grid".into())) }
+
+    // somewhat arbitrary - we might have a color coded version with fixed lengths in the future
+    fn cell_scale_factor (spd: f64) ->f64 {
+        if spd < 2.2352      { 0.2 }  // < 5 mph
+        else if spd < 4.4704 { 0.4 }  // < 10 mph
+        else if spd < 8.9408 { 0.6 }  // < 20 mph
+        else                 { 0.8 }  // >= 20 mph
+    }
+
+    let (cols,rows) = ds.raster_size();
+    let a = ds.geo_transform()?;
+
+    let x0 = a[0];
+    let cx = a[1];
+    let y0 = a[3];
+    let cy = a[5];
+    let cx2 = cx / 2.0;
+    let cy2 = cy / 2.0;
+
+    let h_band = ds.rasterband(bands[0])?;
+    let u_band = ds.rasterband(bands[1])?;
+    let v_band = ds.rasterband(bands[2])?;
+
+    // the w band is optional (we might only have horizontal wind components in the input dataset)
+    let w_band = if bands.len() > 3 { Some(ds.rasterband(3)?) } else { None };
+
+    let mut h_line: Vec<f32> = vec![0.0; cols];
+    let mut u_line: Vec<f32> = vec![0.0; cols];
+    let mut v_line: Vec<f32> = vec![0.0; cols];
+    let mut w_line: Vec<f32> = vec![0.0; cols];
+
+    let mut file = File::create(path)?;
+    let mut buf = BufWriter::new( file);
+
+    write!( buf, "# length:{}\n", cols*rows);
+    write!( buf, "x0, y0, z0, x1, y1, z1, spd\n");
+
+    for j in 0..rows {
+        read_row( &h_band, j as isize, h_line.as_mut_slice())?;
+        read_row( &u_band, j as isize, u_line.as_mut_slice())?;
+        read_row( &v_band, j as isize, v_line.as_mut_slice())?;
+
+        if let Some(w_band) = &w_band { read_row( w_band, j as isize, w_line.as_mut_slice())?; }
+
+        for i in 0..cols {
+            let h = h_line[i] as f64;  // TODO - does this include wind height or do we have to add it explicitly?
+            let u = u_line[i] as f64;
+            let v = v_line[i] as f64;
+            let w = w_line[i] as f64;
+
+            let spd = sqrt(u*u + v*v + w*w);
+
+            // the grid values are for the respective grid cell centers. There is no rotation
+            let lon_deg = x0 + (cx * i as f64) + cx2; // grid point longitude (degrees)
+            let lat_deg = y0 + (cy * j as f64) + cy2; // grid point latitude (degrees)
+            let cp = Cartographic::from_degrees( lon_deg, lat_deg, h);
+            let p: Cartesian3 = cp.into();
+
+            let s = cell_scale_factor(spd) * mesh_res;  // length of display vector in [m]
+            let f = s / spd;
+
+            let su = u * f;
+            let sv = v * f;
+            let sw = w * f;
+
+            // since cell size is assumed to be > 100m we don't need decimals. These vectors are only for display
+            write!( buf, "{:.0},{:.0},{:.0},{:.0},{:.0},{:.0},{:.1}\n", p.x, p.y, p.z, p.x+su, p.y+sv, p.z+sw, spd);
+        }
+    }
+
+    buf.flush()?;
+    Ok(())
+}
+
+pub fn write_windspeed_contour<P> (ds: &Dataset, path: P, band: usize) -> Result<()> where P: AsRef<Path> {
+    if ds.raster_count() < 5 { return Err( errors::OdinWindError::OpFailedError("invalid input data set".into())) }
+
+    let mut contourer = ContourBuilder::new( ds, path)?;
+
+    contourer
+        .set_band( band as i32)
+        .set_interval(5)
+        .set_poly()
+        .set_attr_min_name("minSpeed")?
+        .set_attr_max_name("maxSpeed")?
+        .set_quiet()
+        .exec()?;
+
+    // compress here
+
+    Ok(())
 }

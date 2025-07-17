@@ -29,9 +29,9 @@ use tempfile;
 use tokio::{time::{Duration,Sleep}};
 
 use odin_common::{
-    angle::{Longitude,Latitude}, 
-    datetime::{self,elapsed_minutes_since,secs,full_hour}, 
-    fs::{ensure_writable_dir, remove_old_files, path_str_to_fname}, 
+    angle::{Latitude, Longitude}, 
+    datetime::{self, elapsed_minutes_since, full_hour, secs}, 
+    fs::{ensure_writable_dir, odin_data_filename, path_str_to_fname, remove_old_files}, 
     geo::GeoRect, 
     strings::{mk_string,to_sorted_string_vec}
 };
@@ -121,15 +121,21 @@ impl Default for HrrrConfig {
 /// https://nomads.ncep.noaa.gov/gribfilter.php?ds=hrrr_2d
 #[derive(Clone,Serialize,Deserialize,Debug)]
 pub struct HrrrDataSetConfig {
-    pub name: String,
+    /// this is the name of the region we retrieve datafor
+    pub region: String, 
+    /// the bounding box of the region
     pub bbox: GeoRect,
-    fields: Vec<String>,
-    levels: Vec<String>,
+    /// this is a name for the field set/use of the data we retrieve
+    pub set_name: String,
+    /// the HRRR fields to retrieve
+    pub fields: Vec<String>,
+    /// the HRRR levels for which to retrieve the fields
+    pub levels: Vec<String>,
 }
 
 impl HrrrDataSetConfig {
-    pub fn new (name: String, bbox: GeoRect, fields: Vec<String>, levels: Vec<String>)->Self {
-        HrrrDataSetConfig { name, bbox, fields, levels }
+    pub fn new (region: String, bbox: GeoRect, set_name: String, fields: Vec<String>, levels: Vec<String>)->Self {
+        HrrrDataSetConfig { region, bbox, set_name, fields, levels }
     }
 }
 
@@ -221,21 +227,25 @@ async fn wait_for (minutes: i64) {
     }
 }
 
-/// generate hrrr filename for given base hour and forecast step (hour from base hour)
-fn get_filename (cfg: &HrrrConfig, ds: &HrrrDataSetConfig, dt: &DateTime<Utc>, step: usize) -> String {
-    let ds_name = path_str_to_fname(&ds.name);
-    format!("hrrr-wrfsfcf-{}-{}-{:4}{:02}{:02}-{:02}+{:02}.grib2", cfg.region, ds_name, dt.year(),dt.month(),dt.day(),dt.hour(), step)
+/// generate hrrr filename for given base hour and forecast step (hour from base hour) - this has to adhere to the ODIN data filename convention
+fn get_odin_filename (cfg: &HrrrConfig, ds: &HrrrDataSetConfig, dt: &DateTime<Utc>, step: usize) -> String {
+    let date = *dt + hours(step as u32);
+    let fcs = step.to_string();
+    let attrs: &[&str] = &[
+        fcs.as_str(),
+        ds.set_name.as_str(),
+    ];
+    odin_data_filename( &ds.region, Some(date), attrs, Some("grib2"))
 } 
 
-// NOMADS file name: hrrr.t15z.wrfsfcf08.grib2
+/// NOMADS file name (e.g. `hrrr.t15z.wrfsfcf08.grib2`)
 fn get_nomad_filename (dt: &DateTime<Utc>, step: usize) -> String {
     format!("hrrr.t{:02}z.wrfsfcf{:02}.grib2", dt.hour(), step)
 }
 
-
 /// download a single file for given base date and forecast step
 pub async fn download_file (cfg: &HrrrConfig, ds: &HrrrDataSetRequest, dt: &DateTime<Utc>, step: usize, cache_dir: &PathBuf) -> Result<PathBuf> {
-    let filename = get_filename( cfg, &ds.ds, dt, step);
+    let filename = get_odin_filename( cfg, &ds.ds, dt, step);
     let nomad_filename = get_nomad_filename( dt, step);
 
     let url = format!("{}?dir=%2Fhrrr.{:04}{:02}{:02}%2F{}&file={}&{}", 
@@ -314,7 +324,7 @@ pub struct HrrrFileRequest {
 }
 
 impl HrrrFileRequest {
-    pub fn name(&self)->&String { &self.ds.ds.name}
+    pub fn name(&self)->&String { &self.ds.ds.region}
 }
 
 pub enum DownloadCmd {

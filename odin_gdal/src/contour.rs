@@ -18,7 +18,7 @@ use std::ptr::{null, null_mut};
 use gdal::Dataset;
 use gdal::cpl::CslStringList;
 use gdal::spatial_ref::SpatialRef;
-use gdal_sys::GDALTermProgress;
+use gdal_sys::{GDALProgressFunc, GDALTermProgress};
 use gdal_sys::OGRFieldType::OFTInteger;
 use gdal_sys::{GDALDatasetH, OGRDataSourceH, GDALContourGenerateEx, CSLConstList, GDALGetRasterBand, OGR_DS_CreateLayer, OGRLayerH, OGRwkbGeometryType, OGR_L_GetLayerDefn};
 use libc::{c_int, c_uint};
@@ -40,7 +40,8 @@ pub struct ContourBuilder <'a> {
     attr_name: Option<CString>,
     attr_id: Option<c_int>,
     polygonize: bool,
-    three_d: bool
+    three_d: bool,
+    quiet: bool,
 }
 
 impl <'a> ContourBuilder<'a> {
@@ -65,7 +66,8 @@ impl <'a> ContourBuilder<'a> {
             attr_name: None,
             attr_id: None,
             polygonize: false,
-            three_d: false
+            three_d: false,
+            quiet: false
         })
     }
 
@@ -84,6 +86,11 @@ impl <'a> ContourBuilder<'a> {
 
     pub fn set_poly (&mut self) -> &mut ContourBuilder<'a> {
         self.polygonize = true;
+        self
+    }
+
+    pub fn set_quiet (&mut self) -> &mut ContourBuilder<'a> {
+        self.quiet = true;
         self
     }
 
@@ -221,7 +228,10 @@ impl <'a> ContourBuilder<'a> {
             } else {
                 return Err(OdinGdalError::MiscError("error: no source band set for contour operations".to_string()))
             };
-            let c_contour_op = gdal_sys::GDALContourGenerateEx(band, tgt_layer, options.as_ptr(), Some(GDALTermProgress), null_mut());
+
+            let progress_fn: GDALProgressFunc = if self.quiet { None } else { Some(GDALTermProgress) };
+
+            let c_contour_op = gdal_sys::GDALContourGenerateEx(band, tgt_layer, options.as_ptr(), progress_fn, null_mut());
             // destroy
             if c_contour_op == gdal_sys::CPLErr::CE_None {
                 gdal_sys::GDALFlushCache(tgt_ds); // close target

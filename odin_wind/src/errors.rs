@@ -14,7 +14,7 @@
 
 use odin_actor::OdinActionFailure;
 use thiserror::Error;
-
+use odin_gdal::gdal::errors::GdalError;
 use crate::actor::AddWindClient;
 
 pub type Result<T> = std::result::Result<T, OdinWindError>;
@@ -43,9 +43,18 @@ pub enum OdinWindError {
     #[error("action failure {0}")]
     ActionFailure(String), // ActionFailure cannot impl std::error::Error
 
-    #[error("GDAL error {0}")]
-    GdalError( #[from] odin_gdal::errors::OdinGdalError),
+    #[error("Odin GDAL error {0}")]
+    OdinGdalError( #[from] odin_gdal::errors::OdinGdalError),
+
+    #[error("gdal error {0}")]
+    GdalError( #[from] GdalError),
+
+    #[error("IO error {0}")]
+    IOError( #[from] std::io::Error),
 
     #[error("execution failed {0}")]
-    ExecError(String)
+    ExecError(String),
+
+    #[error("operation failed {0}")]
+    OpFailedError(String)
 }

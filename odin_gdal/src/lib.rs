@@ -578,12 +578,17 @@ pub fn get_values_for_vrt_positions (vrt_path: impl AsRef<Path>, band_index: usi
     get_values_for_positions( &ds, band_index, sub_no_data, pts)
 }
 
-
+pub fn compress_create_opts ()->RasterCreationOptions {
+    let mut co = RasterCreationOptions::new();
+    co.add_name_value("COMPRESS", "DEFLATE");
+    co.add_name_value("PREDICTOR", "2");
+    co
+}
 
 /// crop the provided dataset by cutting top/bottom lines that contain more nodata values than the given threshold and
 /// skip leading/trailing columns with nodata from the rest.
 /// This function is mainly useful when warping a dataset between different SRS that do not preserve bounds (e.g. from UTM to WGS84)
-pub fn crop_no_data<P> (ds: &Dataset, nodata_threshold: f64, path: P, create_opts: Option<RasterCreationOptions>) -> Result<BoundingBox<usize>> 
+pub fn crop_no_data<P> (ds: &Dataset, nodata_threshold: f64, path: P, create_opts: Option<RasterCreationOptions>) -> Result<Dataset> 
     where P: AsRef<Path>
 {
     let n_bands = ds.raster_count();
@@ -596,7 +601,7 @@ pub fn crop_no_data<P> (ds: &Dataset, nodata_threshold: f64, path: P, create_opt
 
     let driver = ds.driver();
     let band_type = ds.rasterband(1)?.band_type();
-    let tgt_ds = create_dataset( &driver, path, width, height, n_bands, band_type, create_opts)?;
+    let mut tgt_ds = create_dataset( &driver, path, width, height, n_bands, band_type, create_opts)?;
 
     for k in 1..=n_bands {
         let src_band = ds.rasterband(k)?;
@@ -604,7 +609,12 @@ pub fn crop_no_data<P> (ds: &Dataset, nodata_threshold: f64, path: P, create_opt
         copy_rasterband( &src_band, &mut tgt_band, bbox.west, bbox.north, bbox.east, bbox.south)?;
     }
 
-    Ok(bbox)
+    // copy the meta info
+    if let Ok(srs) = ds.spatial_ref() { tgt_ds.set_spatial_ref( &srs)?; }
+    if let Ok(geo_transform) = ds.geo_transform() { tgt_ds.set_geo_transform(&geo_transform)?;  }
+    tgt_ds.set_projection( ds.projection().as_str())?;
+
+    Ok(tgt_ds)
 }
 
 /// check if dimensions and raster type of all bands are the same
@@ -664,6 +674,11 @@ pub fn create_dataset<P> (driver: &Driver, path: P, width: usize, height: usize,
     }
 }
 
+pub fn copy_full_rasterband (src: &RasterBand, tgt: &mut RasterBand)->Result<()> {
+    let (w,h) = tgt.size();
+    copy_rasterband( src, tgt, 0, 0, w-1, h-1)
+}
+
 pub fn copy_rasterband( src: &RasterBand, tgt: &mut RasterBand, min_x: usize, min_y: usize, max_x: usize, max_y: usize)->Result<()> {
     use GdalDataType::*;
 
@@ -706,6 +721,40 @@ fn copy_scanline<T: Copy> (src: &[T], tgt: &mut[T], min_x: usize, max_x: usize)-
     for i in 0..=max_x - min_x {
         tgt[i] = src[i + min_x];
     }
+    Ok(())
+}
+
+pub fn copy_dataset_rasterbands (src_ds: &Dataset, src_band: usize, tgt_ds: &mut Dataset, tgt_band: usize)->Result<()> {
+    let (sw, sh) = src_ds.raster_size();
+    let (tw, th) = tgt_ds.raster_size();
+    if (sw != tw) || (sh != th) { return Err( OdinGdalError::MiscError("different raster sizes".into())) } 
+
+    let src = src_ds.rasterband(src_band)?;
+    let mut tgt = tgt_ds.rasterband(tgt_band)?;
+
+    copy_rasterband( &src, &mut tgt, 0, 0, sw-1, sh-1)
+}
+
+/// compute the values of a RasterBand line-by-line from provided input bands
+/// note that input and output bands have to have the same size and compatible types
+pub fn compute_rasterband_lines<T,F> (input_bands: &[&RasterBand], output_band: &mut RasterBand, init_val: T, mut f: F)->Result<()> 
+    where T: Copy + GdalType, F: FnMut(&Vec<Vec<T>>,&mut [T])
+{
+    let (w,h) = output_band.size();
+
+    let n_input = input_bands.len();
+    let mut input_lines: Vec<Vec<T>> = input_bands.iter().map(|b| vec![init_val;w]).collect();
+
+    let mut output_buf: Buffer<T> = Buffer::new((w,1), vec![init_val; w]);
+
+    for j in 0..h {
+        for i in 0..n_input {
+            input_bands[i].read_into_slice( (0 as isize, j as isize), (w,1), (w,1), &mut input_lines[i], None)?;
+        }
+        f( input_lines.as_ref(), output_buf.data_mut());
+        output_band.write( (0 as isize, j as isize), (w,1), &mut output_buf)?;
+    }
+
     Ok(())
 }
 
@@ -810,6 +859,94 @@ fn count_nodata (scanline: &[f64], nodata_value: f64)->(usize,usize,usize) {
     }
 
     (n_leading, n_trailing, n_total)
+}
+
+
+pub fn read_row <T: Copy + GdalType> (band: &RasterBand, row: isize, buf: &mut [T])->Result<()> {
+    let cols = buf.len();
+    Ok( band.read_into_slice( (0, row), (cols,1), (cols,1), buf, None)? )
+}
+
+/// check if provided Metadata reference has all the provided (domain,key,value) items
+pub fn has_meta_info<M> (meta: &M, item_specs: &[(&str,&str,Option<&str>)])->bool where M: Metadata {
+    for (domain,key,value) in item_specs {
+        if !has_meta_info_item( meta, domain, key, value.clone()) { return false }
+    }
+    true
+}
+
+pub fn has_meta_info_item<M> (meta: &M, domain: &str, key: &str, expected_val: Option<&str>)->bool where M: Metadata {
+    if let Some(val) = meta.metadata_item( key, domain) {
+        if let Some(expected_val) = expected_val {
+            if expected_val != val { return false }
+        }
+        true
+    } else {
+        false
+    }
+}
+
+/// find the index of the rasterband that has all the specified (domain,key,val) meta infos
+pub fn find_rasterband_index (ds: &Dataset, item_specs: &[(&str,&str,Option<&str>)]) -> Option<u32> {
+    for i in 0..ds.raster_count() {
+        let band_index = i + 1;
+        if let Ok(band) = ds.rasterband( band_index) {
+            if has_meta_info( &band, item_specs) {
+                return Some(band_index as u32)
+            }
+        }
+    }
+
+    None
+}
+
+#[macro_export]
+macro_rules! rasterband_index_for {
+    ( $ds:ident, $( ( $dom:expr,$key:expr,$val:expr ) ),+ ) =>
+    {
+        {
+            let mut res: Option<u32> = None;
+            for i in 0..$ds.raster_count() {
+                let band_index = i + 1;
+                if let Ok(band) = $ds.rasterband( band_index) {
+                    $(
+                        if !odin_gdal::has_meta_info_item( &band, $dom, $key, $val) { continue }
+                    )*
+                    res = Some(band_index as u32);
+                    break;
+                }
+            }
+            res
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct RasterInfo {
+    pub cols: usize,
+    pub left: f64,
+    pub right: f64,
+    pub dx: f64,
+
+    pub rows: usize,
+    pub top: f64,
+    pub bottom: f64,
+    pub dy: f64
+}
+
+pub fn get_raster_info (ds: &Dataset)->Result<RasterInfo> {
+    let (cols,rows) = ds.raster_size();
+    let a = ds.geo_transform()?;
+
+    let left = a[0];
+    let dx = a[1];
+    let right = left + (dx * cols as f64); 
+
+    let top = a[3];
+    let dy = a[5];
+    let bottom = top + (dy * rows as f64);
+
+    Ok( RasterInfo { cols, left, right, dx, rows, top, bottom, dy } )
 }
 
 /// syntactic sugar for creating CslStringLists. Note this panics if an invalid string (that cannot be translated into

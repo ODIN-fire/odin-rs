@@ -29,14 +29,6 @@ const polyLineColorAppearance = new Cesium.PolylineColorAppearance();
 
 const globeBoundingSphere = new Cesium.BoundingSphere(Cesium.Cartesian3.ZERO, 0.99 * 6378137.0);
 
-export const DisplayType = { // those values are used as field names in odin_wind.js so they have to be valid identifiers
-    DISPLAY_ANIM: "anim",
-    DISPLAY_VECTOR: "vector",
-    DISPLAY_CONTOUR: "contour",
-
-    DISPLAY_ANIM_WX_10: "animWx10",
-    DISPLAY_ANIM_WX_80: "animWx80"
-};
 
 /// the status of WindFieldVisualization objects as exposed to our owning forecast object
 export const WindFieldStatus = {
@@ -78,13 +70,17 @@ export function updateViewerParameters() {
 
 /// the common base for all wind field visualization types
 export class WindFieldVisualization {
-    constructor ( displayType, urlBase, defaultRenderOpts, statusChangeCallback=null) {
-        this.displayType = displayType;
+    constructor (urlBase, urlSuffix, defaultRenderOpts, statusChangeCallback=null) {
         this.statusChangeCallback = statusChangeCallback;
         this.urlBase = urlBase;
+        this.urlSuffix = urlSuffix;
         this.status = WindFieldStatus.REMOTE;
         this.show = false;
-        this.renderOpts = defaultRenderOpts;
+        this.renderOpts = {...defaultRenderOpts};
+    }
+
+    dataUrl() { // overloaded by subclasses
+        return `./wind-data/${this.urlBase}${this.urlSuffix}`;
     }
 
     setStatus (newStatus) {
@@ -97,7 +93,6 @@ export class WindFieldVisualization {
     }
 
     //--- those are called by our owner and have to be overridden
-    displayType() {}
     setVisible (showIt) {}
     renderChanged() {}
     updateDisplayPanel() {}
@@ -108,8 +103,8 @@ export class WindFieldVisualization {
 /// a wind field with a custom particle system visualization
 export class AnimField extends WindFieldVisualization {
 
-    constructor (urlBase, defaultRenderOpts, statusChangeCallback=null) {
-        super( DisplayType.DISPLAY_ANIM, urlBase, defaultRenderOpts, statusChangeCallback);
+    constructor (urlBase, urlSuffix, defaultRenderOpts, statusChangeCallback=null) {
+        super( urlBase, urlSuffix, defaultRenderOpts, statusChangeCallback);
 
         this.particleSystem = undefined; // only lives while we show the grid animation, owns a number of CustomPrimitives
     }
@@ -158,10 +153,6 @@ export class AnimField extends WindFieldVisualization {
             this.particleSystem.forEachPrimitive( p=> p.show = true);
             odinCesium.requestRender();
         }
-    }
-
-    dataUrl() { // overloaded by subclasses
-        return `./wind-data/${this.urlBase}.csv`;
     }
 
     async loadParticleSystemFromUrl() {
@@ -287,35 +278,11 @@ export class AnimField extends WindFieldVisualization {
     }
 }
 
-//--- specialized AnimFields (based on Wx data)
-
-export class AnimFieldWx10 extends AnimField {
-    constructor (urlBase, defaultRenderOpts, statusChangeCallback=null) {
-        super( urlBase, defaultRenderOpts, statusChangeCallback); // watch out - displayType will be overwritten
-        this.displayType = DisplayType.DISPLAY_ANIM_WX_10;
-    }
-
-    dataUrl() { // overloaded by subclasses
-        return `./wind-data/${this.urlBase}_hrrr_10.csv`;
-    }
-}
-
-export class AnimFieldWx80 extends AnimField {
-    constructor (urlBase, defaultRenderOpts, statusChangeCallback=null) {
-        super( urlBase, defaultRenderOpts, statusChangeCallback); // watch out - displayType will be overwritten
-        this.displayType = DisplayType.DISPLAY_ANIM_WX_80;
-    }
-
-    dataUrl() { // overloaded by subclasses
-        return `./wind-data/${this.urlBase}_hrrr_80.csv`;
-    }
-}
-
 ///a wind field with a vector primitive visualization
 export class VectorField extends WindFieldVisualization {
 
-    constructor (urlBase, defaultRenderOpts, statusChangeCallback=null) {
-        super( DisplayType.DISPLAY_VECTOR, urlBase, defaultRenderOpts, statusChangeCallback);
+    constructor (urlBase, urlSuffix, defaultRenderOpts, statusChangeCallback=null) {
+        super( urlBase, urlSuffix, defaultRenderOpts, statusChangeCallback);
 
         this.pointPrimitive = undefined; // Cesium.Primitive instantiated when showing the static vector field
         this.linePrimitive = undefined;
@@ -360,7 +327,7 @@ export class VectorField extends WindFieldVisualization {
         function procLine (line) {
             if (i > 1) { // vector line
                 let values = util.parseCsvValues(line);
-                if (values.length == 7) {
+                if (values.length == 7) { // 2 cartesian3 + spd
                     let p0 = new Cesium.Cartesian3(values[0],values[1],values[2]);
                     let p1 = new Cesium.Cartesian3(values[3],values[4],values[5]);
     
@@ -394,7 +361,7 @@ export class VectorField extends WindFieldVisualization {
             i++;
         };
     
-        let url = `./wind-data/${this.urlBase}_vector.csv`;
+        let url = this.dataUrl();
 
         this.setStatus( WindFieldStatus.LOADING);
         await util.forEachTextLine( url, procLine);
@@ -457,8 +424,8 @@ export class VectorField extends WindFieldVisualization {
 /// a wind field with a countour (polygon) visualization
 export class ContourField extends WindFieldVisualization {
 
-    constructor (urlBase, defaultRenderOpts, statusChangeCallback=null) {
-        super( DisplayType.DISPLAY_CONTOUR, urlBase, defaultRenderOpts, statusChangeCallback);
+    constructor (urlBase, urlSuffix, defaultRenderOpts, statusChangeCallback=null) {
+        super( urlBase, urlSuffix, defaultRenderOpts, statusChangeCallback);
 
         this.dataSource = undefined;
     }
@@ -486,7 +453,7 @@ export class ContourField extends WindFieldVisualization {
     }
 
     async loadContoursFromUrl() {
-        let url = `./wind-data/${this.urlBase}_contour.json`;
+        let url = this.dataUrl();
 
         let geoJsonRenderOpts = { 
             stroke: this.renderOpts.strokeColor, 

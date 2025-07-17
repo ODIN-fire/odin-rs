@@ -15,9 +15,10 @@
 use std::alloc::System;
 use std::cmp::max;
 use std::fs::{self,DirEntry,FileTimes,File,OpenOptions};
-use std::io::{self,Read, Write, Error as IOError,ErrorKind};
+use std::io::{self, BufRead, BufReader, BufWriter, Error as IOError, ErrorKind, Read, Write};
 use std::time::{SystemTime,Duration};
 use std::env;
+use chrono::{DateTime,Utc};
 use io::ErrorKind::*;
 use regex::Regex;
 use std::path::{Path,PathBuf};
@@ -230,9 +231,56 @@ pub fn append_line_to_file (path: impl AsRef<Path>, s: &str) -> Result<()> {
     writeln!( file, "{s}")
 }
 
-/// used to turn a path-like string slice into a String that can be used within filenames 
 pub fn path_str_to_fname (path: &str)->String {
-    path.replace('/', "∕")
+    path.replace('/', "-")
+}
+
+/// encode decimal points as single 'p' chars: "12.34" -> "12p34"
+pub fn fp_to_fname (x: f64)->String {
+    x.to_string().replace('.', "p")
+}
+
+pub enum TimeResolution {
+    Hours, Minutes, Seconds, Millis
+}
+
+pub fn datetime_to_fname (date: DateTime<Utc>, time_res: TimeResolution)->String {
+    match time_res {
+        TimeResolution::Hours => date.format("%Y-%m-%dT%HZ"),
+        TimeResolution::Minutes => date.format("%Y-%m-%dT%H%MZ"),
+        TimeResolution::Seconds => date.format("%Y-%m-%dT%H%M%SZ"),
+        TimeResolution::Millis => date.format("%Y-%m-%dT%H%M%S%3fZ")
+    }.to_string()
+}
+
+pub const DF_SEPARATOR: &'static str = "__";
+
+/// this supports the [ODIN filename convention](https://odin-fire.org/book/conventions.html)
+pub fn odin_data_filename (name: &str, date: Option<DateTime<Utc>>, attrs: &[&str], ext: Option<&str>)->String {
+    let mut s = path_str_to_fname(name);
+
+    if let Some(date) = date {
+        s.push_str( DF_SEPARATOR);
+        s.push_str( &datetime_to_fname(date, TimeResolution::Seconds));
+    }
+
+    for c in attrs {
+        s.push_str( DF_SEPARATOR);
+
+        let mut sc = if c.contains(' ') { c.replace(' ', "_") } else { c.to_string() };
+        if sc.contains('.') { sc = sc.replace('.', "p") };
+        if sc.contains(',') { sc = sc.replace(',', "_") };
+        // maybe more generic replacements to follow..
+
+        s.push_str( sc.as_str());
+    }
+
+    if let Some(ext) = ext {
+        s.push('.');
+        s.push_str( ext);
+    }
+
+    s
 }
 
 pub fn get_filename_extension<'a> (path: &'a str) -> Option<&'a str> {
@@ -446,6 +494,53 @@ pub struct FileAvailable {
     pub topic: String,
     pub pathname: PathBuf,
 }
+
+pub fn add_extension<P> (path: P, ext: &str)->Result<PathBuf> where P: AsRef<Path> {
+    let mut fname = path.as_ref().file_name().ok_or( IOError::new( ErrorKind::Other, "invalid filename"))?.to_os_string();
+    if !ext.starts_with('.') { fname.push(".") }
+    fname.push( ext);
+
+    let mut ext_path = path.as_ref().to_path_buf().clone();
+    ext_path.set_file_name( &fname);
+    
+    Ok(ext_path)
+}
+
+/// replace the last component of the given PathBuf
+pub fn replace_filename<P> (path: &mut PathBuf, filename: P) where P: AsRef<Path> {
+    path.pop(); // remove the old filename
+    path.push( PathBuf::from(filename.as_ref()));
+}
+
+/* #region file compression *************************************************************************/
+
+use flate2::{Compression, write::GzEncoder};
+
+pub fn gzip_path<P> (path: P)->Result<PathBuf> where P: AsRef<Path> {
+    let in_file = File::open( &path)?;
+
+    let gzip_path = add_extension( path, "gz")?;
+    let out_file = File::create( &gzip_path)?;
+
+    let mut reader = BufReader::with_capacity( 262144, in_file);
+    let writer = BufWriter::with_capacity( 262144, out_file);
+    let mut enc = GzEncoder::new( writer, Compression::default());
+
+    loop {
+        let buf = reader.fill_buf()?;
+        let len = buf.len();
+
+        if len > 0 {
+            enc.write_all(buf)?;
+            reader.consume( len);
+        } else { break }
+    }
+  
+    enc.finish()?;
+    Ok(gzip_path)
+}
+
+/* #endregion compression */
 
 /* #region EnvPathBuf *******************************************************************************/
 

@@ -10,7 +10,7 @@ edition = "2024"
 [dependencies]
 tokio = { workspace = true }
 kanal = { version = "0.1.1", features = ["async"], optional = true }
-flume = { version = "0.11.1", features = ["default", "spin"], optional = true }
+flume = { version = "0.11.1", optional = true } # async is default
 
 ratatui = { version = "0.29.0", features = ["all-widgets", "serde"], optional = true }
 crossterm = { version = "0.29.0", features = ["event-stream"], optional = true }
