@@ -1,6 +1,12 @@
 // example windninja_service.js module config
 
 export const config = {
+    layer: {
+        name: "/weather/wind",
+        description: "wind forecasts",
+        show: true,
+    },
+
     back_hours: 1, // number of past forecast hours we keep
 
     zoomMargin: 0.03, // in degrees lon/lat when zooming in on region bbox

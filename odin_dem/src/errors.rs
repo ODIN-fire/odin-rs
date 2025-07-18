@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 use thiserror::Error;
-use odin_gdal::errors::OdinGdalError;
+use odin_gdal::{errors::OdinGdalError,GdalError};
 use odin_common::net::OdinNetError;
 
 #[derive(Error,Debug)]
@@ -31,6 +31,9 @@ pub enum OdinDemError {
     // pass through for IO errors
     #[error("DEM IO error: {0}")]
     IOError( #[from] std::io::Error),
+
+    #[error("GDAL error {0}")]
+    GdalError( #[from] GdalError),
 
     // pass through for OdinGdalErrors
     #[error("ODIN gdal error {0}")]

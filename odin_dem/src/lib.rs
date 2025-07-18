@@ -18,7 +18,10 @@ use axum::{http::{header::CONTENT_TYPE, HeaderMap, HeaderValue}, response::IntoR
 use errors::{invalid_filename, op_failed};
 use serde::{Deserialize, Serialize};
 use tokio::io;
-use odin_gdal::{create_wh_image_from_vrt, csl_string_list, get_driver_name_for_extension, CslStringList};
+use odin_gdal::{
+    create_wh_image_from_vrt, csl_string_list, get_driver_name_for_extension, CslStringList, Dataset, Driver, SpatialRef,
+    warp::SimpleWarpBuilder,
+};
 use odin_common::{fs::{self,EnvPathBuf}, net::{download_url, mime_type_for_extension}, BoundingBox};
 use odin_build::define_load_config;
 
@@ -207,13 +210,32 @@ pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: 
 
     if !file_path.exists() {
         let create_opts = img_type.gdal_create_options();
-        odin_gdal::create_res_image_from_vrt( bbox, srs.epsg(), res_x, res_y, img_type.file_extension(), &create_opts, &vrt_path, &file_path)?;
+        let img_extension = img_type.file_extension();
+        let driver_name = get_driver_name_for_extension( img_extension).ok_or(OdinDemError::OpFailedError(format!("unsupported image type {}", img_extension)))?;
+        let src_ds = Dataset::open(&vrt_path)?;
+        let tgt_srs = SpatialRef::from_epsg( srs.epsg())?;
+
+        let mut warp = SimpleWarpBuilder::new( &src_ds, file_path)?;
+
+        warp.set_tgt_srs( &tgt_srs);
+        warp.set_tgt_extent_from_bbox( bbox);
+        warp.set_tgt_resolution( res_x, res_y);
+        warp.set_tgt_format( driver_name)?;
+
+        // make sure we use a small but non-zero value for nodata since we can encounter both (0 for coastal sea and nodata for high seas)
+        // note that the nodata value might get used subsequently in SRS conversion / cropping
+        warp.set_tgt_nodatas(vec![0.01234]);
+
+        if let Some(opts) = &create_opts { warp.set_create_options( opts); }        
+        warp.exec()?;
+
     } else {
-        fs::set_accessed(&file_path)?; // update atime so that we could use it for LRU cache bounds
+        fs::set_accessed( &file_path)?; // update atime so that we could use it for LRU cache bounds
     }
 
     Ok(())
 }
+
 
 pub async fn query_res_dem (base_url: &str, bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, img_type: DemImgType, file_path: &PathBuf) -> Result<()>  {
     if !file_path.exists() {

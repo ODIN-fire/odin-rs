@@ -520,8 +520,9 @@ impl <'a> SimpleWarpBuilder<'a> {
 
     fn set_no_data_values (&self, warp_options: &mut GDALWarpOptions, tgt_ds: &mut Dataset) ->Result<()> {
 
-        //let n_input_bands = if let Some(src_bands) = &self.src_bands { src_bands.len() } else { n_bands };
-        //warp_options.padfSrcNoDataReal = self.create_no_datas( n_input_bands, &self.src_nodata)?;
+        if let Some(nodatas) = &self.src_nodatas {
+            warp_options.padfSrcNoDataReal = self.create_no_datas( nodatas)?;
+        }
 
         /* TODO has no effect
         let n_output_bands = if let Some(tgt_bands) = &self.tgt_bands { tgt_bands.len() } else { n_input_bands };
@@ -530,11 +531,11 @@ impl <'a> SimpleWarpBuilder<'a> {
 
         // NOTE - most GDAL raster drivers (including GTiff) don't support per-band target nodata values
 
-        if let Some(no_datas) = &self.tgt_nodatas {
-            for i in 0..no_datas.len() {
+        if let Some(nodatas) = &self.tgt_nodatas {
+            for i in 0..nodatas.len() {
                 let band_index = if let Some(tgt_bands) = &self.tgt_bands { tgt_bands[i] as usize } else { i+1 };
                 let mut band = tgt_ds.rasterband(band_index)?;
-                band.set_no_data_value( Some(no_datas[i]))?;
+                band.set_no_data_value( Some(nodatas[i]))?;
             }
         }
         //warp_options.padfDstNoDataReal = self.create_no_datas(  &self.tgt_nodatas)?;
@@ -542,18 +543,14 @@ impl <'a> SimpleWarpBuilder<'a> {
         Ok(())
     }
 
-    fn create_no_datas (&self, no_datas: &Option<Vec<c_double>>)->Result<*mut f64> {
-        if let Some(no_datas) = no_datas {
-            let n_bands = no_datas.len();
-            unsafe {
-                let c_no_datas = gdal_sys::CPLMalloc(std::mem::size_of::<c_double>() * n_bands) as *mut c_double;
-                for i in 0..n_bands { 
-                    *(c_no_datas.offset(i as isize)) = no_datas[i] // FIXME - doesn't work
-                }
-                Ok(c_no_datas)
+    fn create_no_datas (&self, no_datas: &Vec<c_double>)->Result<*mut f64> {
+        let n_bands = no_datas.len();
+        unsafe {
+            let c_no_datas = gdal_sys::CPLMalloc(std::mem::size_of::<c_double>() * n_bands) as *mut c_double;
+            for i in 0..n_bands { 
+                *(c_no_datas.offset(i as isize)) = no_datas[i] // FIXME - doesn't work
             }
-        } else {
-            Ok(null_mut())
+            Ok(c_no_datas)
         }
     }
 }

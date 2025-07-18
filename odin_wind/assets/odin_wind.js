@@ -205,6 +205,20 @@ class Forecast {
     showWindField (showIt) { 
         this[selDisplay][selSource].setVisible( showIt); 
     }
+
+    hideWindFields () {
+        this.animation.windNinja.setVisible(false);
+        this.vector.windNinja.setVisible(false);
+        this.contour.windNinja.setVisible(false);
+
+        this.animation.hrrr_10m.setVisible(false);
+        this.vector.hrrr_10m.setVisible(false);
+        this.contour.hrrr_10m.setVisible(false);
+
+        this.animation.hrrr_80m.setVisible(false);
+        this.vector.hrrr_80m.setVisible(false);
+        this.contour.hrrr_80m.setVisible(false);
+    }
 }
 
 /* #endregion types */
@@ -395,7 +409,8 @@ function createWindow() {
                 ui.HorizontalSpacer(1),
                 (sourceCb = ui.Choice( "source", "wind.field.source", selectWindSource))
             ),
-            (forecastView = ui.List("wind.forecasts", 6, selectForecast))
+            (forecastView = ui.List("wind.forecasts", 6, selectForecast)),
+            ui.ListControls("wind.forecasts",null,null,null,null,clearWindFields)
         ),
         ui.Panel("anim display")(
             ui.ColumnContainer("align_right")(
@@ -627,6 +642,15 @@ function toggleShowWindField (event) {
         if (fc) {
             fc.showWindField( ui.isCheckBoxSelected(cb));
         }
+    }
+}
+
+function clearWindFields() {
+    if (selectedRegion) {
+        for (let forecast of selectedRegion.forecasts) {
+            forecast.hideWindFields();
+        }
+        ui.updateListItems( forecastView);
     }
 }
 

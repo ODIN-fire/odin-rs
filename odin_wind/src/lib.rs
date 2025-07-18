@@ -323,7 +323,7 @@ pub fn write_huvw_csv_grid<P> (ds: &Dataset, path: P, bands: &[usize])->Result<(
     let mut v_line: Vec<f32> = vec![0.0; cols];
     let mut w_line: Vec<f32> = vec![0.0; cols];
 
-    for i in 0..cols { if i % 2 == 0 { w_line[i] = 0.1; }}  // FIXME - something in the shaders breaks if there is only one w value
+    w_line[0] = 0.1; // FIXME - something in the shaders breaks if there is only one w value
 
     let mut file = File::create(path)?;
     let mut buf = BufWriter::new( file);
