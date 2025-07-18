@@ -26,7 +26,7 @@ use strum::EnumString;
 use chrono::prelude::*;
 use lazy_static::lazy_static;
 
-use odin_sentinel::{SentinelConfig,load_config,get_device_list_from_config};
+use odin_sentinel::{SentinelConfig,load_config,get_device_list_from_config,get_http_client};
 use odin_sentinel::ws::{connect,read_next_ws_msg,request_join,WsStream,WsMsg,WsCmd};
 use odin_build;
 
@@ -66,7 +66,7 @@ async fn main()->Result<()> {
     odin_build::set_bin_context!();
 
     let config: SentinelConfig = load_config( "sentinel.ron")?;
-    let http_client = reqwest::Client::new();
+    let http_client = get_http_client()?;
     let mut msg_id = 0;
 
     let device_list = get_device_list_from_config( &http_client, &config).await?;

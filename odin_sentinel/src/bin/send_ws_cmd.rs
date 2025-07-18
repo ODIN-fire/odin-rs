@@ -32,7 +32,7 @@ use strum::EnumString;
 use odin_build;
 use odin_common::{if_let,define_cli,check_cli};
 use odin_sentinel::{
-    get_device_list_from_config,
+    get_device_list_from_config,get_http_client,
     OdinSentinelError, SentinelConfig, Result,
     ws::{connect, expect_connected_response, WsCmd, WsMsg, WsStream},
     load_config,
@@ -75,7 +75,7 @@ async fn main()->anyhow::Result<()> {
 }
 
 async fn print_prolog (config: &SentinelConfig)->Result<()> {
-    let http_client = reqwest::Client::new();
+    let http_client = get_http_client()?;
     let device_list = get_device_list_from_config( &http_client, &config).await?;
     println!("interactive mode monitoring devices: {:?}", device_list.get_device_ids());
     if device_list.is_empty() { 

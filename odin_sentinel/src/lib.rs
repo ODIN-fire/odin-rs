@@ -1181,4 +1181,9 @@ pub fn get_image_uri (base_uri: &str, record_id: &str)->String {
     format!("{base_uri}/images/{record_id}")
 }
 
+// Delphire server as of 07-25 rejects based on user-agent
+pub fn get_http_client() -> Result<Client> {
+    Ok( Client::builder().user_agent("curl/8.7.1").build()? )
+}
+
 /* #endregion basic http getters */

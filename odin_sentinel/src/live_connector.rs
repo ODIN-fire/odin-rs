@@ -152,7 +152,8 @@ impl LiveConnection {
         let cache_dir = Arc::new(pkg_cache_dir!());
 
         //--- get current sentinel data according to config (there is no point spawning tasks if we don't have a list of devices to watch)
-        let http_client = Client::new();
+        let http_client = get_http_client()?;
+
         let mut sentinel_store = SentinelStore::new();
         sentinel_store.fetch_from_config( &http_client, &config).await?; // retrieve all records we need - this can take some time
 
@@ -175,7 +176,7 @@ impl LiveConnection {
             let (ws_cmd_tx, ws_cmd_rx) = create_mpsc_sender_receiver::<String>(16);
 
             let ws_task = spawn( "ws-sentinel", 
-                Self::ws_loop( hself.clone(), config.clone(), cache_dir.clone(),
+                Self::ws_loop( hself.clone(), config.clone(), cache_dir.clone(), get_http_client()?,
                                device_ids, latest_recs, 
                                file_request_tx.clone(), ws_cmd_rx)
             )?.abort_handle();
@@ -200,11 +201,10 @@ impl LiveConnection {
         }
     }
 
-    async fn ws_loop (hself: ActorHandle<SentinelActorMsg>, config: Arc<SentinelConfig>, cache_dir: Arc<PathBuf>, 
+    async fn ws_loop (hself: ActorHandle<SentinelActorMsg>, config: Arc<SentinelConfig>, cache_dir: Arc<PathBuf>, client: Client,
                       device_ids: Vec<String>, mut latest_recs: HashMap<String,String>,
                       file_request_tx: MpscSender<FileRequest>, ws_cmd_rx: MpscReceiver<String>) {
         let mut cycle = 0;
-        let client = reqwest::Client::new();
         let ping_interval = if let Some(dur) = config.ping_interval { dur } else { Duration::MAX };
 
         loop {

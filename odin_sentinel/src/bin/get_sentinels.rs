@@ -22,7 +22,7 @@ use tokio;
 use reqwest;
 use strum::EnumString;
 
-use odin_sentinel::{SentinelStore,SentinelConfig,load_config};
+use odin_sentinel::{get_http_client, load_config, SentinelConfig, SentinelStore, get_http_client};
 use odin_build;
 
 #[derive(Debug,EnumString)]
@@ -61,7 +61,7 @@ async fn main()->Result<()> {
     odin_build::set_bin_context!();
 
     let sentinel_config: SentinelConfig = load_config( "sentinel.ron")?;
-    let http_client = reqwest::Client::new();
+    let http_client = get_http_client()?;
 
     let mut sentinel_store = SentinelStore::new();
     sentinel_store.fetch_from_config( &http_client, &sentinel_config).await?;
