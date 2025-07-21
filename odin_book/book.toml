@@ -5,12 +5,11 @@ authors = ["Peter Mehlitz"]
 
 [build]
 build-dir = "../target/book"
-create-missing = true
-extra-watch-dirs = [ "../odin_action/doc", "../odin_actor/doc" ]
+create-missing = false
 
 [output.html]
-additional-css = ["odin.css"]
-no-section-label = true
+additional-css = ["src/odin.css"]
+no-section-label = true  # we number explicitly so that we don't have deeply nested subchapter numbers
 default-theme = "Ayu"
 preferred-dark-theme = "Ayu"
 
@@ -18,4 +17,4 @@ preferred-dark-theme = "Ayu"
 enable = true
 level = 1
 
-[preprocessor.svgdx]
+

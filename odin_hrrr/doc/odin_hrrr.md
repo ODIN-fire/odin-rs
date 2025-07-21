@@ -49,8 +49,8 @@ first step of a forecast cycle becomes available. Each consecutive forecast step
 1min for extended cycles. We assume that cycles can be processed sequentially.
  
 Schedules can be either estimated from a given `HrrrConfig` (config file) or computed by parsing the directory listing from the 
-NOAA server [^3] which has directories for the current and past day (this might be brittle since the HTML directory listing
-format on the NOAA server can change). `HrrrConfig` files have the following structure:
+[NOAA server](https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod) which has directories for the current and past day (this
+might be brittle since the HTML directory listing format on the NOAA server can change). `HrrrConfig` files have the following structure:
 
 ```rust
 HrrrConfig(
@@ -208,9 +208,3 @@ run_actor_system!( actor_system => {
     Ok(())
 });
 ```
-
-
- ## References:
-  [^1]: https://nomads.ncep.noaa.gov/ - available data products
-  [^2]: https://nomads.ncep.noaa.gov/gribfilter.php?ds=hrrr_2d - HRRR queries
-  [^3]: https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod/ - HRRR download directories

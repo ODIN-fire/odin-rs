@@ -21,7 +21,7 @@ use odin_common::define_cli;
 use odin_server::prelude::*;
 use odin_share::prelude::*;
 use odin_hrrr::{self,HrrrActor,HrrrConfig,HrrrFileAvailable,schedule::{HrrrSchedules,get_hrrr_schedules}};
-use odin_wind::{self, 
+use odin_wind::{ 
     actor::{WindActor,WindActorMsg, AddClientResponse, server_subscribe_action, server_update_action}, 
     ForecastStore, Forecast, 
     wind_service::WindService
