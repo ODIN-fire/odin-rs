@@ -22,7 +22,7 @@ use tokio;
 use reqwest;
 use strum::EnumString;
 
-use odin_sentinel::{get_http_client, load_config, SentinelConfig, SentinelStore, get_http_client};
+use odin_sentinel::{get_http_client, load_config, SentinelConfig, SentinelStore};
 use odin_build;
 
 #[derive(Debug,EnumString)]

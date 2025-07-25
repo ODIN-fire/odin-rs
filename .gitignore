@@ -4,7 +4,7 @@ dhat-heap.json
 target/
 book/
 local/
+.idea/
 .vscode/
 rustc-ice*.txt
 odin_book/external/
-

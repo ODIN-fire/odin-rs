@@ -12,7 +12,6 @@
  * and limitations under the License.
  */
 #![allow(unused)]
-#![feature(trait_alias,exit_status_error)]
 
 use std::u64;
 #[doc = include_str!("../doc/odin_sentinel.md")]
@@ -34,6 +33,7 @@ use reqwest::{Client,Response};
 use async_trait::async_trait;
 use paste::paste;
 use lazy_static::lazy_static;
+use trait_set::trait_set;
 
 use odin_build::{define_load_asset, define_load_config, pkg_cache_dir};
 use odin_common::{
@@ -93,7 +93,9 @@ pub trait CapabilityProvider {
 
 pub type DeviceId = String;
 pub type RecordId = String;
-pub trait RecordDataBounds = CapabilityProvider + Serialize + for<'de2> Deserialize<'de2> + Debug + Clone + 'static;
+trait_set! {
+  pub trait RecordDataBounds = CapabilityProvider + Serialize + for<'de2> Deserialize<'de2> + Debug + Clone + 'static;
+}
 
 #[derive(Deserialize,Debug,Clone)]
 #[serde(bound = "T: Serialize, for<'de2> T: Deserialize<'de2>")]

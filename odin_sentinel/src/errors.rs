@@ -105,7 +105,6 @@ map_to_opaque_error!{ odin_actor::errors::OdinActorError => OdinSentinelError::A
 map_to_opaque_error!{ odin_job::OdinJobError => OdinSentinelError::JobError }
 map_to_opaque_error!{ ron::error::Error => OdinSentinelError::ConfigError }
 map_to_opaque_error!{ tokio::time::error::Elapsed => OdinSentinelError::TimeoutError }
-map_to_opaque_error!{ std::process::ExitStatusError => OdinSentinelError::CommandError }
 
 #[cfg(feature="slack")]
 map_to_opaque_error!{ odin_common::slack::SlackError => OdinSentinelError::SlackError }

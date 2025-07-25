@@ -42,7 +42,7 @@ define_cli! { ARGS [about="calculate overpasses for given satellite, history and
 async fn main() -> Result<()> {
     odin_build::set_bin_context!();
     let cache_dir = pkg_cache_dir!();
-    init_orbital_data()?;
+    init_orbital_data();
 
     let region = load_config( &ARGS.region)?;
     let sat_info: Arc<OrbitalSatelliteInfo> = Arc::new(load_config( &ARGS.sat_info)?);

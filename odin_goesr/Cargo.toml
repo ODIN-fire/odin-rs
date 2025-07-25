@@ -45,6 +45,8 @@ structopt = { workspace = true }
 lazy_static = { workspace = true }
 regex = { workspace = true }
 
+trait-set = "0.3.0"
+
 [build-dependencies]
 odin_build = { workspace = true }
 
