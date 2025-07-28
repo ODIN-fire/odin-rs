@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 
-use odin_common::{*, geo::GeoPoint, ranges::LinearRange};
+use odin_common::{geo::{GeoPoint, GeoPoint3}, ranges::LinearRange, *};
 use odin_gdal::{Dataset, GdalValueType, GridPoint, Metadata, MetadataEntry}; // gdal re-exports
 use serde::Serialize;
 
@@ -114,5 +114,10 @@ impl GoesrProjection {
         let lon_deg = (lon0 - atan(s_y / (h - s_x))).to_degrees();
 
         GeoPoint::from_lon_lat_degrees(lon_deg, lat_deg)
+    }
+
+    pub fn geo3_from_instrument_angles (&self, ew_scan: f64, ns_elevation: f64, alt: f64)->GeoPoint3 {
+        let p = self.geo_from_instrument_angles(ew_scan, ns_elevation);
+        GeoPoint3::from_lon_lat_degrees_alt_meters( p.longitude_deg(), p.latitude_deg(), alt)
     }
 }

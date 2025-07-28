@@ -64,7 +64,10 @@ function createWindow() {
     return ui.Window("Geo Layers", "geolayer", "./asset/odin_geolayer/geomarker-icon.svg")(
         ui.LayerPanel("geolayer", toggleShowGeoLayer),
         ui.Panel("geo layer sources", true)(
-            ui.TreeList("geolayer.source.list", 15, 25, selectGeoLayerSource)
+            ui.TreeList("geolayer.source.list", 15, 25, selectGeoLayerSource),
+            ui.RowContainer()(
+                ui.Button("clear", clearAll)
+            )
         ),
         ui.Panel("object data", false)(
             ui.KvTable("geolayer.object", 15, 25,25)
@@ -137,6 +140,16 @@ function toggleShowSource(event) {
             } else {
                 unloadSource(se);
             }
+        }
+    }
+}
+
+function clearAll (event) {
+    for (let se of sources) {
+        if (se.show) {
+            unloadSource(se);
+            se.show = false;
+            ui.updateListItem( sourceView, se);
         }
     }
 }

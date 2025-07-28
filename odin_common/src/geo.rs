@@ -429,6 +429,7 @@ impl GeoPoint3 {
             alt: alt.get::<meter>()
         }
     }
+
     pub fn from_lon_lat_degrees_alt_meters (lon: f64, lat: f64, alt: f64) -> Self {
         GeoPoint3 {
             point: Point::new( lon, lat),
@@ -443,6 +444,10 @@ impl GeoPoint3 {
     pub fn longitude_degrees(&self) -> f64 { self.point.x() }
     pub fn latitude_degrees(&self) -> f64 { self.point.y() }
     pub fn altitude_meters(&self) -> f64 { self.alt }
+
+    pub fn set_altitude_meters (&mut self, alt: f64) { self.alt = alt; }
+    pub fn set_altitude (&mut self, alt: Length) { self.alt = alt.get::<meter>(); }
+
 }
 
 impl fmt::Display for GeoPoint3 {

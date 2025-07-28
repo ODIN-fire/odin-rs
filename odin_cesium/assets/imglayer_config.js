@@ -76,7 +76,7 @@ export const config = {
         //    render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         //},
         { 
-            pathName: "fuel/cover",
+            pathName: "fuel/landfire/cover",
             info: "landfire fuel vegetation cover (FVC 230)",
             provider: new Cesium.WebMapServiceImageryProvider({
               url: "https://edcintl.cr.usgs.gov/geoserver/landfire/us_230/ows",
@@ -87,7 +87,7 @@ export const config = {
             render:{ brightness:1.0, contrast:1.0, hue:0.0, alphaColor: "white" }
         },
         {
-            pathName: "fuel/type",
+            pathName: "fuel/landfire/type",
             info: "landfire fuel vegetation type (FVT 230)",
             provider: new Cesium.WebMapServiceImageryProvider({
                 url: "https://edcintl.cr.usgs.gov/geoserver/landfire/us_230/ows",
@@ -104,6 +104,132 @@ export const config = {
             provider: await Cesium.TileMapServiceImageryProvider.fromUrl("./tms/verm"),
             exclusive: ["fuel"],
             render:{ brightness:1.0, contrast:1.0, hue:0.0 }
+        },
+
+        {
+            pathName: "mtbs/burn_severity/2018",
+            info: "burn severity 2018 from MTBS",
+            provider: new Cesium.WebMapServiceImageryProvider({
+                url: "https://apps.fs.usda.gov/arcx/services/RDW_Wildfire/MTBS_CONUS/MapServer/WMSServer",
+                layers: "34"
+            }),
+            exclusive:[],
+            colorMap: "./asset/odin_cesium/mtbs/burn-severity-conus-2020.json",
+            render: { alphaColor: "white", alphaColorThreshold: 0.1 }
+        },
+        {
+            pathName: "mtbs/burn_severity/2020",
+            info: "burn severity 2020 from MTBS",
+            provider: new Cesium.WebMapServiceImageryProvider({
+                url: "https://apps.fs.usda.gov/arcx/services/RDW_Wildfire/MTBS_CONUS/MapServer/WMSServer",
+                layers: "36"
+            }),
+            colorMap: "./asset/odin_cesium/mtbs/burn-severity-conus-2020.json",
+            render: { alphaColor: "white", alphaColorThreshold: 0.1 }
+        },
+        {
+            pathName: "mtbs/burn_severity/2021",
+            info: "burn severity 2021 from MTBS",
+            provider: new Cesium.WebMapServiceImageryProvider({
+                url: "https://apps.fs.usda.gov/arcx/services/RDW_Wildfire/MTBS_CONUS/MapServer/WMSServer",
+                layers: "37"
+            }),
+            colorMap: "./asset/odin_cesium/mtbs/burn-severity-conus-2020.json",
+            render: { alphaColor: "white", alphaColorThreshold: 0.1 }
+        },
+        {
+            pathName: "mtbs/burn_severity/2022",
+            info: "burn severity 2021 from MTBS",
+            provider: new Cesium.WebMapServiceImageryProvider({
+                url: "https://apps.fs.usda.gov/arcx/services/RDW_Wildfire/MTBS_CONUS/MapServer/WMSServer",
+                layers: "38"
+            }),
+            colorMap: "./asset/odin_cesium/mtbs/burn-severity-conus-2020.json",
+            render: { alphaColor: "white", alphaColorThreshold: 0.1 }
+        },
+        {
+            pathName: "mtbs/burn_severity/2023",
+            info: "burn severity 2023 from MTBS",
+            provider: new Cesium.WebMapServiceImageryProvider({
+                url: "https://apps.fs.usda.gov/arcx/services/RDW_Wildfire/MTBS_CONUS/MapServer/WMSServer",
+                layers: "39"
+            }),
+            colorMap: "./asset/odin_cesium/mtbs/burn-severity-conus-2020.json",
+            render: { alphaColor: "white", alphaColorThreshold: 0.1 }
+        },
+        {
+            pathName: "mtbs/burn_severity/2024",
+            info: "burn severity 2024 from MTBS",
+            provider: new Cesium.WebMapServiceImageryProvider({
+                url: "https://apps.fs.usda.gov/arcx/services/RDW_Wildfire/MTBS_CONUS/MapServer/WMSServer",
+                layers: "40"
+            }),
+            colorMap: "./asset/odin_cesium/mtbs/burn-severity-conus-2020.json",
+            render: { alphaColor: "white", alphaColorThreshold: 0.1 }
+        },
+
+        {
+            pathName: "mtbs/fire_boundaries/2018",
+            info: "fire boundaries 2018 from MTBS",
+            provider: new Cesium.WebMapServiceImageryProvider({
+                url: "https://apps.fs.usda.gov/arcx/services/EDW/EDW_MTBS_01/MapServer/WMSServer",
+                layers: "76"
+            }),
+            render: { hue: 218, saturation: 1.5, alphaColor: "white", alphaColorThreshold: 0.1 }
+        },        
+        {
+            pathName: "mtbs/fire_boundaries/2019",
+            info: "fire boundaries 2019 from MTBS",
+            provider: new Cesium.WebMapServiceImageryProvider({
+                url: "https://apps.fs.usda.gov/arcx/services/EDW/EDW_MTBS_01/MapServer/WMSServer",
+                layers: "77"
+            }),
+            render: { hue: 218, saturation: 1.5, alphaColor: "white", alphaColorThreshold: 0.1 }
+        },
+        {
+            pathName: "mtbs/fire_boundaries/2020",
+            info: "fire boundaries 2020 from MTBS",
+            provider: new Cesium.WebMapServiceImageryProvider({
+                url: "https://apps.fs.usda.gov/arcx/services/EDW/EDW_MTBS_01/MapServer/WMSServer",
+                layers: "78"
+            }),
+            render: { hue: 218, saturation: 1.5, alphaColor: "white", alphaColorThreshold: 0.1 }
+        },        
+        {
+            pathName: "mtbs/fire_boundaries/2021",
+            info: "fire boundaries 2021 from MTBS",
+            provider: new Cesium.WebMapServiceImageryProvider({
+                url: "https://apps.fs.usda.gov/arcx/services/EDW/EDW_MTBS_01/MapServer/WMSServer",
+                layers: "79"
+            }),
+            render: { hue: 218, saturation: 1.5, alphaColor: "white", alphaColorThreshold: 0.1 }
+        },
+        {
+            pathName: "mtbs/fire_boundaries/2022",
+            info: "fire boundaries 2022 from MTBS",
+            provider: new Cesium.WebMapServiceImageryProvider({
+                url: "https://apps.fs.usda.gov/arcx/services/EDW/EDW_MTBS_01/MapServer/WMSServer",
+                layers: "80"
+            }),
+            render: { hue: 218, saturation: 1.5, alphaColor: "white", alphaColorThreshold: 0.1 }
+        },        
+        {
+            pathName: "mtbs/fire_boundaries/2023",
+            info: "fire boundaries 2023 from MTBS",
+            provider: new Cesium.WebMapServiceImageryProvider({
+                url: "https://apps.fs.usda.gov/arcx/services/EDW/EDW_MTBS_01/MapServer/WMSServer",
+                layers: "81"
+            }),
+            render: { hue: 218, saturation: 1.5, alphaColor: "white", alphaColorThreshold: 0.1 }
+        },
+        {
+            pathName: "mtbs/fire_boundaries/2024",
+            info: "fire boundaries 2024 from MTBS",
+            provider: new Cesium.WebMapServiceImageryProvider({
+                url: "https://apps.fs.usda.gov/arcx/services/EDW/EDW_MTBS_01/MapServer/WMSServer",
+                layers: "82"
+            }),
+            render: { hue: 218, saturation: 1.5, alphaColor: "white", alphaColorThreshold: 0.1 }
         }
     ],
 

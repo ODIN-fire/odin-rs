@@ -58,6 +58,9 @@ pub enum OdinGoesrError {
     #[error("ODIN Actor error {0}")]
     OdinActorError( #[from] odin_actor::errors::OdinActorError),
 
+    #[error("ODIN DEM error {0}")]
+    OdinDemError( #[from] odin_dem::errors::OdinDemError),
+
     #[error("ODIN GDAL error {0}")]
     OdinGdalError( #[from] odin_gdal::errors::OdinGdalError),
 

@@ -1,0 +1,35 @@
+[package]
+name = "odin_track"
+version = "0.1.0"
+edition = "2024"
+
+
+[dependencies]
+lazy_static = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true , features = ["json","blocking"] }
+chrono = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ron = { workspace = true }
+regex = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true }
+memchr = { workspace = true }
+uom = { workspace = true }
+
+structopt = { workspace = true } # replace
+
+odin_common = { workspace = true }
+odin_actor = { workspace = true }
+odin_build = { workspace = true }
+odin_macro = { workspace = true }
+odin_action = { workspace = true }
+odin_server = { workspace = true }
+odin_cesium = { workspace = true }
+
+[features]
+## inline crate-specific resources (configs and assets) into the executable (see odin_build)
+embedded_resources = []

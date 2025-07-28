@@ -39,6 +39,7 @@ pub mod process;
 pub mod net;
 pub mod uom;
 pub mod json_writer;
+pub mod u8extractor;
 
 #[cfg(feature="s3")]
 pub mod s3;

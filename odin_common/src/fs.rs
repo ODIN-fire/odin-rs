@@ -319,6 +319,11 @@ pub fn basename<'a,P: AsRef<Path>> (path: &'a P)->Option<&'a str> {
     filename(path).and_then(|fname| get_file_basename(fname))
 }
 
+pub fn read_lines<P: AsRef<Path>> (path: P) -> io::Result<io::Lines<io::BufReader<File>>> {
+    let file = File::open(path)?;
+    Ok( io::BufReader::new(file).lines() )
+}
+
 pub fn remove_old_files<T> (dir: &T, max_age: Duration)->Result<usize> where T: AsRef<Path> {
     let dir: &Path = dir.as_ref();
 

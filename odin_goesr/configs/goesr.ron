@@ -1,3 +1,7 @@
 GoesrImportActorConfig(
-    max_records:10
+    max_records:10,
+    
+    //dem: Some( Server("http://localhost:9019") ),
+    //dem: Some( File("$ODIN_ROOT/data/3dep13-conus-i16/3dep13-conus-i16.vrt") ),
+    dem: None
 )

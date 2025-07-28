@@ -23,6 +23,7 @@ odin_macro = { workspace = true }
 odin_gdal = { workspace = true }
 odin_server = { workspace = true }
 odin_cesium = { workspace = true }
+odin_dem = { workspace = true }
 
 gdal-sys = { workspace = true, features = ["bindgen"]}
 axum = { workspace = true }

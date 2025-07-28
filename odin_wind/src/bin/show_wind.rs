@@ -17,7 +17,6 @@
 /// example application to show Wind computed micro grid wind
 
 use odin_actor::prelude::*;
-use odin_common::define_cli;
 use odin_server::prelude::*;
 use odin_share::prelude::*;
 use odin_hrrr::{self,HrrrActor,HrrrConfig,HrrrFileAvailable,schedule::{HrrrSchedules,get_hrrr_schedules}};

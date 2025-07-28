@@ -17,6 +17,7 @@
 use std::{sync::Arc,future::Future};
 use serde::{Serialize,Deserialize};
 use odin_common::fs::basename;
+use odin_dem::DemSource;
 use odin_actor::prelude::*;
 use odin_server::{WsMsg, spa::{SpaServerMsg, SpaService, DataAvailable, SendWsMsg, BroadcastWsMsg}};
 use crate::{
@@ -28,7 +29,8 @@ use crate::{
 
 #[derive(Serialize,Deserialize,Debug)]
 pub struct GoesrImportActorConfig {
-    pub max_records: usize,
+    max_records: usize,
+    dem: Option<DemSource>, // where to get the hotspot heights from (if any)
 }
 
 /// external message to request action execution with the current HotspotStore
@@ -47,6 +49,7 @@ define_actor_msg_set! { pub GoesrHotspotImportActorMsg = ExecSnapshotAction | In
 pub struct GoesrHotspotActor<T,I,U> 
     where T: GoesrHotspotImporter + Send, I: DataRefAction<GoesrHotspotStore>, U: DataAction<GoesrHotspotSet>
 {
+    config: GoesrImportActorConfig,
     hotspot_store: GoesrHotspotStore,
     goesr_importer: T,
     init_action: I,
@@ -59,16 +62,26 @@ impl <T,I,U> GoesrHotspotActor<T,I,U>
     pub fn new (config: GoesrImportActorConfig, goesr_importer: T, init_action: I, update_action: U) -> Self {
         let hotspot_store = GoesrHotspotStore::new(config.max_records);
 
-        GoesrHotspotActor{hotspot_store, goesr_importer, init_action, update_action}
+        GoesrHotspotActor{config, hotspot_store, goesr_importer, init_action, update_action}
     }
 
-    pub async fn init (&mut self, init_hotspots: Vec<GoesrHotspotSet>) -> Result<()> {
+    pub async fn init (&mut self, mut init_hotspots: Vec<GoesrHotspotSet>) -> Result<()> {
+        if let Some(dem) = &self.config.dem {
+            for hs in init_hotspots.iter_mut() {
+                hs.fill_in_position_heights(dem).await?;
+            }
+        }
+
         self.hotspot_store.initialize_hotspots(init_hotspots.clone());
         self.init_action.execute(&self.hotspot_store).await;
         Ok(())
     }
 
-    pub async fn update (&mut self, new_hotspots: GoesrHotspotSet) -> Result<()> {
+    pub async fn update (&mut self, mut new_hotspots: GoesrHotspotSet) -> Result<()> {
+        if let Some(dem) = &self.config.dem {
+            new_hotspots.fill_in_position_heights(dem).await?;
+        }
+
         self.hotspot_store.update_hotspots(new_hotspots.clone());
         self.update_action.execute(new_hotspots).await;
         Ok(())

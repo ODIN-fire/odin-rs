@@ -19,6 +19,7 @@ members = [
   "odin_sentinel",
   "odin_goesr",
   "odin_orbital",
+  "odin_track",
   "odin_live",
   
   "gpshub",
@@ -47,6 +48,7 @@ odin_geolayer = { version = "*", path = "odin_geolayer" }
 odin_hrrr   = { version = "*", path = "odin_hrrr" }
 odin_dem    = { version = "*", path = "odin_dem" }
 odin_wind   = { version = "*", path = "odin_wind" }
+odin_track  = { version = "*", path = "odin_track" }
 
 # external crates for which we have to ensure the same version
 axum = { version = "0.8.4", features = [ "http2", "ws", "macros"] }
@@ -87,6 +89,7 @@ hashbrown = { version = "0.15.3" }
 bit-set = { version = "0.8.0" }
 ndarray = { version = "0.16.1" }
 flate2 = { version = "1.1.2" }
+memchr = { version = "2.7.5" }
 
 
 [profile.release]

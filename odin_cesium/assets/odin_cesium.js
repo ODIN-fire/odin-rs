@@ -1274,6 +1274,16 @@ function globalKeyDownHandler (event) {
             }
         }
     }
+
+    if (event.shiftKey) {
+        //console.log("@@ ", event);
+        if (event.key == "Home") {
+            setHomeView();
+        } else if (event.key == "PageDown") {
+            setDownView();
+        }
+    }
+
 }
 
 function globalMouseClickHandler (event) {

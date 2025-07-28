@@ -53,22 +53,25 @@ function createWindow() {
     return ui.Window("Imagery Layers", "imglayer", "./asset/odin_cesium/globe.svg")(
         ui.LayerPanel("imglayer", toggleShowImgLayer),
         ui.Panel("sources", true)(
-          ui.TreeList("imglayer.source.list", 15, "25rem", selectImgLayerSrc),
-          //ui.VarText( " ", "imglayer.source.info", "25rem")
+            ui.TreeList("imglayer.source.list", 15, "25rem", selectImgLayerSrc),
+            //ui.VarText( " ", "imglayer.source.info", "25rem")
+            ui.RowContainer()(
+                ui.Button("clear", clearAll)
+            )
         ),
         ui.Panel("color map", false)(
-          ui.List("imglayer.cm.list", 15, selectImgCmapEntry),
-          ui.VarText( null, "imglayer.cm.info", "25rem")
+            ui.List("imglayer.cm.list", 15, selectImgCmapEntry),
+            ui.VarText( null, "imglayer.cm.info", "25rem")
         ),
         ui.Panel("layer parameters", false)(
-          ui.ColumnContainer("align_right")(
-            ui.Slider("alpha", "imglayer.render.alpha", setImgAlpha),
-            ui.Slider("brightness", "imglayer.render.brightness", setImgBrightness),
-            ui.Slider("contrast", "imglayer.render.contrast", setImgContrast),
-            ui.Slider("hue", "imglayer.render.hue", setImgHue),
-            ui.Slider("saturation", "imglayer.render.saturation", setImgSaturation),
-            ui.Slider("gamma", "imglayer.render.gamma", setImgGamma)
-          )
+            ui.ColumnContainer("align_right")(
+                ui.Slider("alpha", "imglayer.render.alpha", setImgAlpha),
+                ui.Slider("brightness", "imglayer.render.brightness", setImgBrightness),
+                ui.Slider("contrast", "imglayer.render.contrast", setImgContrast),
+                ui.Slider("hue", "imglayer.render.hue", setImgHue),
+                ui.Slider("saturation", "imglayer.render.saturation", setImgSaturation),
+                ui.Slider("gamma", "imglayer.render.gamma", setImgGamma)
+            )
         )
     );
 }
@@ -110,6 +113,33 @@ function toggleShowSource(event) {
             }
 
             odinCesium.requestRender();
+        }
+    }
+}
+
+function hideExclusives (src) {
+    let exclusive = src.exclusive;
+    if (exclusive && exclusive.length > 0) {
+        sources.forEach( s=> {
+            if ((s !== src) && s.exclusive && util.haveEqualElements(exclusive, s.exclusive)) {
+                if (s.show) {
+                    s.show = false;
+                    s.layer.show = false;
+                    ui.updateListItem(sourceView,s);
+                }
+            }
+        });
+    }
+}
+
+function clearAll (event) {
+    for (let s of sources) {
+        if (s.show) {
+            if (!s.exclusive || !s.exclusive.includes("globe")) { // don't hide the globe
+                s.show = false;
+                s.layer.show = false;
+                ui.updateListItem(sourceView,s);
+            }
         }
     }
 }
@@ -211,21 +241,6 @@ function setImgSliderValues (src) {
 
     e = ui.getSlider('imglayer.render.gamma');
     ui.setSliderValue(e, src.layer.gamma);
-}
-
-function hideExclusives (src) {
-    let exclusive = src.exclusive;
-    if (exclusive && exclusive.length > 0) {
-        sources.forEach( s=> {
-            if ((s !== src) && util.haveEqualElements(exclusive, s.exclusive)) {
-                if (s.show) {
-                    s.show = false;
-                    s.layer.show = false;
-                    ui.updateListItem(sourceView,s);
-                }
-            }
-        });
-    }
 }
 
 function selectImgLayerSrc(event) {

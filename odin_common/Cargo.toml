@@ -36,6 +36,7 @@ globset = "0.4.15"
 nav-types = "0.5.2"
 hashbrown = { workspace = true }
 flate2 = { workspace = true }
+memchr = { workspace = true }
 
 aws-config = { version = "1.6.3", features = ["behavior-version-latest"], optional = true }
 aws-sdk-s3 = { version = "1.86.0", features = ["rt-tokio"], optional = true }

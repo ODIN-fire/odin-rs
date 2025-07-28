@@ -19,7 +19,7 @@
 use std::{f32::NAN, fmt::{Debug,Display}, fs::File, io::Write, ops::Deref, path::{Path,PathBuf}, sync::Arc, time::Duration};
 use std::collections::VecDeque;
 use serde::{Deserialize,Serialize};
-use odin_common::{datetime::Dated, geo::GeoPoint};
+use odin_common::{datetime::Dated, geo::{GeoPoint,GeoPoint3}};
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Timelike, Utc};
 use uom::si::{area::square_meter, f32::Time, length::meter, power::milliwatt, thermodynamic_temperature::kelvin};
 use uom::si::f32::{Power,ThermodynamicTemperature, Area, Length};
@@ -37,6 +37,7 @@ use odin_common::s3::{S3Client,S3Object,create_s3_client,get_s3_objects,download
 use odin_gdal::{Dataset, Metadata, MetadataEntry, GdalValueType}; // gdal re-exports
 use odin_gdal::gdal::{DatasetOptions,GdalOpenFlags};
 use odin_gdal::{GridPoint, find_grid_points_in_slice, get_grid_point_values, get_linear_range, nc_dataset, quiet_nc_dataset};
+use odin_dem::DemSource;
 
 mod errors;
 pub use errors::*;
@@ -97,7 +98,7 @@ pub struct GoesrHotspot {
     pub sat_id: u32,
     #[serde(serialize_with = "odin_common::datetime::ser_epoch_millis")]
     pub date: DateTime<Utc>,
-    pub position: GeoPoint,
+    pub position: GeoPoint3,
     pub bounds: GoesrBoundingBox,
     pub bright: ThermodynamicTemperature, 
     pub frp: Power, 
@@ -109,7 +110,7 @@ pub struct GoesrHotspot {
 }
 
 impl GoesrHotspot {
-    pub fn new (data: &GoesrData, mask: u16, bright:u16, frp:f32, dqf:u8, area:u16, bounds: GoesrBoundingBox, center:GeoPoint)->Self {
+    pub fn new (data: &GoesrData, mask: u16, bright:u16, frp:f32, dqf:u8, area:u16, bounds: GoesrBoundingBox, center:GeoPoint3)->Self {
         GoesrHotspot {
             sat_id: data.sat_id,
             date: data.date,
@@ -178,6 +179,23 @@ impl GoesrHotspotSet {
     }
     pub fn to_json (&self)->Result<String> {
         Ok(serde_json::to_string( &self )?)
+    }
+
+    pub async fn fill_in_position_heights (&mut self, dem: &DemSource)->Result<()> {
+        let hotspots = &mut self.hotspots;
+        let ps: Vec<(f64,f64)> = hotspots.iter().map( |h| {
+            let pos = &h.position;
+            (pos.longitude_degrees(), pos.latitude_degrees())
+        }).collect();
+
+        let heights = dem.get_heights(Some(0.0), &ps).await?;
+
+        for i in 0..ps.len() {
+            let hotspot = &mut hotspots[i];
+            let pos = &mut hotspot.position;
+            pos.set_altitude_meters( heights[i]);
+        }
+        Ok(())
     }
 }
 
@@ -423,7 +441,7 @@ pub fn read_goesr_data (data: &GoesrData) -> Result<GoesrHotspotSet> {
 
     let mut hotspots: Vec<GoesrHotspot> = Vec::with_capacity(hs.len());
     for (i,p) in hs.iter().enumerate() {
-        let center = proj.geo_from_instrument_angles(x_range.at(p.i0), y_range.at(p.i1));
+        let center = proj.geo3_from_instrument_angles(x_range.at(p.i0), y_range.at(p.i1), 0.0); // height filled in later
         let bounds = get_bounds( &proj, &x_range, &y_range, &p);
 
         if !temp[i].is_nan() {
