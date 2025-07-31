@@ -1,0 +1,48 @@
+[package]
+name = "odin_n5"
+version = "0.1.0"
+edition = "2024"
+
+build = "../build_resources.rs"
+
+[dependencies]
+# our ODIN crates
+odin_build = { workspace = true }
+odin_action = { workspace = true }
+odin_actor = { workspace = true }
+odin_server = { workspace = true }
+odin_cesium = { workspace = true }
+odin_job = { workspace = true }
+odin_common = { workspace = true }
+odin_macro = { workspace = true }
+
+futures = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+reqwest = { workspace = true }
+axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uom = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+ron = { workspace = true }
+anyhow = { workspace = true }
+lazy_static = { workspace = true }
+paste = { workspace = true }
+http = { workspace = true }
+url = { workspace = true }
+clap = { workspace = true }
+serde_with = { workspace = true }
+
+async-stream = "0.3.6"
+
+[build-dependencies]
+odin_build = { workspace = true }
+
+[features]
+embedded_resources = []
+
+# [profile.release]
+# debug = 1  # better build with RUSTFLAGS=-g

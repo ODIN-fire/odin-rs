@@ -1,0 +1,25 @@
+	
+{
+  "page_size": 50,
+  "next_page_token": "MjAyNS0wNy0yOVQwMToyNjo0Ny43OTkwMDArMDA6MDA=",
+  "results": [
+    {
+      "id": 176215987,
+      "battery_soc": 100,
+      "temperature": 25.1,
+      "humidity": 55.8,
+      "pressure": 96700,
+      "air_quality": 2,
+      "create_date": "2025-07-29 01:41:29.130000+00:00"
+    },
+    {
+      "id": 176215375,
+      "battery_soc": 100,
+      "temperature": 25.1,
+      "humidity": 55.5,
+      "pressure": 96700,
+      "air_quality": 3,
+      "create_date": "2025-07-29 01:41:03.710000+00:00"
+    }
+  ]
+}

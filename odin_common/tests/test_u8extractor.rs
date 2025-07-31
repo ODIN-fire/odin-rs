@@ -15,8 +15,13 @@
 #![allow(unused)]
 
 use std::fmt::Debug;
-use chrono::{DateTime,Utc};
-use odin_common::{extract_all,extract_ordered, u8extractor::{MemMemFinder,SimpleU8Finder,U8Readable}};
+use chrono::{DateTime,Utc,NaiveDate,NaiveTime,TimeZone};
+use std::io::Cursor;
+use anyhow::Result;
+use odin_common::{
+    extract_all, extract_fields, extract_ordered, 
+    u8extractor::{AsyncCsvExtractor, CsvStr, MemMemFinder, SimpleU8Finder, U8Readable}
+};
 
 const DF_17_9: &'static str   = r#"{"timestamp":1753227402.170955,"frame":"8da0b59d990849b660043ed519f7","df":"17","icao24":"a0b59d","bds":"09","NACv":1,"groundspeed":439.9318128983172,"track":170.58049974178377,"vrate_src":"barometric","vertical_rate":0,"geo_minus_baro":1525,"metadata":[{"system_timestamp":1753227402.170955,"rssi":-10.372777,"serial":14924845721654670821,"name":"rtlsdr"}]}"#;
 
@@ -154,4 +159,32 @@ struct Timestamp(DateTime<Utc>);
             println!("timestamp = {timestamp:?}, icao24= {icao24}");
         }
     }
+ }
+
+ #[tokio::test]
+ async fn test_async_csv()->Result<()> {
+    let mut data=String::new();
+    data.push_str("MSG,3,1,1,A2E9A3,1,2025/07/28,15:00:27.393,2025/07/28,15:00:27.445,,22400,,,37.78436,-121.95081,,,0,,0,0\n");
+    data.push_str("MSG,4,1,1,A29C41,1,2025/07/28,15:00:27.391,2025/07/28,15:00:27.445,,,122,132,,,-128,,,,,0");
+    let cursor = Cursor::new(data.as_bytes());
+
+    let mut csv = AsyncCsvExtractor::new(cursor);
+    while csv.next_line().await? {
+        println!("{}", csv.line());
+
+        extract_fields! { csv ?
+            let msg_type: u64 = [1],
+            let icao24: CsvStr = [4],
+            let date: CsvStr = [6],
+            let time: CsvStr = [7] => {
+                let date = NaiveDate::parse_from_str( date.as_str(), "%Y/%m/%d")?;
+                let time = NaiveTime::parse_from_str( time.as_str(), "%H:%M:%S%.3f")?;
+                let d = Utc.from_utc_datetime( &date.and_time(time));
+                
+                println!("  => msg={msg_type}, icao24={}, date={}", *icao24, d);
+            }
+        }
+    }
+
+    Ok(())
  }

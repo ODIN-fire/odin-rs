@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
     let finder = PropertyFinder::new();
 
     let stream = TcpStream::connect( &ARGS.url).await?;
-    let mut reader = BufReader::new( stream);
+    let mut reader = BufReader::with_capacity( 4096, stream);
     let mut line = String::with_capacity(1024);
 
     loop {
@@ -52,3 +52,4 @@ async fn main() -> Result<()> {
     }
     Ok(())
 }
+

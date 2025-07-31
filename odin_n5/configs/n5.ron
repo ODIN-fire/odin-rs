@@ -1,0 +1,6 @@
+# config example for N5 access
+
+N5Config(
+    base_uri: "<N5-server-url>",
+    api_key: "<your-secret-api-key>",
+)

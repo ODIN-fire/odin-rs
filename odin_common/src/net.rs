@@ -14,11 +14,11 @@
 
 ///! common utility functions for network operations
 
-use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc};
-use reqwest::{header::{HeaderMap,HeaderName,HeaderValue,CONTENT_TYPE}, Client, IntoUrl, StatusCode};
+use std::{collections::HashMap, fs::File, io::{self, Write}, path::Path, sync::Arc};
+use reqwest::{header::{HeaderMap,HeaderName,HeaderValue,CONTENT_TYPE}, Client, IntoUrl, StatusCode, Response};
 use regex::Regex;
 use lazy_static::lazy_static;
-use serde::{Serialize,Deserialize};
+use serde::{de::DeserializeOwned,Serialize,Deserialize};
 
 use crate::{define_error, fs::{self, file_length}, if_let};
 
@@ -39,7 +39,8 @@ define_error!{ pub OdinNetError =
     IOError(#[from] std::io::Error) : "IO error: {0}",
     NotFoundError(String) : "not found {0}",
     HttpError(#[from] reqwest::Error) : "http error: {0}",
-    OpFailed(String) : "operation failed: {0}"
+    OpFailed(String) : "operation failed: {0}",
+    ParseError(String) : "parse error: {0}"
 }
 
 pub type Result<T> = std::result::Result<T, OdinNetError>;
@@ -243,4 +244,11 @@ pub fn encoding_for_extension (ext: &str) -> Option<&'static str> {
 
 pub fn encoding_for_path<'a,T: AsRef<Path>> (path: &'a T) -> Option<&'static str> {
     fs::extension(path).and_then(|ext| encoding_for_extension(ext))
+}
+
+pub async fn from_json<T> (response: Response)->Result<T> where T: DeserializeOwned {
+    let bytes = response.bytes().await?;
+    //println!("{}",String::from_utf8(bytes.to_vec()).unwrap());
+
+    serde_json::from_slice( &bytes).map_err(|e| OdinNetError::ParseError(e.to_string()))
 }

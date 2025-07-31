@@ -12,6 +12,8 @@
  * and limitations under the License.
  */
 
+use std::{io::{self, BufRead}, ops::Deref};
+use tokio::io::AsyncBufReadExt;
 use memchr::memmem::Finder;
 
 /// this module provides support to extract keyed values from binary data
@@ -187,23 +189,187 @@ impl<'a> MemMemFinder<'a> {
     pub fn find_key (&self, haystack: &[u8])->Option<usize> { self.0.find( haystack) }
 }
 
-/// a type that can be read from an &[u8] buffer and lives at least as long as this buffer
-pub trait U8Readable<'a,T> {
-    /// return tuple with value and u8 length of value if buf[i] marks the beginning of a valid representation, None otherwise
-    fn from_u8 (buf: &'a[u8], i: usize)->Option<(T,usize)>;
+
+/* #region CSV extractor support *******************************************************************************/
+
+
+/// macro to extract CSV fields from an CsvExtractor
+///  
+/// ```
+///     extraxt_fields{ line ?
+///         let spd: f64 = [4],
+///         let vrate: i64 = [7] => {
+///            ...
+///         }
+///     }
+/// ```
+/// 
+/// which is expanded to 
+/// 
+/// ```
+///     if let Some(spd) = line.field::<f64>(4)
+///     && let Some(vrate) = line.field::<i64>(7) {
+///         ...
+///     }
+/// ```
+#[macro_export]
+macro_rules! extract_fields {
+    ($csv:ident ? $( let $v:ident : $vt:ty = [$i:expr] ),*  => $blk:block $( else $else_blk:block )?) => {
+        {
+            if
+            $(
+                let Some($v) = $csv.field::<$vt>($i)
+            )&&*
+            $blk
+            $( else $else_blk )?
+        }
+    };
 }
+
+const SEP: u8 = b',';
+
+/// stream like object to extract fields from CSV lines read from an underlying BufRead impl
+/// the main purpose of this construct is to get field boundaries for each line once (without allocation)
+/// use like so:
+/// 
+/// ```
+///    let data = b",\"foo, bar\",42,\r\none,two,43";
+///    let cursor = std::io::Cursor::new(data);
+/// 
+///    let mut csv = CsvExtractor::new(cursor);
+///
+///    while csv.next_line() {
+///        println!("---- {}", csv.line());
+///        println!("[0] = {:?}", csv.field::<CsvStr>(0));
+///        println!("[1] = {:?}", csv.field::<CsvStr>(1));
+///        println!("[2] = {:?}", csv.field::<i64>(2));
+///    }
+/// ```
+pub struct CsvExtractor<R> where R: BufRead {
+    reader: R,
+    line: String,
+    sep_indices: Vec<usize>,
+}
+
+impl<R> CsvExtractor<R> where R: BufRead {
+    pub fn new (reader: R)->Self {
+        CsvExtractor {
+            reader,
+            line: String::with_capacity(1024),
+            sep_indices: Vec::new()
+        }
+    }
+    
+    pub fn field<'a,T: U8Readable<'a,T>> (&'a self, field_index: usize)->Option<T> {
+        get_field( self.line.as_bytes(), &self.sep_indices.as_ref(), field_index)
+    }
+    
+    pub fn next_line(&mut self) -> Result<bool,io::Error> {
+        self.line.clear();
+        self.sep_indices.clear();
+        match self.reader.read_line(&mut self.line) {
+            Ok(len) => {
+                if len > 0 {
+                    if self.line.as_bytes()[len - 1] == b'\n' { self.line.pop(); }
+                    if self.line.as_bytes()[len - 2] == b'\r' { self.line.pop(); } // windows
+                    set_separator_indices(&mut self.sep_indices, SEP, self.line.as_bytes());
+                    Ok(true)
+                } else { Ok(false) } // mp more data
+            }
+            Err(e) => Err( io::Error::new( io::ErrorKind::Other, e))
+        }
+    }
+
+    pub fn line(&self) -> &str { self.line.as_str() }
+}
+
+/// the async version of `CsvExtractor` - obtaining a new line has to be awaited
+pub struct AsyncCsvExtractor<R> where R: AsyncBufReadExt + Unpin {
+    reader: R,
+    line: String,
+    sep_indices: Vec<usize>,
+}
+
+impl<R> AsyncCsvExtractor<R> where R: AsyncBufReadExt + Unpin {
+    pub fn new (reader: R)->Self {
+        AsyncCsvExtractor {
+            reader,
+            line: String::with_capacity(1024),
+            sep_indices: Vec::new()
+        }
+    }
+    
+    pub fn field<'a,T: U8Readable<'a,T>> (&'a self, field_index: usize)->Option<T> {
+        get_field( self.line.as_bytes(), &self.sep_indices.as_ref(), field_index)
+    }
+    
+    pub async fn next_line(&mut self) -> Result<bool,io::Error> {
+        self.line.clear();
+        self.sep_indices.clear();
+        match self.reader.read_line(&mut self.line).await {
+            Ok(len) => {
+                if len > 0 {
+                    if self.line.as_bytes()[len - 1] == b'\n' { self.line.pop(); }
+                    if self.line.as_bytes()[len - 2] == b'\r' { self.line.pop(); } // windows
+                    set_separator_indices(&mut self.sep_indices, SEP, self.line.as_bytes());
+                    Ok(true)
+                } else { Ok(false) } // mp more data
+            }
+            Err(e) => Err( io::Error::new( io::ErrorKind::Other, e))
+        }
+    }
+
+    pub fn line(&self) -> &str { self.line.as_str() }
+}
+
+pub fn get_field<'a,T: U8Readable<'a,T>> (buf: &'a[u8], sep_indices: &[usize], field_index: usize)->Option<T> {
+    if field_index > sep_indices.len() { return None }
+    let i = if field_index == 0 { 0 } else { sep_indices[field_index-1] + 1 };
+    if i >= buf.len() || buf[i] == SEP { return None } 
+    read_val( buf, i).map( |(v,_)| v)
+}
+
+// skip over double-quoted strings
+fn set_separator_indices (indices: &mut Vec<usize>, sep: u8, buf: &[u8]) {
+    indices.clear();
+    
+    let len = buf.len();
+    let mut i=0;
+    let mut skip = false;
+    while i < len {
+        if !skip {
+            if buf[i] == b'"' { skip = true; }
+            else if buf[i] == sep { indices.push(i) }
+        } else {
+            if buf[i] == b'"' { skip = false; }
+        }
+        
+        i += 1;
+    }
+}
+
+/* #endregion CSV extractor */
+
 
 /* #region U8Readable implementations **************************************************************************/
 
 // we only have stanard type impls here - clients can provide their own specialized U8Readable implementations 
 // for the types they want to extract
 
+pub trait U8Readable<'a,T> {
+    /// return tuple with value and u8 length of value if buf[i] marks the beginning of a valid representation, None otherwise
+    fn from_u8 (buf: &'a[u8], i: usize)->Option<(T,usize)>;
+}
+
+
 impl<'a> U8Readable<'a,u64> for u64 {
     fn from_u8 (buf: &'a[u8], i0: usize)->Option<(u64,usize)> {
         let mut i = i0;
         let mut n: u64 = 0;
         loop {
-            if i >= buf.len() { return None }
+            if i >= buf.len() {
+                return if i>i0 { Some((n, i-i0)) } else { None }
+            }
 
             let b: u8 = buf[i];
             if b >= b'0' && b <= b'9' {
@@ -232,7 +398,9 @@ impl<'a> U8Readable<'a,i64> for i64 {
         }
 
         loop {
-            if i >= buf.len() { return None }
+            if i >= buf.len() { 
+                return if i>i0 { Some((n, i-i0)) } else { None }
+            }
 
             let b: u8 = buf[i];
             if b >= b'0' && b <= b'9' {
@@ -255,6 +423,7 @@ impl<'a> U8Readable<'a, &'a str> for &'a str {
         let mut skip = false;
         loop {
             if i >= buf.len() { return None }
+
             let b: u8 = buf[i];
 
             if !skip {
@@ -291,7 +460,12 @@ impl<'a> U8Readable<'a,f64> for f64 {
         }
 
         loop {
-            if i >= buf.len() { return None }
+            if i > buf.len() { 
+                return if i>i0 { 
+                    let x = sig * ((n as f64) + (d as f64) / 10.0f64.powi((i - di - 1) as i32));
+                    Some((x, di)) 
+                } else { None } 
+            }
 
             let b: u8 = buf[i];
             if b >= b'0' && b <= b'9' {
@@ -308,5 +482,65 @@ impl<'a> U8Readable<'a,f64> for f64 {
         }
     }
 }
+
+
+/// a newtype to wrap `&str` instances from CSV sources (which do not have to be '"' limited)
+#[derive(Debug)]
+pub struct CsvStr<'a>(&'a str);
+
+impl<'a> CsvStr<'a> {
+    pub fn as_str(&'a self)->&'a str { self.0 } 
+}
+
+impl<'a> Deref for CsvStr<'a> {
+    type Target = &'a str;
+    
+    fn deref(&self)->&Self::Target { &self.0 }
+}
+
+impl<'a> U8Readable<'a, CsvStr<'a>> for CsvStr<'a> {
+    fn from_u8 (buf: &'a[u8], i0: usize)->Option<(CsvStr<'a>,usize)> {
+        let mut i0 = i0;
+        let mut skip = false;
+        
+        let sep = if buf[i0] == b'"' { i0+=1; b'"' } else { b',' };
+        let mut i = i0;
+        
+        loop {
+            if i >= buf.len() { 
+                if i>i0 {
+                    unsafe { 
+                        let s = str::from_utf8_unchecked(&buf[i0..i]);
+                        return Some( (CsvStr::<'a>(s), i-i0) ) 
+                    }
+                } else {
+                    return None
+                }
+            }
+
+            let b: u8 = buf[i];
+
+            if !skip {
+                if b == b'\\' {
+                    skip = true;
+                    continue;
+                }
+            } else {
+                skip = false;
+                continue;
+            }
+    
+            if b == sep || b == b'\n' || i == buf.len()-1 {
+                unsafe { 
+                    let s = str::from_utf8_unchecked(&buf[i0..i]);
+                    return Some( (CsvStr::<'a>(s), i-i0) ) 
+                }
+            }
+            
+            i += 1;
+        }
+    }
+}
+
 
 /* #endregion U8Readable impls */

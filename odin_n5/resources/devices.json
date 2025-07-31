@@ -1,0 +1,67 @@
+{
+  "page_size": 50,
+  "page": 1,
+  "total_count": 15,
+  "results": [
+    {
+      "label": null,
+      "station_id": "aa-78-81-22",
+      "type": 1,
+      "serial_number": null,
+      "id": 1,
+      "device_type": "CHEMNODE LTE",
+      "latest_status": {
+        "proxy": null,
+        "online": true,
+        "active": true,
+        "battery_soc": 100,
+        "activation_date": "2023-12-28T14:38:37.787+00:00",
+        "deactivation_date": "2025-05-07T19:11:15.923+00:00",
+        "signal_strength": null,
+        "location": {
+          "static": {
+            "latitude": 37.15684,
+            "longitude": -121.96211
+          }
+        },
+        "preferred_location_source": "static",
+        "location_description": "somewhere"
+      },
+      "device_groups": null,
+      "latest_data": {
+        "wind_speed": null,
+        "wind_direction": null
+      }
+    },
+    {
+      "label": null,
+      "station_id": "aa-05-87-37",
+      "type": 1,
+      "serial_number": null,
+      "id": 2,
+      "device_type": "CHEMNODE LTE",
+      "latest_status": {
+        "proxy": null,
+        "online": true,
+        "active": true,
+        "battery_soc": 100,
+        "activation_date": "2023-08-10T20:48:07.116+00:00",
+        "deactivation_date": "2025-05-07T19:11:15.923+00:00",
+        "signal_strength": null,
+        "location": {
+          "static": {
+            "latitude": 37.19063,
+            "longitude": -122.01568
+          }
+        },
+        "preferred_location_source": "static",
+        "location_description": "somewhere else"
+      },
+      "device_groups": null,
+      "latest_data": {
+        "wind_speed": null,
+        "wind_direction": null
+      }
+    }
+  ]
+}

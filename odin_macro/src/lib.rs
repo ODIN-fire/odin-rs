@@ -545,7 +545,7 @@ impl Parse for AdtEnum {
 
         let variant_types: Vec<Path> = if !input.is_empty() && lookahead.peek(Token![=]) {
             input.parse::<Token![=]>()?;
-            let variant_types = Punctuated::<Path,Token![|]>::parse_separated_nonempty(input)?;
+            let variant_types = Punctuated::<Path,Token![|]>::parse_separated_nonempty(input)?; // TODO we should support visibility here
             variant_types.into_iter().collect()
         } else {
             Vec::new()
