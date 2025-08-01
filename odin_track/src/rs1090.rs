@@ -22,7 +22,9 @@ use tokio::{self,net::TcpStream, io::{BufReader,AsyncBufReadExt}};
 use chrono::{DateTime,Utc};
 use odin_common::{extract_all,extract_optional,u8extractor::{MemMemFinder,U8Readable}};
 use odin_macro::define_struct;
+
 use crate::Aircraft;
+use crate::adsb::{ignored,AdsbData,AdsbUpdate};
 use crate::errors::{parse_error,OdinTrackError,Result};
 
 // note that needle patterns have to include everything up to the first property value byte 
@@ -48,83 +50,6 @@ define_struct! {
 
         pub comm_d_extended: MemMemFinder<'static> = MemMemFinder::new(b"\"df\":\"CommDExtended\"") // not clear if this is a bug
 }
-
-/// "downlink format" (DF) - Mode S transponder message 
-/// see `rs1090::decode` (mod.rs)
-#[repr(u8)]
-enum DownlinkFormat {
-    ShortAirAirSurveillance = 0, // altitude
-    SurveillanceAltitudeReply = 4, // altitude
-    SurveillanceIdentityReply = 5,
-    AllCallReply = 11,
-    LongAirAirSurveillance = 16,   
-    ExtendedSquitterADSB = 17,  // <<<< ADSB payload (see bds)
-    ExtendedSquitterTisB = 18, 
-    ExtendedSquitterMilitary = 19, 
-    CommBAltitudeReply = 20,
-    CommBIdentityReply = 21,   
-    CommDExtended = 24,   
-}
-
-/// "binary data store" (BDS) - ADS-B message type
-/// see `rs1090::decode::bds::*`
-#[repr(u8)]
-enum Bds {
-    AirbornePosition = 5,  // (barometric or satellite altitude)
-    SurfacePosition = 6,
-    AircraftIdentification = 8,
-    AirborneVelocity = 9,
-    AircraftStatus = 61,
-    TargetStateAndStatusInformation = 62,
-    AircraftOperationStatus = 65,
-}
-
-#[derive(Debug)]
-pub struct AdsbUpdate<'a> {
-    // the common fields for valid data
-    pub timestamp: Timestamp,
-    pub icao24: &'a str, // might be empty if data is ignored
-
-    // the variable part
-    pub data: AdsbData<'a>
-}
-
-impl<'a> fmt::Display for AdsbUpdate<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!( f, "AdsbUpdate( timestamp:{}, icao24: {}, data: {})", self.timestamp, self.icao24, self.data)
-    }
-}
-
-fn ignored<'a> (timestamp: Timestamp)->AdsbUpdate<'a> { AdsbUpdate{timestamp, icao24: "", data: AdsbData::Ignored} }
-
-/// the payload data for ADS-B messages
-#[derive(Debug)]
-pub enum AdsbData<'a> {
-    ShortAirAirSurveillance{ altitude: i64 },
-    SurveillanceAltitudeReply{ altitude: i64 },
-    AllCallReply{ capability: &'a str },
-    AirbornePosition{ altitude: Option<i64>, latitude: Option<f64>, longitude: Option<f64> },
-    AircraftIdentification{ callsign: &'a str },
-    AirborneVelocity{ groundspeed: f64, heading: f64, vertical_rate: Option<i64> },
-    TargetStateAndStatus{ selected_altitude: Option<i64>, selected_heading: Option<f64> },
-    Ignored
-}
-
-impl<'a> fmt::Display for AdsbData<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            AdsbData::ShortAirAirSurveillance {altitude} => { write!( f, "ShortAirAirSurveillance( altitude: {} )", altitude) }
-            AdsbData::SurveillanceAltitudeReply {altitude} => { write!( f, "SurveillanceAltitudeReply( altitude: {} )", altitude) }
-            AdsbData::AllCallReply {capability} => { write!( f, "AllCallReply( capability: {} )", capability) }
-            AdsbData::AirbornePosition {altitude,latitude,longitude} => { write!( f, "AirbornePosition( altitude: {:?}, latitude: {:?}, longitude: {:?} )", altitude,latitude,longitude)}
-            AdsbData::AircraftIdentification {callsign} => { write!( f, "AircraftIdentification( callsign: {} )", callsign) }
-            AdsbData::AirborneVelocity {groundspeed,heading,vertical_rate} => { write!( f, "AirborneVelocity( groundspeed: {}, heading: {}, vertical_rate: {:?} )", groundspeed,heading,vertical_rate) }
-            AdsbData::TargetStateAndStatus {selected_altitude,selected_heading} => { write!( f, "TargetStateAndStatus( selected_altitude: {:?}, selected_heading: {:?} )", selected_altitude,selected_heading) }
-            AdsbData::Ignored => { write!( f, "Ignored") }
-        }
-    }
-}
-
 
 pub async fn process_msgs<F: FnMut(&Aircraft)> (url: &str, aircraft: Arc<RwLock<HashMap<String,Aircraft>>>, f: F)->Result<()> {
     let finder = PropertyFinder::new();
@@ -164,15 +89,15 @@ pub fn parse_msg<'a> (msg: &'a [u8], finder: &PropertyFinder)->Result<AdsbUpdate
     if let Some(timestamp) = extract_optional!( msg, finder.timestamp, Timestamp) {
         if let Some(df) = extract_optional!( msg, finder.df, u64) {
             match df as u8 {
-                0 => parse_short_air_air_surveillance( msg, finder, timestamp),  // DownlinkFormat::ShortAirAirSurveillance
-                4 => parse_surveillance_altitude_reply( msg, finder, timestamp),  // DownlinkFormat::SurveillanceAltitudeReply
-                11 => parse_all_call_reply( msg, finder, timestamp), // DownlinkFormat::AllCallReply
-                17 => parse_extended_squitter_adsb( msg, finder, timestamp), // DownlinkFormat::ExtendedSquitterADSB
-                _ => Ok(ignored(timestamp)) // ignore
+                0 => parse_short_air_air_surveillance( msg, finder, timestamp.0),  // DownlinkFormat::ShortAirAirSurveillance
+                4 => parse_surveillance_altitude_reply( msg, finder, timestamp.0),  // DownlinkFormat::SurveillanceAltitudeReply
+                11 => parse_all_call_reply( msg, finder, timestamp.0), // DownlinkFormat::AllCallReply
+                17 => parse_extended_squitter_adsb( msg, finder, timestamp.0), // DownlinkFormat::ExtendedSquitterADSB
+                _ => Ok(ignored(timestamp.0)) // ignore
             }
         } else { // no valid/known "df" tag
             if finder.comm_d_extended.find_key(msg).is_some() { // TODO - not sure if this is a rs1090/jet1090 bug
-                Ok(ignored(timestamp))
+                Ok(ignored(timestamp.0))
             } else {
                 Err(parse_error!( "not a valid Mode-S message"))
             }
@@ -182,7 +107,7 @@ pub fn parse_msg<'a> (msg: &'a [u8], finder: &PropertyFinder)->Result<AdsbUpdate
     }
 }
 
-pub fn parse_short_air_air_surveillance<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: Timestamp)->Result<AdsbUpdate<'a>> {
+pub fn parse_short_air_air_surveillance<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: DateTime<Utc>)->Result<AdsbUpdate<'a>> {
     extract_all! { msg ?
         let altitude: i64 = finder.altitude,
         let icao24: &str = finder.icao24 => {
@@ -194,7 +119,7 @@ pub fn parse_short_air_air_surveillance<'a> (msg: &'a[u8], finder: &PropertyFind
     }
 }
 
-pub fn parse_surveillance_altitude_reply<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: Timestamp)->Result<AdsbUpdate<'a>> {
+pub fn parse_surveillance_altitude_reply<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: DateTime<Utc>)->Result<AdsbUpdate<'a>> {
     extract_all! { msg ?
         let altitude: i64 = finder.altitude,
         let icao24: &str = finder.icao24 => {
@@ -206,7 +131,7 @@ pub fn parse_surveillance_altitude_reply<'a> (msg: &'a[u8], finder: &PropertyFin
     }
 }
 
-pub fn parse_all_call_reply<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: Timestamp)->Result<AdsbUpdate<'a>> {
+pub fn parse_all_call_reply<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: DateTime<Utc>)->Result<AdsbUpdate<'a>> {
     extract_all! { msg ?
         let capability: &str = finder.capability,
         let icao24: &str = finder.icao24 => {
@@ -218,7 +143,7 @@ pub fn parse_all_call_reply<'a> (msg: &'a[u8], finder: &PropertyFinder, timestam
     }
 }
 
-pub fn parse_extended_squitter_adsb<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: Timestamp)->Result<AdsbUpdate<'a>> {
+pub fn parse_extended_squitter_adsb<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: DateTime<Utc>)->Result<AdsbUpdate<'a>> {
     extract_all! { msg ?
         let icao24: &str = finder.icao24,
         let bds: u64 = finder.bds => {
@@ -238,7 +163,7 @@ pub fn parse_extended_squitter_adsb<'a> (msg: &'a[u8], finder: &PropertyFinder, 
 }
 
 // unfortunately we get some "altitude":null messages with valie latitude,longitude so we have to treat every field as optional
-pub fn parse_airborne_position<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: Timestamp, icao24: &'a str)->Result<AdsbUpdate<'a>>  
+pub fn parse_airborne_position<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: DateTime<Utc>, icao24: &'a str)->Result<AdsbUpdate<'a>>  
 {
     let altitude = extract_optional!( msg, finder.altitude, i64);
 
@@ -246,20 +171,15 @@ pub fn parse_airborne_position<'a> (msg: &'a[u8], finder: &PropertyFinder, times
     extract_all! { msg ?
         let latitude: f64 = finder.latitude,
         let longitude: f64 = finder.longitude => {
-            let data = AdsbData::AirbornePosition{ altitude, latitude: Some(latitude), longitude: Some(longitude) };
+            let data = AdsbData::AirbornePosition{ latitude, longitude, altitude };
             Ok( AdsbUpdate{ timestamp, icao24, data } )
-        } else { // only altitude
-            if altitude.is_some() {
-                let data = AdsbData::AirbornePosition{ altitude, latitude: None, longitude: None };
-                Ok( AdsbUpdate{ timestamp, icao24, data } )
-            } else { // if we got nothing we treat this as an error
-                Ok ( ignored(timestamp) ) // we got no useful payload data but not sure if this is an error
-            }
+        } else { // TODO - should we report this if there is altitude
+            Ok ( ignored(timestamp) ) // we got no useful payload data but not sure if this is an error
         }
     }
 }
 
-pub fn parse_aircraft_identification<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: Timestamp, icao24: &'a str)->Result<AdsbUpdate<'a>>  
+pub fn parse_aircraft_identification<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: DateTime<Utc>, icao24: &'a str)->Result<AdsbUpdate<'a>>  
 {
     extract_all! { msg ?
         let callsign: &str = finder.callsign => {
@@ -274,7 +194,7 @@ pub fn parse_aircraft_identification<'a> (msg: &'a [u8], finder: &PropertyFinder
 /// extract groundspeed, track/heading and (optional) vertical_rate
 /// this is sub-optimal - it is not clear if vrate is optional or a missing value indicates a malformed msg. Same goes
 /// for the heading / track alternative
-pub fn parse_airborne_velocity<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: Timestamp, icao24: &'a str)->Result<AdsbUpdate<'a>>  
+pub fn parse_airborne_velocity<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: DateTime<Utc>, icao24: &'a str)->Result<AdsbUpdate<'a>>  
 {
     if let Some(groundspeed) = extract_optional!( msg, finder.groundspeed, f64) {
         // 'track' seems to be more common
@@ -289,12 +209,12 @@ pub fn parse_airborne_velocity<'a> (msg: &'a [u8], finder: &PropertyFinder, time
     Err( parse_error!( "failed to parse AirborneVelocity message: {}", String::from_utf8_lossy(msg)) )
 }
 
-pub fn parse_aircraft_status<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: Timestamp, icao24: &'a str)->Result<AdsbUpdate<'a>>  
+pub fn parse_aircraft_status<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: DateTime<Utc>, icao24: &'a str)->Result<AdsbUpdate<'a>>  
 {
     Ok( ignored(timestamp) ) // not yet (we get emergency_type, emergency_status as &str)
 }
 
-pub fn parse_target_state_and_status<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: Timestamp, icao24: &'a str)->Result<AdsbUpdate<'a>>  
+pub fn parse_target_state_and_status<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: DateTime<Utc>, icao24: &'a str)->Result<AdsbUpdate<'a>>  
 {
     let selected_altitude = extract_optional!( msg, finder.selected_altitude, i64);
     let selected_heading = extract_optional!( msg, finder.selected_heading, f64);
@@ -303,7 +223,7 @@ pub fn parse_target_state_and_status<'a> (msg: &'a [u8], finder: &PropertyFinder
     Ok( AdsbUpdate{ timestamp, icao24, data } )
 }
 
-pub fn parse_aircraft_operation_status<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: Timestamp, icao24: &'a str)->Result<AdsbUpdate<'a>>  
+pub fn parse_aircraft_operation_status<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: DateTime<Utc>, icao24: &'a str)->Result<AdsbUpdate<'a>>  
 {
     Ok( ignored(timestamp) ) // not yet (has "NICa","NACp","GVA","SIL","BAI","HRD","SILs")
 }

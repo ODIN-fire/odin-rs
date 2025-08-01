@@ -16,7 +16,11 @@ use std::{io::{self, BufRead}, ops::Deref};
 use tokio::io::AsyncBufReadExt;
 use memchr::memmem::Finder;
 
-/// this module provides support to extract keyed values from binary data
+/// this module provides support to extract keyed values (e.g. for JSON) and CSV values from `&[u8]` data
+/// The primary purpose is to provide allocation-free partial parse support, i.e. in cases where we only
+/// want to extract a few fields from JSON or CSV data and a full serde solution is inadequate or too slow.
+/// Note that it should only be used for JSON if we know the source (there is no support - yet - for skipping
+/// optional whitespace etc.)
 
 /*
   ......xxxxxxxDDDDDDD........... msg
@@ -226,6 +230,11 @@ macro_rules! extract_fields {
     };
 }
 
+pub trait CsvFieldExtractor {
+    fn field<'a,T: U8Readable<'a,T>> (&'a self, field_index: usize)->Option<T>;
+    fn line(&self) -> &str;
+}
+
 const SEP: u8 = b',';
 
 /// stream like object to extract fields from CSV lines read from an underlying BufRead impl
@@ -260,10 +269,6 @@ impl<R> CsvExtractor<R> where R: BufRead {
         }
     }
     
-    pub fn field<'a,T: U8Readable<'a,T>> (&'a self, field_index: usize)->Option<T> {
-        get_field( self.line.as_bytes(), &self.sep_indices.as_ref(), field_index)
-    }
-    
     pub fn next_line(&mut self) -> Result<bool,io::Error> {
         self.line.clear();
         self.sep_indices.clear();
@@ -279,8 +284,15 @@ impl<R> CsvExtractor<R> where R: BufRead {
             Err(e) => Err( io::Error::new( io::ErrorKind::Other, e))
         }
     }
+}
 
-    pub fn line(&self) -> &str { self.line.as_str() }
+impl<R> CsvFieldExtractor for CsvExtractor<R> where R: BufRead {
+    fn field<'a,T: U8Readable<'a,T>> (&'a self, field_index: usize)->Option<T> {
+        get_field( self.line.as_bytes(), &self.sep_indices.as_ref(), field_index)
+    }
+    fn line(&self) -> &str { 
+        self.line.as_str() 
+    }
 }
 
 /// the async version of `CsvExtractor` - obtaining a new line has to be awaited
@@ -299,10 +311,6 @@ impl<R> AsyncCsvExtractor<R> where R: AsyncBufReadExt + Unpin {
         }
     }
     
-    pub fn field<'a,T: U8Readable<'a,T>> (&'a self, field_index: usize)->Option<T> {
-        get_field( self.line.as_bytes(), &self.sep_indices.as_ref(), field_index)
-    }
-    
     pub async fn next_line(&mut self) -> Result<bool,io::Error> {
         self.line.clear();
         self.sep_indices.clear();
@@ -318,8 +326,15 @@ impl<R> AsyncCsvExtractor<R> where R: AsyncBufReadExt + Unpin {
             Err(e) => Err( io::Error::new( io::ErrorKind::Other, e))
         }
     }
+}
 
-    pub fn line(&self) -> &str { self.line.as_str() }
+impl<R> CsvFieldExtractor for AsyncCsvExtractor<R> where R: AsyncBufReadExt + Unpin {
+    fn field<'a,T: U8Readable<'a,T>> (&'a self, field_index: usize)->Option<T> {
+        get_field( self.line.as_bytes(), &self.sep_indices.as_ref(), field_index)
+    }
+    fn line(&self) -> &str { 
+        self.line.as_str() 
+    }
 }
 
 pub fn get_field<'a,T: U8Readable<'a,T>> (buf: &'a[u8], sep_indices: &[usize], field_index: usize)->Option<T> {
@@ -356,11 +371,13 @@ fn set_separator_indices (indices: &mut Vec<usize>, sep: u8, buf: &[u8]) {
 // we only have stanard type impls here - clients can provide their own specialized U8Readable implementations 
 // for the types they want to extract
 
+/// this trait reads data from a `&[u8]` slice and returns a tuple with the parsed value and the numbers of bytes read
+/// Its main purpose is to be used by `CsvExtractor` and the various `extract` macros of this module
+/// We need our own crate here so that we can provide impls for standard types and respective new-types (such as `CsvStr`)
 pub trait U8Readable<'a,T> {
     /// return tuple with value and u8 length of value if buf[i] marks the beginning of a valid representation, None otherwise
     fn from_u8 (buf: &'a[u8], i: usize)->Option<(T,usize)>;
 }
-
 
 impl<'a> U8Readable<'a,u64> for u64 {
     fn from_u8 (buf: &'a[u8], i0: usize)->Option<(u64,usize)> {

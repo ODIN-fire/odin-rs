@@ -26,6 +26,9 @@ pub enum OdinTrackError {
     #[error("IO error {0}")]
     IOError( #[from] std::io::Error),
 
+    #[error("chrono parse error {0}")]
+    ChronoParseError( #[from] chrono::ParseError),
+
     #[error("operation failed {0}")]
     OpFailedError(String)
 }
