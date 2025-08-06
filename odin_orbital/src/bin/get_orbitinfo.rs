@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
     odin_build::set_bin_context!();
 
     let dir = pkg_cache_dir!();
-    init_orbital_data()?;
+    init_orbital_data();
 
     let config: SpaceTrackConfig = load_config("spacetrack.ron")?;
     let sat_info: Arc<OrbitalSatelliteInfo> = Arc::new( load_config( &ARGS.sat_info)?);

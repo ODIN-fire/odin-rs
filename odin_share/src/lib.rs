@@ -12,7 +12,6 @@
  * and limitations under the License.
  */
 #![allow(unused)]
-#![feature(trait_alias)]
 
 use errors::OdinShareError;
 use odin_build::prelude::*;
@@ -21,6 +20,7 @@ use std::{borrow::Borrow, collections::HashMap, fmt::{Debug, Write}, any, fs::Fi
 use serde::{Serialize,Deserialize};
 use serde_json;
 use async_trait::async_trait;
+use trait_set::trait_set;
 
 pub mod prelude;
 pub mod actor;
@@ -31,7 +31,9 @@ pub mod errors;
 define_load_config!{}
 define_load_asset!{}
 
-pub trait SharedStoreValueConstraints = Clone + Send + Sync + Debug + 'static + Serialize + for<'a> Deserialize<'a> ;
+trait_set! {
+  pub trait SharedStoreValueConstraints = Clone + Send + Sync + Debug + 'static + Serialize + for<'a> Deserialize<'a> ;
+}
 
 /// object-safe part of SharedStore get access
 pub trait SharedStoreReadAccess<T>: Debug + Send + Sync where T: SharedStoreValueConstraints {

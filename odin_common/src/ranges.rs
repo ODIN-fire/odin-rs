@@ -15,10 +15,13 @@
 
 use std::ops::{Add,Mul};
 use std::fmt::{Debug,Display};
+use trait_set::trait_set;
 
 /* #region LinearRange **********************************************************************************/
 
-pub trait RangeTypeTrait = Debug + Display + Copy + Add<Output=Self> + Mul<Output=Self> + UsizeOps;
+trait_set! {
+  pub trait RangeTypeTrait = Debug + Display + Copy + Add<Output=Self> + Mul<Output=Self> + UsizeOps;
+}
 
 /// represents a bounded linear range of values with a fixed increment and an element type that
 /// supports addition and multiplication. Supports conversion into stand alone Iterator.

@@ -12,8 +12,6 @@
  * and limitations under the License.
  */
 #![allow(unused,uncommon_codepoints)]
-#![feature(trait_alias)]
-#![feature(io_error_more)]
 
 use std::f64::consts::{PI as STD_PI};
 

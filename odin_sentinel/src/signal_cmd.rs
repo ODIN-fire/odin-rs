@@ -13,9 +13,9 @@
  */
 
 use std::{path::PathBuf,time::Duration};
+use std::process::ExitStatus;
 use serde::{Deserialize, Serialize};
 use tokio::{process::{Command,Child},time::{timeout,error::Elapsed}};
-//use std::process::Command;
 use which::which;
 use async_trait::async_trait;
 use odin_common::if_let;
@@ -49,6 +49,14 @@ impl SignalCmdAlarmMessenger {
         which(&config.cmd).expect( format!("unable to locate signal command {}", config.cmd).as_str()); // panic Ok - this is a toplevel object
 
         SignalCmdAlarmMessenger { config }
+    }
+}
+
+fn exit_ok(status: ExitStatus) -> Result<()> {
+    if status.success() {
+        Ok(())
+    } else {
+        Err(OdinSentinelError::CommandError(format!("child status: {}", status)))
     }
 }
 
@@ -100,7 +108,7 @@ impl AlarmMessenger for SignalCmdAlarmMessenger {
         match cmd.spawn() {
             Ok(mut child) => {
                 //println!("executing {child:?}");                
-                Ok( timeout( self.config.timeout, child.wait()).await??.exit_ok()? )
+                exit_ok(timeout( self.config.timeout, child.wait()).await?? )
             }
             Err(e) => Err( OdinSentinelError::CommandError(e.to_string()) )
         }
