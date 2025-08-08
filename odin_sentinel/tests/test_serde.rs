@@ -50,12 +50,15 @@ fn test_sensor_gps_records()->Result<()> {
 #[test]
 fn test_serde_roundtrip()->Result<()> {
     // since we derive Deserialize but impl Serialize we have to test the roundtrip
-    let input = r#"{"id":"eYdrMhE4b55MO87oJF9r","timeRecorded":"2024-01-23T20:32:01.004Z","sensorNo":39,"deviceId":"roo7gd1dldn3","evidences":[],"claims":[],"voc":{"tvoc":138,"e_co2":489}}"#;
+    let input = r#"{"id":"eYdrMhE4b55MO87oJF9r","timeRecorded":"2024-01-23T20:32:01.004Z","sensorNo":39,"deviceId":"roo7gd1dldn3","evidences":[],"claims":[],"voc":{"TVOC":138,"eCO2":489}}"#;
 
     let rec: SensorRecord<VocData> = serde_json::from_str(input)?;
     println!("parsed voc record: {:?}", rec);
 
-    let json = serde_json::to_string(&rec)?;
+    // The deserialization of the DateTime<Utc> is from a date string, while it is serialized as
+    // epic millis (i64). The input to Odin comes as a string, but the javascript wants the i64.
+    let json = serde_json::to_string(&rec)?
+        .replace("1706041921004", r#""2024-01-23T20:32:01.004Z""#);
     println!("generated json: {}", json);
     assert_eq!( json.as_str(), input);
     Ok(())

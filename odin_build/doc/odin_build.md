@@ -25,7 +25,7 @@ The reason why the first two functions reside in the crates defining respective 
 To reconcile the two requirements we support a general build mode for ODIN applications that takes (at build-time) resource files and generates statically linked Rust sources from them. Generating source fragments for such **embedded resources** is done by build scripts utilizing functions provided by `odin_build`. The data flow is as follows:
 
 
-```
+```diagram
       ┌────────────────┐                                                            
       │crate odin_build│                                                            
       └──────┬─────────┘                                                            
@@ -130,7 +130,7 @@ We detect the root-dir to use in the following order:
 
 An ODIN **root-dir** can optionally contain other sub-directories such as the ODIN **workspace-dir** mentioned below.
 
-```
+```diagram
 .
 └── ❬odin-root-dir❭/
     ├── configs/                        read-only data deserialized into config structs
@@ -162,7 +162,7 @@ The **workspace-dir** is the topmost dir that holds a Cargo.toml, starting from 
 
 A **workspace-dir** follows the normal cargo convention but adds optional `configs/` and `assets/` sub-directories to respective workspace crates:
 
-```
+```diagram
 .
 └── ❬odin-workspace-dir❭/
     ├── Cargo.toml                     ODIN workspace definition    
@@ -239,7 +239,7 @@ At build-time, ODIN uses the following environment variables to provide build sc
 
 To further simplify building applications with embedded resources `odin_build` includes a tool that automates setting required environment variables, calling cargo and reporting embedded files:
 
-```
+```manpage
 bob [--embed] [--root ❬dir❭] [❬cargo-opts❭...] ❬bin-name❭
   --embed      : build binary with embedded resources
   --root ❬dir❭ : set ODIN root dir to embed resources from
@@ -250,7 +250,7 @@ Using this tool is optional. ODIN applications can be built/run through normal c
 Although provided by the `odin_common` crate the `duplicate_dir` command line tool can be used to duplicate nested `ODIN_ROOT` directory trees. Use
 the `--link-files` option to create root dirs that only override some config/asset files and otherwise link to an existing root dir:
 
-```
+```manpage
 duplicate_dir [FLAGS] [OPTIONS] <source-dir> <target-dir>
 
 FLAGS:

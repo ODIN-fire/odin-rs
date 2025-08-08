@@ -29,10 +29,10 @@
 /// This is an example for pure side effects:
 /// ```
 /// use odin_common::if_let;
-/// let p: Option<i64> = ...
-/// let q: Result<i64,&'static str> = ...
-/// fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { ... }
-/// 
+/// let p: Option<i64> = None;
+/// let q: Result<i64,&'static str> = Ok(42);
+/// fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { Ok("42") }
+///
 /// if_let! {
 ///     Some(a) = p,
 ///     Ok(b) = q,
@@ -43,6 +43,9 @@
 /// ```
 /// which gets expanded into:
 /// ```
+/// # let p: Option<i64> = None;
+/// # let q: Result<i64,&'static str> = Ok(42);
+/// # fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { Ok("42") }
 /// if let Some(a) = p {
 ///     if let Ok(b) = q {
 ///         if let Ok(c) = foo(a, b) {
@@ -54,6 +57,10 @@
 /// 
 /// Here is an example for pure side effects that uses fail closures (e.g. for error reporting)
 /// ```
+/// # use odin_common::if_let;
+/// # let p: Option<i64> = None;
+/// # let q: Result<i64,&'static str> = Ok(42);
+/// # fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { Ok("42") }
 /// if_let! {
 ///     Some(a) = p,
 ///     Ok(b) = { q } else |other| { println!("no b: {other:?}") },
@@ -64,20 +71,27 @@
 /// ```
 /// which expands to:
 /// ```
+/// # let p: Option<i64> = None;
+/// # let q: Result<i64,&'static str> = Ok(42);
+/// # fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { Ok("42") }
 /// if let Some(a) = p {
-///     match { q } {
+///     match q {
 ///         Ok(b) => {
 ///             match { foo(a, b) } {
 ///                 Ok(c) => { println!("just here to print a={}, b={}, c={}", a,b,c) }
-///                 x => { |e|{ println!("no c: {e:?}") }(x) }
+///                 x => { (|other| {println!("no c: {other:?}")})(x) }
 ///             }
 ///         }
-///         x => { |e|{println!("no b: {e:?}")}(x) }
+///         x => { (|other| {println!("no b: {other:?}")})(x) }
 ///     }
 /// } 
 /// ```
 /// This is finally an example that uses the `if_let` value and fail closures (providing failure values)
 /// ```
+/// # use odin_common::if_let;
+/// # let p: Option<i64> = None;
+/// # let q: Result<i64,&'static str> = Ok(42);
+/// # fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { Ok("42") }
 /// let res = if_let! {
 ///     Some(a) = { p } else { println!("no a"); -1 },
 ///     Ok(b)   = { q } else |e| { println!("no b: {e:?}"); -2 }, 
@@ -90,15 +104,18 @@
 /// ``` 
 /// which is expanded into:
 /// ```
+/// # let p: Option<i64> = None;
+/// # let q: Result<i64,&'static str> = Ok(42);
+/// # fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { Ok("42") }
 /// let res = if let Some(a) = { p } {
 ///     match { q } {
 ///         Ok(b) => {
 ///             match { foo(a, b) } {
 ///                 Ok(c) => { println!("a={}, b={}, c={}", a,b,c); 0 }
-///                 x => { |e|{ println!("no c: {e:?}"); -3 }(x) }
+///                 x => { (|e|{ println!("no c: {e:?}"); -3 })(x) }
 ///             }
 ///         }
-///         x => { |e|{ println!("no b: {e:?}"); -2 }(x) }
+///         x => { (|e|{ println!("no b: {e:?}"); -2 })(x) }
 ///     }
 /// } else { println!("no a"); -1 };
 /// println!("res = {res}");
@@ -179,22 +196,23 @@ macro_rules! map_to_opaque_error {
 /* #region define_cli  ****************************************************************************************/
 
 /// syntactic sugar macro for structopt based command line interface definition
-/// ```
+/// ```no_run
+/// use odin_common::{check_cli,define_cli};
+///
 /// define_cli! { ARGS [about="my silly prog"] = 
 ///   verbose: bool        [help="run verbose", short],
-///   date: DateTime<Utc>  [help="start date", from_os_str=parse_utc_datetime_from_os_str_date],
+///   date: String         [help="start date"],
 ///   config: String       [help="pathname of config", long, default_value="blah"]
 /// }
 /// 
 /// fn main () {
 ///    check_cli!(ARGS); // makes sure we exit on -h or --help (and do not execute anything until we know ARGS parsed)
-///    ... 
-///    let config = &ARGS.config; 
-///    ...
+///    let config = &ARGS.config;
+///    // rest of code
 /// }
 /// ```
 /// expands into:
-/// ```
+/// ```no_run
 /// use structopt::StructOpt;
 /// use lazy_static::lazy_static;
 /// 
@@ -204,8 +222,8 @@ macro_rules! map_to_opaque_error {
 ///     #[structopt(help = "run verbose", short)]
 ///     verbose: bool,
 /// 
-///     #[structopt(help = "blah date", from_os_str=parse_utc_datetime_from_os_str_date)]
-///     date: DateTime<Utc>,
+///     #[structopt(help = "start date")]
+///     date: String,
 /// 
 ///     #[structopt(help = "pathname of config", long, default_value = "blah")]
 ///     config: String,
@@ -215,8 +233,10 @@ macro_rules! map_to_opaque_error {
 /// }
 /// 
 /// fn main () {
+/// # struct ARGS_TYPE { _initialized : bool }
+/// # let ARGS = ARGS_TYPE{ _initialized: false };
 ///    { let _is_initialized = &ARGS._initialized; }
-///    ...
+///    // ...
 /// }
 /// ```
 #[macro_export]
@@ -247,6 +267,7 @@ macro_rules! check_cli {
 
 /// syntactic sugar macro to define thiserror Error enums:
 /// ```
+/// use odin_common::define_error;
 /// define_error!{ pub OdinNetError = 
 ///   IOError( #[from] std::io::Error ) : "IO error: {0}",
 ///   OpFailed(String) : "operation failed: {0}"
@@ -254,7 +275,8 @@ macro_rules! check_cli {
 /// ```
 /// will get expanded into
 /// ```
-/// use thiserror;
+/// use thiserror::Error;
+/// #[derive(Debug,Error)]
 /// pub enum OdinNetError {
 ///     #[error("IO error: {0}")]
 ///     IOError(#[from] std::io::Error),
@@ -317,12 +339,16 @@ macro_rules! define_serde_struct {
 /// 
 /// Use like so:
 /// ```
-/// struct GeoPoint {...}
+/// use odin_common::impl_deserialize_struct;
+/// use serde::de::{self, Deserialize as DeserializeTrait, Deserializer, Visitor, SeqAccess, MapAccess};
+/// use std::{error::Error,fmt};
+///
+/// struct GeoPoint {x: i32, y: i32}
 /// impl GeoPoint {
-///   fn from_lon_lat_degrees (lon: .., lat: ..)->Self {...}
+///   fn from_lon_lat_degrees (lon: i32, lat: i32)->Self { Self{x:lon, y:lat} }
 /// }
 /// 
-/// impl_deserialize_struct!{ GeoPoint::from_lon_lat_degrees( lon, ["longitude", "x"], lat, ["latitude", "y"]) }
+/// impl_deserialize_struct!{ GeoPoint::from_lon_lat_degrees(lon | longitude | x, lat | latitude | y) }
 /// ```
 #[macro_export]
 macro_rules! impl_deserialize_struct {
