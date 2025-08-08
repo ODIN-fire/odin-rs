@@ -14,7 +14,8 @@
 
 use odin_build;
 use odin_actor::prelude::*;
-use odin_sentinel::{load_config, LiveSentinelConnector, SentinelActor, SentinelInactiveAlert, SentinelStore, SentinelUpdate};
+use odin_common::datetime::secs;
+use odin_sentinel::{load_config, LiveSentinelConnector, SentinelActor, SentinelStore, SentinelUpdate};
 
 
 /* #region monitor actor *****************************************************************/
@@ -59,10 +60,6 @@ run_async_main!({
         }),
         data_action!( let hmonitor: ActorHandle<SentinelMonitorMsg> = hmonitor.clone() => |update:SentinelUpdate| {
             let msg = Update(update.description());
-            Ok( hmonitor.try_send_msg( msg)? )
-        }),
-        data_action!( let hmonitor: ActorHandle<SentinelMonitorMsg> = hmonitor => |alert: SentinelInactiveAlert| {
-            let msg = Inactive( serde_json::to_string(&alert)?);
             Ok( hmonitor.try_send_msg( msg)? )
         })
     ))?;

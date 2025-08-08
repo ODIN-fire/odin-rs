@@ -66,7 +66,7 @@ struct FirmsSatelliteData {
 
 /// abstraction for FIRMS hotspot data records.
 /// this is an internal type to support factoring out common functions for MODIS, VIIRS and OLI
-trait RawFirmsHotspot: fmt::Debug + for<'de> serde::Deserialize<'de> {
+pub trait RawFirmsHotspot: fmt::Debug + for<'de> serde::Deserialize<'de> {
     fn get_confidence (&self)->Option<HotspotConfidence>;
     fn get_sat_id (&self)->Option<u32>;
     fn get_utc_datetime (&self)->Option<DateTime<Utc>>;
@@ -111,7 +111,7 @@ trait FirmsHotspotImporter: HotspotImporter {
 /// field descriptions on https://www.earthdata.nasa.gov/data/instruments/viirs/viirs-i-band-375-m-active-fire-data
 #[derive(Debug,Deserialize)]
 #[public_struct]
-struct RawViirsHotspot {
+pub struct RawViirsHotspot {
     latitude: f64,
     longitude: f64,
     bright_ti4: f64,
@@ -417,7 +417,7 @@ async fn add_hotspot_heights (retrieved: &BitSet, dem_src: &DemSource, cops: &mu
 /// parse the CSV data provided by the reader, convert the RawViirsHotpots from it into (uom-aware) ViirsHotspots,
 /// and sort them into the provided mutable list of CompletedOverpass items (which are aggregations of Overpass and related
 /// hotspot lists observed during this overpass)
-fn read_hotspots<R> (reader: impl io::Read, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<(BitSet,DateTime<Utc>)> 
+pub fn read_hotspots<R> (reader: impl io::Read, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<(BitSet,DateTime<Utc>)>
     where R: RawFirmsHotspot
 {
     let mut changed_overpasses = BitSet::with_capacity(cops.len());

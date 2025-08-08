@@ -91,7 +91,7 @@ pub trait DataAction<T>: Debug + Send {
 }
 
 /// macro to define and instantiate ad hoc action types that clone-capture local vars and take a single
-/// `execute(data)`` argument. See [module] doc for general use and expansion.
+/// `execute(data)` argument. See [odin_actor] doc for general use and expansion.
 #[macro_export]
 macro_rules! data_action {
     ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty| $e:expr ) => {

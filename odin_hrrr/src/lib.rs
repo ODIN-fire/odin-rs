@@ -378,7 +378,7 @@ pub fn spawn_download_task<A> (cfg: Arc<HrrrConfig>, cache_dir: PathBuf, action:
 
 /// get the next base hour and step (forecast hour) for a given time. This is used to determine when to retrieve the next available data set
 /// and based on the following HRRR schedule model:
-/// ```
+/// ```diagram
 ///     Bi   : base hour i (cycle base)
 ///     s[j] : forecast step j (0..18 for regular, 0..48 for extended)
 ///     ◻︎    : forecast data set for t = Bi+s[j]
@@ -421,7 +421,7 @@ pub fn get_next_base_step (schedules: &HrrrSchedules, dt: &DateTime<Utc>)->(Date
 /// Regular cycles have 18 forecast steps (hours). Extended cycles (at 00,06,12,18h) have 48 forecast steps, i.e.
 /// each computed list contains some data sets of the last extended cycle
 /// 
-/// ```
+/// ```diagram
 ///   ◻︎ : obsolete available forecast step (updated by subsequent cycle)
 ///   ◼︎ : relevant available forecast to retrieve (most up-to-date forecast for base + step)
 ///   ○ : not-yet-available forecast step

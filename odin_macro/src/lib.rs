@@ -15,12 +15,12 @@
 ///! This crate provides procedural macros used throughout the ODIN project, namely
 ///!
 ///!    - [`define_algebraic_type`] and [`match_algebraic_type`]
-///!    - [`define_actor_msg_type`] and [`match_actor_msg`] (the [`odin_actor`] specific versions)
+///!    - [`define_actor_msg`] and [`match_actor_msg`] (the [`odin_actor`] specific versions)
 ///!    - [`impl_actor`] and [`spawn_actor`]
 ///! 
 ///! Its main use case within ODIN is to support concise syntax for [`odin_actor::Actor`] implementation as in:
 ///! ```
-///!     define_actor_msg_type! {
+///!     define_actor_msg! {
 ///!         MyActorMsg = A | B<std::vec::Vec<(u32,&'static str)>>
 ///!     }
 ///!     struct MyActorState {...}
@@ -60,6 +60,9 @@ macro_rules! stringify_path {
 /// 
 /// example:
 /// ```rust
+/// use odin_macro::define_struct;
+/// use std::fmt::Debug;
+/// trait Foo {};
 /// define_struct! {
 ///     pub MyStruct<A>: Debug + Clone where A: Foo + Debug =
 ///         field_1: A,                                 // no init expr -> becomes ctor arg
@@ -70,10 +73,14 @@ macro_rules! stringify_path {
 /// ```
 /// is expanded into:
 /// ```rust
+/// use std::fmt::Debug;
+/// trait Foo {};
 /// #[derive(Debug,Clone)]
 /// pub struct MyStruct<A> where A: Foo + Debug {
 ///     field_1: A,
-///     ...
+///     field_2: Vec<String>,
+///     field_3: &'static str,
+///     field_4: usize,
 /// }
 /// impl <A> MyStruct<A> where A: Foo + Debug {
 ///     pub fn new (field_1: A)->Self {
@@ -282,7 +289,7 @@ impl ToTokens for FieldSpec {
 /// has to be used in both [`define_algebraic_type`] and [`match_algebraic_type`] 
 /// 
 /// The macro supports an optional derive clause
-/// ```
+/// ```rust,ignore
 ///     define_algebraic_type! { MyEnum: Trait1,... = ... }
 /// ```
 /// that is expanded into a respective `#[derive(Trait1,..)` macro for the resulting enum.
@@ -293,19 +300,27 @@ impl ToTokens for FieldSpec {
 /// 
 /// Example:
 /// ```
+/// use odin_macro::define_algebraic_type;
+/// ##[derive(Clone,Debug)]
 /// struct A { id: u64 }
+/// ##[derive(Clone,Debug)]
 /// struct B<T> { id: u64, v: T }
 /// 
 /// define_algebraic_type! {
 ///     pub MyMsg: Clone = A | B<std::vec::Vec<(u32,&'static str)>>
 ///     pub fn id(&self)->u64 { __.id }
-///     pub fn description()->'static str { "my message enum" }
+///     pub fn description()->&'static str { "my message enum" }
 /// }
 /// ```
 /// This is expanded into
 /// ```
-/// #[derive(Debug)]
-/// #[derive(Clone)]
+/// # #![allow(uncommon_codepoints)]
+/// # #[derive(Clone,Debug)]
+/// # struct A { id: u64 }
+/// # #[derive(Clone,Debug)]
+/// # struct B<T> { id: u64, v: T }
+/// ##[derive(Debug)]
+/// ##[derive(Clone)]
 /// pub enum MyMsg {
 ///     A (A),
 ///     BᐸstdːːvecːːVecᐸ𛰙u32ˎᴿʽstaticˑstr𛰚ᐳᐳ (B<std::vec::Vec<(u32,&'static str)>>),
@@ -314,12 +329,12 @@ impl ToTokens for FieldSpec {
 ///     pub fn id(&self)->u64 {
 ///         match self {
 ///             Self::A (__) => { __.id }
-///             Self::BᐸstdːːvecːːVecᐸ𛰙u32ˎᴿʽstaticˑstr𛰚ᐳᐳ (__) => { _.id }
+///             Self::BᐸstdːːvecːːVecᐸ𛰙u32ˎᴿʽstaticˑstr𛰚ᐳᐳ (__) => { __.id }
 ///         }
 ///     }
 /// }
-/// impl From<A> for MyMsg {...}
-/// impl From<B<std::vec::Vec<(u32,&'static str)>>> for MyMsg {...}
+/// // impl From<A> for MyMsg {...}
+/// // impl From<B<std::vec::Vec<(u32,&'static str)>>> for MyMsg {...}
 /// ```
 #[proc_macro]
 pub fn define_algebraic_type (item: TokenStream) -> TokenStream {
@@ -415,18 +430,19 @@ impl<'a> Visit<'a> for BlockAnalyzer {
 
 /* #endregion define_algebraic_type */
 
-/* #region define_actor_msg_type ***********************************************************/
+/* #region define_actor_msg ***********************************************************/
 
 /// the odin_actor specific version of the general [`define_algebraic_type`] macro.
 /// this automatically adds system messages (_Start_,_Terminate_,..) variants and
-/// a [`odin_actor::DefaultReceiveAction`]` impl.
+/// a [`odin_actor::DefaultReceiveAction`]` impl. The expansion naturally depends
+/// on the types in odin_actor that aren't available in this crate.
 /// 
 /// Example:
-/// ```
+/// ```rust,ignore
 /// define_actor_msg_set! { pub MyActorMsg = A | B }
 /// ```
 /// This is expanded into
-/// ```
+/// ```rust,ignore
 /// #[derive(Debug)]
 /// pub enum MyActorMsg {
 ///     A (A),
@@ -437,7 +453,7 @@ impl<'a> Visit<'a> for BlockAnalyzer {
 /// impl From<A> for MyActorMsg {...}
 /// impl From<B> for MyActorMsg {...}
 /// impl DefaultReceiveAction for MyActorMsg {...}
-/// 
+/// ```
 #[proc_macro]
 pub fn define_actor_msg_set (item: TokenStream) -> TokenStream {
     let AdtEnum {attrs, visibility, name, generic_params, derives, where_clause, mut variant_types, methods }= syn::parse(item).unwrap();
@@ -563,7 +579,7 @@ impl Parse for AdtEnum {
     }
 }
 
-/* #endregion define_actor_msg_type */
+/* #endregion define_actor_msg */
 
 /* #region match macros **********************************************************/
 
@@ -571,13 +587,21 @@ impl Parse for AdtEnum {
 /// [`define_algebraic_type`] macro
 /// Example:
 /// ```
-/// define_algebraic_type!( MyType = A | B<C,D> | E)
-/// ...
-/// match_algebraic_type! { my_type: MyType as
-///   A => cont { println!("got an A : {}",my_type); }
-///   x::B<C,D> => { println!("got a B<C,D>"); }
+/// use odin_macro::{cont,define_algebraic_type,match_algebraic_type};
+/// # #[derive(Debug)]
+/// # struct A {};
+/// # struct B<T1,T2> { f1: T1, f2: T2 };
+/// # struct C {};
+/// # struct D {};
+/// # struct E {};
+/// define_algebraic_type!{ MyType = A | B<C,D> | E};
+/// # let my_type = MyType::from(A{});
+/// // ...
+/// match_algebraic_type!{ my_type: MyType as
+///   A => { println!("got an A : {:?}", my_type); }
+///   B<C,D> => { println!("got a B<C,D>"); }
 ///   E => { println!("got an E") }
-/// }
+/// };
 /// ```
 #[proc_macro]
 pub fn match_algebraic_type (item: TokenStream) -> TokenStream {
@@ -616,7 +640,7 @@ fn get_match_patterns(msg_name: &Ident, msg_type: &Path, match_arms: &Vec<MsgMat
                 )
             }
             VariantSpec::Wildcard => { quote!(_) }
-        }
+         }
     }).collect()
 }
 
@@ -628,19 +652,19 @@ fn get_match_patterns(msg_name: &Ident, msg_type: &Path, match_arms: &Vec<MsgMat
 /// respective [`odin_actor::ReceiveAction`] values
 /// 
 /// Note: if message variants use path types (e.g. `std::vec::Vec`) the same notation
-/// has to be used in both [`define_actor_msg_type`] and [`match_actor_msg_type`] 
+/// has to be used in both [`define_actor_msg`] and [`match_actor_msg`] 
 /// 
 /// Example:
-/// ```
-///     define_actor_msg_type! { MyActorMsg = x::A | B }
+/// ```rust,ignore
+///     define_actor_msg! { MyActorMsg = x::A | B }
 ///     ...
-///     match_actor_msg_type! { msg: MyActorMsg as 
+///     match_actor_msg! { msg: MyActorMsg as 
 ///         x::A => cont! { println!("actor received an A = {:?}", msg) }
 ///         _Terminate_ => stop! { println!("actor terminated") }
 ///     }
 /// ```
 /// This is expanded into:
-/// ```
+/// ```rust,ignore
 ///     match msg {
 ///        xːːA(msg) => { {println!("actor received an A = {:?}", msg)}; ReceiveAction::Continue }
 ///        _Terminate_(msg) => { {println!("actor terminated {:?}", msg)}; ReceiveAction::Stop }
@@ -796,12 +820,15 @@ fn parse_match_arms (input: ParseStream)->Result<Vec::<MsgMatchArm>> {
 
 /// if the ADT type has generic params we have to remove these from match arm expressions:
 /// ```
-///   enum MyAdt<T> { Foo(T), ... }
+///   enum MyAdt<T> { Foo(T), Bar(T) }
 /// ```
 /// is matched like this:
 /// ```
+///   # enum MyAdt<T> { Foo(T), Bar(T) }
+///   # let adt = MyAdt::Foo(12);
 ///   match adt {
-///      MyAdt::Foo(t) => ...
+///      MyAdt::Foo(t) => { println!("Foo : {t:?}"); },
+///      _ => { println!("Other"); }
 ///   }
 /// ```
 fn get_match_adt_type (adt_type: &Path)->Path {
@@ -819,14 +846,14 @@ fn get_match_adt_type (adt_type: &Path)->Path {
 /// defines the message related behavior of an actor by creating an [`ActorReceiver`] impl from the provided spec  
 /// 
 /// Example:
-/// ```
+/// ```rust,ignore
 /// impl_actor! { match msg for Actor<MyActor,MyActorMsg> as
 ///     _Start_ => ... // do whatever needs to be done for system _Start_ message
 ///     Query<Question,Answer> => ... // reply to query
 /// }
 /// ```
 /// which gets translated into:
-/// ```
+/// ```rust,ignore
 /// impl ActorReceiver for Actor<MyActor,MyActorMsg> {
 ///   fn receive (&mut self, msg: MyActorMsg)->ReceiveAction {
 ///      MyActorMsg::_Start_ => ...
@@ -936,19 +963,19 @@ fn collect_typevars<'a> (where_clause: &'a WhereClause) -> Vec<&'a Path> {
 
 /* #endregion actor receive definition */
 
-/* #region match arm macros  *****************************************************/
+/* #region match_actor_msg  *****************************************************/
 
 /// statement (block) wrapper macro to be used in match arm expressions that makes sure we return 
 /// [`ReceiveAction::Continue`] from this match arm 
 /// 
 /// Example:
-/// ```
-///     match_actor_msg_type! { msg: MyActorMsg as 
+/// ```rust,ignore
+///     match_actor_msg! { msg: MyActorMsg as 
 ///         A => cont! { println!("actor received an A = {:?}", msg) }
 ///         ...
 /// ```
 /// This is expanded into:
-/// ```
+/// ```rust,ignore
 ///     match msg {
 ///         A(msg) => { {println!("actor received an A = {:?}", msg)}; ReceiveAction::Continue }
 ///         ...
@@ -972,7 +999,7 @@ pub fn term (ts: TokenStream)->TokenStream {
     expand_msg_match_action( ts, quote! { ReceiveAction::RequestTermination })
 }
 
-/* #endregion match arm macros  */
+/* #endregion match_actor_msg  */
 
 /* #region spawn_actor ***********************************************************/
 
@@ -980,7 +1007,7 @@ pub fn term (ts: TokenStream)->TokenStream {
 /// arguments: `(actor_system: &mut ActorSystem, actor_name: &str, actor_state: S [, channel_bounds: usize])`
 /// 
 /// use like so:
-/// ```
+/// ```rust,ignore
 /// let hserver = spawn_actor!( actor_system, "server", SpaServer::new(...), 64)?;
 /// ```
 #[proc_macro]
@@ -1077,24 +1104,41 @@ impl Parse for SpawnPreActor {
 
 /* #endregion spawn_actor */
 
-/* #region fnmut *****************************************************************/
+/* #region fn_mut *****************************************************************/
 
 // [([mut] id = expr {, ...}) =>] [| id [: type] {, ...} |] expr )
 
 /// syntactic sugar macro that translates
 /// ```
-///   fn_mut!( (mut var1 = foo(), var2 = bar) => |a,b| {
+///   use odin_macro::fn_mut;
+///   # fn foo() -> String { "42".to_string() };
+///   # let bar = "bar".to_string();
+///   # fn do_something_with_captures_and_args(var1 : &String, var2: &String, a: i32, b: i32) { }
+///   # fn compute_new_var2(var1: &mut String) -> String {
+///   #    var1.push_str(" bar"); var1.clone()
+///   # }
+///
+///   let fn1 = fn_mut!( (mut var1 = foo(), mut var2 = bar) => |a,b| {
 ///      do_something_with_captures_and_args( &var1, &var2, a, b);
-///      var2 = compute_new_var2(..); // possible mutate mut captures
+///      var2 = compute_new_var2(&mut var1); // possible mutate mut captures
 ///   });
 /// ```
 /// into 
 /// ```
-/// {
-///   let mut var1 = foo();
-///   let var2 = bar;
-///   move |a,b| { ... }   
-/// }
+///   # fn foo() -> String { "42".to_string() };
+///   # let bar = "bar".to_string();
+///   # fn do_something_with_captures_and_args(var1 : &String, var2: &String, a: i32, b: i32) { }
+///   # fn compute_new_var2(var1: &mut String) -> String {
+///   #    var1.push_str(" bar"); var1.clone()
+///   # }
+///   let fn1 = {
+///      let mut var1 = foo();
+///      let mut var2 = bar;
+///      move |a,b| {
+///         do_something_with_captures_and_args( &var1, &var2, a, b);
+///         var2 = compute_new_var2(&mut var1); // possible mutate mut captures
+///      }   
+///   };
 /// ```
 #[proc_macro]
 pub fn fn_mut (item: TokenStream)->TokenStream {
@@ -1151,17 +1195,18 @@ impl Parse for FnMutSpec {
     }
 }
 
-/* #endregion fnmut */
+/* #endregion fn_mut */
 
 /* #region public_struct *********************************************************/
 
 /// syntactic sugar to make visibility of a struct and all its fields public
 /// use like so:
 /// ```
+/// use odin_macro::public_struct;
 /// #[public_struct]
 /// struct Foo {
-///   field: X,
-///   ....
+///   field1: i32,
+///   field2: i32,
 /// }
 /// ```
 #[proc_macro_attribute]

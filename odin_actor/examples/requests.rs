@@ -12,7 +12,6 @@
  * and limitations under the License.
  */
 #![allow(unused)]
-#![feature(trait_alias)]
 
 /// example of how to process long running, overlapping requests sequentially in a background task by means
 /// of a [`RequestProcessor`].
@@ -24,6 +23,8 @@
 /// overhead, which is what this example does
 
 use odin_actor::{errors::{op_failed, Result}, prelude::*};
+use odin_common::datetime::{millis, secs};
+use trait_set::trait_set;
 
 /* #region common app types ******************************************************************************************/
 
@@ -48,7 +49,9 @@ define_actor_msg_set! { ClientActorMsg } // we only process system messages
 
 /* #region client actors *********************************************************************************************/
 
-trait ServerConstraints = MsgReceiver<Query<GetFile,FileAvailable>> + Send + Sync;
+trait_set! {
+  trait ServerConstraints = MsgReceiver<Query<GetFile,FileAvailable>> + Send + Sync;
+}
 
 struct Actor1State<S> { server: S }
 impl_actor! { match msg for Actor<Actor1State<S>,ClientActorMsg> where S: ServerConstraints as

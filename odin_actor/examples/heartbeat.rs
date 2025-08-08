@@ -15,13 +15,14 @@
 
 use std::{any, fmt::Debug, time::Duration};
 use odin_actor::{console_ui::ConsoleUI, prelude::*};
+use odin_common::datetime::millis;
 use odin_macro::fn_mut;
 use tokio::task::JoinHandle;
 use anyhow::{anyhow,Result};
 
 #[cfg(feature="tui")]
 use odin_actor::tui;
-
+use odin_common::datetime::secs;
 //--- Actor1
 
 #[derive(Debug)] struct MsgA(usize);

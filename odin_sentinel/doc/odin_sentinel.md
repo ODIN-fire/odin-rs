@@ -18,7 +18,7 @@ which retrieves the list of available Sentinel devices, queries each devices sen
 (as JSON messages). Once such a notification was received the connector uses HTTP GET to retrieve the record itself and
 informs client actors about the update. 
 
-```
+```diagram
                                                                                         [sentinel_alarm.ron] config
                                                                ┌─────────────────────────────────────╎─────┐                  
                                                                │ ODIN Server           ┌─────────────╎───┐ │                  

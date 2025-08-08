@@ -12,45 +12,49 @@
  * and limitations under the License.
  */
 
+//! This module provides support to extract keyed values (e.g. for JSON) and CSV values from `&[u8]` data.
+//! The primary purpose is to provide allocation-free partial parse support, i.e. in cases where we only
+//! want to extract a few fields from JSON or CSV data and a full serde solution is inadequate or too slow.
+//! Note that it should only be used for JSON if we know the source (there is no support - yet - for skipping
+//! optional whitespace etc.)
+//! ```diagram
+//!    ......xxxxxxxDDDDDDD........... msg
+//!          i      j     k
+//!          |      |--d--| (var)
+//!          |--L---|     data-end 
+//!          |      data-start (i + L)
+//!          key-start
+//! ```
+//!
+//! ```
+//! # use odin_common::{extract_all,u8extractor::{SimpleU8Finder,read_val}};
+//! # fn main() {
+//! # let msg: &[u8] = b"{\"key1\":42,\"key2\":\"foo\"}";
+//! # let find1 = SimpleU8Finder::new(b"\"key1\":");
+//! # let find2 = SimpleU8Finder::new(b"\"key2\":\"");
+//! //--- with guaranteed order
+//! if let Some(i1) = find1.find_key(msg)
+//!   && let Some((v1,d1)) = read_val::<u64>( msg, i1+find1.len())
+//!   && let Some(i2) = find2.find_key(&msg[i1+d1..])
+//!   && let Some((v2,d1)) = read_val::<&str>( &msg, i1+d1+i2) { };
+//!
+//! //--- without guaranteed order
+//! if let Some(i1) = find1.find_key(msg)
+//!   && let Some((v1,_)) = read_val::<u64>( msg, i1+find1.len())
+//!   && let Some(i2) = find2.find_key(&msg)
+//!   && let Some((v2,_)) = read_val::<&str>( &msg, i2+find2.len()) { };
+//! # }
+//! ```
+
 use std::{io::{self, BufRead}, ops::Deref};
 use tokio::io::AsyncBufReadExt;
 use memchr::memmem::Finder;
-
-/// this module provides support to extract keyed values (e.g. for JSON) and CSV values from `&[u8]` data
-/// The primary purpose is to provide allocation-free partial parse support, i.e. in cases where we only
-/// want to extract a few fields from JSON or CSV data and a full serde solution is inadequate or too slow.
-/// Note that it should only be used for JSON if we know the source (there is no support - yet - for skipping
-/// optional whitespace etc.)
-
-/*
-  ......xxxxxxxDDDDDDD........... msg
-        i      j     k
-        |      |--d--| (var)
-        |--L---|     data-end 
-        |      data-start (i + L)
-        key-start
-
-    //--- with guaranteed order 
-    if let Some(i1) = find1.find_key(msg)
-    && let Some((v1,d1)) = read_val::<T>( msg, i1+len(find1))
-    && let Some(i2) = find2.find_key(msg[i1+d1..])
-    && let Some(v2,d1)) = read_val::<T>( msg, i1+d1+i2)
-    ...
-
-    //--- without guaranteed order
-    if let Some(i1) = find1.find(msg)
-    && let Some(v1,_) = read_val::<T>( msg, i1+len(find1))
-    && let Some(i2) = find2.find(msg)
-    && let Some(v2,_) = read_val::<T>( msg, i2+len(find2))
-    ...
-*/
-
 
 /// this macro is the main export of this module - it is syntactic suger for if-let chains that
 /// find keys and respective values in a given &[u8] buffer. 
 /// Use like so:
 /// ```
-///     use odin_common::u8extractor::{extract,SimpleU8Finder};
+///     use odin_common::{extract_all,u8extractor::SimpleU8Finder};
 /// 
 ///     let buf: &[u8] = b"{\"key1\":42,\"key2\":\"foo\"}";
 ///    
@@ -59,7 +63,7 @@ use memchr::memmem::Finder;
 ///    
 ///     println!("haystack={}", str::from_utf8(buf).unwrap());
 ///    
-///     extract! { buf ? 
+///     extract_all! { buf ? 
 ///         let v1: u64 = find_key1,
 ///         let v2: &str = find_key2 => {
 ///             println!("got v1={v1}, v2={v2}");
@@ -69,13 +73,18 @@ use memchr::memmem::Finder;
 /// 
 /// which gets expanded into:
 /// ```
-///     ...
-///     if let Some(i) = extract_key1.find_key(buf)
-///     && let Some((v1,len)) = U8Readable::from_u8::<u64>( buf, i + extract_key1.len())
-///     && let Some(i) = extract_key12.find_key(buf)
-///     && let Some((v2,len)) = U8Readable::from_u8::<&str>( buf, i + extract_key2.len()) {
-///         println!("got v1={v1}, v2={v2}");
-///     }
+/// # use odin_common::{extract_all,u8extractor::{SimpleU8Finder,read_val}};
+/// # fn main() {
+/// # let buf: &[u8] = b"{\"key1\":42,\"key2\":\"foo\"}";
+/// # let extract_key1 = SimpleU8Finder::new(b"\"key1\":");
+/// # let extract_key2 = SimpleU8Finder::new(b"\"key2\":\"");
+/// if let Some(i) = extract_key1.find_key(buf)
+///    && let Some((v1,len)) = read_val::<u64>( buf, i + extract_key1.len())
+///    && let Some(i) = extract_key2.find_key(buf)
+///    && let Some((v2,len)) = read_val::<&str>( buf, i + extract_key2.len()) {
+///       println!("got v1={v1}, v2={v2}");
+///    }
+/// # }
 /// ```
 /// 
 #[macro_export]
@@ -200,10 +209,16 @@ impl<'a> MemMemFinder<'a> {
 /// macro to extract CSV fields from an CsvExtractor
 ///  
 /// ```
-///     extraxt_fields{ line ?
+///     use odin_common::{extract_fields,u8extractor::{CsvExtractor,CsvFieldExtractor}};
+///     let data = b",\"foo, bar\",42,\r\none,two,43";
+///     let cursor = std::io::Cursor::new(data);
+/// 
+///     let mut csv = CsvExtractor::new(cursor);
+///     csv.next_line().expect("input");
+///     extract_fields!{ csv ?
 ///         let spd: f64 = [4],
 ///         let vrate: i64 = [7] => {
-///            ...
+///            println!("{spd} {vrate}");
 ///         }
 ///     }
 /// ```
@@ -211,9 +226,13 @@ impl<'a> MemMemFinder<'a> {
 /// which is expanded to 
 /// 
 /// ```
-///     if let Some(spd) = line.field::<f64>(4)
-///     && let Some(vrate) = line.field::<i64>(7) {
-///         ...
+/// #   use odin_common::{extract_fields,u8extractor::{CsvExtractor,CsvFieldExtractor}};
+/// #   let data = b",\"foo, bar\",42,\r\none,two,43";
+/// #   let cursor = std::io::Cursor::new(data);
+/// #   let mut csv = CsvExtractor::new(cursor);
+///     if let Some(spd) = csv.field::<f64>(4)
+///       && let Some(vrate) = csv.field::<i64>(7) {
+///         println!("{spd} {vrate}");
 ///     }
 /// ```
 #[macro_export]
@@ -242,12 +261,13 @@ const SEP: u8 = b',';
 /// use like so:
 /// 
 /// ```
+///    use odin_common::u8extractor::{CsvExtractor,CsvFieldExtractor,CsvStr};
 ///    let data = b",\"foo, bar\",42,\r\none,two,43";
 ///    let cursor = std::io::Cursor::new(data);
 /// 
 ///    let mut csv = CsvExtractor::new(cursor);
 ///
-///    while csv.next_line() {
+///    while csv.next_line().expect("Err") {
 ///        println!("---- {}", csv.line());
 ///        println!("[0] = {:?}", csv.field::<CsvStr>(0));
 ///        println!("[1] = {:?}", csv.field::<CsvStr>(1));

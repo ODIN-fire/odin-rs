@@ -25,6 +25,7 @@ pub enum NumFormat {
 /// Useful for conditional serialization that would overstress serde (e.g. because of
 /// conditional field serialization or multiple/dynamic value sources). Use like so:
 /// ```
+///     use odin_common::json_writer::JsonWriter;
 ///     let x = 42.0;
 ///     let y = 43;
 ///     
@@ -33,8 +34,8 @@ pub enum NumFormat {
 ///         w.write_fmt_field( "foo", &format!("{:.3}", x));
 ///         w.write_field( "bar", y);
 ///         w.write_array_field( "baz", |w|{
-///             w.write_string_value("boo");
-///             w.write_string_value("faz");
+///             w.write_value("boo");
+///             w.write_value("faz");
 ///         }) 
 ///     });
 ///     
