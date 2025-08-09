@@ -52,11 +52,7 @@ pub enum OdinOrbitalError {
 }
 
 // OdinActionFailure is not a std::error::Error so we have to convert explicitly (see odin_action::OdinActionFailure)
-impl From<OdinActionFailure> for OdinOrbitalError {
-    fn from (e: OdinActionFailure)->OdinOrbitalError {
-        OdinOrbitalError::ActionError(e.to_string())
-    }
-}
+odin_action::map_action_failure!{ OdinOrbitalError, ActionError}
 
 macro_rules! tle_error {
     ($fmt:literal $(, $arg:expr )* ) => {

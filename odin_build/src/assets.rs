@@ -224,6 +224,7 @@ pub fn process_asset (filename: &str, data: Vec<u8>) -> Result<Vec<u8>> {
 
             "jpeg" | "png" | "webp" | "tif" | "mp4" | "mpeg" | "webm" | "weba" => Ok(data),
             "gz"  => Ok(data),
+            "glb" => Ok(data),
 
             "frag" | "vert" => Ok(data), // don't touch shader code
 

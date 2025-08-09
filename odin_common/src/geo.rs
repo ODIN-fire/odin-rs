@@ -42,8 +42,10 @@ use uom::si::length::meter;
 
 use chrono::{DateTime,TimeZone,Utc};
 
+use crate::cartesian3::Cartesian3;
+use crate::cartographic::Cartographic;
 use crate::{impl_deserialize_struct, impl_deserialize_seq};
-use crate::angle::{normalize_180, normalize_90, Longitude, Latitude};
+use crate::angle::{normalize_180, normalize_90, Angle360, Latitude, Longitude};
 use crate::datetime::{Dated, EpochMillis};
 use crate::json_writer::{JsonWritable,JsonWriter};
 
@@ -56,10 +58,10 @@ pub type GeoCoord = Coord<f64>;
 pub struct GeoPoint(Point);
 
 impl GeoPoint {
-    pub fn from_lon_lat(lon: Longitude, lat: Latitude) -> Self {
+    #[inline] pub fn from_lon_lat(lon: Longitude, lat: Latitude) -> Self {
         GeoPoint( Point::new( lon.degrees(), lat.degrees()))
     }
-    pub fn from_lon_lat_degrees (lon: f64, lat: f64) -> Self {
+    #[inline] pub fn from_lon_lat_degrees (lon: f64, lat: f64) -> Self {
         GeoPoint( Point::new( normalize_180(lon), normalize_90(lat)))
     }
 
@@ -72,21 +74,31 @@ impl GeoPoint {
         )) // TODO check if nav_types does normalize
     }
 
-    pub fn from_point(p:Point) -> Self { GeoPoint(p) } // TODO - should this be pub?
+    #[inline] pub fn from_point(p:Point) -> Self { GeoPoint(p) } // TODO - should this be pub?
 
-    pub fn longitude(&self) -> Longitude { Longitude::from_degrees( self.0.x()) }
-    pub fn longitude_deg(&self) -> f64 { self.0.x() }
+    #[inline] pub fn longitude(&self) -> Longitude { Longitude::from_degrees( self.0.x()) }
+    #[inline] pub fn longitude_deg(&self) -> f64 { self.0.x() }
 
-    pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.0.y()) }
-    pub fn latitude_deg(&self) -> f64 { self.0.y() }
+    #[inline] pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.0.y()) }
+    #[inline] pub fn latitude_deg(&self) -> f64 { self.0.y() }
 
-    pub fn point<'a> (&'a self) -> &'a Point { &self.0 }
-    pub fn mut_point<'a> (&'a mut self) -> &'a mut Point { &mut self.0 }
+    #[inline] pub fn point<'a> (&'a self) -> &'a Point { &self.0 }
+    #[inline] pub fn mut_point<'a> (&'a mut self) -> &'a mut Point { &mut self.0 }
 
-    pub fn coord (&self)->GeoCoord { self.0.0.clone() }
+    #[inline] pub fn coord (&self)->GeoCoord { self.0.0.clone() }
 
     /// non-consuming conversion to ECEF
-    pub fn as_ecef (&self)->ECEF<f64> { WGS84::from_degrees_and_meters( self.0.y(), self.0.x(), 0.0).into() }
+    #[inline] pub fn as_ecef (&self)->ECEF<f64> { WGS84::from_degrees_and_meters( self.0.y(), self.0.x(), 0.0).into() }
+
+    #[inline] pub fn to_cartographic (&self)->Cartographic {
+        Cartographic::from_degrees( self.longitude_deg(), self.latitude_deg(), 0.0)
+    }
+
+    #[inline] pub fn bearing_from (&self, prev: &GeoPoint)->Angle360 {
+        let cp1 = prev.to_cartographic();
+        let cp2 = self.to_cartographic();
+        Angle360::from_radians( cp2.bearing_from(&cp1))
+    }
 }
 
 impl fmt::Display for GeoPoint {
@@ -441,18 +453,29 @@ impl GeoPoint3 {
     #[inline] pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.point.y()) }
     #[inline] pub fn altitude(&self) -> Length { Length::new::<meter>(self.alt) }
 
-    pub fn longitude_degrees(&self) -> f64 { self.point.x() }
-    pub fn latitude_degrees(&self) -> f64 { self.point.y() }
-    pub fn altitude_meters(&self) -> f64 { self.alt }
+    #[inline] pub fn longitude_degrees(&self) -> f64 { self.point.x() }
+    #[inline] pub fn latitude_degrees(&self) -> f64 { self.point.y() }
+    #[inline] pub fn altitude_meters(&self) -> f64 { self.alt }
 
     pub fn set_altitude_meters (&mut self, alt: f64) { self.alt = alt; }
     pub fn set_altitude (&mut self, alt: Length) { self.alt = alt.get::<meter>(); }
 
+    #[inline] pub fn to_cartographic (&self)->Cartographic {
+        Cartographic::from_degrees( self.longitude_degrees(), self.latitude_degrees(), self.altitude_meters())
+    }
+
+    #[inline] pub fn to_cartesian3 (&self)->Cartesian3 { Cartesian3::from( self.to_cartographic()) }
+    
+    pub fn bearing_from (&self, prev: &GeoPoint3)->Angle360 {
+        let cp1 = prev.to_cartographic();
+        let cp2 = self.to_cartographic();
+        Angle360::from_radians( cp2.bearing_from(&cp1))
+    }
 }
 
 impl fmt::Display for GeoPoint3 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{},{},{}]", self.longitude_degrees(),self.latitude_degrees(), self.altitude_meters())
+        write!(f, "[{:.5},{:.5},{:.0}m]", self.longitude_degrees(),self.latitude_degrees(), self.altitude_meters())
     }
 }
 

@@ -47,6 +47,12 @@ impl<Tz> From<EpochMillis> for DateTime<Tz> where Tz: TimeZone, DateTime<Tz>: Fr
     }
 }
 
+impl PartialOrd for EpochMillis {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+
 // as of Rust 1.87 the min,hour,day Duration ctors are experimental and require multiple crate attributes
 // (see https://github.com/rust-lang/rust/issues/140881).
 // for simple use cases that do not require to handle leap seconds and the like we therefore provide our own wrappers
@@ -83,6 +89,8 @@ pub fn epoch_millis ()->i64 {
 pub fn to_epoch_millis<Tz> (date: DateTime<Tz>)->i64 where Tz: TimeZone {
     date.timestamp_millis()
 }
+
+pub const ZERO: DateTime<Utc> = DateTime::<Utc>::from_timestamp_millis(0).unwrap();
 
 pub fn from_epoch_millis(millis: i64)->DateTime<Utc> {
     DateTime::<Utc>::from_timestamp_millis(millis).unwrap()

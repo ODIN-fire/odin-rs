@@ -24,9 +24,9 @@ pub use crate::{
     OdinActorError, OdinActorResult,
     DEFAULT_CHANNEL_BOUNDS,
     define_actor_msg_set, match_actor_msg, cont, stop, term, impl_actor, spawn_actor, spawn_pre_actor, spawn_dyn_actor,
-    DataAction, DataRefAction, BiDataAction, BiDataRefAction, DynDataAction, DynDataRefAction, DynDataActionList, DynDataRefActionList,
+    DataAction, DataMutAction, DataRefAction, DataRefMutAction, BiDataAction, BiDataRefAction, DynDataAction, DynDataRefAction, DynDataActionList, DynDataRefActionList,
     no_data_action, no_dataref_action, no_bi_data_action, no_bi_dataref_action,
-    data_action, dataref_action, bi_data_action, bi_dataref_action, dyn_data_action, dyn_dataref_action,
+    data_action, data_mut_action, dataref_action, dataref_mut_action, bi_data_action, bi_dataref_action, dyn_data_action, dyn_dataref_action,
     OdinActionFailure,  
     trace,debug,info,warn,error,check_err,run_async_main,run_actor_system
 };

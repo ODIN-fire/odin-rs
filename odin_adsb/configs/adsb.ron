@@ -1,0 +1,9 @@
+// sample ADS-B import configuration - this is the data acquisition part, i.e. no display related settings
+AdsbConfig(
+    source: "KNUQ", // the receiver station name
+    timezone: "America/Los_Angeles", // time zone of receiver station
+    url: "localhost:30003", // the socket from which to read the ADS-B data
+    update_interval: Duration(secs:60,nanos:0), // how often to send out aircraft updates
+    max_trace: 64, // number of trace points (last reported positions) to keep in ringbuffer
+    drop_after: Duration(secs:25,nanos:0), // duration after which un-changed aircraft entries are dropped 
+)

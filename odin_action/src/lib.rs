@@ -15,7 +15,9 @@
 
 #[doc = include_str!("../doc/odin_action.md")]
 
-// TODO - re-evaluate if we need our own type now that async closures are stabilized
+// TODO - re-evaluate if we need our own type now that async closures are stabilized.
+// having all these specialized action types requiring special macro syntax is sub-optimal.
+// This is currently still required because of DynAction - async closures are not dyn-compatible
 
 use std::{fmt::Debug, marker::PhantomData, future::{Future,ready}, result::Result,
     any::type_name, ops::{Deref,DerefMut},
@@ -43,6 +45,15 @@ pub fn abbrev_type_name<T>()->String {
 /// and a `impl<T:Error> From<T> for OdinActionFailure` at the same time so `OdinActionFailure` does **not** 
 /// impl `std::error::Error`
 pub struct OdinActionFailure(pub String);
+
+#[macro_export]
+macro_rules! map_action_failure {
+    ($error_enum:ty, $error_variant:ident) => {
+        impl From<odin_action::OdinActionFailure> for $error_enum {
+            fn from (e: odin_action::OdinActionFailure)->$error_enum { <$error_enum>::$error_variant( e.to_string()) }
+        }
+    }
+}
 
 impl<T> From<T> for OdinActionFailure where T: std::fmt::Display {
     fn from (e:T)->Self {
@@ -119,6 +130,45 @@ impl<T> Debug for NoDataAction<T> where T: Send {
 
 pub fn no_data_action<T>()->NoDataAction<T> where T: Send { NoDataAction { _phantom: PhantomData } }
 
+/* #endregion DataAction */
+
+/* #region DataMutAction ******************************************************************************/
+
+/// a `DataAction` that can mutate its state (not the passed in data)
+pub trait DataMutAction<T>: Debug + Send {
+    fn execute (&mut self, data: T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send;
+    fn is_empty (&self)->bool { false }
+}
+
+/// macro to define and instantiate ad hoc action types that clone-capture local vars and take a single
+/// `execute(data)`` argument. See [module] doc for general use and expansion.
+#[macro_export]
+macro_rules! data_mut_action {
+    ( $( let mut $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty| $e:expr ) => {
+        {            
+            struct SomeDataMutAction { $( $v: $v_type ),* }
+
+            impl odin_action::DataAction<$data_type> for SomeDataMutAction {
+                async fn execute (&mut self, $data : $data_type) -> std::result::Result<(),odin_action::OdinActionFailure> {
+                    $( let $v = &mut self. $v;)*
+                    $e
+                }
+            }
+            impl std::fmt::Debug for SomeDataMutAction {
+                fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "DataAction<{}>", stringify!($data_type))
+                }
+            }
+
+            SomeDataMutAction{ $( $v: $v_expr ),* }
+        }
+    }
+}
+
+/* #endregion DataMutAction */
+
+/* #region BiDataAction ******************************************************************************/
+
 /// a [`DataAction<T>`] with an `async execute(..)` function that takes a second `bidata` parameter.
 /// This can be used for actions that combine owned and passed-in data in their action bodies.
 /// 
@@ -169,6 +219,10 @@ pub fn no_bi_data_action<T,A>()->NoBiDataAction<T,A>  where T: Send, A: Send {
     NoBiDataAction { _phantom1: PhantomData, _phantom2: PhantomData } 
 }
 
+/* #endregion BiDataAction */
+
+/* #region DynDataAction *****************************************************************************************/
+
 /// a sendable [`DataAction<T>`] that can be stored in a homogenous container (as respective trait objects).
 /// This trait is mostly used implicitly through the corresponding [`DynDataAction<T>`] type.
 /// Note: this has per-execution runtime cost as the returned future needs to be pinboxed
@@ -209,8 +263,7 @@ macro_rules! dyn_data_action {
     }
 }
 
-
-/* #endregion DataAction */
+/* #endregion DynDataAction */
 
 /* #region DataRefAction *********************************************************************/
 
@@ -259,6 +312,43 @@ impl<T> Debug for NoDataRefAction<T> where T: Send {
     }
 }
 pub fn no_dataref_action<T>()->NoDataRefAction<T> where T: Send { NoDataRefAction { _phantom: PhantomData } }
+
+/* #endregion DataRefAction */
+
+/* #region DataRefMutAction  *************************************************************************/
+
+/// analoguous to [`DataRefAction<T>`] trait but can mutate its state (but not the data ref)
+pub trait DataRefMutAction<T>: Debug + Send {
+    fn execute (&mut self, data: &T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send;
+    fn is_empty (&self) -> bool { false }
+}
+
+#[macro_export]
+macro_rules! dataref_mut_action {
+    ( $( let mut $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty| $e:expr ) => {
+        {
+            struct SomeDataRefMutAction { $( $v: $v_type ),* }
+
+            impl DataRefMutAction<$data_type> for SomeDataRefMutAction {
+                async fn execute (&mut self, $data : & $data_type) -> std::result::Result<(),OdinActionFailure> {
+                    $( let $v = &mut self. $v;)*
+                    $e
+                }
+            }
+            impl std::fmt::Debug for SomeDataRefMutAction {
+                fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "DataRefAction<{}>", stringify!($data_type))
+                }
+            }
+
+            SomeDataRefMutAction{ $( $v: $v_expr ),* }
+        }
+    }
+}
+
+/* #endregion DataRefMutAction */
+
+/* #region BiDataRefAction ********************************************************************************/
 
 /// a [`DataRefAction`] with a second `bidata` execute argument, which can be used to pass information
 /// from the triggering request.
@@ -311,6 +401,10 @@ pub fn no_bi_dataref_action<T,A>()->NoBiDataRefAction<T,A>  where T: Send, A: Se
     NoBiDataRefAction { _phantom1: PhantomData, _phantom2: PhantomData } 
 }
 
+/* #endregion BiDataRefAction */
+
+/* #region DynDataRefAction *****************************************************************************************/
+
 /// analoguous to the [`DynDataActionTrait<T>`] but executing with a `&T` data reference.
 /// Just as `DynDataActionTrait` this is mostly used indirectly through its corresponding
 /// [`DynDataRefAction<T>`] type
@@ -353,7 +447,7 @@ macro_rules! dyn_dataref_action {
     }
 }
 
-/* #endregion DataRefAction */
+/* #endregion DynDataRefAction */
 
 /* #region dyn action lists *********************************************************************************/
 

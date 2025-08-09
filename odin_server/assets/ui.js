@@ -3048,7 +3048,8 @@ export function removeListItem(o, item) {
         let ie = e._uiItemMap.get(item);
         if (ie) {
             if (e._uiSelectedItemElement === ie) _setSelectedItemElement(e, null);
-            e.removeChild(ie);
+            e._uiItemMap.delete(item);
+            if (Object.is( ie.parentNode, e)) e.removeChild(ie);
         }
     }
 }

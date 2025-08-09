@@ -21,13 +21,7 @@ use std::f64::{self, NAN};
 
 use geo::{Bearing, Destination, Distance, Haversine, Point};
 use crate::{
-    abs, atan, atan2, cos, pow2, signum, sin, sqrt, tan, sin2, 
-    PI, HALF_PI, 
-    angle::{Latitude, Longitude}, 
-    cartesian3::Cartesian3,
-    geo::{GeoPoint, GeoRect, GeoPolygon}, 
-    geo_constants::*, 
-    BoundingBox
+    abs, angle::{Latitude, Longitude}, atan, atan2, cartesian3::Cartesian3, cos, geo::{GeoPoint, GeoPolygon, GeoRect}, geo_constants::*, pow2, signum, sin, sin2, sqrt, tan, BoundingBox, HALF_PI, PI, TWO_PI
 };
 
 
@@ -97,12 +91,12 @@ impl Cartographic {
     pub fn bearing_to (&self, other: &Cartographic)->f64 {
         let dlon = other.longitude - self.longitude;
         let cos_lat = cos(other.latitude);
-        atan2( sin(dlon) * cos_lat, cos(self.latitude) * sin(other.latitude) - sin(self.latitude) * cos_lat * cos(dlon)) % HALF_PI
+        (atan2( sin(dlon) * cos_lat, cos(self.latitude) * sin(other.latitude) - sin(self.latitude) * cos_lat * cos(dlon)) + TWO_PI) % TWO_PI
     }
 
     /// haversine final bearing in radians
     pub fn bearing_from (&self, other: &Cartographic)->f64 {
-        (other.bearing_to( self) + PI) % HALF_PI
+        (self.bearing_to( other) + PI) % TWO_PI
     }
 
     /// haversine great circle distance based on average radius (earth_radius + height)

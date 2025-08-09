@@ -14,11 +14,11 @@
 
  use thiserror::Error;
 
- pub type Result<T> = std::result::Result<T,OdinTrackError>;
+ pub type Result<T> = std::result::Result<T,OdinAdsbError>;
 
 
 #[derive(Error,Debug)]
-pub enum OdinTrackError {
+pub enum OdinAdsbError {
 
     #[error("parse error {0}")]
     ParseError(String),
@@ -26,17 +26,24 @@ pub enum OdinTrackError {
     #[error("IO error {0}")]
     IOError( #[from] std::io::Error),
 
+    #[error("ODIN actor error {0}")]
+    OdinActorError( #[from] odin_actor::OdinActorError),
+
     #[error("chrono parse error {0}")]
     ChronoParseError( #[from] chrono::ParseError),
+
+    #[error("action error {0}")]
+    ActionError( String ),
 
     #[error("operation failed {0}")]
     OpFailedError(String)
 }
 
+odin_action::map_action_failure!{ OdinAdsbError, ActionError}
 
 macro_rules! parse_error {
     ($fmt:literal $(, $arg:expr )* ) => {
-        OdinTrackError::ParseError( format!( $fmt $(, $arg)* ))
+        OdinAdsbError::ParseError( format!( $fmt $(, $arg)* ))
     };
 }
 pub (crate) use parse_error;

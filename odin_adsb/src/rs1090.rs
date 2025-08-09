@@ -17,15 +17,16 @@
 /// as of 07/28/2025 jet1090 still takes about 3x CPU cycles compared to dump1090 and
 /// uses 2x the bandwidth
 
-use std::{io, sync::{Arc,RwLock}, collections::HashMap, fmt::{self,Display,Formatter,Write}};
+use std::{io, sync::{Arc,atomic::{AtomicI64,Ordering}}, fmt::{self,Display,Formatter,Write}};
 use tokio::{self,net::TcpStream, io::{BufReader,AsyncBufReadExt}};
 use chrono::{DateTime,Utc};
-use odin_common::{extract_all,extract_optional,u8extractor::{MemMemFinder,U8Readable}};
+use dashmap::DashMap;
+use odin_common::{extract_all,extract_optional,u8extractor::{MemMemFinder,U8Readable}, datetime::EpochMillis};
 use odin_macro::define_struct;
 
-use crate::Aircraft;
-use crate::adsb::{ignored,AdsbData,AdsbUpdate};
-use crate::errors::{parse_error,OdinTrackError,Result};
+use crate::{Aircraft,AircraftStore};
+use crate::adsb::{ignored,Position,AdsbData,AdsbUpdate};
+use crate::errors::{parse_error,OdinAdsbError,Result};
 
 // note that needle patterns have to include everything up to the first property value byte 
 // (i.e. include ':' and opening '"' )
@@ -51,7 +52,7 @@ define_struct! {
         pub comm_d_extended: MemMemFinder<'static> = MemMemFinder::new(b"\"df\":\"CommDExtended\"") // not clear if this is a bug
 }
 
-pub async fn process_msgs<F: FnMut(&Aircraft)> (url: &str, aircraft: Arc<RwLock<HashMap<String,Aircraft>>>, f: F)->Result<()> {
+pub async fn process_msgs (url: &str, max_trace: usize, timestamp: Arc<AtomicI64>, aircraft: Arc<DashMap<String,Aircraft>>)->Result<()> {
     let finder = PropertyFinder::new();
 
     let stream = TcpStream::connect( url).await?;
@@ -87,17 +88,18 @@ pub async fn process_msgs<F: FnMut(&Aircraft)> (url: &str, aircraft: Arc<RwLock<
 /// this is the toplevel sync parser
 pub fn parse_msg<'a> (msg: &'a [u8], finder: &PropertyFinder)->Result<AdsbUpdate<'a>> {
     if let Some(timestamp) = extract_optional!( msg, finder.timestamp, Timestamp) {
+        let timestamp: EpochMillis = timestamp.0.into();
         if let Some(df) = extract_optional!( msg, finder.df, u64) {
             match df as u8 {
-                0 => parse_short_air_air_surveillance( msg, finder, timestamp.0),  // DownlinkFormat::ShortAirAirSurveillance
-                4 => parse_surveillance_altitude_reply( msg, finder, timestamp.0),  // DownlinkFormat::SurveillanceAltitudeReply
-                11 => parse_all_call_reply( msg, finder, timestamp.0), // DownlinkFormat::AllCallReply
-                17 => parse_extended_squitter_adsb( msg, finder, timestamp.0), // DownlinkFormat::ExtendedSquitterADSB
-                _ => Ok(ignored(timestamp.0)) // ignore
+                0 => parse_short_air_air_surveillance( msg, finder, timestamp),  // DownlinkFormat::ShortAirAirSurveillance
+                4 => parse_surveillance_altitude_reply( msg, finder, timestamp),  // DownlinkFormat::SurveillanceAltitudeReply
+                11 => parse_all_call_reply( msg, finder, timestamp), // DownlinkFormat::AllCallReply
+                17 => parse_extended_squitter_adsb( msg, finder, timestamp), // DownlinkFormat::ExtendedSquitterADSB
+                _ => Ok(ignored(timestamp)) // ignore
             }
         } else { // no valid/known "df" tag
             if finder.comm_d_extended.find_key(msg).is_some() { // TODO - not sure if this is a rs1090/jet1090 bug
-                Ok(ignored(timestamp.0))
+                Ok(ignored(timestamp))
             } else {
                 Err(parse_error!( "not a valid Mode-S message"))
             }
@@ -107,7 +109,7 @@ pub fn parse_msg<'a> (msg: &'a [u8], finder: &PropertyFinder)->Result<AdsbUpdate
     }
 }
 
-pub fn parse_short_air_air_surveillance<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: DateTime<Utc>)->Result<AdsbUpdate<'a>> {
+pub fn parse_short_air_air_surveillance<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: EpochMillis)->Result<AdsbUpdate<'a>> {
     extract_all! { msg ?
         let altitude: i64 = finder.altitude,
         let icao24: &str = finder.icao24 => {
@@ -119,7 +121,7 @@ pub fn parse_short_air_air_surveillance<'a> (msg: &'a[u8], finder: &PropertyFind
     }
 }
 
-pub fn parse_surveillance_altitude_reply<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: DateTime<Utc>)->Result<AdsbUpdate<'a>> {
+pub fn parse_surveillance_altitude_reply<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: EpochMillis)->Result<AdsbUpdate<'a>> {
     extract_all! { msg ?
         let altitude: i64 = finder.altitude,
         let icao24: &str = finder.icao24 => {
@@ -131,7 +133,7 @@ pub fn parse_surveillance_altitude_reply<'a> (msg: &'a[u8], finder: &PropertyFin
     }
 }
 
-pub fn parse_all_call_reply<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: DateTime<Utc>)->Result<AdsbUpdate<'a>> {
+pub fn parse_all_call_reply<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: EpochMillis)->Result<AdsbUpdate<'a>> {
     extract_all! { msg ?
         let capability: &str = finder.capability,
         let icao24: &str = finder.icao24 => {
@@ -143,7 +145,7 @@ pub fn parse_all_call_reply<'a> (msg: &'a[u8], finder: &PropertyFinder, timestam
     }
 }
 
-pub fn parse_extended_squitter_adsb<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: DateTime<Utc>)->Result<AdsbUpdate<'a>> {
+pub fn parse_extended_squitter_adsb<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: EpochMillis)->Result<AdsbUpdate<'a>> {
     extract_all! { msg ?
         let icao24: &str = finder.icao24,
         let bds: u64 = finder.bds => {
@@ -163,7 +165,7 @@ pub fn parse_extended_squitter_adsb<'a> (msg: &'a[u8], finder: &PropertyFinder, 
 }
 
 // unfortunately we get some "altitude":null messages with valie latitude,longitude so we have to treat every field as optional
-pub fn parse_airborne_position<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: DateTime<Utc>, icao24: &'a str)->Result<AdsbUpdate<'a>>  
+pub fn parse_airborne_position<'a> (msg: &'a[u8], finder: &PropertyFinder, timestamp: EpochMillis, icao24: &'a str)->Result<AdsbUpdate<'a>>  
 {
     let altitude = extract_optional!( msg, finder.altitude, i64);
 
@@ -171,15 +173,22 @@ pub fn parse_airborne_position<'a> (msg: &'a[u8], finder: &PropertyFinder, times
     extract_all! { msg ?
         let latitude: f64 = finder.latitude,
         let longitude: f64 = finder.longitude => {
-            let data = AdsbData::AirbornePosition{ latitude, longitude, altitude };
+            let position = Some( Position{latitude,longitude} );
+            let data = AdsbData::AirbornePosition{ position, altitude };
             Ok( AdsbUpdate{ timestamp, icao24, data } )
-        } else { // TODO - should we report this if there is altitude
-            Ok ( ignored(timestamp) ) // we got no useful payload data but not sure if this is an error
+        } else {
+            if altitude.is_some() {
+                let data = AdsbData::AirbornePosition{ position: None, altitude };
+                Ok( AdsbUpdate{ timestamp, icao24, data } )
+            } else {
+                Ok( ignored(timestamp) )
+                //Err( parse_error!( "missing position in AirbornePosition message: {}", csv.line()) )
+            }
         }
     }
 }
 
-pub fn parse_aircraft_identification<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: DateTime<Utc>, icao24: &'a str)->Result<AdsbUpdate<'a>>  
+pub fn parse_aircraft_identification<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: EpochMillis, icao24: &'a str)->Result<AdsbUpdate<'a>>  
 {
     extract_all! { msg ?
         let callsign: &str = finder.callsign => {
@@ -194,27 +203,26 @@ pub fn parse_aircraft_identification<'a> (msg: &'a [u8], finder: &PropertyFinder
 /// extract groundspeed, track/heading and (optional) vertical_rate
 /// this is sub-optimal - it is not clear if vrate is optional or a missing value indicates a malformed msg. Same goes
 /// for the heading / track alternative
-pub fn parse_airborne_velocity<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: DateTime<Utc>, icao24: &'a str)->Result<AdsbUpdate<'a>>  
+pub fn parse_airborne_velocity<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: EpochMillis, icao24: &'a str)->Result<AdsbUpdate<'a>>  
 {
-    if let Some(groundspeed) = extract_optional!( msg, finder.groundspeed, f64) {
-        // 'track' seems to be more common
-        if let Some(heading) = extract_optional!( msg, finder.track, f64).or_else( || extract_optional!( msg, finder.heading, f64)) {
-            let vertical_rate = extract_optional!( msg, finder.vertical_rate, i64);
+    let groundspeed: Option<f64> = extract_optional!( msg, finder.groundspeed, f64);
+    let heading: Option<f64>  = extract_optional!( msg, finder.track, f64).or_else( || extract_optional!( msg, finder.heading, f64));
+    let vertical_rate: Option<i64> = extract_optional!( msg, finder.vertical_rate, i64);
 
-            let data = AdsbData::AirborneVelocity{groundspeed,heading,vertical_rate};
-            return Ok( AdsbUpdate{ timestamp, icao24, data } )
-        }
+    if (groundspeed.is_some() || heading.is_some() || vertical_rate.is_some()) {
+        let data = AdsbData::AirborneVelocity{groundspeed,heading,vertical_rate};
+        return Ok( AdsbUpdate{ timestamp, icao24, data } )
+    } else {
+        Err( parse_error!( "empty AirborneVelocity message: {}", String::from_utf8_lossy(msg)) )
     }
-
-    Err( parse_error!( "failed to parse AirborneVelocity message: {}", String::from_utf8_lossy(msg)) )
 }
 
-pub fn parse_aircraft_status<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: DateTime<Utc>, icao24: &'a str)->Result<AdsbUpdate<'a>>  
+pub fn parse_aircraft_status<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: EpochMillis, icao24: &'a str)->Result<AdsbUpdate<'a>>  
 {
     Ok( ignored(timestamp) ) // not yet (we get emergency_type, emergency_status as &str)
 }
 
-pub fn parse_target_state_and_status<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: DateTime<Utc>, icao24: &'a str)->Result<AdsbUpdate<'a>>  
+pub fn parse_target_state_and_status<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: EpochMillis, icao24: &'a str)->Result<AdsbUpdate<'a>>  
 {
     let selected_altitude = extract_optional!( msg, finder.selected_altitude, i64);
     let selected_heading = extract_optional!( msg, finder.selected_heading, f64);
@@ -223,7 +231,7 @@ pub fn parse_target_state_and_status<'a> (msg: &'a [u8], finder: &PropertyFinder
     Ok( AdsbUpdate{ timestamp, icao24, data } )
 }
 
-pub fn parse_aircraft_operation_status<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: DateTime<Utc>, icao24: &'a str)->Result<AdsbUpdate<'a>>  
+pub fn parse_aircraft_operation_status<'a> (msg: &'a [u8], finder: &PropertyFinder, timestamp: EpochMillis, icao24: &'a str)->Result<AdsbUpdate<'a>>  
 {
     Ok( ignored(timestamp) ) // not yet (has "NICa","NACp","GVA","SIL","BAI","HRD","SILs")
 }

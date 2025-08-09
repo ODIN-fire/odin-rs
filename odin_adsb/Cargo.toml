@@ -1,5 +1,5 @@
 [package]
-name = "odin_track"
+name = "odin_adsb"
 version = "0.1.0"
 edition = "2024"
 
@@ -9,6 +9,7 @@ lazy_static = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true , features = ["json","blocking"] }
 chrono = { workspace = true, features = ["serde"] }
+chrono-tz = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ron = { workspace = true }
@@ -19,6 +20,7 @@ async-trait = { workspace = true }
 axum = { workspace = true }
 memchr = { workspace = true }
 uom = { workspace = true }
+dashmap = { workspace = true }
 
 structopt = { workspace = true } # replace
 

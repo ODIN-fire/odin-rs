@@ -18,7 +18,7 @@ use std::io::{self};
 use tokio::{self,net::TcpStream, io::{BufReader,AsyncBufReadExt}};
 use anyhow::{Result};
 use odin_common::define_cli;
-use odin_track::rs1090::{PropertyFinder,parse_msg};
+use odin_adsb::rs1090::{PropertyFinder,parse_msg};
 
 define_cli! { ARGS [about="ADS-B socket monitoring tool"] =
     url: String [help="URL from where to read ADS-B jet1090 messages"]

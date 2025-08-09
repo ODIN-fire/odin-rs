@@ -569,8 +569,8 @@ const MaxSkipListDepth = 5;
 export class SkipList {
     constructor(depth, isBefore, isSame) {
         this.depth = depth;
-        this.isBefore = isBefore;
-        this.isSame = isSame;
+        this.isBefore = isBefore; // item sort function
+        this.isSame = isSame; // item equality function
 
         this.head = new SkipListNode(null, new Array(depth));
         this.size = 0;
@@ -823,6 +823,23 @@ export class CircularBuffer {
         this.i0 = -1;
         this.i1 = -1;
         this.buffer = [];
+    }
+
+    get length() { return this.size; }
+
+    static fromArray (array, maxSize) {
+        let cb = new CircularBuffer( maxSize);
+        if (array.length > maxSize) {
+            cb.buffer = array.slice( array.length - maxSize);
+        } else {
+            cb.buffer = array;
+        }
+
+        cb.size = cb.buffer.length;
+        cb.i0 = 0;
+        cb.i1 = cb.size-1;
+
+        return cb;
     }
 
     push(v) {

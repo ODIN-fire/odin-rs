@@ -19,7 +19,7 @@ members = [
   "odin_sentinel",
   "odin_goesr",
   "odin_orbital",
-  "odin_track",
+  "odin_adsb",
   "odin_live",
   "odin_n5",
   
@@ -49,7 +49,7 @@ odin_geolayer = { version = "*", path = "odin_geolayer" }
 odin_hrrr   = { version = "*", path = "odin_hrrr" }
 odin_dem    = { version = "*", path = "odin_dem" }
 odin_wind   = { version = "*", path = "odin_wind" }
-odin_track  = { version = "*", path = "odin_track" }
+odin_adsb  = { version = "*", path = "odin_adsb" }
 odin_n5     = { version = "*", path = "odin_n5" }
 
 # external crates for which we have to ensure the same version
@@ -76,6 +76,7 @@ ron = { version = "0.10.1" }
 uom = { version = "0.37.0", features = ["serde", "f32", "i64"] }
 num = { version = "0.4.3" }
 chrono = { version = "0.4.41", features = ["serde"] }
+chrono-tz = { version = "0.10.4", features = ["serde"] }
 thiserror = { version = "2.0.12" }
 anyhow = { version = "1.0.98" }
 gdal = { version = "0.18.0", features = ["array"] }
@@ -93,6 +94,7 @@ ndarray = { version = "0.16.1" }
 flate2 = { version = "1.1.2" }
 memchr = { version = "2.7.5" }
 clap = { version = "4.5.41", features = ["derive"]}
+dashmap = { version = "6" }
 
 
 [profile.release]

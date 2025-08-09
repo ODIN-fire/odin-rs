@@ -17,11 +17,13 @@
 use std::io::{self};
 use tokio::{self,net::TcpStream, io::{BufReader,AsyncBufReadExt}};
 use anyhow::{Result};
+use chrono_tz::Tz;
 use odin_common::{define_cli, u8extractor::{AsyncCsvExtractor,CsvFieldExtractor}};
-use odin_track::sbs::parse_msg;
+use odin_adsb::sbs::parse_msg;
 
 define_cli! { ARGS [about="ADS-B socket monitoring tool"] =
-    url: String [help="URL from where to read ADS-B SBS messages"]
+    url: String [help="URL from where to read ADS-B SBS messages"],
+    tz: String [help="timezone of message source"]
 }
 
 #[tokio::main]
@@ -29,9 +31,10 @@ async fn main() -> Result<()> {
     let stream = TcpStream::connect( &ARGS.url).await?;
     let mut reader = BufReader::with_capacity( 4096, stream);
     let mut csv = AsyncCsvExtractor::new(reader);
+    let tz: Tz = ARGS.tz.parse()?;
 
     while csv.next_line().await? {
-        match parse_msg( &mut csv) {
+        match parse_msg( &mut csv, &tz) {
             Ok(update) => println!("{update}"),
             Err(e) => println!("PARSE ERROR for {}", csv.line())
         }
