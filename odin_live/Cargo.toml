@@ -20,6 +20,7 @@ odin_sentinel = { workspace = true }
 odin_share = { workspace = true }
 odin_wind = { workspace = true }
 odin_hrrr = { workspace = true }
+odin_adsb = { workspace = true }
 
 tokio = { workspace = true }
 anyhow = "*"

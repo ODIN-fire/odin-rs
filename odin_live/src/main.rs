@@ -15,7 +15,7 @@
 use std::sync::Arc;
  
 use odin_build;
-use odin_common::arc;
+use odin_common::{arc,json_writer::JsonWriter};
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_goesr::{GoesrHotspotService, actor::spawn_goesr_hotspot_actors};
@@ -25,6 +25,7 @@ use odin_geolayer::GeoLayerService;
 use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, SentinelActor, sentinel_service::SentinelService};
 use odin_hrrr::{self,HrrrActor,HrrrFileAvailable};
 use odin_wind::{self, actor::{WindActor,WindActorMsg, server_subscribe_action, server_update_action}, wind_service::WindService};
+use odin_adsb::{AircraftStore,actor::AdsbActor,adsb_service::AdsbService, sbs::SbsConnector};
 
 run_actor_system!( actor_system => {
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
@@ -82,6 +83,21 @@ run_actor_system!( actor_system => {
         )
     ))?;
 
+    //--- spawn the AdsbActor
+    let hadsb = spawn_actor!( actor_system, "adsb",
+        AdsbActor::<SbsConnector,_>::new(
+            odin_adsb::load_config("adsb.ron")?, 
+            dataref_mut_action!(  
+                let mut w: JsonWriter = JsonWriter::with_capacity(4096), // use a cached writer to assemble the ws_msg
+                let mut hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => 
+                |store: &AircraftStore| {
+                    let ws_msg = store.get_json_update_msg(w);
+                    Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
+                }
+            )
+        )
+    )?;
+
     //--- finally spawn the server actor
     let _hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
@@ -93,6 +109,7 @@ run_actor_system!( actor_system => {
             .add( build_service!( let hsentinel = hsentinel.clone() => SentinelService::new( hsentinel)))
             .add( build_service!( => GoesrHotspotService::new( goesr_sats)) )
             .add( build_service!( => OrbitalHotspotService::new( orbital_sats) ))
+            .add( build_service!( => AdsbService::new( vec![hadsb]) ))
     ))?;
 
     Ok(())
