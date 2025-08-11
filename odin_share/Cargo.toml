@@ -19,6 +19,7 @@ serde_json = { workspace = true }
 ron = { workspace = true }
 thiserror = { workspace = true }
 axum = { workspace = true }
+trait-set = "0.3.0"
 
 globset = "0.4.15"
 regex = {workspace = true }

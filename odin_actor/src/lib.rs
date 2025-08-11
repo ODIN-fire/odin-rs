@@ -12,7 +12,6 @@
  * and limitations under the License.
  */
 #![allow(unused_imports)]
-#![feature(trait_alias)]
 
 #[doc = include_str!("../doc/odin_actor.md")]
 
@@ -24,6 +23,7 @@ use std::{
     sync::{Arc, atomic::{AtomicU64,Ordering}},
     cmp::min, marker::PhantomData
 };
+use trait_set::trait_set;
 
 pub mod prelude;
 
@@ -71,7 +71,9 @@ pub type MsgSendFuture<'a> = ObjSafeFuture<'a,Result<()>>;
 /// sendable function that returns a future
 pub type SendableFutureCreator = Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static>;
 
-pub trait MsgTypeConstraints = FromSysMsg + DefaultReceiveAction + Send + Debug + 'static;
+trait_set! {
+  pub trait MsgTypeConstraints = FromSysMsg + DefaultReceiveAction + Send + Debug + 'static;
+}
 
 // see https://stackoverflow.com/questions/74920440/how-do-i-wrap-a-closure-which-returns-a-future-without-it-being-sync
 pub fn create_sfc <F,R> (func: F) -> SendableFutureCreator
@@ -127,7 +129,9 @@ pub enum ReceiveAction {
     RequestTermination, // ask actor system to send _Terminate_ messages
 }
 
-pub trait MsgReceiverConstraints = Identifiable + Debug + Send + Sync;
+trait_set! {
+  pub trait MsgReceiverConstraints = Identifiable + Debug + Send + Sync;
+}
 
 /// single message type receiver trait to abstract concrete ActorHandle<MsgSet> instances that would
 /// force the client to know all messages the receiver understands, which reduces re-usability of the

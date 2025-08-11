@@ -12,7 +12,6 @@
  * and limitations under the License.
  */
 #![allow(unused)]
-#![feature(trait_alias)]
 
 pub mod errors;
 pub mod warp;
@@ -23,6 +22,7 @@ use lazy_static::lazy_static;
 use static_init::{constructor};
 use std::{collections::HashMap, ffi::{CStr, CString}, fs::File, ops::{Fn, Index, Sub}, path::Path, ptr::{null, null_mut}, sync::Mutex, usize};
 use libc::{c_void,c_char,c_uint, c_int};
+use trait_set::trait_set;
 
 // we re-export these so that other crates don't have to use a direct gdal depedency to import.
 // this is to ensure we run bindgen for new GDAL versions that don't yet have pre-computed bindings in gdal-sys
@@ -362,7 +362,9 @@ pub fn srs_utm_from_lon_lat (lon_deg: f64, lat_deg: f64, opt_zone: Option<u32>) 
 
 /* #region generic Dataset/Rasterband access *********************************************************************************/
 
-pub trait GdalValueType = std::fmt::Debug + std::fmt::Display + Copy + From<u8> + GdalType;
+trait_set! {
+  pub trait GdalValueType = std::fmt::Debug + std::fmt::Display + Copy + From<u8> + GdalType;
+}
 
 /// aggregate of indices and corresponding value of a 2D grid point
 /// note this makes no assumption about axis order, it just uses whatever is in the dataset
