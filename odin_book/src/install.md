@@ -7,12 +7,10 @@ This Rust repository contains a [Cargo workspace](https://doc.rust-lang.org/carg
   1. [Git](https://git-scm.com/) - the version control system that is by now ubiqitous 
 
   2. [Rust toolchain](https://www.rust-lang.org/tools/install) - we recommend to manage the toolchain via `rustup`
-     At this point ODIN-RS uses the nightly toolchain. To get, (locally) install `rustup` and switch to the nightly toolchain execute:
+     As of Rust 1.89 ODIN-RS uses the stable toolchain. To get it (locally) install `rustup` and execute:
 
      ```shell
      $> curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-     ...
-     $> rustup default nightly
      ``` 
 
      To check if the basic Rust installation is working correctly you can create, build and run a simple test project by executing
@@ -28,7 +26,7 @@ This Rust repository contains a [Cargo workspace](https://doc.rust-lang.org/carg
      Hello, world!
      ```
 
-     Periodic updates of the toolchain can be done by executing `rustup update`
+     Update when new Rust versions (announced on the [Rust blog](https://blog.rust-lang.org/)) are released by executing `rustup update`.
 
      To install the [`mdbook`](https://rust-lang.github.io/mdBook/) tool to compile and serve online documentation
      please run

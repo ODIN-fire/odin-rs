@@ -67,7 +67,7 @@ structopt = { workspace = true }
 paste = { workspace = true }
 http = { workspace = true }
 url = { workspace = true }
-
+trait-set = { workspace = true }
 serde_with = { workspace = true }
 async-stream = "0.3.6"
 
@@ -78,7 +78,7 @@ which = "7.0.3"
 jsonrpsee =  { version = "0.25.1",  features = ["macros","async-client","http-client"], optional = true }
 lettre = { version = "0.11.16", features = ["tokio1", "tokio1-native-tls"], optional = true }
 dhat = { version = "0.3.3", optional = true }
-trait-set = "0.3.0"
+
 
 [build-dependencies]
 odin_build = { workspace = true }

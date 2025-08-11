@@ -33,7 +33,7 @@ anyhow = { workspace = true }
 structopt = { workspace = true }
 bit-set = { workspace = true }
 ndarray = { workspace = true }
-trait-set = "0.3.0"
+trait-set = { workspace = true }
 
 static_init = "1.0.4"
 libc = "0.2.174"

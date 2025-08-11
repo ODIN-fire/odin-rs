@@ -37,7 +37,7 @@ futures = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 ron = { workspace = true }
-trait-set = "0.3.0"
+trait-set = { workspace = true }
 
 [features]
 default = ["tokio_kanal"]

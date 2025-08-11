@@ -95,6 +95,7 @@ flate2 = { version = "1.1.2" }
 memchr = { version = "2.7.5" }
 clap = { version = "4.5.41", features = ["derive"]}
 dashmap = { version = "6" }
+trait-set = { version = "0.3.0" } # remove when trait aliases become stabilized
 
 
 [profile.release]
