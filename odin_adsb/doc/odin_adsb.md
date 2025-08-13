@@ -145,7 +145,7 @@ run_actor_system!( actor_system => {
 });
 ```
 
-## Building and runnind dump1090
+## Building and running dump1090
 
 [dump1090](https://github.com/flightaware/dump1090) has to be cloned from the github repository and requires a working
 `CC` compiler. Assuming the standard RTL based USB receiver you need to install the native `librtlsdr` package and then build

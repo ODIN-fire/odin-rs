@@ -20,7 +20,7 @@ use crate::geo_constants::{
 };
 use crate::cartographic::Cartographic;
 use crate::{pow2,sqrt,signum, atan, atan2,cos,sin};
-use crate::json_writer::{JsonWritable,JsonWriter};
+use crate::json_writer::{JsonWritable, JsonWriter, NumFormat};
 
 /// note that we do not use uom here to allow for abstract coordinate systems (although
 /// it mostly is used for ITRF sysemts)
@@ -380,13 +380,14 @@ pub fn scale_to_earth_radius (ps: &mut[Cartesian3]) {
     }
 }
 
+/// a Cesium Cartesian3 compatible JSON serialization
 impl JsonWritable for Cartesian3 {
-    /// note this is a lossy implementation as we round to integer (assuming the underlying unit is meter)
+    /// note this is a lossy implementation as we only keep 1 decimal
     fn write_json_to (&self, w: &mut JsonWriter) {
         w.write_object( |w| {
-            w.write_field("x", self.x.round() as i64);
-            w.write_field("y", self.y.round() as i64);
-            w.write_field("z", self.z.round() as i64);
+            w.write_f64_field("x", self.x, NumFormat::Fp1);
+            w.write_f64_field("y", self.y, NumFormat::Fp1);
+            w.write_f64_field("z", self.z, NumFormat::Fp1);
         });
     }
 

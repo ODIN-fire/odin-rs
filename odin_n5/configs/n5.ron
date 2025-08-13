@@ -3,4 +3,9 @@
 N5Config(
     base_uri: "<N5-server-url>",
     api_key: "<your-secret-api-key>",
+
+    max_history_len: 20, // keep 20 last data points
+    data_cycles: 1, // we only get the most recent entry for each retrieve interval cycle
+    retrieve_interval: Duration(secs: 300, nanos: 0), // retrieve device data every 5 minutes
+    aggregate_interval: Duration(secs: 9000, nanos: 0), // average over 15min period (shortest duration)
 )

@@ -94,6 +94,11 @@ impl GeoPoint {
         Cartographic::from_degrees( self.longitude_deg(), self.latitude_deg(), 0.0)
     }
 
+    #[inline] pub fn to_cartesian3 (&self)->Cartesian3 {
+        let cp = Cartographic::from_degrees( self.longitude_deg(), self.latitude_deg(), 0.0);
+        Cartesian3::from( cp)
+    }
+
     #[inline] pub fn bearing_from (&self, prev: &GeoPoint)->Angle360 {
         let cp1 = prev.to_cartographic();
         let cp2 = self.to_cartographic();
@@ -124,6 +129,7 @@ impl SerializeTrait for GeoPoint {
         state.end()
     }
 }
+
 
 // note that we support alternative input formats for our virtual fields: "lon", "longitude or "x" for longitude degrees
 // and "lat", "latitude" or "y" for latitude degrees. This allows to directly deserialize from data that was

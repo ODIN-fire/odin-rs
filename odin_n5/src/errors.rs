@@ -31,6 +31,9 @@ pub enum OdinN5Error {
     #[error("net error {0}")]
     NetError( #[from] odin_common::net::OdinNetError),
         
+    #[error("actor error {0}")]
+    ActorError( #[from] odin_actor::errors::OdinActorError),
+
     #[error("header error {0}")]
     InvalidHeaderError( #[from] http::header::InvalidHeaderValue),
 

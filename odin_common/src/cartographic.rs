@@ -21,7 +21,10 @@ use std::f64::{self, NAN};
 
 use geo::{Bearing, Destination, Distance, Haversine, Point};
 use crate::{
-    abs, angle::{Latitude, Longitude}, atan, atan2, cartesian3::Cartesian3, cos, geo::{GeoPoint, GeoPolygon, GeoRect}, geo_constants::*, pow2, signum, sin, sin2, sqrt, tan, BoundingBox, HALF_PI, PI, TWO_PI
+    abs, angle::{Latitude, Longitude}, atan, atan2, cartesian3::Cartesian3, cos, geo::{GeoPoint, GeoPolygon, GeoRect}, 
+    geo_constants::*, 
+    json_writer::{JsonWriter,NumFormat}, 
+    pow2, signum, sin, sin2, sqrt, tan, BoundingBox, HALF_PI, PI, TWO_PI
 };
 
 
@@ -147,6 +150,24 @@ impl Cartographic {
             if i < len { vs.push( Cartographic::from(p)) } 
         }
         vs
+    }
+
+    /// we use different property names here to make sure this is not used as a Cesium Cartographic
+    pub fn write_degrees_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w|{
+            w.write_f64_field( "lon", self.longitude_deg(), NumFormat::Fp5);
+            w.write_f64_field( "lat", self.latitude_deg(), NumFormat::Fp5);
+            w.write_f64_field( "height", self.height, NumFormat::Fp1)
+        });
+    }
+
+    /// a Cesium Cartographic compatible JSON notation
+    pub fn write_radians_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w|{
+            w.write_field( "longitude", self.longitude);
+            w.write_field( "latitude", self.latitude);
+            if self.height != 0.0 { w.write_f64_field( "height", self.height, NumFormat::Fp1) }
+        });
     }
 }
 

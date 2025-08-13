@@ -157,7 +157,7 @@ createWindow();                                               // UI window defin
 initDataSetView();                                            // initialize UI window components and store references
 ...
 
-console.log("ui_cesium_goesr initialized");
+console.log("odin_goesr initialized");
 
 //--- 7. function definitions
 ...

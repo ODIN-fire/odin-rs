@@ -17,7 +17,8 @@
 use tokio;
 use anyhow::Result;
 use reqwest::Client;
-use odin_n5::{load_config, get_devices, Device, N5Config};
+use odin_common::json_writer::{JsonWritable,JsonWriter};
+use odin_n5::{load_config, get_n5_devices, Device, N5Config};
 
 
 #[tokio::main]
@@ -27,8 +28,12 @@ async fn main()->Result<()> {
     let config: N5Config = load_config("n5.ron")?;
     let client = Client::new();
 
-    let devices = get_devices( &client, &config).await?;
-    println!("{devices:#?}");
+    let devices = get_n5_devices( &client, &config, true).await?;
+    //println!("{devices:#?}");
+
+    let mut w = JsonWriter::new();
+    devices.write_json_to(&mut w);
+    println!("{}", w.as_str());
 
     Ok(())
 }

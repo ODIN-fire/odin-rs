@@ -16,62 +16,58 @@
 use std::sync::Arc;
 use async_trait::async_trait;
 use odin_actor::prelude::*;
-use crate::{N5Config,N5Connector,errors::Result,actor::N5ActorMsg};
+use reqwest::Client;
+use crate::{
+    N5Config,N5Connector,errors::Result,actor::{N5ActorMsg,InitStore,UpdateStore}, 
+    get_n5_devices, get_n5_data
+};
 
 /// an http based N5Connector
 /// Note that `N5Connector` instances are used for dependency injection into [`N5Actor`] and hence
-/// are created before we have a respective [`ActorHandle`]. This means the purpose of a `LiveN5Connector` is
-/// twofold: 
-///   - (a) to provide an [`N5Connector`] impl that is used by the actor, and 
-///   - (b) to create the internal `LiveConnection` object that does the real work once the actor calls 
-///    `N5Connector::start(actor_handle)` (during processing of its _Start_ message).
-/// 
-/// Note also that LiveN5Connector is a configured object. Since it has to pass down the config into
-/// its LiveConnection it keeps the config in an `Arc`
-/// 
+/// are created before we have a respective [`ActorHandle`]
 pub struct LiveN5Connector { 
     config: Arc<N5Config>,
-    connection: Option<LiveConnection>
+    task: Option<AbortHandle>
 }
 
 impl LiveN5Connector {
     /// called before actor instantiation
     pub fn new (config: N5Config)->Self {
-        LiveN5Connector { config: Arc::new(config), connection: None }
-    }
-
-    /// called from actor _Start_ (2nd half of our initialization)
-    async fn initialize (&mut self, hself: ActorHandle<N5ActorMsg>)->Result<()> {
-        self.connection = Some(LiveConnection::new(self.config.clone(), hself).await?);
-        Ok(())
+        LiveN5Connector { config: Arc::new(config), task: None }
     }
 }
 
-/// this is the interface used by the [`N5Actor`] 
+/// this is the interface used by the N5Actor
 #[async_trait]
 impl N5Connector for LiveN5Connector {
+
     async fn start (&mut self, hself: ActorHandle<N5ActorMsg>)->Result<()> {
-        self.initialize(hself).await
+        if self.task.is_none() {
+            let config = self.config.clone();
+
+            let jh = spawn( "N5-connector", async move {
+                let client = Client::new();
+                if let Ok(devices) = get_n5_devices( &client, config.as_ref(), true).await {
+                    let device_ids: Vec<u32> = devices.iter().map( |d| d.id).collect();
+                    hself.send_msg( InitStore(devices)).await;
+
+                    loop {
+                        sleep( config.retrieve_interval).await;
+                        if let Ok(updates) = get_n5_data( &client, config.as_ref(), &device_ids).await {
+                            hself.send_msg( UpdateStore(updates)).await;
+                        }
+                    }
+                }
+            })?;
+            self.task = Some(jh.abort_handle());
+        }
+        Ok(())
     }
 
     fn terminate (&mut self) {
-        if let Some(mut conn) = self.connection.as_mut() {
-            conn.terminate();
-            self.connection = None;
+        if let Some(ah) = &self.task {
+            ah.abort();
+            self.task = None;
         }
-    }
-}
-
-/// the (internal) worker of a LiveN5Connector (dynamically created)
-struct LiveConnection {
-    config: Arc<N5Config>,
-}
-
-impl LiveConnection {
-    async fn new (config: Arc<N5Config>, hself: ActorHandle<N5ActorMsg>)->Result<Self> {
-        Ok( LiveConnection{config} )
-    }
-
-    fn terminate(&mut self) {
     }
 }

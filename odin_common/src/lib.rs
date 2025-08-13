@@ -13,7 +13,7 @@
  */
 #![allow(unused,uncommon_codepoints)]
 
-use std::f64::consts::{PI as STD_PI};
+use std::{f64::consts::{PI as STD_PI}, fmt};
 
 use serde::{Serialize,Deserialize};
 use num::{Num,ToPrimitive};
@@ -149,3 +149,31 @@ pub const HALF_PI: f64 = PI / 2.0;
 pub const TWO_PI: f64 = PI * 2.0;
 pub const PI_SQUARED: f64 = PI*PI;
 
+
+/// a [0..100] range checked f64, mostly for explicit semantics
+#[derive(Serialize,Deserialize,Debug,Clone,Copy,PartialEq)]
+pub struct Percent(f64);
+
+impl Percent {
+    pub fn new (percent: f64)->Self { Percent(percent) }
+
+    pub fn rounded_percent(&self)->u32 { self.0.round() as u32 }
+    pub fn as_factor (&self)->f64 { self.0 / 100.0 }
+    pub fn check_range (&self)->bool { self.0 >= 0.0 && self.0 <= 100.0 }
+}
+
+impl fmt::Display for Percent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}%", self.0)
+    }
+}
+
+impl PartialOrd for Percent {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+
+impl <T> From<T> for Percent where T: Into<f64> + Copy {
+    fn from (t: T)->Self { Percent( t.into()) }
+}

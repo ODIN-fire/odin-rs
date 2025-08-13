@@ -15,17 +15,15 @@
 
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
-use crate::{N5Connector,DeviceStore,DeviceUpdate,Data,errors::OdinN5Error};
+use crate::{N5DataUpdate, N5Device};
+use crate::{N5Connector,N5DeviceStore,N5Data,errors::{Result,OdinN5Error}};
 
 //--- external messages
-#[derive(Debug)] pub struct ExecSnapshotAction( pub DynDataRefAction<DeviceStore> );
+#[derive(Debug)] pub struct ExecSnapshotAction( pub DynDataRefAction<N5DeviceStore> );
 
 //--- internal messages (from N5Connector)
-#[derive(Debug)] pub(crate) struct InitializeStore (pub(crate) DeviceStore);  // set initial store contents
-#[derive(Debug)] pub(crate) struct UpdateStore { // single record update (triggered by websocket notification)
-    pub(crate) device_id:u32, 
-    pub(crate) update:DeviceUpdate
-} 
+#[derive(Debug)] pub(crate) struct InitStore (pub(crate) Vec<N5Device>);        // used to initialize store
+#[derive(Debug)] pub(crate) struct UpdateStore (pub(crate) Vec<N5DataUpdate>);  // used to update store
 #[derive(Debug)] pub(crate) struct ConnectorError (pub(crate) OdinN5Error);
 
 define_actor_msg_set! { pub N5ActorMsg = 
@@ -33,44 +31,65 @@ define_actor_msg_set! { pub N5ActorMsg =
     ExecSnapshotAction |
 
     //-- messages we get from our connector (note these are not public)
-    InitializeStore |
+    InitStore |
     UpdateStore |
     ConnectorError
 }
 
 pub struct N5Actor <C,I,U> 
-    where C: N5Connector + Send,  I: DataRefAction<DeviceStore>,  U: DataAction<UpdateStore>
+    where C: N5Connector + Send,  I: DataRefAction<N5DeviceStore>,  U: DataAction<Vec<N5DataUpdate>>
 {
     connector: C,               // where we get the external data from
-    devices: DeviceStore,       // our internal store
+    store: N5DeviceStore,       // our internal store
 
     init_action: I,             // initialized interaction (triggered by self)
     update_action: U,           // update interactions (triggered by self)
 }
 
 impl<C,I,U> N5Actor <C,I,U>
-    where C: N5Connector + Send, I: DataRefAction<DeviceStore>, U: DataAction<UpdateStore>
+    where C: N5Connector + Send, I: DataRefAction<N5DeviceStore>, U: DataAction<Vec<N5DataUpdate>>
 {
     pub fn new (connector: C, init_action: I, update_action: U)->Self {
-        N5Actor { connector, devices: DeviceStore::new(), init_action, update_action }
+        N5Actor { connector, store: N5DeviceStore::new(), init_action, update_action }
+    }
+
+    async fn init_store (&mut self, n5_devices: Vec<N5Device>)->Result<()> {
+        for d in n5_devices {
+            self.store.insert( d.id, d);
+        }
+        self.init_action.execute( &self.store).await;
+
+        Ok(())
+    }
+
+    async fn update_store (&mut self, updates: Vec<N5DataUpdate>)->Result<()> {
+        for update in &updates {
+            if let Some(device) = self.store.get_mut( update.id) {
+                device.add_data( update.data.clone());
+            }
+        }
+
+        self.update_action.execute( updates).await;
+
+        Ok(())
     }
 }
 
 impl_actor! { match msg for Actor<N5Actor<C,I,U>, N5ActorMsg> 
-    where C: N5Connector + Send + Sync,  I: DataRefAction<DeviceStore> + Sync,  U: DataAction<UpdateStore> + Sync
+    where C: N5Connector + Send + Sync,  I: DataRefAction<N5DeviceStore> + Sync,  U: DataAction<Vec<N5DataUpdate>> + Sync
     as 
 
     //--- user messages
     ExecSnapshotAction => cont! {
-        msg.0.execute( &self.devices).await;
+        msg.0.execute( &self.store).await;
     }
 
     //--- (private) connector messages
-    InitializeStore => cont! { 
-        //self.init_store( msg.0).await;
+     InitStore => cont! { 
+        self.init_store( msg.0).await;
     }
     UpdateStore => cont! { 
-        //self.update( msg.0).await; 
+        self.update_store( msg.0).await; 
     }
     ConnectorError => cont! { 
         error!("connector error: {:?}", msg) // TODO - this needs to be handled

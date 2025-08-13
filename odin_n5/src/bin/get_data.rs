@@ -42,7 +42,7 @@ async fn main()->Result<()> {
 
     for device_id in &args.device_ids {
         println!("------- device: {}", device_id);
-        let data = get_data( &client, &config, *device_id, args.n_last).await?;
+        let data = get_data( &client, &config, *device_id).await?;
         println!("{data:#?}");
     }
 
