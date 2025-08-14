@@ -52,10 +52,35 @@ use tracing_subscriber::{filter, layer::SubscriberExt, util::SubscriberInitExt};
 use anyhow::Result;
 
 use odin_build::set_bin_context;
-use odin_common::{define_serde_struct, fs::{self,EnvPathBuf}, BoundingBox, strings::{deserialize_arr4,parse_array}, if_let, datetime };
+use odin_common::{fs::{self,EnvPathBuf}, BoundingBox, strings::{deserialize_arr4,parse_array}, if_let, datetime };
 use odin_server::{spawn_server_task,ServerConfig, server_error};
 use odin_dem::{get_dem_heights, get_local_res_file_path, get_local_wh_file_path, get_res_dem, get_wh_dem, load_config, DemImgType, DemSRS};
 
+/// syntactic sugar macro to expand into a struct with serde attribute macros
+/// This mostly expands optional "[ attr,.. ]" groups into respective #[serde(attrs...)] container or field attribute macros
+/// use like this:
+/// 
+/// define_serde_struct! {
+///     pub GetMapQuery : Debug [deny_unknown_fields] = 
+///        service: String [alias = "svc", default="default_service"],
+///        layers: Option<String>
+/// }
+/// 
+/// TODO - we might turn this into q proc macro so that we can also do ad hoc default value spec without the need for additional functions
+macro_rules! define_serde_struct {
+    ( $vis:vis $name:ident $( : $( $dt:ty),* )? $( [ $( $sopt:ident $(= $sx:literal)? ),* ] )? = 
+       $( $( #[$fmeta:meta] )? $fvis:vis $fname:ident: $ftype:ty $( [ $( $fopt:ident $(= $fx:literal)? ),* ] )? ),*  $(,)?) => {
+        #[derive(Serialize,Deserialize $( $( , $dt)* )? )]
+        $( #[serde( $( $sopt $( = $sx)? ),* ) ])?
+        $vis struct $name {
+            $( 
+                $( #[ $fmeta ] )?
+                $( #[serde(  $( $fopt $( =$fx )?),*  )] )?
+                $fvis $fname : $ftype
+            ),*
+        }
+    }
+}
 
 /// DEM configuration data
 define_serde_struct! { pub DemConfig: Debug = 

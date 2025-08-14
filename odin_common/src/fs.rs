@@ -25,7 +25,6 @@ use std::path::{Path,PathBuf};
 use odin_build;
 
 use crate::if_let;
-use crate::macros::io_error;
 
 type Result<T> = std::result::Result<T,std::io::Error>;
 
@@ -58,6 +57,13 @@ pub fn ensure_dir (path: impl AsRef<Path>)->io::Result<()> {
         std::fs::create_dir_all(path)?;
     }
     Ok(())
+}
+
+macro_rules! io_error {
+    ( $kind:expr, $fmt:literal $(, $($arg:expr),* )? ) =>
+    {
+        io::Error::new( $kind, format!($fmt, $( $($arg),* )?).as_str())
+    }
 }
 
 /// check if dir pathname exists and is writable, try to create dir otherwise

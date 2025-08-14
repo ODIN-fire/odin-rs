@@ -14,7 +14,6 @@
 
 use thiserror::Error;
 use odin_actor::errors::OdinActorError;
-use odin_common::map_to_opaque_error;
 use odin_job::OdinJobError;
 use ron;
 
@@ -92,6 +91,14 @@ pub enum OdinSentinelError {
     /// a generic error
     #[error("operation failed {0}")]
     OpFailed(String)
+}
+
+macro_rules! map_to_opaque_error {
+    ($from_error:ty => $to_error:ident :: $variant:ident) => {
+        impl From<$from_error> for $to_error {
+            fn from (e: $from_error)->Self { $to_error :: $variant ( e.to_string()) }
+        }
+    };
 }
 
 map_to_opaque_error!{ std::io::Error => OdinSentinelError::IOError }

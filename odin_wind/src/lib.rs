@@ -22,7 +22,7 @@ use odin_build::{define_load_asset, define_load_config, pkg_cache_dir};
 use odin_common::{
     cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque, datetime, 
     fs::{path_str_to_fname, replace_env_var_path, replace_filename}, 
-    geo::GeoRect, json_writer::{JsonWritable,JsonWriter}, sqrt, utm::UtmRect, BoundingBox, push_all_str
+    geo::GeoRect, json_writer::{JsonWritable,JsonWriter}, sqrt, utm::UtmRect, BoundingBox
 };
 use odin_dem::DemSource;
 use lazy_static::lazy_static;
@@ -57,6 +57,13 @@ pub struct WindConfig {
     // the fields and levels we need from HRRR
     hrrr_fields: Vec<String>,
     hrrr_levels: Vec<String>,
+}
+
+macro_rules! push_all_str {
+    ( $o:ident, $($arg:expr),+ ) =>
+    {
+        $( $o.push_str( $arg) );+
+    }
 }
 
 /// the internal data structure that represents the input data for a single WindNinja run
