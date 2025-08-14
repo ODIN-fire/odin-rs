@@ -20,7 +20,7 @@ use regex::Regex;
 use lazy_static::lazy_static;
 use serde::{de::DeserializeOwned,Serialize,Deserialize};
 
-use crate::{define_error, fs::{self, file_length}, if_let};
+use crate::{fs::{self, file_length}, if_let};
 
 const SCHEME: usize = 1;
 const USR: usize = 2;
@@ -33,6 +33,37 @@ lazy_static! {
     // [scheme,user,host,port,path,query]
     static ref URL_RE: Regex = Regex::new( r"(.+)://(?:(.+)@)?([^:/]+)(?::(\d+))?(?:/([^?]+))?(?:\?(.+))?").unwrap();
     static ref FNAME_RE: Regex = Regex::new( r"(?:.*/)(.*)").unwrap();
+}
+
+/// syntactic sugar macro to define thiserror Error enums:
+/// ```
+/// define_error!{ pub OdinNetError = 
+///   IOError( #[from] std::io::Error ) : "IO error: {0}",
+///   OpFailed(String) : "operation failed: {0}"
+/// }
+/// ```
+/// will get expanded into
+/// ```
+/// use thiserror;
+/// pub enum OdinNetError {
+///     #[error("IO error: {0}")]
+///     IOError(#[from] std::io::Error),
+/// 
+///     #[error("operation failed: {0}")]
+///     OpFailed(String),
+/// }
+/// ```
+macro_rules! define_error {
+    ($vis:vis $name:ident = $( $err_variant:ident ( $( $( #[$meta:meta] )? $field_type:ty),* ) : $msg_lit:literal ),*) => {
+        use thiserror;
+        #[derive(thiserror::Error,Debug)]
+        $vis enum $name {
+            $( 
+                #[error($msg_lit)]
+                $err_variant ( $( $(#[$meta])? $field_type ),*  )
+            ),*
+        }
+    }
 }
 
 define_error!{ pub OdinNetError = 

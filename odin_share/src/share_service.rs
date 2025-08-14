@@ -35,7 +35,7 @@ use odin_server::{ errors::op_failed, prelude::*};
 use async_trait::async_trait;
 use odin_actor::prelude::*;
 use odin_build::{pkg_data_dir, prelude::*};
-use odin_common::{define_serde_struct, geo::{GeoPoint, GeoPoint3, GeoLine, GeoLineString, GeoRect, GeoPolygon, GeoCircle}};
+use odin_common::geo::{GeoPoint, GeoPoint3, GeoLine, GeoLineString, GeoRect, GeoPolygon, GeoCircle};
 use crate::{
     actor::{ExecSnapshotAction, SetSharedStoreEntry, RemoveSharedStoreEntry, SharedStoreActor, SharedStoreActorMsg, SharedStoreChange, SharedStoreUpdate}, 
     dyn_shared_store_action, load_asset, SharedStore, SharedStoreValueConstraints, shared_store_action, SharedStoreAction,
