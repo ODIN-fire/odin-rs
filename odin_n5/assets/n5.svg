@@ -29,7 +29,7 @@
      inkscape:window-width="1728"
      inkscape:window-height="1051"
      inkscape:window-x="0"
-     inkscape:window-y="38"
+     inkscape:window-y="25"
      inkscape:window-maximized="0"
      inkscape:current-layer="layer1"
      inkscape:showpageshadow="2"
@@ -76,13 +76,14 @@
        transform="matrix(1.4915372,0.85405532,-0.85405532,1.4915372,5.5466153,-7.7237009)" />
     <text
        xml:space="preserve"
-       style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:6.66667px;font-family:Sans;-inkscape-font-specification:'Sans, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:none;fill-opacity:1;stroke:#e2dfdf;stroke-width:0.2;stroke-dasharray:none;stroke-opacity:1"
-       x="11.29785"
-       y="18.373049"
+       style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:8.58222px;font-family:Sans;-inkscape-font-specification:'Sans, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.257466;stroke-dasharray:none;stroke-opacity:1"
+       x="9.9467688"
+       y="19.054901"
        id="text1"><tspan
          sodipodi:role="line"
          id="tspan1"
-         x="11.29785"
-         y="18.373049">N5</tspan></text>
+         x="9.9467688"
+         y="19.054901"
+         style="stroke-width:0.257466">N5</tspan></text>
   </g>
 </svg>

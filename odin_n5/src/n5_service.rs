@@ -60,10 +60,8 @@ impl SpaService for N5Service {
 
         if self.hactor.id() == sender_id && data_type == type_name::<N5DeviceStore>() { // is this for us?
             if has_connections {
-                let action = dyn_dataref_action!( let hself: ActorHandle<SpaServerMsg> = hself.clone() => |data: &N5DeviceStore| {
-                    let devices = data.values();
-                    //let data = ws_msg!( MOD_PATH, sentinels).to_json()?;
-                    let ws_msg: String = todo!(); //WsMsg::json( N5Service::mod_path(), "n5", devices)?;
+                let action = dyn_dataref_action!( let hself: ActorHandle<SpaServerMsg> = hself.clone() => |store: &N5DeviceStore| {
+                    let ws_msg = store.get_json_snapshot_msg();
                     Ok( hself.try_send_msg( BroadcastWsMsg{ws_msg})? )
                 });
                 self.hactor.send_msg( ExecSnapshotAction(action)).await?;
@@ -83,11 +81,11 @@ impl SpaService for N5Service {
                 let remote_addr: SocketAddr = remote_addr => 
                 |store: &N5DeviceStore| {                              // this gets executed by the N5Actor 
                     let remote_addr = remote_addr.clone();
-                    let ws_msg: String = todo!(); //get_json_snapshot_msg();
+                    let ws_msg = store.get_json_snapshot_msg();
                     Ok( hself.try_send_msg( SendWsMsg{remote_addr,ws_msg})? )
                 }
             };
-            self.hactor.send_msg( ExecSnapshotAction(action)).await?; // send the action requests to the N5Actors
+            self.hactor.send_msg( ExecSnapshotAction(action)).await?; // send the action requests to the N5Actor
         }
         
         Ok(())

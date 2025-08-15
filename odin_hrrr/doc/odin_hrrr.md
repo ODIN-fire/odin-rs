@@ -52,7 +52,7 @@ Schedules can be either estimated from a given `HrrrConfig` (config file) or com
 [NOAA server](https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod) which has directories for the current and past day (this
 might be brittle since the HTML directory listing format on the NOAA server can change). `HrrrConfig` files have the following structure:
 
-```rust
+```rust,ignore
 HrrrConfig(
     region: "conus",
     url: "https://nomads.ncep.noaa.gov/cgi-bin/filter_hrrr_2d.pl",
@@ -90,7 +90,7 @@ for medium sized incident areas (~50x50mi) to about 3.5 MB.
 We therefore support configuration of both variables and regions of interest through the `HrrrDataSetConfig` struct, which can be 
 serialized/deserialized like so:
 
-```rust
+```rust,ignore
 HrrrDataSetConfig(
     name: "BigSur",
     bbox: GeoBoundingBox(
@@ -174,7 +174,7 @@ i.e. it has to ensure disk space remains bounded.
 
 An simple actor application that just prints out notifications for each downloaded HRRR file looks like so:
 
-```rust
+```rust,ignore
 use std::sync::Arc;
 use odin_common::define_cli;
 use odin_actor::prelude::*;

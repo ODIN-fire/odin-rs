@@ -258,7 +258,8 @@ function showSentinels (cond) { // triggered by panel
 
 
 function toggleShowSentinels(event) { // show action triggered by layer view (not panel)
-    // TBD
+    sentinelDataSource.show = !sentinelDataSource.show;
+    odinCesium.requestRender();
 }
 
 function initSentinelView() {

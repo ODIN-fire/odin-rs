@@ -894,6 +894,10 @@ export class CircularBuffer {
         } else return undefined;
     }
 
+    toReversed() {
+        return [...this].reverse();
+    }
+
     *
     [Symbol.iterator]() {
         if (this.size > 0) {

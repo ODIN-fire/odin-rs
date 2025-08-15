@@ -26,10 +26,12 @@ use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, Sentin
 use odin_hrrr::{self,HrrrActor,HrrrFileAvailable};
 use odin_wind::{self, actor::{WindActor,WindActorMsg, server_subscribe_action, server_update_action}, wind_service::WindService};
 use odin_adsb::{AircraftStore,actor::AdsbActor,adsb_service::AdsbService, sbs::SbsConnector};
+use odin_n5::{self, N5DeviceStore, N5DataUpdate, get_json_update_msg, n5_service::N5Service, actor::N5Actor, live_connector::LiveN5Connector};
 
 run_actor_system!( actor_system => {
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
     let pre_hrrr = PreActorHandle::new( &actor_system, "hrrr", 8);
+    let pre_n5 = PreActorHandle::new( &actor_system, "n5", 8);
 
     //--- spawn the shared item store actor (needed by WindService)
     let hstore = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
@@ -83,6 +85,26 @@ run_actor_system!( actor_system => {
         )
     ))?;
 
+    //--- spawn N5Actor
+    let sender_id = pre_n5.get_id();
+    let hn5 = spawn_pre_actor!( actor_system, pre_n5, 
+        N5Actor::new( 
+            LiveN5Connector::new( odin_n5::load_config("n5.ron")?),
+            dataref_action!( 
+                let sender_id: Arc<String> = sender_id,
+                let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |_store: &N5DeviceStore| {
+                    Ok( hserver.try_send_msg( DataAvailable::new::<N5DeviceStore>(sender_id) )? )
+                }
+            ),
+            data_action!( 
+                let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |updates: Vec<N5DataUpdate>| {
+                    let ws_msg = get_json_update_msg( &updates);
+                    Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
+                }
+            )
+        )
+    )?;
+
     //--- spawn the AdsbActor
     let hadsb = spawn_actor!( actor_system, "adsb",
         AdsbActor::<SbsConnector,_>::new(
@@ -106,7 +128,8 @@ run_actor_system!( actor_system => {
             .add( build_service!( let hstore = hstore.clone() => ShareService::new( "odin_share_schema.js", hstore)))
             .add( build_service!( => GeoLayerService::new( &odin_geolayer::default_data_dir())))
             .add( build_service!( => WindService::new( hwind) ))
-            .add( build_service!( let hsentinel = hsentinel.clone() => SentinelService::new( hsentinel)))
+            .add( build_service!( => SentinelService::new( hsentinel)))
+            .add( build_service!( => N5Service::new( hn5) ))
             .add( build_service!( => GoesrHotspotService::new( goesr_sats)) )
             .add( build_service!( => OrbitalHotspotService::new( orbital_sats) ))
             .add( build_service!( => AdsbService::new( vec![hadsb]) ))

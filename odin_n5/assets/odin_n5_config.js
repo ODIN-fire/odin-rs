@@ -4,6 +4,7 @@ export const config = {
       description: "stationary N5Shield fire sensors",
       show: true,
     },
+    maxAlertAge: 60000 * 60, // 1h
     color: Cesium.Color.fromCssColorString('chartreuse'),
     alertColor: Cesium.Color.fromCssColorString('deeppink'),
     labelFont: '16px sans-serif',
@@ -13,12 +14,12 @@ export const config = {
     pointSize: 5,
     pointOutlineColor: Cesium.Color.fromCssColorString('black'),
     pointOutlineWidth: 1,
-    pointDC: new Cesium.DistanceDisplayCondition( 5000, Number.MAX_VALUE),
+    pointDC: new Cesium.DistanceDisplayCondition( 20000, Number.MAX_VALUE),
     infoFont: '14px monospace',
     infoOffset:  new Cesium.Cartesian2( 8, 16),
-    infoDC: new Cesium.DistanceDisplayCondition( 0, 10000),
-    billboardDC: new Cesium.DistanceDisplayCondition( 0, 5000),
-    maxHistory: 10,
+    infoDC: new Cesium.DistanceDisplayCondition( 0, 8000),
+    billboardDC: new Cesium.DistanceDisplayCondition( 0, 20000),
+    maxHistory: 30, // max data points we keep
     zoomHeight: 20000,
-    inactiveMinutes: 60
+    inactiveDuration: 60000 * 20 // 20 min
   };

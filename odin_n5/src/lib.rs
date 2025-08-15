@@ -23,9 +23,18 @@ use reqwest::{Client,Response,header::{HeaderMap,HeaderName,HeaderValue,CONTENT_
 use ron::{self, to_string};
 use async_trait::async_trait;
 use uom::si::f64::{Angle, ElectricCurrent, ElectricPotential, Length, Pressure, ThermodynamicTemperature, Velocity};
-use uom::si::{thermodynamic_temperature::{degree_celsius,degree_fahrenheit}, pressure::{pascal,inch_of_mercury}};
+use uom::si::{
+    thermodynamic_temperature::{degree_celsius,degree_fahrenheit}, 
+    pressure::{pascal,inch_of_mercury}, 
+    velocity::{mile_per_hour,meter_per_second}
+};
 use odin_build::{define_load_asset, define_load_config, pkg_cache_dir};
-use odin_common::{datetime::EpochMillis, geo::GeoPoint, json_writer::{JsonWritable,JsonWriter, NumFormat}, net::from_json, Percent, collections::RingDeque};
+use odin_server::{spa::SpaService,ws_service::ws_msg_from_json};
+use odin_common::{
+    collections::RingDeque, datetime::{self, EpochMillis, utc_now}, geo::GeoPoint, 
+    json_writer::{JsonWritable,JsonWriter, NumFormat}, net::from_json, Percent,
+    angle::Angle360,
+};
 use odin_actor::ActorHandle;
 
 pub mod errors;
@@ -38,6 +47,7 @@ pub mod live_connector;
 pub use live_connector::*;
 
 pub mod n5_service;
+use n5_service::N5Service;
 
 /// crate to import N5 sensor data
 
@@ -118,6 +128,19 @@ pub struct SmokeIndexResponse {
 pub struct SmokeIndex {
     pub create_date: DateTime<Utc>,
     pub smoke_index_reading: u32
+}
+
+#[derive(Deserialize, Debug)]
+pub struct WindResponse {
+    results: Vec<Wind>
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Wind {
+    pub create_date: DateTime<Utc>,
+    wind_speed_reading: f64,
+    wind_direction_reading: f64,
+    source: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -228,6 +251,9 @@ pub struct N5Data {
     pub humidity: Percent,
     pub pressure: Pressure,
 
+    pub wind_spd: Velocity,
+    pub wind_dir: Angle360,
+
     pub ic_score: f64,   // IR reading
     pub smoke_index: f64,
     pub air_quality: f64, // PM 2.5 ? units? AQI ? 
@@ -241,6 +267,8 @@ impl JsonWritable for N5Data {
             w.write_field( "temperature", self.temperature.get::<degree_fahrenheit>() as i64);
             w.write_field( "humidity", self.humidity.rounded_percent());
             w.write_f64_field( "pressure", self.pressure.get::<inch_of_mercury>(), NumFormat::Fp2);
+            w.write_f64_field( "wind_spd", self.wind_spd.get::<mile_per_hour>(), NumFormat::Fp1);
+            w.write_f64_field( "wind_dir", self.wind_dir.degrees(), NumFormat::Fp0);
             w.write_f64_field( "ic_score", self.ic_score, NumFormat::Fp2);
             w.write_field( "smoke_index", self.smoke_index as i64); // units ?
             w.write_field( "air_quality", self.air_quality as i64); // units ?
@@ -279,17 +307,69 @@ impl JsonWritable for N5DataUpdate {
     }
 }
 
+pub fn get_json_update_msg (updates: &[N5DataUpdate])->String {
+    let mut w = JsonWriter::with_capacity(8192);
+    w.write_object( |w| {
+        w.write_field("date", datetime::utc_now().timestamp());
+        w.write_array_field("changes", |w| {
+            for d in updates {
+                d.write_json_to(w);
+            }
+        })
+    });
+    ws_msg_from_json( N5Service::mod_path(), "update", w.as_str())
+}
+
+
+pub struct N5DeviceStore(IntMap<u32,N5Device>);
+
+impl N5DeviceStore {
+    pub fn new()->Self { 
+        N5DeviceStore( IntMap::new()) 
+    }
+
+    pub fn add (&mut self, n5_device: N5Device) {
+        self.0.insert( n5_device.id, n5_device);
+    }
+
+    pub fn add_all (&mut self, n5_devices: Vec<N5Device>) {
+        for device in n5_devices {
+            self.add( device)
+        }
+    }
+
+    pub fn update_data (&mut self, updates: &[N5DataUpdate]) {
+        for update in updates {
+            if let Some(device) = self.0.get_mut(update.id) {
+                device.add_data( update.data.clone());
+            }
+        }
+    }
+
+    pub fn write_json_snapshot_to (&self, w: &mut JsonWriter) {
+        w.clear();
+
+        w.write_object( |w| {
+            w.write_field("date", datetime::utc_now().timestamp());
+            w.write_array_field("devices", |w| {
+                for device in self.0.values() {
+                    device.write_json_to(w);
+                }
+            });
+        });
+    }
+
+    /// this happens infrequently from a dyn action so we don't cache the writer (but for that save the clone)
+    pub fn get_json_snapshot_msg (&self)->String {
+        let mut w = JsonWriter::with_capacity(8192);
+        self.write_json_snapshot_to(&mut w);
+        ws_msg_from_json( N5Service::mod_path(), "snapshot", w.as_str())
+    }
+}
+
+
 /* #region actor types **************************************************************************/
 
-pub type N5DeviceStore = IntMap<u32,N5Device>;
-
-pub fn create_device_store (devices: Vec<N5Device>)->N5DeviceStore {
-    let mut map: N5DeviceStore = IntMap::new();
-    for d in devices {
-        map.insert( d.id, d);
-    }
-    map
-}
 
 #[derive(Deserialize,Serialize,Debug)]
 pub struct N5Config {
@@ -329,6 +409,14 @@ pub async fn get_data (client: &Client, conf: &N5Config, device_id: u32)->Result
     Ok(data_response.results)
 }
 
+pub async fn get_wind (client: &Client, conf: &N5Config, device_id: u32)->Result<Vec<Wind>> {
+    // TODO - no average here?
+    let uri = format!("{}/devices/{}/wind?page_size={}&sort_dir=DESC", conf.base_uri, device_id, conf.data_cycles);
+    let response = get_response( client, conf, uri.as_str()).await?;
+    let wind_response: WindResponse = from_json( response).await?;
+    Ok(wind_response.results)
+}
+
 pub async fn get_heat_map (client: &Client, conf: &N5Config, device_id: u32)->Result<Vec<HeatMap>> {
     let avg_minutes = conf.aggregate_interval.as_secs() / 60;
     let uri = format!("{}/devices/{}/heat-map?page_size={}&sort_dir=DESC&interval={}-minutes", conf.base_uri, device_id, conf.data_cycles, avg_minutes);
@@ -366,6 +454,7 @@ async fn get_response (client: &Client, conf: &N5Config, uri: &str)->Result<Resp
 pub async fn get_current_device_data (client: &Client, conf: &N5Config, device_id: u32)->Result<N5Data> {
     let data = get_data( client, conf, device_id).await?; // this gets the current snapshot
     let heat_map = get_heat_map( client, conf, device_id).await?;
+    let wind = get_wind( client, conf, device_id).await?;
     //let smoke_index = get_smoke_index( client, conf, device_id).await?; // TODO activate when accessible
 
     if data.len() > 0 && heat_map.len() > 0 /*&& smoke_index.len() > 0 */ {
@@ -375,6 +464,8 @@ pub async fn get_current_device_data (client: &Client, conf: &N5Config, device_i
             temperature: ThermodynamicTemperature::new::<degree_celsius>( data[0].temperature),
             humidity: Percent::new( data[0].humidity),
             pressure: Pressure::new::<pascal>( data[0].pressure), // TODO - check unit
+            wind_spd: Velocity::new::<meter_per_second>( wind[0].wind_speed_reading),
+            wind_dir: Angle360::from_degrees( wind[0].wind_direction_reading),
             ic_score: heat_map[0].ic_score,   // IR reading
             smoke_index: 0.0, // smoke_index[0].smoke_index_reading // TODO activate when accessible
             air_quality: data[0].air_quality, // PM 2.5 ? units?

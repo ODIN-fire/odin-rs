@@ -159,7 +159,6 @@ function connect () {
                             handleServerMessage(msg);
                         } catch(error) {
                             console.error(error);
-                            //console.log("parsing websocket message:", data);
                         }
                     }
                 };

@@ -447,6 +447,10 @@ function initDisplayCb() {
     selDisplay = ui.getSelectedChoiceValue( displayCb);
 }
 
+function isAnimDisplay () {
+    return selDisplay == "animation";
+}
+
 function initSourceCb() {
     ui.setChoiceItems( sourceCb, [WindNinjaSource, Hrrr10Source, Hrrr80Source], 0);
     selSource = ui.getSelectedChoiceValue( sourceCb);

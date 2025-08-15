@@ -54,21 +54,14 @@ impl<C,I,U> N5Actor <C,I,U>
     }
 
     async fn init_store (&mut self, n5_devices: Vec<N5Device>)->Result<()> {
-        for d in n5_devices {
-            self.store.insert( d.id, d);
-        }
+        self.store.add_all(n5_devices);
         self.init_action.execute( &self.store).await;
 
         Ok(())
     }
 
     async fn update_store (&mut self, updates: Vec<N5DataUpdate>)->Result<()> {
-        for update in &updates {
-            if let Some(device) = self.store.get_mut( update.id) {
-                device.add_data( update.data.clone());
-            }
-        }
-
+        self.store.update_data(&updates);
         self.update_action.execute( updates).await;
 
         Ok(())
