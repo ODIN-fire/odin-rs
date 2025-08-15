@@ -86,6 +86,19 @@ pub struct BinContext {
     pub build: String, // describing how binary was built (showing build-time env settings)
 }
 
+impl BinContext {
+    pub fn set(bin_name: &str,
+               bin_crate: &str,
+               bin_suffix: Option<String>,
+               proc_id: Option<u32>,
+               build: &str) {
+        BIN_CONTEXT.set(Self{ bin_name: bin_name.to_string(),
+            bin_crate: bin_crate.to_string(),
+            bin_suffix, proc_id,
+            build: build.to_string() } ).expect("Context set twice");
+    }
+}
+
 pub static BIN_CONTEXT: OnceLock<BinContext> = OnceLock::new();
 
 /// this has to be called (once) from the bin source
@@ -93,13 +106,13 @@ pub static BIN_CONTEXT: OnceLock<BinContext> = OnceLock::new();
 macro_rules! set_bin_context {
     () => {
         {
-            let bin_crate = env!("CARGO_PKG_NAME").to_string(); // those are only set at compile time hence this needs a macro
-            let bin_name = env!("CARGO_BIN_NAME").to_string();
-            let bin_suffix = std::env::var("ODIN_BIN_SUFFIX").ok(); // NOTE this is a runtime env var
-            let proc_id = Some(std::process::id());
-            let build = odin_build::build_mode!();
-
-            odin_build::BIN_CONTEXT.set( odin_build::BinContext{ bin_name, bin_crate, bin_suffix, proc_id, build } ).unwrap();
+            // Note that env! looks up the value at compile time, while env::var
+            // looks it up at runtime.
+            odin_build::BinContext::set(env!("CARGO_PKG_NAME"),
+                 env!("CARGO_BIN_NAME"),
+                 std::env::var("ODIN_BIN_SUFFIX").ok(),
+                 Some(std::process::id()),
+                 odin_build::build_mode!().as_str());
         }
     }
 }
