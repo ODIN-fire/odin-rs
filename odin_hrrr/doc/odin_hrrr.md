@@ -28,7 +28,7 @@ separate file). We call the set of all forecast files for a given hour a '*forec
 cycle is the '*base hour*'. Base hours 0am, 6am, 12pm, 18pm are extended cycles covering 0..=48h (=number of forecast files to
 retrieve), all other (regular) cycles cover 0..=18h.
  
-```
+```diagram
      Bi   : base hour i (cycle base)
      s[j] : minutes since base hour for forecast step j availability (j: 0..=18 for regular, 0..=48 for extended)
      ◻︎    : forecast data set for t = Bi+s[j]
@@ -52,11 +52,13 @@ Schedules can be either estimated from a given `HrrrConfig` (config file) or com
 [NOAA server](https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod) which has directories for the current and past day (this
 might be brittle since the HTML directory listing format on the NOAA server can change). `HrrrConfig` files have the following structure:
 
-```rust,ignore
-HrrrConfig(
-    region: "conus",
-    url: "https://nomads.ncep.noaa.gov/cgi-bin/filter_hrrr_2d.pl",
-    dir_url_pattern: "https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod/hrrr.${yyyyMMdd}/conus",
+```rust
+use odin_hrrr::HrrrConfig;
+use tokio::time::Duration;
+let config = HrrrConfig{
+    region: "conus".to_string(),
+    url: "https://nomads.ncep.noaa.gov/cgi-bin/filter_hrrr_2d.pl".to_string(),
+    dir_url_pattern: "https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod/hrrr.${yyyyMMdd}/conus".to_string(),
 
     // estimated schedules if we don't want to compute them from NOAA server directory listings
     reg_first: 48,
@@ -67,13 +69,13 @@ HrrrConfig(
     ext_last: 108,
     ext_len: 49,
 
-    delay: Duration(secs:60,nanos:0), // extra time added to each computed schedule minute
+    delay: Duration::new(60, 0), // extra time added to each computed schedule minute
 
-    check_interval: Duration(secs:30,nanos:0), // interval in which we check availability of new forecast steps
-    retry_delay: Duration(secs:30,nanos:0), // how long to wait between consecutive attempts for not-yet-available files
+    check_interval: Duration::new(30, 0), // interval in which we check availability of new forecast steps
+    retry_delay: Duration::new(30, 0), // how long to wait between consecutive attempts for not-yet-available files
     max_retry: 4, // how many times do we try to download not-yet-available files
-    max_age: Duration(secs:21600,nanos:0), // how long to keep downloaded files (6h)
-)
+    max_age: Duration::new(21600, 0), // how long to keep downloaded files (6h)
+};
 ```
  
 
@@ -90,18 +92,17 @@ for medium sized incident areas (~50x50mi) to about 3.5 MB.
 We therefore support configuration of both variables and regions of interest through the `HrrrDataSetConfig` struct, which can be 
 serialized/deserialized like so:
 
-```rust,ignore
-HrrrDataSetConfig(
-    name: "BigSur",
-    bbox: GeoBoundingBox(
-        west: LonAngle(-122.043),
-        south: LatAngle(35.99),
-        east: LonAngle(-121.231),
-        north: LatAngle(36.594)
-    ),
-    fields: ["TCDC", "TMP", "UGRD", "VGRD"],
-    levels: ["lev_2_m_above_ground", "lev_10_m_above_ground", "lev_entire_atmosphere"],
-)
+```rust
+use odin_common::geo::GeoRect;
+use odin_hrrr::HrrrDataSetConfig;
+let config = HrrrDataSetConfig{
+    region: "BigSur".to_string(),
+    bbox: GeoRect::from_wsen_degrees(-122.043, 35.99, -121.231, 36.594),
+    set_name: "BigSur".to_string(),
+    fields: vec!["TCDC", "TMP", "UGRD", "VGRD"].into_iter().map(String::from).collect(),
+    levels: vec!["lev_2_m_above_ground", "lev_10_m_above_ground", "lev_entire_atmosphere"]
+      .into_iter().map(String::from).collect(),
+};
 ```
 
 The `HrrrActor` supports multiple simultaneous regions of interest. Downloaded 
@@ -133,7 +134,7 @@ covered the forecast hour.
 Since every 6h we get an extended forecast cycle that covers 0..=48 forecast hours this means we have to retrieve
 forecast steps from up to 3 cycles:
 
-```
+```diagram
      ◻︎ : obsolete available forecast step (updated by subsequent cycle)
      ◼︎ : relevant available forecast to retrieve (most up-to-date forecast for base + step)
      ○ : not-yet-available forecast step
@@ -174,11 +175,13 @@ i.e. it has to ensure disk space remains bounded.
 
 An simple actor application that just prints out notifications for each downloaded HRRR file looks like so:
 
-```rust,ignore
+```no_run
 use std::sync::Arc;
 use odin_common::define_cli;
 use odin_actor::prelude::*;
-use odin_hrrr::{load_config,HrrrActor, AddDataSet, HrrrConfig, schedule::{HrrrSchedules,get_schedules}, HrrrDataSetRequest, HrrrDataSetConfig, HrrrFileAvailable};
+use odin_build::BinContext;
+use odin_hrrr::{load_config,HrrrActor, AddDataSet, HrrrConfig, HrrrDataSetRequest, HrrrDataSetConfig, HrrrFileAvailable};
+use odin_hrrr::schedule::{HrrrSchedules,get_hrrr_schedules};
 
 define_cli! { ARGS [about="NOAA HRRR download example using HrrrActor"] =
     hrrr_config: String [help="filename of HRRR config file", short,long,default_value="hrrr_conus.ron"],
@@ -186,25 +189,28 @@ define_cli! { ARGS [about="NOAA HRRR download example using HrrrActor"] =
     ds_config: String [help="filename of HrrrDataSetConfig file"]
 }
 
-run_actor_system!( actor_system => {
-    let hrrr_config: HrrrConfig = load_config( &ARGS.hrrr_config)?;
-    let schedules: HrrrSchedules = get_schedules( &hrrr_config, ARGS.statistic_schedules).await?;
-    let ds: HrrrDataSetConfig = load_config( &ARGS.ds_config)?;
-    let req = Arc::new(HrrrDataSetRequest::new(ds));
-    
-    let himporter = spawn_actor!( actor_system, "hrrr_importer", HrrrActor::new(
-        hrrr_config,
-        schedules,
-        data_action!( => |data: HrrrFileAvailable| {
-            println!("file available: {:?}", data.path.file_name().unwrap());
-            Ok(())
-        })
-    ))?;
+run_actor_system!( actor_system
+    context /* remove to use default context */ {
+        BinContext::set("package", "binary", None, Some(42), "build");
+    } => {
+        let hrrr_config: HrrrConfig = load_config( &ARGS.hrrr_config)?;
+        let schedules: HrrrSchedules = get_hrrr_schedules( &hrrr_config, ARGS.statistic_schedules).await?;
+        let ds: HrrrDataSetConfig = load_config( &ARGS.ds_config)?;
+        let req = Arc::new(HrrrDataSetRequest::new(ds));
 
-    actor_system.start_all().await?;
-    himporter.send_msg( AddDataSet(req)).await?;
-    actor_system.process_requests().await?;
+        let himporter = spawn_actor!( actor_system, "hrrr_importer", HrrrActor::new(
+            hrrr_config,
+            schedules,
+            data_action!( => |data: HrrrFileAvailable| {
+                println!("file available: {:?}", data.path.file_name().unwrap());
+                Ok(())
+            })
+        ))?;
 
-    Ok(())
+        actor_system.start_all().await?;
+        himporter.send_msg( AddDataSet(req)).await?;
+        actor_system.process_requests().await?;
+
+        Ok(())
 });
 ```
