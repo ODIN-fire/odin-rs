@@ -1255,13 +1255,13 @@ macro_rules! run_async_main {
 
 #[macro_export]
 macro_rules! run_actor_system {
-    ($asys:ident => $set_up:expr) => {
+    ($asys:ident context $context:block => $set_up:expr) => {
         use tokio;
         use anyhow;
 
         #[tokio::main]
         async fn main ()->anyhow::Result<()> {
-            odin_build::set_bin_context!();
+            $context;
             let mut $asys = ActorSystem::with_env_tracing("main");
             $asys.request_termination_on_ctrlc();
 
@@ -1273,6 +1273,9 @@ macro_rules! run_actor_system {
 
             Ok(())
         }
+    };
+    ($asys:ident => $set_up:expr) => {
+        run_actor_system!{$asys context { odin_build::set_bin_context!(); } => $set_up }
     }
 }
 
