@@ -258,7 +258,9 @@ impl<K,V> SingleLookupHashMap<K,V> for HashMap<K,V> where K: Eq+Hash+Clone {
 /// trait to get a snapshot Vec of cloned entries of the receiver collection.
 /// Useful to iterate over current entries of a mutable collection
 /// example:
-/// ```rust
+/// ```
+/// use std::collections::HashMap;
+/// use odin_common::collections::Snapshot;
 /// fn foo (map: &mut HashMap<String,String>) {
 ///    for (k,v) in map.snapshot() {
 ///        map.insert( k.to_uppercase(), v.to_uppercase());

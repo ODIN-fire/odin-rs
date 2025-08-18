@@ -13,20 +13,24 @@
  */
 #![allow(unused)]
 
-/// odin_job is a basic sdcheduler crate for sendable `FnMut` actions. Jobs can be scheduled
-/// as oneshot or repeat, with a millisecond schedule resolution (which is more than most 
-/// operating systems provide anyways).
-/// The only exposed types are [`JobScheduler`] and [`JobHandle`]. Both are opaque.
-///
-/// Basic example: 
-///```
-///  use odin_job::JobScheduler;
-///  ...
-///  let mut scheduler = JobScheduler::new();
-///  scheduler.run()?;
-///  ...
-///  scheduler.schedule_once( Duration::from_secs(4), println!("Hola!"));
-///```  
+//! odin_job is a basic scheduler crate for sendable `FnMut` actions. Jobs can be scheduled
+//! as oneshot or repeat, with a millisecond schedule resolution (which is more than most 
+//! operating systems provide anyways).
+//! The only exposed types are [`JobScheduler`] and [`JobHandle`]. Both are opaque.
+//!
+//! Basic example:
+//!```no_run
+//! use odin_job::{JobScheduler,OdinJobError};
+//! use std::{result::Result,time::Duration};
+//!
+//! # fn main() -> Result<(),OdinJobError> {
+//! let mut scheduler = JobScheduler::new();
+//! scheduler.run()?;
+//! // ...
+//! scheduler.schedule_once( Duration::from_secs(4), {|_| println!("Hola!")});
+//! # Ok(())
+//! # }
+//!```
 
 use tokio::{self, select, spawn, task::{Builder,JoinHandle}, time::{sleep, Sleep}};
 use kanal::{unbounded_async,AsyncReceiver,AsyncSender};

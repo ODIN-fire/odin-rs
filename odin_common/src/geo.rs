@@ -44,7 +44,7 @@ use chrono::{DateTime,TimeZone,Utc};
 
 use crate::cartesian3::Cartesian3;
 use crate::cartographic::Cartographic;
-use crate::{impl_deserialize_struct, impl_deserialize_seq};
+use crate::impl_deserialize_struct;
 use crate::angle::{normalize_180, normalize_90, Angle360, Latitude, Longitude};
 use crate::datetime::{Dated, EpochMillis};
 use crate::json_writer::{JsonWritable,JsonWriter};

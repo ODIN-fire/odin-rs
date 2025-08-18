@@ -130,7 +130,7 @@ struct ReportedAlarm<T> where T: RecordDataBounds{
 const ALARM_HISTORY: usize = 10;
 
 /// alarm we raise ourselves if a device hasn't reported in a configured amount of time
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,Serialize)]
 pub struct SentinelInactiveAlert {
     pub device_id: String,
     pub time_recorded: Option<DateTime<Utc>>,

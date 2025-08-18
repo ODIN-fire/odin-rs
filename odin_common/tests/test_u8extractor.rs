@@ -20,7 +20,8 @@ use std::io::Cursor;
 use anyhow::Result;
 use odin_common::{
     extract_all, extract_fields, extract_ordered, 
-    u8extractor::{AsyncCsvExtractor, CsvStr, MemMemFinder, SimpleU8Finder, U8Readable}
+    u8extractor::{AsyncCsvExtractor, CsvFieldExtractor, CsvStr, MemMemFinder, SimpleU8Finder,
+                  U8Readable}
 };
 
 const DF_17_9: &'static str   = r#"{"timestamp":1753227402.170955,"frame":"8da0b59d990849b660043ed519f7","df":"17","icao24":"a0b59d","bds":"09","NACv":1,"groundspeed":439.9318128983172,"track":170.58049974178377,"vrate_src":"barometric","vertical_rate":0,"geo_minus_baro":1525,"metadata":[{"system_timestamp":1753227402.170955,"rssi":-10.372777,"serial":14924845721654670821,"name":"rtlsdr"}]}"#;

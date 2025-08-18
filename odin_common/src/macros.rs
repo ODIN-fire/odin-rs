@@ -29,10 +29,10 @@
 /// This is an example for pure side effects:
 /// ```
 /// use odin_common::if_let;
-/// let p: Option<i64> = ...
-/// let q: Result<i64,&'static str> = ...
-/// fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { ... }
-/// 
+/// let p: Option<i64> = None;
+/// let q: Result<i64,&'static str> = Ok(42);
+/// fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { Ok("42") }
+///
 /// if_let! {
 ///     Some(a) = p,
 ///     Ok(b) = q,
@@ -43,6 +43,9 @@
 /// ```
 /// which gets expanded into:
 /// ```
+/// # let p: Option<i64> = None;
+/// # let q: Result<i64,&'static str> = Ok(42);
+/// # fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { Ok("42") }
 /// if let Some(a) = p {
 ///     if let Ok(b) = q {
 ///         if let Ok(c) = foo(a, b) {
@@ -54,6 +57,10 @@
 /// 
 /// Here is an example for pure side effects that uses fail closures (e.g. for error reporting)
 /// ```
+/// # use odin_common::if_let;
+/// # let p: Option<i64> = None;
+/// # let q: Result<i64,&'static str> = Ok(42);
+/// # fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { Ok("42") }
 /// if_let! {
 ///     Some(a) = p,
 ///     Ok(b) = { q } else |other| { println!("no b: {other:?}") },
@@ -64,20 +71,27 @@
 /// ```
 /// which expands to:
 /// ```
+/// # let p: Option<i64> = None;
+/// # let q: Result<i64,&'static str> = Ok(42);
+/// # fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { Ok("42") }
 /// if let Some(a) = p {
-///     match { q } {
+///     match q {
 ///         Ok(b) => {
 ///             match { foo(a, b) } {
 ///                 Ok(c) => { println!("just here to print a={}, b={}, c={}", a,b,c) }
-///                 x => { |e|{ println!("no c: {e:?}") }(x) }
+///                 x => { (|other| {println!("no c: {other:?}")})(x) }
 ///             }
 ///         }
-///         x => { |e|{println!("no b: {e:?}")}(x) }
+///         x => { (|other| {println!("no b: {other:?}")})(x) }
 ///     }
 /// } 
 /// ```
 /// This is finally an example that uses the `if_let` value and fail closures (providing failure values)
 /// ```
+/// # use odin_common::if_let;
+/// # let p: Option<i64> = None;
+/// # let q: Result<i64,&'static str> = Ok(42);
+/// # fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { Ok("42") }
 /// let res = if_let! {
 ///     Some(a) = { p } else { println!("no a"); -1 },
 ///     Ok(b)   = { q } else |e| { println!("no b: {e:?}"); -2 }, 
@@ -90,15 +104,18 @@
 /// ``` 
 /// which is expanded into:
 /// ```
+/// # let p: Option<i64> = None;
+/// # let q: Result<i64,&'static str> = Ok(42);
+/// # fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { Ok("42") }
 /// let res = if let Some(a) = { p } {
 ///     match { q } {
 ///         Ok(b) => {
 ///             match { foo(a, b) } {
 ///                 Ok(c) => { println!("a={}, b={}, c={}", a,b,c); 0 }
-///                 x => { |e|{ println!("no c: {e:?}"); -3 }(x) }
+///                 x => { (|e|{ println!("no c: {e:?}"); -3 })(x) }
 ///             }
 ///         }
-///         x => { |e|{ println!("no b: {e:?}"); -2 }(x) }
+///         x => { (|e|{ println!("no b: {e:?}"); -2 })(x) }
 ///     }
 /// } else { println!("no a"); -1 };
 /// println!("res = {res}");
@@ -156,158 +173,6 @@ macro_rules! push_all_str {
 }
 pub use push_all_str;
 
-
-#[macro_export]
-macro_rules! max {
-    ($x:expr) => ( $x );
-    ($x:expr, $($xs:expr),+) => {
-        $x.max( max!( $($xs),+))
-    };
-}
-pub use max;
-
-#[macro_export]
-macro_rules! min {
-    ($x:expr) => ( $x );
-    ($x:expr, $($xs:expr),+) => {
-        $x.min( min!( $($xs),+))
-    };
-}
-pub use min;
-
-
-/// macros to reduce boilerplate for coercing errors into custom lib errors.
-/// This is a simplistic alternative to the 'thiserror' crate. It is aimed at providing
-/// specific, matchable error types for lib crates, optionally preserving underlying error chains
-/// and keeping code clutter minimal.
-///
-/// The downside is that in it's current form it only provides a fixed, non-extensible error structure
-///
-/// single type use case is like so:
-/// ```
-/// define_err!(BarError);
-///
-/// fn bar (mut s: String) -> Result<(),BarError> {
-///     map_err!( s.try_reserve(42) => BarError{"could not extend string capacity"})?;
-///     Ok(())
-/// }
-///
-/// fn main () {
-///    match bar("somewhat".to_string()) {
-//         Ok(()) => println!("bar Ok"),
-//         Err(e) => println!("bar error = {}", e)
-//     }
-/// }
-/// ```
-///
-/// error enums can be defined/used like so:
-/// ```
-/// define_err!(FooError: FooInputError,FooOutputError);
-///
-/// fn foo (bs: &[u8]) -> Result<String,FooError> {
-///     use FooError::*;
-///     // let cs = CString::new(bs).map_err(|e| FooInputError{source:Box(e),msg: format!("0-byte in input: {:?}",bs))?;
-///     // let s = cs.into_string().map_err(|e| FooInputError{source:Box(e),msg: format!("malformet utf8")?;
-///
-///     let cs = map_err!( CString::new(bs) => FooInputError{"0-byte in input: {:?}", bs})?;
-///     let s = map_err!( cs.into_string() => FooInputError{"malformed utf8"})?;
-///     return_err!( s.len() > 8 => FooOutputError{"output too long: {}", bs.len()});
-///
-///     Ok(s)
-/// }
-///
-/// fn main () {
-///     use FooError::*;
-///     let bs: &[u8] = &[104, 101, 0, 108, 108, 111];
-///
-///     match foo(bs) {
-///        Ok(s) => println!("Ok(s) = {}", s),
-///        Err(ref e) => match e {
-///          FooInputError{src,msg} => println!("foo input error = {}", e),
-///          FooOutputError{src,msg} => println!("foo output error = {}", e)
-///        }
-///     }
-/// ```
-
-
-#[macro_export]
-macro_rules! define_err {
-    ($t:ident) =>
-    { #[derive(Debug)]
-      pub struct $t { src: Option<Box<dyn Error + Send + Sync + 'static>>, msg: Option<String> }
-      impl Error for $t {
-          fn source(&self) -> Option<&(dyn Error + 'static)> {
-             match &self.src {
-                 Some(b) => Some(b.as_ref()),
-                 None => None
-             }
-          }
-      }
-      impl fmt::Display for $t {
-          fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            match self.msg {
-                Some(ref msg) => write!( f, "{}: {}", stringify!($t), msg),
-                None => write!( f, "{}", stringify!($t))
-            }
-          }
-      }
-    };
-
-    ($t:ident : $($m:ident),+) =>
-    {   #[derive(Debug)]
-        pub enum $t {
-            $($m { src: Option<Box<dyn Error + Send + Sync + 'static>>, msg: Option<String> },)+
-        }
-        impl Error for $t {
-            fn source(&self) -> Option<&(dyn Error + 'static)> {
-                use $t::*;
-                match *self {
-                    $(
-                      $m{src:ref src,msg:_} => match src {
-                          Some(b) => Some(b.as_ref()),
-                          None => None
-                      }
-                    )+
-                }
-            }
-        }
-        impl fmt::Display for $t {
-          fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            use $t::*;
-            match *self {
-                $(
-                  $m{src:_,msg:ref msg} => match msg {
-                    Some(ref msg) => write!( f, "{}::(): {}", stringify!($t),stringify!($m), msg),
-                    None => write!( f, "{}::{}", stringify!($t),stringify!($t)),
-                  }
-                )+
-            }
-          }
-        }
-    };
-}
-pub use define_err;
-
-#[macro_export]
-macro_rules! return_err {
-    ($e:expr => $t:ident ) =>
-    { if $e { return Err($t{ src:None, msg:None}) } };
-
-    ($e:expr => $t:ident { $f:literal $(, $p:expr)* } ) =>
-    { if $e { return Err($t{ src:None, msg:Some(format!($f $(,$p)* ))}) } };
-}
-pub use return_err;
-
-#[macro_export]
-macro_rules! map_err {
-    ($e:expr => $t:ident ) =>
-    { $e.map_err(|err| $t{ src:Some(Box::new(err)), msg:None}) };
-
-    ($e:expr => $t:ident { $f:literal $(, $p:expr)* } ) =>
-    { $e.map_err(|err| $t{ src:Some(Box::new(err)), msg:Some(format!($f $(,$p)* ))}) };
-}
-pub use map_err;
-
 #[macro_export]
 macro_rules! io_error {
     ( $kind:expr, $fmt:literal $(, $($arg:expr),* )? ) =>
@@ -328,39 +193,26 @@ macro_rules! map_to_opaque_error {
     };
 }
 
-//--- feature management (conditional compilation support)
-
-#[macro_export]
-macro_rules! assert_unique_feature {
-    () => {};
-    ($first:tt $(,$rest:tt)*) => {
-        $(
-            #[cfg(all(feature = $first, feature = $rest))]
-            compile_error!(concat!("features \"", $first, "\" and \"", $rest, "\" are mutually exclusive"));
-        )*
-        assert_unique_feature!($($rest),*);
-    }
-}
-
 /* #region define_cli  ****************************************************************************************/
 
 /// syntactic sugar macro for structopt based command line interface definition
-/// ```
+/// ```no_run
+/// use odin_common::{check_cli,define_cli};
+///
 /// define_cli! { ARGS [about="my silly prog"] = 
 ///   verbose: bool        [help="run verbose", short],
-///   date: DateTime<Utc>  [help="start date", from_os_str=parse_utc_datetime_from_os_str_date],
+///   date: String         [help="start date"],
 ///   config: String       [help="pathname of config", long, default_value="blah"]
 /// }
 /// 
 /// fn main () {
 ///    check_cli!(ARGS); // makes sure we exit on -h or --help (and do not execute anything until we know ARGS parsed)
-///    ... 
-///    let config = &ARGS.config; 
-///    ...
+///    let config = &ARGS.config;
+///    // rest of code
 /// }
 /// ```
 /// expands into:
-/// ```
+/// ```no_run
 /// use structopt::StructOpt;
 /// use lazy_static::lazy_static;
 /// 
@@ -370,8 +222,8 @@ macro_rules! assert_unique_feature {
 ///     #[structopt(help = "run verbose", short)]
 ///     verbose: bool,
 /// 
-///     #[structopt(help = "blah date", from_os_str=parse_utc_datetime_from_os_str_date)]
-///     date: DateTime<Utc>,
+///     #[structopt(help = "start date")]
+///     date: String,
 /// 
 ///     #[structopt(help = "pathname of config", long, default_value = "blah")]
 ///     config: String,
@@ -381,8 +233,10 @@ macro_rules! assert_unique_feature {
 /// }
 /// 
 /// fn main () {
+/// # struct ARGS_TYPE { _initialized : bool }
+/// # let ARGS = ARGS_TYPE{ _initialized: false };
 ///    { let _is_initialized = &ARGS._initialized; }
-///    ...
+///    // ...
 /// }
 /// ```
 #[macro_export]
@@ -413,6 +267,7 @@ macro_rules! check_cli {
 
 /// syntactic sugar macro to define thiserror Error enums:
 /// ```
+/// use odin_common::define_error;
 /// define_error!{ pub OdinNetError = 
 ///   IOError( #[from] std::io::Error ) : "IO error: {0}",
 ///   OpFailed(String) : "operation failed: {0}"
@@ -420,7 +275,8 @@ macro_rules! check_cli {
 /// ```
 /// will get expanded into
 /// ```
-/// use thiserror;
+/// use thiserror::Error;
+/// #[derive(Debug,Error)]
 /// pub enum OdinNetError {
 ///     #[error("IO error: {0}")]
 ///     IOError(#[from] std::io::Error),
@@ -483,12 +339,16 @@ macro_rules! define_serde_struct {
 /// 
 /// Use like so:
 /// ```
-/// struct GeoPoint {...}
+/// use odin_common::impl_deserialize_struct;
+/// use serde::de::{self, Deserialize as DeserializeTrait, Deserializer, Visitor, SeqAccess, MapAccess};
+/// use std::{error::Error,fmt};
+///
+/// struct GeoPoint {x: i32, y: i32}
 /// impl GeoPoint {
-///   fn from_lon_lat_degrees (lon: .., lat: ..)->Self {...}
+///   fn from_lon_lat_degrees (lon: i32, lat: i32)->Self { Self{x:lon, y:lat} }
 /// }
 /// 
-/// impl_deserialize_struct!{ GeoPoint::from_lon_lat_degrees( lon, ["longitude", "x"], lat, ["latitude", "y"]) }
+/// impl_deserialize_struct!{ GeoPoint::from_lon_lat_degrees(lon | longitude | x, lat | latitude | y) }
 /// ```
 #[macro_export]
 macro_rules! impl_deserialize_struct {
@@ -563,54 +423,6 @@ macro_rules! impl_deserialize_struct {
         }
     }
 }
-
-/// implement serde Deserialize trait for a type from a given constructor name that takes a single Vec<ElementType> argument.
-/// The element type has to have a Deserialize impl
-/// 
-/// Use like so:
-/// ```
-/// struct GeoPoint {...} 
-/// impl <'de> Deserialize for GeoPoint { ... }
-/// 
-/// struct GeoLineString {...}
-/// impl GeoLineString {
-///     fn from_geo_points (points: Vec<GeoPoint>)->Self {...}
-/// }
-/// 
-/// impl_deserialize_seq!{  GeoLineString::from_geo_points(Vec<GeoPoint>) }
-/// ```
-#[macro_export]
-macro_rules! impl_deserialize_seq {
-    ( $type_name:ident :: $ctor_name:ident ( Vec < $elem_type:ident > ) ) => {
-        impl<'de> DeserializeTrait<'de> for $type_name {
-            fn deserialize<D>(deserializer: D) -> Result<$type_name, D::Error> where D: Deserializer<'de> {
-                struct TypeVisitor;
-        
-                impl<'de> Visitor<'de> for TypeVisitor {
-                    type Value = GeoLineString;
-        
-                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                        formatter.write_str( stringify!($type_name as seq of $elem_type elements))
-                    }
-        
-                    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error> where A: SeqAccess<'de> {
-                        let mut elems: Vec<$elem_type> = Vec::new();
-        
-                        while let Some(p) = seq.next_element::<$elem_type>()? {
-                            elems.push( p);
-                        }
-        
-                        Ok( $type_name::$ctor_name( elems) )
-                    }
-                }
-        
-                deserializer.deserialize_seq( TypeVisitor)
-            }
-        }
-    }
-}
-
-/* #endregion impl_deserialize_struct */
 
 #[macro_export]
 macro_rules! arc {
