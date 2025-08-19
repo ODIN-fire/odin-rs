@@ -238,7 +238,7 @@ pub fn parse_aircraft_operation_status<'a> (msg: &'a [u8], finder: &PropertyFind
 
 /* #region low level parsing ***************************************************************************/
 
-/// wrapper for DateTime<Utc> - we need our own newtype here so that we can implement U8Readable
+/// wrapper for `DateTime<Utc>` - we need our own newtype here so that we can implement `U8Readable`
 #[derive(Debug)]
 pub struct Timestamp(pub DateTime<Utc>);
 
@@ -248,7 +248,7 @@ impl<'a> fmt::Display for Timestamp {
     }
 }
 
-/// this reads DateTime<Utc> as fractional epoch seconds
+/// this reads `DateTime<Utc>` as fractional epoch seconds
 impl<'a> U8Readable<'a,Timestamp> for Timestamp {
     fn from_u8 (buf: &'a[u8], i0: usize)->Option<(Timestamp,usize)> {
         let mut secs: i64 = 0;

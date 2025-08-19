@@ -111,8 +111,8 @@ fn process_next_line<'a, T: CsvFieldExtractor> (csv: &'a mut T, timestamp: &Arc<
     Ok(())
 }
 
-/// SBS as documented on http://woodair.net/SBS/Article/Barebones42_Socket_Data.htm
-/// 
+/// SBS as documented on <http://woodair.net/SBS/Article/Barebones42_Socket_Data.htm>
+///
 /// Message examples:
 ///  MSG,1,111,11111,AA2BC2,111111,2016/03/11,13:07:16.663,2016/03/11,13:07:16.626,UAL814  ,,,,,,,,,,,0
 ///  MSG,3,111,11111,A04424,111111,2016/03/11,13:07:05.343,2016/03/11,13:07:05.288,,11025,,,37.17274,-122.03935,,,,,,0
@@ -142,7 +142,7 @@ fn process_next_line<'a, T: CsvFieldExtractor> (csv: &'a mut T, timestamp: &Arc<
 ///  20: spi (flag, transponder ident activated)
 ///  21: on ground (flag)
 /// 
-/// see also http://mode-s.org/decode/
+/// see also <http://mode-s.org/decode/>
 pub fn parse_msg<'a,T> (csv: &'a mut T, source_tz: &Tz)->Result<AdsbUpdate<'a>> where T: CsvFieldExtractor {
     extract_fields!{ csv ?
         // the common fields

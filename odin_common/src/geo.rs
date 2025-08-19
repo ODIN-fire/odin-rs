@@ -123,9 +123,9 @@ impl JsonWritable for GeoPoint {
 
 // we don't provide a From<Point<f64>> since that would allow to create a GeoPoint from arbitrary Points 
 
-/// conversion to [x,y,z] in meters.
-/// Note we can't impl From<ECEF> since GeoPoints are 2dimensional (altitude = 0)
-/// Note also that nav_types::WGS84 uses lat,lon order
+/// Conversion to x, y, and z in meters.
+/// Note we can't implement `From<ECEF>` since GeoPoints are 2 dimensional (altitude = 0)
+/// Note also that `nav_types::WGS84` uses lat, lon order.
 impl Into<ECEF<f64>> for GeoPoint {
     fn into (self)->ECEF<f64> { WGS84::from_degrees_and_meters( self.0.y(), self.0.x(), 0.0).into() }
 }

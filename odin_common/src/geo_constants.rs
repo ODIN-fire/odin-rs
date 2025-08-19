@@ -13,7 +13,8 @@
  */
 
 /// common geodetic constants that should be consistent through ODIN applications
-/// Note that const floats are still not stabilized as of Rust 1.85 (see https://github.com/rust-lang/rust/issues/57241)
+/// Note that const floats are still not stabilized as of Rust 1.85
+/// (see (const float issue)[<https://github.com/rust-lang/rust/issues/57241>])
 
 /// mean earth radius in meters
 pub const MEAN_EARTH_RADIUS: f64 = 6371000.0; 

@@ -474,7 +474,7 @@ pub fn lru_dir_bound <P: AsRef<Path>> (dir: &P, recursive: bool, max_size: u64) 
     } else { Ok(false) } // nothing to shrink, we are under the limit
 }
 
-/// replace '~/' and '$<name>' path elements 
+/// Replace `'~/'` and `'$<name>'` path elements.
 pub fn replace_env_var_path (path: impl AsRef<Path>)->Result<PathBuf> {
     let mut p = PathBuf::new();
     let mut n = 0;

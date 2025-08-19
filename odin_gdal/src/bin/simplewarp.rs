@@ -28,7 +28,7 @@ use anyhow::{Result, anyhow};
 #[derive(StructOpt,Debug)]
 #[structopt(about = "simple GDAL warpter", settings = &[AppSettings::AllowNegativeNumbers])]
 struct CliOpts {
-    /// target extent <xmin ymin xmax ymax>
+    /// target extent xmin, ymin, xmax, ymax
     #[structopt(long,allow_hyphen_values=true,number_of_values=4)]
     te: Option<Vec<f64>>,
 

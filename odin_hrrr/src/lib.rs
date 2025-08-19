@@ -58,14 +58,14 @@ pub struct HrrrConfig {
     // region name (e.g. "conus")
     pub region: String,
 
-    /// server URL from where to retrieve files (e.g. https://nomads.ncep.noaa.gov/cgi-bin/filter_hrrr_2d.pl)
+    /// server URL from where to retrieve files (e.g. <https://nomads.ncep.noaa.gov/cgi-bin/filter_hrrr_2d.pl>)
     pub url: String,
 
-    /// server URL from where to retrieve directory listings (e.g. https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod/hrrr.${yyyyMMdd}/conus)
+    /// server URL from where to retrieve directory listings (e.g. <https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod/hrrr.${yyyyMMdd}/conus>)
     /// to turn this into a real URL we have to expand the "${yyyyMMdd}" field
     pub dir_url_pattern: String,
 
-    // fallbacks if we don't want to query schedules (the nomads.ncep.nooa.gov/.. dir listings do change and might not be reliable)
+    // fallbacks if we don't want to query schedules (the <https://nomads.ncep.noaa.gov/> dir listings do change and might not be reliable)
     // we assume roughly linear computation time
     pub reg_first: u32,
     pub reg_last: u32,
@@ -118,7 +118,7 @@ impl Default for HrrrConfig {
 
 /// parameters of a HRRR data set to download, which includes the (given) area name, rectangular area
 /// of interest and the fields and levels to include, which are from
-/// https://nomads.ncep.noaa.gov/gribfilter.php?ds=hrrr_2d
+/// <https://nomads.ncep.noaa.gov/gribfilter.php?ds=hrrr_2d>
 #[derive(Clone,Serialize,Deserialize,Debug)]
 pub struct HrrrDataSetConfig {
     /// this is the name of the region we retrieve datafor

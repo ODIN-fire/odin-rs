@@ -15,8 +15,8 @@
 
 //! this application serves both as a test for GOES-R hotspot data download functions and associated configs,
 //! and as a production tool to obtain raw GOES-R hotspot data (e.g. for archives)
-//! It is basically the same logic as the live_importer [`run_data_acquisition`] without parsing into
-//! GoesRHotspots but with more logging output.
+//! It is basically the same logic as the live_importer [odin_goesr::live_importer::run_data_acquisition]
+//! without parsing into GoesRHotspots but with more logging output.
 
 use uom::si::time::hour;
 use std::{time::{Duration,Instant},sync::Arc};

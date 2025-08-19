@@ -15,8 +15,8 @@
 
 //! module to (eventually) implement a minimal [WMS](https://portal.ogc.org/files/?artifact_id=14416) server for
 //! elevation data. The main end point is
-//! 
-//!    GET <host>:<port>/GetMap?<query>
+//!```man_page
+//!      GET <host>:<port>/GetMap?<query>
 //! 
 //! with query parameters
 //! 
@@ -26,6 +26,7 @@
 //!       format : response data image type ("tif", "png")
 //!       width  : response data (image) width in pixels - we keep this optional and if not set use source data resolution
 //!       height : response data (image) height in pixels - see 'width'
+//!```
 
 
 use std::{collections::HashMap, default::Default, error::Error, net::{IpAddr, SocketAddr}, path::{Path,PathBuf}, sync::Arc, time::SystemTime};

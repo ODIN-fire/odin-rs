@@ -23,7 +23,7 @@ use crate::{
 };
 
 /// an http based N5Connector
-/// Note that `N5Connector` instances are used for dependency injection into [`N5Actor`] and hence
+/// Note that `N5Connector` instances are used for dependency injection into [crate::actor::N5Actor] and hence
 /// are created before we have a respective [`ActorHandle`]
 pub struct LiveN5Connector { 
     config: Arc<N5Config>,

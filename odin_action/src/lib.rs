@@ -91,7 +91,7 @@ pub trait DataAction<T>: Debug + Send {
 }
 
 /// macro to define and instantiate ad hoc action types that clone-capture local vars and take a single
-/// `execute(data)` argument. See [odin_actor] doc for general use and expansion.
+/// `execute(data)` argument. See [crate] doc for general use and expansion.
 #[macro_export]
 macro_rules! data_action {
     ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty| $e:expr ) => {
@@ -141,7 +141,7 @@ pub trait DataMutAction<T>: Debug + Send {
 }
 
 /// macro to define and instantiate ad hoc action types that clone-capture local vars and take a single
-/// `execute(data)`` argument. See [module] doc for general use and expansion.
+/// `execute(data)`` argument. See [crate] doc for general use and expansion.
 #[macro_export]
 macro_rules! data_mut_action {
     ( $( let mut $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty| $e:expr ) => {
@@ -180,7 +180,7 @@ pub trait BiDataAction<T,A>: Debug + Send {
 }
 
 /// macro to define and instantiate ad hoc actions taking two data arguments.
-/// See [module] doc for general use and expansion.
+/// See [crate] doc for general use and expansion.
 #[macro_export]
 macro_rules! bi_data_action {
     ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty, $bidata:ident: $bidata_type:ty| $e:expr ) => {
@@ -235,7 +235,7 @@ pub trait DynDataActionTrait<T>: Debug + Send + Sync {
 pub type DynDataAction<T> = Box<dyn DynDataActionTrait<T>>; 
 
 /// macro to define and instantiate ad hoc [`DynDataAction<T>`] types.
-/// See [module] doc for general use and expansion.
+/// See [crate] doc for general use and expansion.
 /// To be used where actions have to be send and/or stored in homogenous containers (as trait objects) 
 #[macro_export]
 macro_rules! dyn_data_action {
@@ -274,7 +274,7 @@ pub trait DataRefAction<T>: Debug + Send {
 }
 
 /// macro to define and instantiate ad hoc actions taking a single reference argument. 
-/// See [module] doc for general use and expansion.
+/// See [crate] doc for general use and expansion.
 #[macro_export]
 macro_rules! dataref_action {
     ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty| $e:expr ) => {
@@ -360,7 +360,7 @@ pub trait BiDataRefAction<T,A>: Debug + Send {
 }
 
 /// macro to define and instantiate ad hoc actions taking two data arguments (of which the first is a reference).
-/// See [module] doc for general use and expansion.
+/// See [crate] doc for general use and expansion.
 #[macro_export]
 macro_rules! bi_dataref_action {
     ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty, $bidata:ident: $bidata_type:ty| $e:expr ) => {
@@ -419,7 +419,7 @@ pub type DynDataRefAction<T> = Box<dyn DynDataRefActionTrait<T>>;
 
 /// macro to define and instantiate ad hoc action types taking a reference argument, to be used
 /// where action objects need to be [`Send`] and/or storable in homogenous containers (as trait objects).
-/// See [module] doc for general use and expansion.
+/// See [crate] doc for general use and expansion.
 #[macro_export]
 macro_rules! dyn_dataref_action {
     ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty| $e:expr ) => {

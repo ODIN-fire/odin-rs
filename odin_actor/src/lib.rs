@@ -117,7 +117,8 @@ pub trait Identifiable {
     fn id(&self) -> &str;
 }
 
-/// while it can be used explicitly this trait is normally transparent and hidden behind the [`define_actor`] macro
+/// while it can be used explicitly this trait is normally transparent and hidden behind the
+/// [odin_macro::define_actor_msg_set] macro
 pub trait ActorReceiver <MsgType>: Identifiable where MsgType: FromSysMsg + DefaultReceiveAction + Send + Debug {
     fn receive (&mut self, msg: MsgType)-> impl Future<Output = ReceiveAction> + Send;
     fn hsys (&self)->&ActorSystemHandle;
@@ -133,7 +134,7 @@ trait_set! {
   pub trait MsgReceiverConstraints = Identifiable + Debug + Send + Sync;
 }
 
-/// single message type receiver trait to abstract concrete ActorHandle<MsgSet> instances that would
+/// single message type receiver trait to abstract concrete `ActorHandle<MsgSet>` instances that would
 /// force the client to know all messages the receiver understands, which reduces re-usability of the
 /// receiver user. Note this trait is not object-safe (use [`DynMsgReceiver`] for dynamic subscription).
 /// 
@@ -147,7 +148,8 @@ pub trait MsgReceiver<T>: TryMsgReceiver<T> + MsgReceiverConstraints + Clone {
 }
 
 /// this is a single message type receiver trait that is object safe, which means its
-/// async [`send_msg`] and [`timeout_send_msg`] methods return [`ObjSafeFuture`] futures
+/// async [DynMsgReceiverTrait::send_msg] and [DynMsgReceiverTrait::timeout_send_msg] methods return
+/// [`ObjSafeFuture`] futures
 /// (`Pin<Box<dyn Future<..>>>`), hence they have to be pinboxed and therefore incur runtime cost.
 /// Since this trait needs to be object safe we cannot add Clone to its super-traits (which would imply Sized).
 /// This trait is used to store abstract ActorHandles in places that cannot be parameterized

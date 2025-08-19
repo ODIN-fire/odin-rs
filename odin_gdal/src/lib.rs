@@ -461,7 +461,7 @@ pub fn get_values_for_positions (ds: &Dataset, band_index: usize, sub_no_data: O
     Ok(result)
 }
 
-/// get Vec of values for given Vec<GridPoint2D> reference
+/// get Vec of values for given `Vec<GridPoint2D>` reference
 pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: usize, sub_no_data: T, pts: &Vec<GridPoint<U>> )->Result<Vec<T>> 
     where T: GdalValueType + Into<f64>, U: GdalValueType
 {

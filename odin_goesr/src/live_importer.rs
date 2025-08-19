@@ -98,7 +98,7 @@ impl GoesrHotspotImporter for LiveGoesrHotspotImporter {
     }
 }
 
-async fn run_data_acquisition (hself: ActorHandle<GoesrHotspotImportActorMsg>, config: LiveGoesrHotspotImporterConfig, cache_dir: Arc<PathBuf>, client: S3Client)->Result<()> 
+pub async fn run_data_acquisition (hself: ActorHandle<GoesrHotspotImportActorMsg>, config: LiveGoesrHotspotImporterConfig, cache_dir: Arc<PathBuf>, client: S3Client)->Result<()> 
 {
     let source = Arc::new( config.source); // no need to keep gazillions of copies
     let bucket = &config.bucket;

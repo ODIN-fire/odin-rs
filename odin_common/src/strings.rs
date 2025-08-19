@@ -81,13 +81,13 @@ pub fn ascii_capitalize(s: &str) -> String {
     }
 }
 
-/// turn a str with char separated values into a Vec<String>
+/// Turn a `str` with character separated values into a `Vec<String>`.
 pub fn parse_string_vec (s: &str, delim: char) -> Vec<String> {
     s.split(delim).map(|x| x.trim().to_string()).collect()
 }
 
-/// generic function to turn a str with char separated values into a Vec<T> where T: FromStr
-/// note the conversion from &str to T is fallible, hence we need to return a Result
+/// Generic function to turn a `str` with character separated values into a `Vec<T> where T: FromStr`.
+/// Note the conversion from `&str` to `T` is fallible, hence we need to return a `Result`.
 pub fn parse_vec<T: FromStr> (s: &str, delim: char) -> Result<Vec<T>,<T as FromStr>::Err>
     where <T as FromStr>::Err: core::fmt::Debug {
     s.split(delim)
@@ -96,8 +96,8 @@ pub fn parse_vec<T: FromStr> (s: &str, delim: char) -> Result<Vec<T>,<T as FromS
 }
 
 
-/// convert str of delim separated values into a Box<[T]> with given length N. Fail if length does not match exactly
-/// (note that Into<[T;N]> would adapt size)
+/// Convert str of delim separated values into an array `[T; N]`. Fail if length does not match exactly
+/// (note that `Into<[T;N]>` would adapt size).
 pub fn parse_array<T: FromStr, const N: usize> (s: &str, delim: char) -> Result<[T;N],String>
     where <T as FromStr>::Err: core::fmt::Debug {
     parse_vec(s,delim)

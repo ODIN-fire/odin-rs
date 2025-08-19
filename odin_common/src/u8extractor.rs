@@ -395,7 +395,8 @@ fn set_separator_indices (indices: &mut Vec<usize>, sep: u8, buf: &[u8]) {
 /// Its main purpose is to be used by `CsvExtractor` and the various `extract` macros of this module
 /// We need our own crate here so that we can provide impls for standard types and respective new-types (such as `CsvStr`)
 pub trait U8Readable<'a,T> {
-    /// return tuple with value and u8 length of value if buf[i] marks the beginning of a valid representation, None otherwise
+    /// Return tuple with value and `u8` length of value if `buf[i]` marks the beginning of a valid representation,
+    /// None otherwise
     fn from_u8 (buf: &'a[u8], i: usize)->Option<(T,usize)>;
 }
 

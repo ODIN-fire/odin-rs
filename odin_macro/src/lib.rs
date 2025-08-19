@@ -15,12 +15,12 @@
 ///! This crate provides procedural macros used throughout the ODIN project, namely
 ///!
 ///!    - [`define_algebraic_type`] and [`match_algebraic_type`]
-///!    - [`define_actor_msg`] and [`match_actor_msg`] (the [`odin_actor`] specific versions)
+///!    - [`define_actor_msg_set`] and [`match_actor_msg`] (the [`odin_actor`] specific versions)
 ///!    - [`impl_actor`] and [`spawn_actor`]
 ///! 
 ///! Its main use case within ODIN is to support concise syntax for [`odin_actor::Actor`] implementation as in:
 ///! ```
-///!     define_actor_msg! {
+///!     define_actor_msg_set! {
 ///!         MyActorMsg = A | B<std::vec::Vec<(u32,&'static str)>>
 ///!     }
 ///!     struct MyActorState {...}
@@ -430,11 +430,11 @@ impl<'a> Visit<'a> for BlockAnalyzer {
 
 /* #endregion define_algebraic_type */
 
-/* #region define_actor_msg ***********************************************************/
+/* #region define_actor_msg_set ***********************************************************/
 
 /// the odin_actor specific version of the general [`define_algebraic_type`] macro.
 /// this automatically adds system messages (_Start_,_Terminate_,..) variants and
-/// a [`odin_actor::DefaultReceiveAction`]` impl. The expansion naturally depends
+/// a `odin_actor::DefaultReceiveAction` impl. The expansion naturally depends
 /// on the types in odin_actor that aren't available in this crate.
 /// 
 /// Example:
@@ -579,7 +579,7 @@ impl Parse for AdtEnum {
     }
 }
 
-/* #endregion define_actor_msg */
+/* #endregion define_actor_msg_set */
 
 /* #region match macros **********************************************************/
 
@@ -649,14 +649,14 @@ fn get_match_patterns(msg_name: &Ident, msg_type: &Path, match_arms: &Vec<MsgMat
 /// a default match arm that calls `msg.default_receive_action()`.
 /// 
 /// Match arm actions can use the [`cont`], [`stop`] and [`term`] macros to return
-/// respective [`odin_actor::ReceiveAction`] values
+/// respective `odin_actor::ReceiveAction` values
 /// 
 /// Note: if message variants use path types (e.g. `std::vec::Vec`) the same notation
-/// has to be used in both [`define_actor_msg`] and [`match_actor_msg`] 
+/// has to be used in both [define_actor_msg_set] and [match_actor_msg]
 /// 
 /// Example:
 /// ```rust,ignore
-///     define_actor_msg! { MyActorMsg = x::A | B }
+///     define_actor_msg_set! { MyActorMsg = x::A | B }
 ///     ...
 ///     match_actor_msg! { msg: MyActorMsg as 
 ///         x::A => cont! { println!("actor received an A = {:?}", msg) }
@@ -843,7 +843,7 @@ fn get_match_adt_type (adt_type: &Path)->Path {
 
 /* #region actor receive definition ****************************************************************/
 
-/// defines the message related behavior of an actor by creating an [`ActorReceiver`] impl from the provided spec  
+/// defines the message related behavior of an actor by creating an `ActorReceiver` impl from the provided spec  
 /// 
 /// Example:
 /// ```rust,ignore
@@ -966,19 +966,21 @@ fn collect_typevars<'a> (where_clause: &'a WhereClause) -> Vec<&'a Path> {
 /* #region match_actor_msg  *****************************************************/
 
 /// statement (block) wrapper macro to be used in match arm expressions that makes sure we return 
-/// [`ReceiveAction::Continue`] from this match arm 
+/// `ReceiveAction::Continue` from this match arm 
 /// 
 /// Example:
 /// ```rust,ignore
 ///     match_actor_msg! { msg: MyActorMsg as 
-///         A => cont! { println!("actor received an A = {:?}", msg) }
-///         ...
+///         A => cont! { println!("actor received an A = {:?}", msg) },
+///         // ...
+///     }
 /// ```
 /// This is expanded into:
 /// ```rust,ignore
 ///     match msg {
-///         A(msg) => { {println!("actor received an A = {:?}", msg)}; ReceiveAction::Continue }
-///         ...
+///         A(msg) => { {println!("actor received an A = {:?}", msg)}; ReceiveAction::Continue },
+///         // ...
+///     }
 /// ```
 #[proc_macro]
 pub fn cont (ts: TokenStream)->TokenStream {
@@ -986,14 +988,14 @@ pub fn cont (ts: TokenStream)->TokenStream {
 }
 
 /// statement (block) wrapper macro to be used in match arm expressions that makes sure we return 
-/// [`odin_actor::ReceiveAction::Stop`] from this match arm. See [`cont`] for details.
+/// `odin_actor::ReceiveAction::Stop` from this match arm. See [`cont`] for details.
 #[proc_macro]
 pub fn stop (ts: TokenStream)->TokenStream {
     expand_msg_match_action( ts, quote! { ReceiveAction::Stop })
 }
 
 /// statement (block) wrapper macro to be used in match arm expressions that makes sure we return 
-/// [`odin_actor::ReceiveAction::Stop`] from this match arm. See [`cont`] for details.
+/// `odin_actor::ReceiveAction::Stop` from this match arm. See [`cont`] for details.
 #[proc_macro]
 pub fn term (ts: TokenStream)->TokenStream {
     expand_msg_match_action( ts, quote! { ReceiveAction::RequestTermination })

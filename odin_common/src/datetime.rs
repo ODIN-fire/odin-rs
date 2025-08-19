@@ -103,7 +103,7 @@ pub fn full_hour<Tz:TimeZone> ( dt: &DateTime<Tz>)->DateTime<Tz> {
     dt.with_minute(0).unwrap().with_second(0).unwrap().with_nanosecond(0).unwrap()
 }
 
-/// return minutes since given given DateTime<Utc> (negative if in future)
+/// return minutes since given given `DateTime<Utc>` (negative if in future)
 pub fn elapsed_minutes_since (dt: &DateTime<Utc>) -> i64 {
     let now = chrono::offset::Utc::now();
     (now - *dt).num_minutes()
@@ -121,7 +121,7 @@ pub fn is_between_inclusive (dt: &DateTime<Utc>, dt_start: &DateTime<Utc>, dt_en
     dt >= dt_start && dt <= dt_end
 }
 
-/// get a DateTime<Utc> from a NaiveDate that is supposed to be in Utc
+/// get a `DateTime<Utc>` from a NaiveDate that is supposed to be in Utc
 pub fn naive_utc_date_to_utc_datetime (nd: NaiveDate) -> DateTime<Utc> {
     let nt = NaiveTime::from_hms_opt(0, 0, 0).unwrap(); // 00:00:00 can't fail
     let ndt = NaiveDateTime::new(nd,nt);

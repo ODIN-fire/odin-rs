@@ -23,7 +23,7 @@ use structopt::StructOpt;
 
 /// webrun - a simple http server that responds to http://localhost:303x/run POST requests with a body that
 /// contains a OS command to run from a console. Start in a console with
-///       > webrun <console-no> [--base <port>]
+///       `> webrun <console-no> [--base <port>]`
 /// Terminate with ctrl-C
 ///
 /// Used by slide presentations that run demos by including

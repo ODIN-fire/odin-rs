@@ -364,7 +364,7 @@ impl From<&Cartesian3> for Cartographic {
     /// see
     ///    Olson, D. K. (1996).
     ///    Converting Earth-Centered, Earth-Fixed Coordinates to Geodetic Coordinates.
-    ///    IEEE Transactions on Aerospace and Electronic Systems, 32(1), 473–476. https://doi.org/10.1109/7.481290
+    ///    IEEE Transactions on Aerospace and Electronic Systems, 32(1), 473–476. [<https://doi.org/10.1109/7.481290>]
     ///
     /// this is ~1.4x faster than Osen and roundtrip errors are still below 1e-10 so we pick this as default
     fn from (p: &Cartesian3) -> Self {
