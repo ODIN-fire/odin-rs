@@ -115,7 +115,7 @@ impl Default for PerimeterFilterData {
     }
 }
 
-/// summary of fire information, stored in <fire-name>/summary.json.
+/// summary of fire information, stored in `<fire-name>/summary.json`.
 /// this is the primary model of the data we want to collect
 /// if this file exists it is read during program start
 #[derive(Serialize,Deserialize,Debug)]

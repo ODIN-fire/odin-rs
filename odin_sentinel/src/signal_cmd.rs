@@ -35,7 +35,7 @@ pub struct SignalCmdConfig {
 /// the local machine. Availability of such a command is checked when constructing the SignalCmsAlarmMessenger
 /// and panics if none is found.
 /// This messenger is always included and doesn't require odin_sentinel features.
-/// Note this is using a different config than [`SignalRpcAlarmMessenger``]
+/// Note this is using a different config than `odin_sentinel::signal_rpc::SignalRpcAlarmMessenger`
 /// 
 /// TODO - this should use a standalone presage/libsignal-service-rs based command but we have to support image attachments 
 /// for messages. While signal-cli does all we need (and is available on all platforms) it is a Java application that is not

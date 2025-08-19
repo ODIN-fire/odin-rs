@@ -349,7 +349,7 @@ impl <M> ActorHandle <M> where M: MsgTypeConstraints {
         self.timeout_send_actor_msg( msg.into(), to).await
     }
 
-    /// for use in closures that capture the actor handle - see [`move_send_msg`]
+    /// for use in closures that capture the actor handle - see [move_send_msg\<T\>]
     pub async fn timeout_move_send_msg<T> (self, msg: T, to: Duration)->Result<()> where T: Into<M> {
         self.timeout_send_msg( msg, to).await
     }
@@ -712,7 +712,7 @@ impl ActorSystem {
     }
 
     /// although this implementation is infallible others (e.g. through an [`ActorHandle`] or using different
-    /// channel types) are not. To keep it consistent we return a `Result<ActorHandle>``
+    /// channel types) are not. To keep it consistent we return a `Result<ActorHandle>`.
     pub fn spawn_actor<R,M> (&mut self, act: (R, ActorHandle<M>, MpscReceiver<M>))->Result<ActorHandle<M>>
         where
             M: MsgTypeConstraints,

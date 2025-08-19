@@ -305,12 +305,16 @@ macro_rules! define_error {
 /// syntactic sugar macro to expand into a struct with serde attribute macros
 /// This mostly expands optional "[ attr,.. ]" groups into respective #[serde(attrs...)] container or field attribute macros
 /// use like this:
-/// 
+/// ```
+/// use odin_common::define_serde_struct;
+/// use serde::{Serialize,Deserialize};
+/// # fn default_service() -> String { "foo".to_string() }
 /// define_serde_struct! {
 ///     pub GetMapQuery : Debug [deny_unknown_fields] = 
 ///        service: String [alias = "svc", default="default_service"],
 ///        layers: Option<String>
 /// }
+/// ```
 /// 
 /// TODO - we might turn this into q proc macro so that we can also do ad hoc default value spec without the need for additional functions
 #[macro_export]

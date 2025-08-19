@@ -107,8 +107,8 @@ trait FirmsHotspotImporter: HotspotImporter {
 
 /* #region VIIRS hotspots **********************************************************************************/
 
-/// this is the raw record format of the VIIRS FDDC data product as it is retrieved from the FIRMS server
-/// field descriptions on https://www.earthdata.nasa.gov/data/instruments/viirs/viirs-i-band-375-m-active-fire-data
+/// this is the raw record format of the VIIRS FDDC data product as it is retrieved from the
+/// (FIRMS server field descriptions)[<https://www.earthdata.nasa.gov/data/instruments/viirs/viirs-i-band-375-m-active-fire-data>].
 #[derive(Debug,Deserialize)]
 #[public_struct]
 pub struct RawViirsHotspot {
@@ -240,8 +240,9 @@ impl HotspotImporter for ViirsHotspotImporter {
 
 /* #region OLI (Landsat) hotspots ***********************************************************************/
 
-/// this is the raw record format of the OLI data product as it is retrieved from the FIRMS server
-/// field descriptions on https://www.earthdata.nasa.gov/data/tools/firms/faq ("attributes of Landsat fire data")
+/// this is the raw record format of the OLI data product as it is retrieved from the
+/// (FIRMS server field descriptions)[<https://www.earthdata.nasa.gov/data/tools/firms/faq>]
+/// ("attributes of Landsat fire data")
 /// the pixel footprint is fixed 30x30m (this is a narrow push broom sensor)
 #[derive(Debug,Deserialize)]
 #[public_struct]
