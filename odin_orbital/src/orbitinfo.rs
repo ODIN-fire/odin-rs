@@ -20,7 +20,7 @@ use odin_common::{angle::normalize_360, cartesian3::Cartesian3, cartographic::{g
 use crate::{get_time_vec,ColumnVec};
 
 
-/// time and ECEF longitude [degrees] of ascending or descending orbital node
+/// time and ECEF longitude (degrees) of ascending or descending orbital node
 /// this uses simple linear interpolation  
 #[derive(Debug)]
 pub struct OrbitNode { 
