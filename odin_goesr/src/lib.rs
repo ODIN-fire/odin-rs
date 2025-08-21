@@ -249,7 +249,7 @@ lazy_static! {
 }
 
 /// file info as encoded in files downloaded from AWS S3
-/// see https://www.goes-r.gov/products/docs/PUG-L2+-vol5.pdf (pg 608)
+/// see (GOES-R Series Product Guide)[<https://www.goes-r.gov/products/docs/PUG-L2+-vol5.pdf>] (pg 608)
 /// schema:
 ///         «sys_env» _ «instrument» - «level» - «product» - «mode» _G «sat_id» _s «start-time» _e «end-time» _c «create-time» .nc
 /// 

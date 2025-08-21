@@ -30,7 +30,7 @@ define_cli! { ARGS [about="monitor overpasses and hotspots for given satellite"]
 
 run_actor_system!( actor_system => {
     let cache_dir = pkg_cache_dir!();
-    init_orbital_data()?;
+    init_orbital_data();
     let sat_info: Arc<OrbitalSatelliteInfo> =  Arc::new( load_config( &ARGS.sat_info)?);
     let region: Arc<GeoPolygon> = Arc::new( load_config( &ARGS.region)?);
 
@@ -47,11 +47,14 @@ run_actor_system!( actor_system => {
                 Ok(())
             }),
             data_action!( => |overpass: Vec<&Overpass>| {
-                println!("-- got overpass {overpass}");
+                for over in overpass {
+                    println!("{}", over);
+                }
                 Ok(())
             }),
             data_action!( => |hs: Vec<&HotspotList>| {
-                println!("-- got data with {} hotspots starting at {}", hs.hotspots.len(), hs.start);
+                println!("-- got data with {} hotspots starting at {:?}", hs.len(),
+                    hs.first().map(|h| h.start));
                 //let s = ron::ser::to_string_pretty( hs, ron::ser::PrettyConfig::default().compact_structs(true))?;
                 //println!("{s}");
                 Ok(())

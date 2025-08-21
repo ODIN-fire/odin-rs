@@ -45,7 +45,7 @@ pub enum Compaction {
     schedule_from_hourly_histogram( &hist)
 }
 
-/// get `DateTime<Utc>`` for the next event *after* the provided `date` based on an hourly schedule
+/// get `DateTime<Utc>` for the next event *after* the provided `date` based on an hourly schedule
 /// given as a `& Vec<u8>` of respective hourly minutes.
 /// Returned value is at full minutes (no seconds or nanoseconds)
 pub fn get_next_hourly_event_dtg (date: DateTime<Utc>, sched: &Vec<u8>)->DateTime<Utc> {
