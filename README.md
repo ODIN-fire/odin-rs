@@ -28,12 +28,10 @@ This Rust repository contains a [Cargo workspace](https://doc.rust-lang.org/carg
   1. [Git](https://git-scm.com/) - the version control system that is by now ubiqitous 
 
   2. [Rust toolchain](https://www.rust-lang.org/tools/install) - we recommend to manage the toolchain via `rustup`
-     At this point ODIN-RS uses the nightly toolchain. To get, (locally) install `rustup` and switch to the nightly toolchain execute:
+     At this point ODIN-RS uses the stable toolchain.
 
      ```shell
      $> curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-     ...
-     $> rustup default nightly
      ``` 
 
      Periodic updates of the toolchain can be done by executing `rustup update`
@@ -43,6 +41,11 @@ This Rust repository contains a [Cargo workspace](https://doc.rust-lang.org/carg
      * Linux: gdal packages are available for all major Linux distributions through their native package managers
      * macOS: [homebrew](https://brew.sh/): `brew install gdal`
      * windows: [vcpkg](https://learn.microsoft.com/en-us/vcpkg/get_started/overview)
+
+  4. [MDBook](https://github.com/rust-lang/mdBook) - mdBook is a utility to create modern online books from Markdown files. You can install it using cargo:
+    ```shell
+    $> cargo install mdbook
+    ```
 
 ### Build instructions
 
@@ -56,14 +59,13 @@ $> cargo build --example hello_world
      Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.20s
      Running `.../odin-rs/target/debug/examples/hello_world`
 hello world!
-hello me!
 ```
 
 For IDEs we recommend [Visual Studio Code with the Rust Analyzer extension](https://code.visualstudio.com/docs/languages/rust) - just choose "File->Open Folder" with the directory this repository was cloned to and you should be ready to go.
 
 ## Further Documentation
 
-Many ODIN applications require configuration and asset data that is not part of its source distribution. To learn about how to set up ODIN development systems, how to deploy production applications and about the details of existing ODIN sub-crates please refer to the `odin_book` which is part of the odin-rs repository and can be built/viewed through [`mdbook`](https://rust-lang.github.io/mdBook/) which is part of the Rust toolchain:
+Many ODIN applications require configuration and asset data that is not part of its source distribution. To learn about how to set up ODIN development systems, how to deploy production applications and about the details of existing ODIN sub-crates please refer to the `odin_book` which is part of the odin-rs repository and can be built/viewed through [`mdbook`](https://rust-lang.github.io/mdBook/).
 
 ```shell
 $> cd odin_book
