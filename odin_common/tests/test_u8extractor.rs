@@ -20,7 +20,7 @@ use std::io::Cursor;
 use anyhow::Result;
 use odin_common::{
     extract_all, extract_fields, extract_ordered, 
-    u8extractor::{AsyncCsvExtractor, CsvStr, MemMemFinder, SimpleU8Finder, U8Readable}
+    u8extractor::{AsyncCsvExtractor, CsvFieldExtractor, CsvStr, MemMemFinder, SimpleU8Finder, U8Readable}
 };
 
 const DF_17_9: &'static str   = r#"{"timestamp":1753227402.170955,"frame":"8da0b59d990849b660043ed519f7","df":"17","icao24":"a0b59d","bds":"09","NACv":1,"groundspeed":439.9318128983172,"track":170.58049974178377,"vrate_src":"barometric","vertical_rate":0,"geo_minus_baro":1525,"metadata":[{"system_timestamp":1753227402.170955,"rssi":-10.372777,"serial":14924845721654670821,"name":"rtlsdr"}]}"#;
@@ -187,4 +187,81 @@ struct Timestamp(DateTime<Utc>);
     }
 
     Ok(())
+ }
+
+struct PropertyFinder {
+    id: MemMemFinder<'static>,
+    last_frame_ts: MemMemFinder<'static>,
+    fov_lft: MemMemFinder<'static>,
+    fov_rt: MemMemFinder<'static>,
+    az_current: MemMemFinder<'static>,
+    tilt_current: MemMemFinder<'static>,
+    zoom_current: MemMemFinder<'static>
+}
+
+impl PropertyFinder {
+    fn new()->Self {
+        let id: MemMemFinder<'static>            = MemMemFinder::new(b"\"id\": \""); // string
+        let last_frame_ts: MemMemFinder<'static> = MemMemFinder::new(b"\"last_frame_ts\":"); // epoch seconds
+        let fov_lft: MemMemFinder<'static>       = MemMemFinder::new(b"\"fov_lft\":"); // two number array on follow lines
+        let fov_rt: MemMemFinder<'static>        = MemMemFinder::new(b"\"fov_rt\":"); // two number array on follow lines
+        let az_current: MemMemFinder<'static>    = MemMemFinder::new(b"\"az_current\":"); // f64
+        let tilt_current: MemMemFinder<'static>  = MemMemFinder::new(b"\"tilt_current\":"); // f64
+        let zoom_current: MemMemFinder<'static>  = MemMemFinder::new(b"\"zoom_current\":"); // f64
+
+        PropertyFinder{ id, last_frame_ts, fov_lft, fov_rt, az_current, tilt_current, zoom_current }
+    }
+}
+
+ #[test]
+ fn test_array_field_extract() {
+    let input = r#"
+           "properties": {
+                "id": "Axis-PressonHill1",
+                "name": "Presson Hill 1",
+                "last_frame_ts": 1754751734,
+                "fov_lft": [
+                    -122.13775640830006,
+                    36.93292827470276
+                ],
+                "fov_rt": [
+                    -122.28974069467154,
+                    37.20790695786478
+                ],
+                "fov_center": [
+                    -122.26209024034152,
+                    37.053451959247234
+                ],
+                "fov": 62.8,
+                "ProdNbr": "",
+                "az_current": 246.22999572753906,
+                "tilt_current": 0.0,
+                "zoom_current": 1.0,
+                "is_patrol_mode": 0,
+                "is_currently_patrolling": 0,
+                "state": "CA",
+                "county": "santaclara",
+                "isp": "geolinks",
+                "sponsor": "pge",
+                "region": "SCU"
+            }
+    "#.as_bytes();
+
+    let finder = PropertyFinder::new();
+
+    let mut success = false;
+    extract_all!{ input ?
+        let id: &str = finder.id,
+        let last_frame_ts: i64 = finder.last_frame_ts,
+        let fov_lft: [f64;2] = finder.fov_lft,
+        let fov_rt: [f64;2] = finder.fov_rt,
+        let az_current: f64 = finder.az_current,
+        let tilt_current: f64 = finder.tilt_current,
+        let zoom_current: f64 = finder.zoom_current => {
+            println!("{}: {}, {:?}, {:?}, {}, {}, {}", id, last_frame_ts, fov_lft, fov_rt, az_current, tilt_current, zoom_current);
+            success = true;
+        }
+    }
+
+    assert!(success)
  }

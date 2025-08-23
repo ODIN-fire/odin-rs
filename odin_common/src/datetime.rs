@@ -27,6 +27,8 @@ impl EpochMillis {
     pub fn now ()->Self { EpochMillis( Utc::now().timestamp_millis()) }
 
     pub fn new(millis:i64)->Self { EpochMillis(millis) }
+
+    pub fn from_secs(secs: i64)->Self { EpochMillis(secs*1000) }
     
     pub fn millis(&self)->i64 { self.0 }
 }

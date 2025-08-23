@@ -64,6 +64,7 @@ pub fn get_headermap (headers: &Vec<String>) -> Result<HeaderMap> {
     }
 }
 
+pub const NO_HEADERS: Option<HeaderMap> = None;
 
 /// fetch file from URL using HTTP GET method. Retrieve in chunks to support large files
 /// Note this requires a full URL

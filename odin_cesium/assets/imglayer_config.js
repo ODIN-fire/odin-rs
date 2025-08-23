@@ -30,7 +30,7 @@ export const config = {
         { 
             pathName:'globe/natgeo',
             info:'ArcGIS NatGeo Terrain',
-            provider: Cesium.ArcGisMapServerImageryProvider.fromUrl('proxy/globe-natgeo'),
+            provider: Cesium.ArcGisMapServerImageryProvider.fromUrl( './proxy/globe-natgeo'),
             exclusive:['globe'],
             show:true,
             render:{ brightness:0.6 }
@@ -38,7 +38,7 @@ export const config = {
         { 
             pathName:'globe/openstreetmap',
             info:'OpenStreetMap',
-            provider: new Cesium.OpenStreetMapImageryProvider({ url : 'proxy/globe-osm' }),
+            provider: new Cesium.OpenStreetMapImageryProvider({ url : './proxy/globe-osm' }),
             //provider: new Cesium.OpenStreetMapImageryProvider({ url : 'https://tile.openstreetmap.org' }),
             exclusive:['globe'],
             render:{ brightness:0.6 }
@@ -46,7 +46,7 @@ export const config = {
         { 
             pathName:'globe/opentopomap',
             info:'OpenTopoMap',
-            provider: new Cesium.OpenStreetMapImageryProvider({ url : 'proxy/globe-otm' }),
+            provider: new Cesium.OpenStreetMapImageryProvider({ url : './proxy/globe-otm' }),
             //provider: new Cesium.OpenStreetMapImageryProvider({ url : 'https://tile.opentopomap.org' }),
             exclusive:['globe'],
             render:{ brightness:0.6 }
@@ -98,13 +98,13 @@ export const config = {
             colorMap: "./asset/odin_cesium/landfire/LF20_FVT_220.json",
             render:{ brightness:1.0, contrast:1.0, hue:0.0, alphaColor: "white" }
         },
-        {
-            pathName: "fuel/VERM",
-            info: "Vegetation Ember Relative Mass index 2023",
-            provider: await Cesium.TileMapServiceImageryProvider.fromUrl("./tms/verm"),
-            exclusive: ["fuel"],
-            render:{ brightness:1.0, contrast:1.0, hue:0.0 }
-        },
+        //{  // not everybody has the VERM data
+        //    pathName: "fuel/VERM",
+        //    info: "Vegetation Ember Relative Mass index 2023",
+        //    provider: await Cesium.TileMapServiceImageryProvider.fromUrl( "./tms/verm"),
+        //    exclusive: ["fuel"],
+        //    render:{ brightness:1.0, contrast:1.0, hue:0.0 }
+        //},
 
         {
             pathName: "mtbs/burn_severity/2018",

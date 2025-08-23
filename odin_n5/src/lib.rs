@@ -171,7 +171,7 @@ pub enum AlertType {
 
 /* #endregion import types */
 
-/* #internal data model *************************************************************************/
+/* #region internal data model *************************************************************************/
 
 // we separate the import data types from our internal model so that we (a) can add units of measure
 // and (b) have more control over deserialization (serde) and serialization (JsonWriter). The latter one
@@ -221,8 +221,8 @@ impl JsonWritable for N5Device {
             w.write_field( "name", &self.name);
            
             w.write_object_field( "position", |w|{
-                w.write_f64_field("lon", self.position.longitude_deg(), NumFormat::Fp5);
-                w.write_f64_field("lat", self.position.latitude_deg(), NumFormat::Fp5)
+                w.write_f64_field("lon", self.position.longitude_degrees(), NumFormat::Fp5);
+                w.write_f64_field("lat", self.position.latitude_degrees(), NumFormat::Fp5)
             });
 
             w.write_field( "device_type", &self.device_type);

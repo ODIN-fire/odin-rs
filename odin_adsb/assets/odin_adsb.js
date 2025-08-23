@@ -101,17 +101,10 @@ class TrackSource {
 
         // we keep those in different data sources so that we can control Z-order and 
         // bulk enable/disable display more efficiently
-        this.symbolDataSource = new Cesium.CustomDataSource(id); // display list for Cesium track entities
-        odinCesium.addDataSource(this.symbolDataSource);
-
-        this.trackInfoDataSource = new Cesium.CustomDataSource(id + '-trackInfo');
-        odinCesium.addDataSource(this.trackInfoDataSource);
-
-        this.trajectoryDataSource = new Cesium.CustomDataSource(id + '-trajectories');
-        odinCesium.addDataSource(this.trajectoryDataSource);
-
-        this.pointDataSource = new Cesium.CustomDataSource(id + '-point');
-        odinCesium.addDataSource(this.pointDataSource);
+        this.symbolDataSource = odinCesium.createDataSource( id, config.layer.show); // display list for Cesium track entities
+        this.trackInfoDataSource = odinCesium.createDataSource(id + '-trackInfo', config.layer.show);
+        this.trajectoryDataSource = odinCesium.createDataSource(id + '-trajectories', config.layer.show);
+        this.pointDataSource = odinCesium.createDataSource(id + '-point', config.layer.show);
 
         this.modelPrototypes = new Map(); // track.type -> model cache
     }
@@ -170,8 +163,8 @@ class TrackSource {
                 horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
                 verticalOrigin: Cesium.VerticalOrigin.TOP,
                 fillColor: trackColor,
-                showBackground: true,
-                backgroundColor: config.labelBackground, // alpha does not work against model
+                //showBackground: true,
+                //backgroundColor: config.labelBackground, // alpha does not work against model
                 outlineColor: trackColor,
                 outlineWidth: 1,
                 pixelOffset: config.infoOffset,
@@ -622,8 +615,8 @@ function trackEntityLabelOpts (trackEntry, trackColor, heightRef) {
         verticalOrigin: Cesium.VerticalOrigin.TOP,
         font: config.labelFont,
         fillColor: trackColor,
-        showBackground: true,
-        backgroundColor: config.labelBackground, // alpha does not work against model
+        //showBackground: true,
+        //backgroundColor: config.labelBackground, // alpha does not work against model
         outlineColor: trackColor,
         outlineWidth: 1,
         pixelOffset: config.labelOffset,

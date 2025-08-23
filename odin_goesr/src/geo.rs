@@ -118,6 +118,6 @@ impl GoesrProjection {
 
     pub fn geo3_from_instrument_angles (&self, ew_scan: f64, ns_elevation: f64, alt: f64)->GeoPoint3 {
         let p = self.geo_from_instrument_angles(ew_scan, ns_elevation);
-        GeoPoint3::from_lon_lat_degrees_alt_meters( p.longitude_deg(), p.latitude_deg(), alt)
+        GeoPoint3::from_lon_lat_degrees_alt_meters( p.longitude_degrees(), p.latitude_degrees(), alt)
     }
 }

@@ -324,13 +324,13 @@ impl From<&Cartographic> for GeoPoint {
 
 impl From<GeoPoint> for Cartographic {
     fn from (p: GeoPoint) -> Self {
-        Cartographic::from_degrees( p.longitude_deg(), p.latitude_deg(), 0.0)
+        Cartographic::from_degrees( p.longitude_degrees(), p.latitude_degrees(), 0.0)
     }
 }
 
 impl From<&GeoPoint> for Cartographic {
     fn from (p: &GeoPoint) -> Self {
-        Cartographic::from_degrees( p.longitude_deg(), p.latitude_deg(), 0.0)
+        Cartographic::from_degrees( p.longitude_degrees(), p.latitude_degrees(), 0.0)
     }
 }
 

@@ -25,7 +25,7 @@ const MOD_PATH = "odin_sentinel::sentinel_service::SentinelService";
 ws.addWsHandler( MOD_PATH, handleWsMessages);
 
 var sentinelInactiveMillis = (config.inactiveMinutes ? config.inactiveMinutes : 15) * 60000;
-var sentinelDataSource = new Cesium.CustomDataSource("sentinel");
+var sentinelDataSource = odinCesium.createDataSource("sentinel", config.layer.show);
 var sentinelView = undefined;
 var sentinelEntries = new Map();
 var sentinelInfos = new Map();
@@ -133,7 +133,8 @@ class SentinelEntry {
                 this.pos = Cesium.Cartesian3.fromDegrees( gps.longitude, gps.latitude, gas.altitude);
             } else {
                 this.pos = Cesium.Cartesian3.fromDegrees( gps.longitude, gps.latitude, 0); // only temp
-                odinCesium.withDetailedSampledTerrain( [Cesium.Cartographic.fromDegrees( gps.longitude, gpd.latitude)], (positions)=>{
+                // TODO - get the ECEF position from the server
+                odinCesium.withDetailedSampledTerrain( [Cesium.Cartographic.fromDegrees( gps.longitude, gps.latitude)], (positions)=>{
                     this.pos = positions[0].toCartesian();
                 });
             }
@@ -194,8 +195,6 @@ class SentinelEntry {
 
 
 //--- module initialization
-
-odinCesium.addDataSource(sentinelDataSource);
 
 createIcon();
 createWindow();

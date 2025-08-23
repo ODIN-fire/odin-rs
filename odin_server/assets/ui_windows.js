@@ -2,7 +2,7 @@ import * as util from "./ui_util.js";
 import * as ui from "./ui.js";
 
 export function ImageWindow (title, id, closeAction, imgUri, caption, 
-                             viewerWidth, viewerHeight, x=undefined, y=undefined, 
+                             viewerWidth=600, viewerHeight=500, x=undefined, y=undefined, 
                              minScale=0, maxScale=2.0, scaleStep=0.05) {
     let isFullScale = false;
     let fullScaleActivated = false;
@@ -21,6 +21,7 @@ export function ImageWindow (title, id, closeAction, imgUri, caption,
 
     let img = new Image();
     img.src = imgUri; // kicks off async loading
+    console.log("loading ", imgUri, "...");
 
     let label = ui.Label( caption, id+".caption");
 
@@ -55,6 +56,7 @@ export function ImageWindow (title, id, closeAction, imgUri, caption,
     if (closeAction) imageViewer.closeAction = closeAction;
 
     img.addEventListener('load', () => {
+        console.log(imgUri, " loaded.");
         // note the window has already been created at this point but is not yet visible
         let iw = img.naturalWidth;
         let ih = img.naturalHeight;
@@ -62,6 +64,7 @@ export function ImageWindow (title, id, closeAction, imgUri, caption,
         let wScale = viewerWidth / iw;
         let hScale = viewerHeight / ih;
         scale = Math.floor( Math.min( wScale, hScale) / scaleStep) * scaleStep;
+
         ui.setSliderValue( scaleSlider, scale);
         initScale = scale;
 

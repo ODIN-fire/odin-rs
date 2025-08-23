@@ -31,7 +31,7 @@ use odin_server::prelude::*;
 define_load_config!{}
 define_load_asset!{}
 
-pub const CESIUM_VERSION: &'static str = "1.130";
+pub const CESIUM_VERSION: &'static str = "1.132";
 
 /* #region CesiumService *************************************************************************************/
 

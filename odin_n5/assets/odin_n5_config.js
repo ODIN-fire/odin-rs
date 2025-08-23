@@ -2,7 +2,7 @@ export const config = {
     layer: {
       name: "/fire/detection/N5Shield",
       description: "stationary N5Shield fire sensors",
-      show: true,
+      show: false,
     },
     maxAlertAge: 60000 * 60, // 1h
     color: Cesium.Color.fromCssColorString('chartreuse'),

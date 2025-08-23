@@ -24,7 +24,6 @@ import * as ws from "../odin_server/ws.js";                   // websocket proce
 import * as odinCesium from "../odin_cesium/odin_cesium.js";  // virtual globe rendering interface from odin_cesium
 
 
-//--- 3. constants
 const MOD_PATH = "odin_n5::n5_service::N5Service";   // the name of the associated odin-rs SpaService 
 
 
@@ -33,7 +32,7 @@ ws.addWsHandler( MOD_PATH, handleWsMessages);                 // incoming websoc
 //main.addShareHandler( handleShareMessage);                  // if module uses shared data items
 //main.addSyncHandler( handleSyncMessage);                    // if module supports synchronization commands
 
-//--- 5. data type definitions, module variable initialization
+/* #region data type definitions, module variable initialization *****************************************/
 
 class N5Assets {
     constructor(symbol, wind, info) {
@@ -222,7 +221,9 @@ class N5Entry {
     }
 }
 
-var n5DataSource = new Cesium.CustomDataSource("n5");
+/* #endregion data types */
+
+var n5DataSource = odinCesium.createDataSource("n5", config.layer.show);
 var deviceEntries = new Map();  // id -> device
 
 var deviceView = undefined;
@@ -230,9 +231,6 @@ var selectedDeviceEntry = null;
 
 var dataView = undefined;
 var alertView = undefined;
-
-//--- 6. UI initialization
-odinCesium.addDataSource(n5DataSource);
 
 createIcon();
 createWindow();                                           
@@ -246,7 +244,7 @@ console.log("odin_n5 initialized");
 
 //--- 7. function definitions
 function createIcon() {                                     
-    return ui.Icon("./asset/odin_n5/n5.svg", (e)=> ui.toggleWindow(e,'n5'));
+    return ui.Icon("./asset/odin_n5/n5.svg", (e)=> ui.toggleWindow(e,'n5'), "N5 Shield sensors");
 }
 
 function createWindow() {                                 

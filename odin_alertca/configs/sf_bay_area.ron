@@ -1,0 +1,50 @@
+// example RON config file for AlertCalifornia cameras in the SF Bay Area
+AlertCaConfig(
+    cameras: [
+        "Axis-LimekilnCanyon",
+        "Axis-PressonHill1",
+        "Axis-PressonHill2",
+        "Axis-MtChaul", // NOTE: mis-spelled. Should be "MtChual"
+        "Axis-LomaPrieta",
+        "Axis-MtRodoni1",
+        "Axis-MtBielawski",
+        "Axis-Almaden1",
+        "Axis-Almaden2",
+        "Axis-BonnyDoon",
+        "Axis-EagleRockLookout2",
+        "Axis-ChalkMtnLookout",
+        "Axis-CastaneaRidge",
+        "Axis-CupertinoHills",
+        "Axis-BlackMtSCC",
+        "Axis-BlackMtSCC2",
+        "Axis-MontebelloPreserve",
+        "Axis-FoothillsPark",
+        "Axis-JasperRidge",
+        "Axis-AllenPeak",
+        "Axis-Tunitas",
+        "Axis-HigginsCanyon",
+        "Axis-Weston1", // (Scotts Valley)
+        "Axis-Brookdale",
+        "Axis-MtMadonna",
+        "Axis-HolidayLake1",
+        "Axis-HolidayLake2",
+        "Axis-StarrCanyon1",
+        "Axis-StarrCanyon2",
+        "Axis-MtHamiltonSCC1",
+        "Axis-MtHamiltonSCC2",
+        "Axis-MtHamiltonSCC3",
+        "Axis-MiliasRanch1",
+        "Axis-MiliasRanch2",
+        "Axis-PachecoPeak1",
+        "Axis-PachecoPeak2",
+    ],
+
+    base_url: "https://cameras.alertcalifornia.org/public-camera-data",
+
+    update_interval: Duration(secs:180,nanos:0), // update every 3 min
+    max_history: 10, // number of VarCameraData entries we keep
+    max_age: Duration(secs:3600,nanos:0), // keep data for 1h
+
+    //dem: Some( Server("http://localhost:9019") ),
+    dem: Some( File("$ODIN_ROOT/data/3dep13-conus-i16/3dep13-conus-i16.vrt") ),
+)

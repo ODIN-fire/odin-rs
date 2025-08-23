@@ -22,6 +22,7 @@ odin_wind = { workspace = true }
 odin_hrrr = { workspace = true }
 odin_adsb = { workspace = true }
 odin_n5 = { workspace = true }
+odin_alertca = { workspace = true }
 
 tokio = { workspace = true }
 anyhow = "*"

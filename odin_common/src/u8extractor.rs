@@ -383,6 +383,12 @@ impl<'a> U8Readable<'a,u64> for u64 {
     fn from_u8 (buf: &'a[u8], i0: usize)->Option<(u64,usize)> {
         let mut i = i0;
         let mut n: u64 = 0;
+
+        while buf[i] <= b' ' { // skip leading white space
+            i += 1;
+            if i >= buf.len() { return None }
+        }
+
         loop {
             if i >= buf.len() {
                 return if i>i0 { Some((n, i-i0)) } else { None }
@@ -408,6 +414,11 @@ impl<'a> U8Readable<'a,i64> for i64 {
         let mut i = i0;
         let mut n: i64 = 0;
         let mut sig: i64 = 1;
+
+        while buf[i] <= b' ' { // skip leading white space
+            i += 1;
+            if i >= buf.len() { return None }
+        }
 
         if buf[i] == b'-' {
             sig = -1;
@@ -437,6 +448,17 @@ impl<'a> U8Readable<'a,i64> for i64 {
 impl<'a> U8Readable<'a, &'a str> for &'a str {
     fn from_u8 (buf: &'a[u8], i0: usize)->Option<(&'a str,usize)> {
         let mut i = i0;
+
+        while buf[i] <= b' ' { // skip leading white space
+            i += 1;
+            if i >= buf.len() { return None }
+        }
+
+        if buf[i] == b'"' { // skip over opening double quote
+            i += 1;
+        }
+        let i0 = i;
+
         let mut skip = false;
         loop {
             if i >= buf.len() { return None }
@@ -464,42 +486,81 @@ impl<'a> U8Readable<'a, &'a str> for &'a str {
 
 impl<'a> U8Readable<'a,f64> for f64 {
     fn from_u8 (buf: &'a[u8], i0: usize)->Option<(f64,usize)> {
-        let mut n: i64 = 0;
-        let mut d: i64 = 0;
-        let mut a: &mut i64 = &mut n;
-        let mut sig = 1.0;
-        let mut di = 0;
-
-        let mut i = i0;
-        if buf[i] == b'-' {
-            sig = -1.0;
-            i += 1;
-        }
-
-        loop {
-            if i > buf.len() { 
-                return if i>i0 { 
-                    let x = sig * ((n as f64) + (d as f64) / 10.0f64.powi((i - di - 1) as i32));
-                    Some((x, di)) 
-                } else { None } 
-            }
-
-            let b: u8 = buf[i];
-            if b >= b'0' && b <= b'9' {
-                *a = *a * 10 + (b as i64 - 48);
-            } else if b == b'.' {
-                a = &mut d;
-                di = i;
-            } else {
-                let x = sig * ((n as f64) + (d as f64) / 10.0f64.powi((i - di - 1) as i32));
-                return Some((x, di));
-            }
-
-            i += 1;
-        }
+        read_f64( buf, i0)
     }
 }
 
+fn read_f64 (buf: &[u8], i0: usize)->Option<(f64,usize)> {
+    let mut n: i64 = 0;
+    let mut d: i64 = 0;
+    let mut a: &mut i64 = &mut n;
+    let mut sig = 1.0;
+    let mut di = 0;
+
+    let mut i = i0;
+
+    while buf[i] <= b' ' { // skip leading white space
+        i += 1;
+        if i >= buf.len() { return None }
+    }
+
+    if buf[i] == b'-' {
+        sig = -1.0;
+        i += 1;
+    }
+
+    loop {
+        if i > buf.len() { 
+            return if i>i0 { 
+                let x = sig * ((n as f64) + (d as f64) / 10.0f64.powi((i - di - 1) as i32));
+                Some((x, di)) 
+            } else { None } 
+        }
+
+        let b: u8 = buf[i];
+
+        if b >= b'0' && b <= b'9' {
+            *a = *a * 10 + (b as i64 - 48);
+        } else if b == b'.' {
+            a = &mut d;
+            di = i;
+        } else {
+            let x = sig * ((n as f64) + (d as f64) / 10.0f64.powi((i - di - 1) as i32));
+            return Some((x, i - i0+1));
+        }
+
+        i += 1;
+    }
+}
+
+
+impl<'a> U8Readable<'a,[f64;2]> for [f64;2] {
+    fn from_u8 (buf: &'a[u8], i0: usize)->Option<([f64;2],usize)> {
+        let mut i = i0;
+
+        while buf[i] != b'[' { // skip to opening bracket
+            i += 1; 
+            if i >= buf.len() { return None }
+        }
+
+        if let Some((x,l)) = read_f64( buf, i+1) {
+            i += l;
+
+            while buf[i] != b',' { // skip to sep comma
+                i += 1; 
+                if i >= buf.len() { return None }
+            }
+
+            if let Some((y,l)) = read_f64( buf, i+1) {
+                Some( ([x,y], (i+1 + l) - i0) )
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
 
 /// a newtype to wrap `&str` instances from CSV sources (which do not have to be '"' limited)
 #[derive(Debug)]

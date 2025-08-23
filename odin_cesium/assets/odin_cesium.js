@@ -344,8 +344,9 @@ function handleTerrainChange() {
 //--- imagery
 
 function checkImagery() {
-    // TODO - check if this works since it is recursive
+    //// TODO - check if this works since it is recursive
     import("./imglayer.js").catch((err) => {
+        console.log("error initializing imglayer: ", err);
         console.log("no imglayer configured, using default imagery");
         const imageryProvider = Cesium.ImageryLayer.fromWorldImagery({
             style: Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS
@@ -868,6 +869,13 @@ export function setDoubleClickHandler (action) {
 export function setEntitySelectionHandler(onSelect) {
     let selHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
     selHandler.setInputAction(onSelect, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+}
+
+export function createDataSource (name, show) {
+    let dataSrc = new Cesium.CustomDataSource(name);
+    dataSrc.show = show;
+    viewer.dataSources.add(dataSrc);
+    return dataSrc;
 }
 
 export function addDataSource(dataSrc) {

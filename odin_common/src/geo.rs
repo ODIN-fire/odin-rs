@@ -47,7 +47,7 @@ use crate::cartographic::Cartographic;
 use crate::{impl_deserialize_struct, impl_deserialize_seq};
 use crate::angle::{normalize_180, normalize_90, Angle360, Latitude, Longitude};
 use crate::datetime::{Dated, EpochMillis};
-use crate::json_writer::{JsonWritable,JsonWriter};
+use crate::json_writer::{JsonWritable,JsonWriter,NumFormat};
 
 pub type GeoCoord = Coord<f64>;
 
@@ -77,10 +77,10 @@ impl GeoPoint {
     #[inline] pub fn from_point(p:Point) -> Self { GeoPoint(p) } // TODO - should this be pub?
 
     #[inline] pub fn longitude(&self) -> Longitude { Longitude::from_degrees( self.0.x()) }
-    #[inline] pub fn longitude_deg(&self) -> f64 { self.0.x() }
+    #[inline] pub fn longitude_degrees(&self) -> f64 { self.0.x() }
 
     #[inline] pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.0.y()) }
-    #[inline] pub fn latitude_deg(&self) -> f64 { self.0.y() }
+    #[inline] pub fn latitude_degrees(&self) -> f64 { self.0.y() }
 
     #[inline] pub fn point<'a> (&'a self) -> &'a Point { &self.0 }
     #[inline] pub fn mut_point<'a> (&'a mut self) -> &'a mut Point { &mut self.0 }
@@ -91,11 +91,11 @@ impl GeoPoint {
     #[inline] pub fn as_ecef (&self)->ECEF<f64> { WGS84::from_degrees_and_meters( self.0.y(), self.0.x(), 0.0).into() }
 
     #[inline] pub fn to_cartographic (&self)->Cartographic {
-        Cartographic::from_degrees( self.longitude_deg(), self.latitude_deg(), 0.0)
+        Cartographic::from_degrees( self.longitude_degrees(), self.latitude_degrees(), 0.0)
     }
 
     #[inline] pub fn to_cartesian3 (&self)->Cartesian3 {
-        let cp = Cartographic::from_degrees( self.longitude_deg(), self.latitude_deg(), 0.0);
+        let cp = Cartographic::from_degrees( self.longitude_degrees(), self.latitude_degrees(), 0.0);
         Cartesian3::from( cp)
     }
 
@@ -109,6 +109,15 @@ impl GeoPoint {
 impl fmt::Display for GeoPoint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[{},{}]", self.0.x(),self.0.y())
+    }
+}
+
+impl JsonWritable for GeoPoint {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object( |w| {
+            w.write_f64_field("lon", self.longitude_degrees(), NumFormat::Fp5);
+            w.write_f64_field("lat", self.latitude_degrees(), NumFormat::Fp5);
+        })
     }
 }
 
@@ -477,11 +486,25 @@ impl GeoPoint3 {
         let cp2 = self.to_cartographic();
         Angle360::from_radians( cp2.bearing_from(&cp1))
     }
+
+    pub fn as_geo_point (&self)->GeoPoint {
+        GeoPoint::from_lon_lat_degrees( self.longitude_degrees(), self.latitude_degrees())
+    }
 }
 
 impl fmt::Display for GeoPoint3 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[{:.5},{:.5},{:.0}m]", self.longitude_degrees(),self.latitude_degrees(), self.altitude_meters())
+    }
+}
+
+impl JsonWritable for GeoPoint3 {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object( |w| {
+            w.write_f64_field("lon", self.longitude_degrees(), NumFormat::Fp5);
+            w.write_f64_field("lat", self.latitude_degrees(), NumFormat::Fp5);
+            w.write_f64_field("alt", self.alt, NumFormat::Fp1);
+        })
     }
 }
 
@@ -505,6 +528,7 @@ impl From<WGS84<f64>> for GeoPoint3 {
         }
     }
 }
+
 
 impl SerializeTrait for GeoPoint3 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {

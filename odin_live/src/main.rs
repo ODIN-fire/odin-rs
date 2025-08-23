@@ -26,12 +26,14 @@ use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, Sentin
 use odin_hrrr::{self,HrrrActor,HrrrFileAvailable};
 use odin_wind::{self, actor::{WindActor,WindActorMsg, server_subscribe_action, server_update_action}, wind_service::WindService};
 use odin_adsb::{AircraftStore,actor::AdsbActor,adsb_service::AdsbService, sbs::SbsConnector};
-use odin_n5::{self, N5DeviceStore, N5DataUpdate, get_json_update_msg, n5_service::N5Service, actor::N5Actor, live_connector::LiveN5Connector};
+use odin_n5::{self, N5DeviceStore, N5DataUpdate, n5_service::N5Service, actor::N5Actor, live_connector::LiveN5Connector};
+use odin_alertca::{self,actor::AlertCaActor, alertca_service::AlertCaService, live_connector::LiveAlertCaConnector, CameraStore, CameraUpdate};
 
 run_actor_system!( actor_system => {
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
     let pre_hrrr = PreActorHandle::new( &actor_system, "hrrr", 8);
     let pre_n5 = PreActorHandle::new( &actor_system, "n5", 8);
+    let pre_aca = PreActorHandle::new( &actor_system, "alertca", 8);
 
     //--- spawn the shared item store actor (needed by WindService)
     let hstore = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
@@ -98,7 +100,28 @@ run_actor_system!( actor_system => {
             ),
             data_action!( 
                 let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |updates: Vec<N5DataUpdate>| {
-                    let ws_msg = get_json_update_msg( &updates);
+                    let ws_msg = odin_n5::get_json_update_msg( &updates);
+                    Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
+                }
+            )
+        )
+    )?;
+
+    //--- spawn AlertCaActor
+    let sender_id = pre_aca.get_id();
+    let haca = spawn_pre_actor!( actor_system, pre_aca,
+        AlertCaActor::new( 
+            odin_alertca::load_config("sf_bay_area.ron")?,
+            LiveAlertCaConnector::new,
+            dataref_action!( 
+                let sender_id: Arc<String> = sender_id, 
+                let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |_store: &CameraStore| {
+                    Ok( hserver.try_send_msg( DataAvailable::new::<CameraStore>(sender_id) )? )
+                }
+            ),
+            dataref_action!( 
+                let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |updates: &Vec<CameraUpdate>| {
+                    let ws_msg = odin_alertca::get_json_update_msg( &updates);
                     Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
                 }
             )
@@ -130,6 +153,7 @@ run_actor_system!( actor_system => {
             .add( build_service!( => WindService::new( hwind) ))
             .add( build_service!( => SentinelService::new( hsentinel)))
             .add( build_service!( => N5Service::new( hn5) ))
+            .add( build_service!( => AlertCaService::new( haca) ))
             .add( build_service!( => GoesrHotspotService::new( goesr_sats)) )
             .add( build_service!( => OrbitalHotspotService::new( orbital_sats) ))
             .add( build_service!( => AdsbService::new( vec![hadsb]) ))

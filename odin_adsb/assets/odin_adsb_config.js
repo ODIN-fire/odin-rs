@@ -2,7 +2,7 @@ export const config = {
     layer: {
         name: "/tracking/ads-b",
         description: "ADS-B aircraft tracking",
-        show: true,
+        show: false,
     },
 
     colors: new Map([                  // source->color map
@@ -16,7 +16,7 @@ export const config = {
 
     labelFont: '16px sans-serif',
     labelOffset: new Cesium.Cartesian2( 12, 10),
-    labelBackground: Cesium.Color.fromCssColorString('black'),
+    //labelBackground: Cesium.Color.fromCssColorString('black'),
     labelDC: new Cesium.DistanceDisplayCondition( 0, 200000),
 
     pointSize: 5,

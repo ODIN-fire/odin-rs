@@ -24,6 +24,7 @@ use regex::Regex;
 use std::path::{Path,PathBuf};
 use odin_build;
 
+use crate::datetime::EpochMillis;
 use crate::if_let;
 use crate::macros::io_error;
 
@@ -251,6 +252,17 @@ pub fn datetime_to_fname (date: DateTime<Utc>, time_res: TimeResolution)->String
         TimeResolution::Seconds => date.format("%Y-%m-%dT%H%M%SZ"),
         TimeResolution::Millis => date.format("%Y-%m-%dT%H%M%S%3fZ")
     }.to_string()
+}
+
+pub fn epoch_millis_to_fname (timestamp: EpochMillis, time_res: TimeResolution)->String {
+    DateTime::from_timestamp_millis(timestamp.millis()).map( |date| {
+        match time_res {
+            TimeResolution::Hours => date.format("%Y-%m-%dT%HZ"),
+            TimeResolution::Minutes => date.format("%Y-%m-%dT%H%MZ"),
+            TimeResolution::Seconds => date.format("%Y-%m-%dT%H%M%SZ"),
+            TimeResolution::Millis => date.format("%Y-%m-%dT%H%M%S%3fZ")
+        }.to_string()
+    }).unwrap() // safe to unwrap as we start from valid EpochMillis
 }
 
 pub const DF_SEPARATOR: &'static str = "__";
@@ -554,7 +566,7 @@ use serde::de::{Deserialize as DeserializeTrait, Deserializer};
 use std::{fmt::Debug,ops::Deref,ffi::OsStr};
 
 // a PathBuf that can use env vars as path elements
-pub struct EnvPathBuf(PathBuf);
+pub struct EnvPathBuf(pub PathBuf);
 
 impl Debug for EnvPathBuf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

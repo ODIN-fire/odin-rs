@@ -22,6 +22,7 @@ members = [
   "odin_adsb",
   "odin_live",
   "odin_n5",
+  "odin_alertca",
   
   "gpshub",
   "opendata_splitter",
@@ -51,6 +52,7 @@ odin_dem    = { version = "*", path = "odin_dem" }
 odin_wind   = { version = "*", path = "odin_wind" }
 odin_adsb  = { version = "*", path = "odin_adsb" }
 odin_n5     = { version = "*", path = "odin_n5" }
+odin_alertca = { version = "*", path = "odin_alertca" }
 
 # external crates for which we have to ensure the same version
 axum = { version = "0.8.4", features = [ "http2", "ws", "macros"] }
@@ -83,6 +85,7 @@ gdal = { version = "0.18.0", features = ["array"] }
 gdal-sys = { version = "0.11.0", features = ["bindgen"]}
 geo = { version = "0.30.0" }
 geo-types = { version = "0.7.16" }
+geojson = { version = "0.24.2" }
 nalgebra = { version = "0.33.2"}
 lazy_static = { version = "1.5.0" }
 structopt = { version = "0.3.26" }
