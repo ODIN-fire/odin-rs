@@ -109,14 +109,13 @@ class TrackSource {
         this.modelPrototypes = new Map(); // track.type -> model cache
     }
 
-    setVisible(isVisible) {
-        if (isVisible != this.show) {
-            this.symbolDataSource.show = isVisible;
-            this.trackInfoDataSource.show = isVisible;
-            this.trajectoryDataSource.show = isVisible;
-            this.pointDataSource.show = isVisible;
-            this.show = isVisible;
-        }
+    setVisible(cond) {
+        let isVisible = isAdsbShowing && this.show && cond;
+
+        this.symbolDataSource.show = isVisible;
+        this.trackInfoDataSource.show = isVisible;
+        this.trajectoryDataSource.show = isVisible;
+        this.pointDataSource.show = isVisible;
     }
 
     getSortedTrackEntries () {
@@ -258,6 +257,8 @@ class TrackSource {
 
 /* #region init *************************************************************************************************/
 
+var isAdsbShowing = config.layer.show; // we need to keep track of layer showing
+
 var trackSources = new Map(); // name->TrackSource map : populated on the fly as we receive snapshot/update messages
 var selectedTrackSource = undefined;
 
@@ -271,7 +272,7 @@ var trackEntryView = initTrackEntryView();
 odinCesium.setEntitySelectionHandler(trackSelection);
 ws.addWsHandler(handleWsMessages);
 
-odinCesium.initLayerPanel("adsb", config, showTracks);
+odinCesium.initLayerPanel("adsb", config, showAdsb);
 console.log("odin_adsb initialized");
 
 /* #endregion init */
@@ -333,8 +334,18 @@ function defined_value (v) {
     return v ? v : "-";
 }
 
-function toggleShowAdsb (event) { // our local show/hide
-    // show/hide adsb assets
+// our local show/hide
+function toggleShowAdsb (event) { 
+    showAdsb( !isAdsbShowing)
+}
+
+// the layer window show/hide
+function showAdsb (cond) {
+    isAdsbShowing = cond;
+    for (let src of trackSources.values()) {
+        src.setVisible( isAdsbShowing);
+    }
+    odinCesium.requestRender();
 }
 
 /* #endregion UI */

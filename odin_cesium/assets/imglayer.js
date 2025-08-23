@@ -25,13 +25,13 @@ var defaultRender = config.render;
 var sources = config.sources;
 var selectedSrc = undefined;
 
+await initImgLayers();
+
 createIcon();
 createWindow();
 
 let sourceView = initSourceView();
 let cmView = initColorMapView();
-
-initImgLayers();
 initImgSliders();
 
 let srcTree = ExpandableTreeNode.fromPreOrdered( sources, e=> e.pathName);
@@ -157,8 +157,11 @@ function initColorMapView() {
     return view;
 }
 
-function initImgLayers() {
-    let viewerLayers = odinCesium.viewer.imageryLayers;
+async function initImgLayers() {
+    console.log("initializing " + sources.length + " imager layers..");
+    let viewer = await odinCesium.viewerReadyPromise;
+
+    let viewerLayers = viewer.imageryLayers;
     viewerLayers.removeAll(false);
 
     for (var i=0; i<sources.length; i++) {
@@ -170,7 +173,7 @@ function initImgLayers() {
             if (typeof src.render.alphaColorThreshold !== 'undefined') opts.colorToAlphaThreshold = src.render.alphaColorThreshold;
         }
         // note that src.provider can either return a provider object or a promise
-        let layer = src.provider ? Cesium.ImageryLayer.fromProviderAsync( Promise.resolve(src.provider), opts) : 
+        let layer = src.provider ? await Cesium.ImageryLayer.fromProviderAsync( Promise.resolve(src.provider), opts) : 
                                    Cesium.ImageryLayer.fromWorldImagery({style: src.style});
         console.log("loaded imagery provider: ", src.pathName, ", show=", src.show);
 

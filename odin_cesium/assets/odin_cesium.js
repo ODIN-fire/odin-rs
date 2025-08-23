@@ -21,6 +21,7 @@ import * as util from "../odin_server/ui_util.js";
 import * as data from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
+import * as settings from "../odin_server/ui_settings.js";
 
 const MOD_PATH = "odin_cesium::CesiumService";
 const VIEW_PATTERN = util.glob2regexp("{view/**,**/view/**,**/view}");
@@ -75,6 +76,18 @@ class CameraPosition {
     }
 }
 
+export var viewer = undefined; // set after we have terrain
+
+export const viewerReadyPromise = new Promise( (resolve,reject) => {
+    let tid = setInterval(() => {
+        if (viewer) {
+            console.log("Cesium viewer ready.");
+            clearTimeout(tid);
+            resolve(viewer);
+        }
+    }, 500); // check every 500 ms
+});
+
 // set when constructing elements and initialized through websocket message
 var localClock = undefined;  // do we need a promise for it?
 var utcClock = undefined; 
@@ -87,7 +100,7 @@ export const utcClockPromise = new Promise( (resolve,reject) => {
             clearTimeout(tid);
             resolve(utcClock);
         }
-    }, 2000); // check every 500 ms
+    }, 1000); // check every 1000 ms
 });
 
 export function withCurrentUtcMillis (f) {
@@ -136,30 +149,17 @@ if (Cesium.Ion.defaultAccessToken) {
     console.log("using configured Ion access token");
 }
 
+export var hasImagery = false; // set by imagery module
+
 export const ellipsoidTerrainProvider = new Cesium.EllipsoidTerrainProvider();
-var topoTerrainProvider = undefined; 
-
-export const topoTerrainProviderPromise = (config.terrainProviderPromise ? config.terrainProviderPromise : Cesium.createWorldTerrainAsync()).then(
-    (tp) => {
-        topoTerrainProvider = tp;
-        console.log("topo terrain provider initialized to ", tp);
-    }
-);
-
-//Cesium.createWorldTerrainAsync().then( (tp) => {  // needs to be exported since other modules might chain on it
-//    topoTerrainProvider = tp;
-//    console.log("topo terrain provider initialized");
-//});
-
-export function withTopoTerrain (f) {
-    topoTerrainProviderPromise.then( () => { f(); });
-}
-
-var terrainProvider = ellipsoidTerrainProvider; // this is our initial terrain as it is immediately available. Switched on demand in postInitialize
+export const topoTerrainProvider = await (config.terrainProviderPromise ? config.terrainProviderPromise : Cesium.createWorldTerrainAsync());
+console.log("terrain provider loaded.");
+var terrainProvider = config.showTerrain ? topoTerrainProvider : ellipsoidTerrainProvider;  // just the initialization - might be changed to topoTerrainProvider later
 
 var osmBuildings = undefined; // OSM buildings 3D tileset loaded on demand
 
-export const viewer = new Cesium.Viewer('cesiumContainer', {
+// NOTE - this has to be instantiated *before* we await anything as it is a global object that might be used by other modules
+viewer = new Cesium.Viewer('cesiumContainer', {
     terrainProvider: terrainProvider,
     skyBox: false,
     infoBox: false,
@@ -173,14 +173,13 @@ export const viewer = new Cesium.Viewer('cesiumContainer', {
     requestRenderMode: requestRenderMode,
 });
 
-checkImagery();
-
 let dataSource = new Cesium.CustomDataSource("positions");
 addDataSource(dataSource);
 
 initTimeWindow();
 initViewWindow();
 initLayerWindow();
+settings.initSettingsWindow();
 initMapScale();
 
 // position fields
@@ -284,10 +283,6 @@ function useEllipsoidTerrain() {
     return true;
 }
 
-export async function getTopoTerrainProvider() {
-    return await topoTerrainProviderPromise;
-}
-
 function toggleTerrain(event) {
     let cb = ui.getCheckBox(event.target);
     if (cb) {
@@ -300,26 +295,22 @@ function toggleTerrain(event) {
 }
 
 function switchToEllipsoidTerrain() {
-    if (!(terrainProvider === ellipsoidTerrainProvider)) {
-        terrainProvider = ellipsoidTerrainProvider;
+    if (!Object.is( terrainProvider, ellipsoidTerrainProvider)) {
         console.log("switching to ellipsoid terrain");
+        terrainProvider = ellipsoidTerrainProvider;
         viewer.scene.terrainProvider = terrainProvider;
         handleTerrainChange();
-        //requestRender();
+        requestRender();
     }
 }
 
 function switchToTopoTerrain() {
-    if (terrainProvider === ellipsoidTerrainProvider) {
-        topoTerrainProviderPromise.then( () => {
-            terrainProvider = topoTerrainProvider;
-            console.log("switching to topographic terrain");
-            viewer.scene.terrainProvider = terrainProvider;
-
-            ui.setCheckBox( "view.show_terrain", true);
-            handleTerrainChange();
-            requestRender();
-        })
+    if (!Object.is( terrainProvider, topoTerrainProvider)) {
+        console.log("switching to topographic terrain");
+        terrainProvider = topoTerrainProvider;
+        viewer.scene.terrainProvider = terrainProvider;
+        handleTerrainChange();
+        requestRender();
     }
 } 
 
@@ -344,15 +335,13 @@ function handleTerrainChange() {
 //--- imagery
 
 function checkImagery() {
-    //// TODO - check if this works since it is recursive
-    import("./imglayer.js").catch((err) => {
-        console.log("error initializing imglayer: ", err);
+    if (viewer.imageryLayers.length == 0) {
         console.log("no imglayer configured, using default imagery");
         const imageryProvider = Cesium.ImageryLayer.fromWorldImagery({
             style: Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS
         });
         viewer.imageryLayers.add(imageryProvider);
-    });
+    }
 }
 
 function initViewWindow() {
@@ -369,7 +358,7 @@ function createViewWindow() {
             ui.CheckBox("metric", toggleIsMetric, null, isMetric),
             ui.CheckBox("fullscreen", toggleFullScreen),
             ui.HorizontalSpacer(1),
-            ui.CheckBox("terrain", toggleTerrain, "view.show_terrain"),
+            ui.CheckBox("terrain", toggleTerrain, "view.show_terrain", config.showTerrain),
             ui.CheckBox("OSM bldgs", toggleOsmBuildings, "view.show_bldgs"),
             ui.HorizontalSpacer(1),
             ui.Button("⟘", setDownView, 2.5),  // ⇩  ⊾ ⟘
@@ -1339,6 +1328,7 @@ var deferredMouseUpdate = undefined;
 
 function updateMouseLocation(e) {
     if (deferredMouseUpdate) clearTimeout(deferredMouseUpdate);
+
     deferredMouseUpdate = setTimeout( () => {
         let pos = getCartographicMousePosition(e);
         if (pos) {
@@ -1351,12 +1341,10 @@ function updateMouseLocation(e) {
             ui.setField(pointerLat, latitudeString);
             ui.setField(pointerLon, longitudeString);
     
-            if (topoTerrainProvider) {
-                let a = [pos];
-                Cesium.sampleTerrainMostDetailed(topoTerrainProvider, a).then( (a) => {
-                    ui.setField(pointerElev, Math.round(a[0].height));
-                });
-            }
+            let a = [pos];
+            Cesium.sampleTerrainMostDetailed(topoTerrainProvider, a).then( (a) => {
+                ui.setField(pointerElev, Math.round(a[0].height));
+            });
 
             let utm = util.latLon2Utm(latDeg, lonDeg);
             ui.setField(pointerUtmN, utm.northing);
@@ -2123,13 +2111,11 @@ function handleSyncMessage (msg) {
 
 /* #endregion share interface */
 
-// executed after all modules have been loaded and initialized
+// executed *after* all modules have been loaded and initialized (i.e. after any awaits they do during their init)
 export function postInitialize() {
     initModuleLayerViewData();    
 
-    if (config.showTerrain) {
-        switchToTopoTerrain();
-    }
+    checkImagery(); // make sure we have a base layer (normally provided by other modules)
 
     const credit = new Cesium.Credit('<a href="https://openstreetmap.org/" target="_blank">OpenStreetMap</a>');
     viewer.creditDisplay.addStaticCredit(credit);

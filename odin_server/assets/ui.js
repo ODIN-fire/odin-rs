@@ -729,6 +729,19 @@ function initializePanel (e) {
     if (!isExpanded) e.style.maxHeight = 0;
 }
 
+// a programmatic way to expand/collapse panels
+export function expandPanel (o, cond) {
+    let e = getPanel(o);
+    if (e) {
+        let panelHeader = e.previousElementSibling;
+        if (panelHeader) {
+            if (cond != panelHeader.classList.contains("expanded")) {
+                togglePanelExpansion( { target: panelHeader });
+            }
+        }
+    }
+}
+
 export function togglePanelExpansion(event) {
     const panelHeader = event.target;
     const panel = panelHeader.nextElementSibling;
@@ -764,6 +777,18 @@ function _resetPanelMaxHeight(ce) {
     if (panel && !panel.classList.contains("collapsed")) {
         panel.style.maxHeight = "";
     }
+}
+
+export function getPanel(o) {
+    let e = _elementOf(o);
+    if (e) {
+        if (e.classList.contains("ui_panel")) {
+            return e;
+        } else {
+            return _nearestElementWithClass( e, "ui_panel");
+        }
+    }
+    return undefined;
 }
 
 //--- icon functions

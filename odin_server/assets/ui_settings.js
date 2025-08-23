@@ -26,25 +26,27 @@ let themeVarView = undefined;
 let themeVarEntry = undefined;
 let selectedTheme = undefined;
 
-
-ui.registerLoadFunction(function initialize() {
-    ui.registerThemeChangeHandler(themeChanged);
-    ui.setChoiceItems("settings.theme", getThemes(), 0);
-
-    ui.setButtonDisabled("settings.remove", true);
-    ui.setButtonDisabled("settings.save", true);
-
-    themeVarView = initThemeVarView();
-    themeVarEntry = ui.getField("settings.value");
-
-    themeCss = getThemeCss();
-    console.log("ui_settings initialized");
-});
-
 const themeRE = /.*\/asset\/odin_server\/ui_theme_.*\.css/;
 
-createIcon();
-createWindow();
+// this module is different in that it does NOT automatically add an icon/window
+export function initSettingsWindow() {
+    if (!document.getElementById("settings")) {
+        createIcon();
+        createWindow();
+
+        ui.registerThemeChangeHandler(themeChanged);
+        ui.setChoiceItems("settings.theme", getThemes(), 0);
+
+        ui.setButtonDisabled("settings.remove", true);
+        ui.setButtonDisabled("settings.save", true);
+
+        themeVarView = initThemeVarView();
+        themeVarEntry = ui.getField("settings.value");
+
+        themeCss = getThemeCss();
+        console.log("ui_settings initialized");
+    }
+}
 
 function createIcon() {
     return ui.Icon("./asset/odin_server/settings.svg", (e)=> ui.toggleWindow(e,'settings'), "UI settings");
@@ -57,7 +59,7 @@ function createWindow() {
             ui.Button("Edit", editTheme),
             ui.Button("Remove", removeLocalTheme)
         ),
-        ui.Panel("theme vars", false)(
+        ui.Panel("theme vars", false, "settings.var_panel")(
             ui.ColumnContainer("align_right")(
                 ui.List("settings.themeVars", 20, selectThemeVar),
                 ui.TextInput( "value", "settings.value", "15rem", {changeAction: themeVarChange})
@@ -314,6 +316,8 @@ function editTheme() {
     themeVars = getThemeVars();
     ui.setListItems(themeVarView, Object.getOwnPropertyNames(themeVars));
     ui.setButtonDisabled("settings.save", false);
+
+    ui.expandPanel( "settings.var_panel", true); // doesn't make sense to edit without seeing the theme vars
 }
 
 function selectThemeVar(event) {
