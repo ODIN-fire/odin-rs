@@ -1,5 +1,7 @@
 
 [build]
 
-rustflags = ["--cfg", "tokio_unstable", "-Ctarget-cpu=native", "-g"]
+rustflags = ["--cfg", "tokio_unstable", "-Ctarget-cpu=native", "-g", "-D", "warnings"]
+
+rustdocflags = ["-D", "warnings"]
 
