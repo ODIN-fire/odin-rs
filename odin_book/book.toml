@@ -12,6 +12,8 @@ additional-css = ["src/odin.css"]
 no-section-label = true  # we number explicitly so that we don't have deeply nested subchapter numbers
 default-theme = "Ayu"
 preferred-dark-theme = "Ayu"
+git-repository-url = "https://github.com/ODIN-fire/odin-rs"
+git-repository-icon = "fa-github"
 
 [output.html.fold]
 enable = true
