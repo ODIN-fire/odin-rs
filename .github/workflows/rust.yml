@@ -11,19 +11,43 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
-    - uses: awalsh128/cache-apt-pkgs-action@latest
-      with:
-        packages: libgdal-dev
-        version: 1.0
-
+    - name: Cleanup
+      run: |
+        sudo rm -fr /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache \
+          /usr/share/swift /usr/local/share/powershell /usr/lib/jvm /usr/local/julia* \
+          /opt/microsoft /opt/az /usr/local/share/chromium /opt/google
+    - name: Install GDAL
+      run: sudo apt install libgdal-dev
     - name: Build
       run: cargo build --verbose
-    - name: Run tests
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Cleanup
+      run: |
+        sudo rm -fr /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache \
+          /usr/share/swift /usr/local/share/powershell /usr/lib/jvm /usr/local/julia* \
+          /opt/microsoft /opt/az /usr/local/share/chromium /opt/google
+    - name: Install GDAL
+      run: sudo apt install libgdal-dev
+    - name: Test
       run: cargo test --verbose
+
+  doc:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Cleanup
+      run: |
+        sudo rm -fr /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache \
+          /usr/share/swift /usr/local/share/powershell /usr/lib/jvm /usr/local/julia* \
+          /opt/microsoft /opt/az /usr/local/share/chromium /opt/google
+    - name: Install GDAL
+      run: sudo apt install libgdal-dev
     - name: Doc
       run: cargo doc --verbose
