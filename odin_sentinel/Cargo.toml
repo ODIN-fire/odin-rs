@@ -68,7 +68,6 @@ paste = { workspace = true }
 http = { workspace = true }
 url = { workspace = true }
 trait-set = { workspace = true }
-serde_with = { workspace = true }
 async-stream = "0.3.6"
 
 displaydoc = "0.2.5"
@@ -78,7 +77,6 @@ which = "7.0.3"
 jsonrpsee =  { version = "0.25.1",  features = ["macros","async-client","http-client"], optional = true }
 lettre = { version = "0.11.16", features = ["tokio1", "tokio1-native-tls"], optional = true }
 dhat = { version = "0.3.3", optional = true }
-
 
 [build-dependencies]
 odin_build = { workspace = true }
@@ -94,6 +92,10 @@ slack_admin = ["odin_common/slack_admin"]
 dhat = ["dep:dhat", "odin_common/dhat"] # heap profiling
 
 embedded_resources = []
+
+# Packages that are actually required inspite of machete report.
+[package.metadata.cargo-machete]
+ignored = ["dhat", "odin_action"]
 
 [package.metadata.odin_configs]
 sentinel = { file="sentinel.ron" }

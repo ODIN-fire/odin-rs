@@ -19,17 +19,14 @@ odin_build = { workspace = true }
 odin_action = { workspace = true }
 odin_actor = { workspace = true }
 odin_common = { workspace = true, features = ["s3"] }
-odin_macro = { workspace = true }
 odin_gdal = { workspace = true }
 odin_server = { workspace = true }
 odin_cesium = { workspace = true }
 odin_dem = { workspace = true }
 
-gdal-sys = { workspace = true, features = ["bindgen"]}
 axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-ron = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
@@ -37,17 +34,17 @@ uom = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 
-serde_with = { workspace = true }
 anyhow = { workspace = true }
-meshgridrs = "0.1.1"
-paste = { workspace = true }
 structopt = { workspace = true }
 lazy_static = { workspace = true }
 regex = { workspace = true }
-trait-set = { workspace = true }
 
 [build-dependencies]
 odin_build = { workspace = true }
+
+# Packages that are actually required inspite of machete report.
+[package.metadata.cargo-machete]
+ignored = ["odin_action", "structopt"]
 
 [package.metadata.odin_configs]
 goesr = { file="goesr.ron" }

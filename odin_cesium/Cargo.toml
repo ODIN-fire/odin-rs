@@ -14,7 +14,6 @@ path = "src/bin/basic_globe.rs"
 odin_build = { workspace = true }
 odin_actor = { workspace = true }
 odin_common = { workspace = true, features = ["s3"] }
-odin_macro = { workspace = true }
 odin_server = { workspace = true }
 
 anyhow = { workspace = true }
@@ -30,6 +29,10 @@ zip = "3.0.0"
 
 [build-dependencies]
 odin_build = { workspace = true }
+
+# Packages that are actually required inspite of machete report.
+[package.metadata.cargo-machete]
+ignored = ["anyhow", "lazy_static", "structopt"]
 
 [package.metadata.odin_assets]
 odin_cesium_config = { file = "odin_cesium_config.js" }

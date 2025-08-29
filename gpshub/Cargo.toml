@@ -6,8 +6,11 @@ edition = "2024"
 [dependencies]
 tokio = { workspace = true }
 warp = "0.3.7"
-bytes = { workspace = true }
 structopt = { workspace = true }
 socket2 = { version = "0.5.9", features = ["all"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+# Packages that are actually required inspite of machete report.
+[package.metadata.cargo-machete]
+ignored = ["serde_json"]

@@ -22,7 +22,6 @@ path = "src/bin/crop_nodata.rs"
 [dependencies]
 odin_common = { workspace = true }
 thiserror = { workspace = true }
-serde = { workspace = true }
 
 gdal-sys = { workspace = true }
 gdal = { workspace = true }
@@ -32,9 +31,7 @@ geo = {workspace = true }
 anyhow = { workspace = true }
 structopt = { workspace = true }
 bit-set = { workspace = true }
-ndarray = { workspace = true }
 trait-set = { workspace = true }
 
 static_init = "1.0.4"
 libc = "0.2.174"
-meshgridrs = "0.1.1"

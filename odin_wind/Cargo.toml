@@ -9,13 +9,9 @@ lazy_static = { workspace = true }
 tokio = { workspace = true }
 warp = "0.3"
 reqwest = { workspace = true , features = ["json","blocking"] }
-bytes = { workspace = true }
-structopt = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-ron = { workspace = true }
-regex = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
@@ -35,3 +31,7 @@ odin_gdal = { workspace = true }
 [features]
 ## inline crate-specific resources (configs and assets) into the executable (see odin_build)
 embedded_resources = []
+
+# Packages that are actually required inspite of machete report.
+[package.metadata.cargo-machete]
+ignored = ["anyhow", "odin_action"]
