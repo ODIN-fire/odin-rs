@@ -23,7 +23,8 @@ use odin_common::{
     fs::{filepath_contents, filepath_contents_as_string},
     u8extractor::{AsyncCsvExtractor, CsvFieldExtractor, CsvStr, MemMemFinder, SimpleU8Finder, U8Readable, read_val}
 };
-use odin_alertca::{create_cameras, get_cal_oes_cameras, AlertCaConfig, Camera, CameraStore, PropertyFinder};
+use odin_alertca::{create_cameras, get_cal_oes_cameras, AlertCaConfig, Camera, CameraStore};
+use odin_alertca::live_connector::PropertyFinder;
 
 #[test]
 fn test_camera_update () {

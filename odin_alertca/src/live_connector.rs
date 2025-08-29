@@ -35,8 +35,8 @@ use crate::{
 };
 
 /// an http based AlertCaConnector that does fixed schedule downloads of camera data
-/// Note that `AlertCaConnector` instances are used for dependency injection into [`AlertCaActor`] and hence
-/// are created before we have a respective [`ActorHandle`]
+/// Note that `AlertCaConnector` instances are used for dependency injection into [crate::actor::AlertCaActor] and hence
+/// are created before we have a respective [ActorHandle]
 pub struct LiveAlertCaConnector { 
     config: Arc<AlertCaConfig>,
     cameras: Arc<HashMap<String,CalOesCamera>>,
@@ -52,7 +52,7 @@ impl LiveAlertCaConnector {
 
 /// the live connector retrieves the latest all_cameras-v3.json file (2.5MB), checks which ones of the
 /// configured cameras of interest have been updated, retrieved respective image files and reports
-/// this as a Vec<CameraUpdate> to the actor
+/// this as a `Vec<CameraUpdate>` to the actor
 #[async_trait]
 impl AlertCaConnector for LiveAlertCaConnector {
 

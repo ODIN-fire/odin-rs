@@ -244,7 +244,7 @@ pub trait AlertCaConnector {
 }
 
 
-/// filename for images: <camera-id>_YYYY-MM-DD[THHMM[SS].jpg
+/// filename for images: `<camera-id>_YYYY-MM-DD[THHMM[SS].jpg`
 pub fn image_filepath (id: &str, last_update: EpochMillis)->PathBuf {
     let fname = format!("{}__{}.jpg", id, fs::epoch_millis_to_fname(last_update, fs::TimeResolution::Seconds));
     pkg_cache_dir!().join( fname)
