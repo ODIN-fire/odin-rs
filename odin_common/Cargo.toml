@@ -15,7 +15,6 @@ path = "src/bin/duplicate_dir.rs"
 chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-ron = { workspace = true }
 num = { workspace = true }
 nalgebra = { workspace = true }
 geo = { workspace = true }
@@ -61,6 +60,10 @@ odin_build = { workspace = true }
 s3 = ["dep:aws-sdk-s3", "dep:aws-config", "dep:aws-smithy-types-convert", "dep:aws-smithy-runtime-api", "dep:aws-smithy-types", "dep:crc32c"]
 slack_admin = []
 dhat = ["dep:dhat"]
+
+# Packages that are actually required inspite of machete report.
+[package.metadata.cargo-machete]
+ignored = ["crc32c"]
 
 [package.metadata.odin_configs]
 slack_admin = { file = "slack_admin.ron" }

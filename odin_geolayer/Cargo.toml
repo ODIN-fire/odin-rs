@@ -14,24 +14,24 @@ path = "src/bin/show_geolayer.rs"
 odin_build = { workspace = true }
 odin_actor = { workspace = true }
 odin_common = { workspace = true, features = ["s3"] }
-odin_macro = { workspace = true }
 odin_server = { workspace = true }
 odin_cesium = { workspace = true }
 
 anyhow = { workspace = true }
 tokio = { workspace = true }
-serde = { workspace = true }
 axum = { workspace = true }
 async-trait = { workspace = true }
 structopt = { workspace = true }
 lazy_static = { workspace = true }
-reqwest = { workspace = true }
 http = { workspace = true }
-zip = "3.0.0"
 flate2 = "1.1.1"
 
 [build-dependencies]
 odin_build = { workspace = true }
+
+# Packages that are actually required inspite of machete report.
+[package.metadata.cargo-machete]
+ignored = ["anyhow", "lazy_static", "structopt", "tokio"]
 
 [package.metadata.odin_assets]
 odin_cesium_config = { file = "odin_cesium_config.js" }

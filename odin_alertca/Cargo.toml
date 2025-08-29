@@ -12,19 +12,15 @@ odin_action = { workspace = true }
 odin_actor = { workspace = true }
 odin_server = { workspace = true }
 odin_cesium = { workspace = true }
-odin_job = { workspace = true }
 odin_common = { workspace = true }
 odin_macro = { workspace = true }
 odin_dem = { workspace = true }
 
-futures = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { workspace = true }
 reqwest = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
-geojson = { workspace = true }
 chrono = { workspace = true }
 uom = { workspace = true }
 async-trait = { workspace = true }
@@ -32,20 +28,19 @@ thiserror = { workspace = true }
 ron = { workspace = true }
 anyhow = { workspace = true }
 lazy_static = { workspace = true }
-paste = { workspace = true }
 http = { workspace = true }
-url = { workspace = true }
-clap = { workspace = true }
-serde_with = { workspace = true }
 
 structopt = { workspace = true } # replace
-
 
 [build-dependencies]
 odin_build = { workspace = true }
 
 [features]
 embedded_resources = []
+
+# Packages that are actually required inspite of machete report.
+[package.metadata.cargo-machete]
+ignored = ["lazy_static", "odin_action", "structopt"]
 
 # [profile.release]
 # debug = 1  # better build with RUSTFLAGS=-g

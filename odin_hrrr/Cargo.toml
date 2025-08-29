@@ -9,7 +9,6 @@ path = "src/bin/get_hrrr.rs"
 
 [dependencies]
 lazy_static = { workspace = true }
-bytes = { workspace = true }
 structopt = { workspace = true }
 regex = { workspace = true }
 anyhow = { workspace = true }
@@ -21,12 +20,10 @@ odin_actor = { workspace = true }
 odin_action = { workspace = true }
 odin_build = { workspace = true }
 
-futures = { workspace = true }
 tokio = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
-ron = { workspace = true }
 thiserror = { workspace = true }
 
 [build-dependencies]
@@ -35,3 +32,7 @@ odin_build = { workspace = true }
 [features]
 ## inline crate-specific resources (configs and assets) into the executable (see odin_build)
 embedded_resources = []
+
+# Packages that are actually required inspite of machete report.
+[package.metadata.cargo-machete]
+ignored = ["anyhow", "lazy_static"]

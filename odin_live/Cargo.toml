@@ -11,7 +11,6 @@ odin_build = { workspace = true }
 odin_common = { workspace = true }
 odin_action = { workspace = true }
 odin_actor = { workspace = true }
-odin_macro = { workspace = true }
 odin_server = { workspace = true }
 odin_goesr = { workspace = true }
 odin_geolayer = { workspace = true }
@@ -29,3 +28,7 @@ anyhow = "*"
 
 [build-dependencies]
 odin_build = { workspace = true }
+
+# Packages that are actually required inspite of machete report.
+[package.metadata.cargo-machete]
+ignored = ["anyhow", "odin_action", "tokio"]
