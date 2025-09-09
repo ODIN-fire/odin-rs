@@ -100,9 +100,9 @@ send an output file availability notification as JSON message to a [`SpaServer`]
       │  ┌───────────┐  │                          
       │  │WindService│  │                          
       │  └───────────┘  │                          
-      └──────┼──┼───────┘   tier 1: user server    
+      └──────┼──┼───────┘   tier 2: user server    
 ─────────────┼──┼──────────────────────────────────
-         ┌───┘  └────┐      tier 2: browser clients
+         ┌───┘  └────┐      tier 1: browser clients
     ┌────▼───┐   ┌───▼────┐                        
     │browser1│...│browserN│                        
     └────────┘   └────────┘                        
@@ -122,25 +122,25 @@ browsers) availability of new weather data (HRRR or station) drives the (repeate
 respective `HrrrFileAvailable` input messages are the main `WindActor` triggers.
 
 ```                                                          
-                                    ┌───────────────────────────────────┐               
-                                    │     WindActor                     │               
-                               ┌────┴─┐                         ╭─────╮ │               
-                               │update│   ┌─────────────────────┴──┐  │ │               
-          ┌────── forecast ────┤action│◄──┤compute derived products│◄─╯ │               
-          │        JSON        └────┬─┘ 6 │       ▲                │    │               
-          │                         │     │       │5               │    │               
-          │                         │     │run WindNinja ◄──── Forecast ───────────────────────── WindNinja
-          │                         │     │       ▲                │    │                      (child process)
-          │                         │     │       │4               │    │               
-          │                         │     │get latest wx report ◄──┼────┼── HrrrFileAvailable ─── HrrrActor
-          │                         │     └────────────────────────┘    │                     
-          │                         │             ▲                     │               
-        ┌─┼───────────────┐         │             │3                    │               
-        │ │   SpaServer   │         │      get DEM file for region ◄────┼──────────────────────── DemSource
-        │ │               │         └───────────────────────────────────┘                      (server of file)
-        │ │ ┌───────────┐ │                       ▲                                     
-        │ │ │WindService│─│── AddWindClient ──────┘                                     
-        │ │ └───────▲───┘ │                     2                                       
+                                ┌───────────────────────────────────┐               
+                                │     WindActor                     │               
+                           ┌────┴─┐                         ╭─────╮ │               
+                           │update│   ┌─────────────────────┴──┐  │ │               
+          ┌── forecast ────┤action│◄──┤compute derived products│◄─╯ │               
+          │    JSON        └────┬─┘ 6 │       ▲                │    │               
+          │                     │     │       │5               │    │               
+          │                     │     │run WindNinja ◄──── Forecast ───────────────── WindNinja
+          │                     │     │       ▲                │    │              (child process)
+          │                     │     │       │4               │    │               
+          │                     │     │get latest wx report ◄──┼─ HrrrFileAvailable ── HrrrActor
+          │                     │     └────────────────────────┘    │                     
+          │                     │             ▲                     │               
+        ┌─┼───────────────┐     │             │3                    │               
+        │ │   SpaServer   │     │      get DEM file for region ◄────┼──────────────── DemSource
+        │ │               │     └─────────────▲─────────────────────┘              (server of file)
+        │ │ ┌───────────┐ │                   │2                                     
+        │ │ │WindService│─│── AddWindClient ──┘                                     
+        │ │ └───────▲───┘ │                                                           
         └─┼─────────┼─────┘                                                             
          7│         │1            ODIN server                                           
 ──────────┼─────────┼─────────────────────────                                          
