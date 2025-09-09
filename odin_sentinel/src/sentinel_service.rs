@@ -93,7 +93,7 @@ impl SpaService for SentinelService {
     }
 
     // send an ExecSnapshotAction to the SentinelActor to send a JSON websocket message to the new connection
-    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
+    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut WsConnection) -> OdinServerResult<()> {
         let remote_addr = conn.remote_addr;
 
         //--- send device_infos message to browser

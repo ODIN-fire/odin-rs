@@ -24,7 +24,7 @@ use futures::{sink::SinkExt, stream::StreamExt};
 use regex::Match;
 
 use crate::{
-    asset_uri, load_asset, self_crate, spa::{AddConnection, SpaComponents, SpaServerState, SpaService}, OdinServerResult
+    asset_uri, load_asset, self_crate, spa::{AddWsConnection, SpaComponents, SpaServerState, SpaService}, OdinServerResult
 };
 
 /// a SpaService that adds a shared websocket for all services that register for it
@@ -58,7 +58,7 @@ async fn ws_handler (ws: WebSocketUpgrade, ConnectInfo(addr): ConnectInfo<Socket
 }
 
 async fn handle_socket(mut ws: WebSocket, remote_addr: SocketAddr, sss: SpaServerState) {
-    sss.hself.send_msg( AddConnection{remote_addr,ws}).await;
+    sss.hself.send_msg( AddWsConnection{remote_addr,ws}).await;
 }
 
 /* #region WsMsg serialization  *******************************************************************************/

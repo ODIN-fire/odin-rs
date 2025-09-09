@@ -72,7 +72,7 @@ impl SpaService for N5Service {
     }
 
 
-    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
+    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut WsConnection) -> OdinServerResult<()> {
         let remote_addr = conn.remote_addr;
 
         if is_data_available {

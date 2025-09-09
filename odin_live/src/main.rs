@@ -64,6 +64,7 @@ run_actor_system!( actor_system => {
         "noaa-21_viirs.ron", "noaa-20_viirs.ron", "snpp_viirs.ron", 
         "landsat-8_oli.ron", "landsat-9_oli.ron",
         "sentinel-2a_msi.ron", "sentinel-2b_msi.ron", "sentinel-2c_msi.ron", // those don't have hotspot data yet
+        "otc-1.ron", "otc-2.ron", "otc-3.ron", "otc-4.ron", "otc-5.ron", "otc-6.ron", "otc-7.ron", "otc-8.ron",
     ];
     let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), region, &orbital_sat_configs)?;
 

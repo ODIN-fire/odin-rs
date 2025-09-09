@@ -85,11 +85,16 @@ export class WindFieldVisualization {
 
     setStatus (newStatus) {
         this.status = newStatus;
-        if (this.statusCallback) this.statusChangeCallback( this);
+        if (this.statusChangeCallback) this.statusChangeCallback( this);
     }
 
     isShowing () {
         return Object.is( this.status, WindFieldStatus.SHOWING);
+    }
+
+    setRenderOpts (newRenderOpts) {
+        this.renderOpts = {...newRenderOpts};
+        this.renderChanged();
     }
 
     //--- those are called by our owner and have to be overridden
@@ -113,6 +118,8 @@ export class AnimField extends WindFieldVisualization {
 
     setVisible (showIt) {
         if (showIt != this.show) {
+            this.show = showIt;
+
             if (showIt) {
                 AnimField.animShowing++;
                 if (!this.particleSystem) {
@@ -129,26 +136,26 @@ export class AnimField extends WindFieldVisualization {
                 if (this.particleSystem) {
                     // TODO - do we have to stop rendering first ?
                     this.particleSystem.forEachPrimitive( p=> p.show = false);
-                    if (AnimField.animShowing == 0) {
+                    if (AnimField.animShowing == 0) {                        
                         odinCesium.setRequestRenderMode(true);
                         odinCesium.requestRender();
                     }
                     this.setStatus( WindFieldStatus.LOADED);
                 }
             }
-            this.show = showIt;
+
         }
     }
 
     startViewChange() {
-        if (this.isShowing()) {
+        if (this.isShowing() && this.particleSystem) {
             this.particleSystem.forEachPrimitive( p=> p.show = false);
             odinCesium.requestRender();
         }
     }
 
     endViewChange() {
-        if (this.isShowing()) {
+        if (this.isShowing() && this.particleSystem) {            
             this.particleSystem.applyViewerParameters(viewerParameters);
             this.particleSystem.forEachPrimitive( p=> p.show = true);
             odinCesium.requestRender();

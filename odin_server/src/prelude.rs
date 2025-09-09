@@ -13,7 +13,7 @@
  */
 pub use crate::{
     self_crate, asset_uri, proxy_uri, build_service, get_asset_response, 
-    spa::{SpaServer, SpaServerMsg, SpaServerState, SpaComponents, SpaService, SpaConnection, SpaServiceList, DataAvailable, 
+    spa::{SpaServer, SpaServerMsg, SpaServerState, SpaComponents, SpaService, WsConnection, SpaServiceList, DataAvailable, 
         SendWsMsg, SendGroupWsMsg, SendAllOthersWsMsg, BroadcastWsMsg, WsMsgReaction, open
     }, 
     ui_service::UiService,

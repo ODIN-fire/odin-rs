@@ -22,7 +22,7 @@ use odin_gdal::{
     create_wh_image_from_vrt, csl_string_list, get_driver_name_for_extension, CslStringList, Dataset, Driver, SpatialRef,
     warp::SimpleWarpBuilder,
 };
-use odin_common::{fs::{self,EnvPathBuf}, net::{download_url, mime_type_for_extension}, BoundingBox};
+use odin_common::{fs::{self,EnvPathBuf}, net::{download_url, mime_type_for_extension, NO_HEADERS}, BoundingBox};
 use odin_build::define_load_config;
 
 pub mod errors;
@@ -245,7 +245,7 @@ pub async fn query_res_dem (base_url: &str, bbox: &BoundingBox<f64>, srs: DemSRS
             res_x, res_y
         );
         let client = reqwest::Client::new();
-        download_url( &client, &url, &None, &file_path).await?;
+        download_url( &client, &url, NO_HEADERS, &file_path).await?;
         // we could check here if the length is > 0
 
     } else {

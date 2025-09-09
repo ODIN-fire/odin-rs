@@ -26,7 +26,10 @@ parse_duration = "2.1.1"
 reqwest = { workspace = true, features = ["blocking"] }
 lazy_static = { workspace = true }
 ctrlc = { version = "*", features = ["termination"] }
+futures-util = { workspace = true }
 tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+axum = { workspace = true }
 structopt = { workspace = true }
 gethostname = "1.0.2"
 regex = { workspace = true }
@@ -38,6 +41,7 @@ trait-set = { workspace = true }
 hashbrown = { workspace = true }
 flate2 = { workspace = true }
 memchr = { workspace = true }
+kanal = {workspace = true }
 
 aws-config = { version = "1.6.3", features = ["behavior-version-latest"], optional = true }
 aws-sdk-s3 = { version = "1.86.0", features = ["rt-tokio"], optional = true }

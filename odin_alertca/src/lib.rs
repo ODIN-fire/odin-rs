@@ -25,7 +25,9 @@ use odin_build::{data_dir, pkg_cache_dir, pkg_data_dir, define_load_config, defi
 use odin_actor::prelude::*;
 use odin_server::{spa::SpaService, ws_service::ws_msg_from_json};
 use odin_common::{
-    angle::{Angle360, Angle90}, cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque, datetime::{utc_now, EpochMillis}, extract_all, extract_optional, fs::{self, filename}, geo::{GeoPoint, GeoPoint3, GeoPolygon}, json_writer::{JsonWritable, JsonWriter, NumFormat}, net::{download_url, NO_HEADERS} 
+    angle::{Angle360, Angle90}, cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque, 
+    datetime::{utc_now, EpochMillis}, extract_all, extract_optional, fs::{self, filename}, 
+    geo::{GeoPoint, GeoPoint3, GeoPolygon}, json_writer::{JsonWritable, JsonWriter, NumFormat}, net::{download_url, NO_HEADERS} 
 };
 use odin_macro::{define_struct, public_struct};
 
@@ -296,7 +298,7 @@ pub fn get_default_cal_oes_cameras()->Result<HashMap<String,CalOesCamera>> {
 
 pub async fn get_all_cameras (client: &Client, config: &AlertCaConfig, download_path: impl AsRef<Path>)->Result<u64> {
     let url = format!("{}/all_cameras-v3.json", config.base_url);
-    Ok( download_url( client, &url, &NO_HEADERS, download_path).await? )
+    Ok( download_url( client, &url, NO_HEADERS, download_path).await? )
 }
 
 pub async fn get_latest_camera_data (client: &Client, config: &AlertCaConfig)->Result<Vec<u8>> {
@@ -309,7 +311,7 @@ pub async fn get_latest_camera_data (client: &Client, config: &AlertCaConfig)->R
 
 pub async fn get_latest_image (client: &Client, config: &AlertCaConfig, camera_id: &str, download_path: impl AsRef<Path>)->Result<u64> {
     let url = format!("{}/{}/latest-frame.jpg", config.base_url, camera_id);
-    Ok( download_url( client, &url, &NO_HEADERS, download_path).await? )
+    Ok( download_url( client, &url, NO_HEADERS, download_path).await? )
 }
 
 /* #endregion file download functions */

@@ -90,17 +90,72 @@ obtaining the input data required by WindNinja, executing WindNinja itself, post
 announcing availability of the output by executing its `update` action which is normally set within `main` to
 send an output file availability notification as JSON message to a [`SpaServer`](../odin_server/odin_server.md).
 
-WindNinja's main inputs are
+```
+         ┌───────────┐       ╔═══════════╗           
+         │ WindActor │◄─────►║ WindNinja ║           
+         └──┬─────▲──┘       ║ (process) ║
+            │     │          ╚═══════════╝                     
+      ┌─────▼─────┼─────┐                          
+      │SpaServer  │     │                          
+      │  ┌───────────┐  │                          
+      │  │WindService│  │                          
+      │  └───────────┘  │                          
+      └──────┼──┼───────┘   tier 1: user server    
+─────────────┼──┼──────────────────────────────────
+         ┌───┘  └────┐      tier 2: browser clients
+    ┌────▼───┐   ┌───▼────┐                        
+    │browser1│...│browserN│                        
+    └────────┘   └────────┘                        
+```
+
+WindNinja's main inputs for each region of interest are:
 
 - digital elevation (DEM) data and 
 - [NOAA HRRR](https://rapidrefresh.noaa.gov/hrrr/) weather forecasts (containing at least 10m U,V wind speed, 
   2m temperature and total cloud cover fields)
 
-for the areas of interest. Since running WindNinja can be computationally intensive it should only be executed
-for regions that are explicitly requested by clients, which should also make sure that different clients use the 
-same region coordinates for the same incidents (e.g. by means of ['odin_share`](../odin_share/odin_share.md)
-defined regions). This is especially important since we have to run WindNinja for each new HRRR forecast data set
-(up to 18 per hour - see [`odin_hrrr`](../odin_hrrr/odin_hrrr.md)). 
+While the DEM data only has to be retrieved once for each region, we have to support a mode of operation in which
+weather reports (HRRR data) are continuously retrieved and each new data set triggers a new WindNinja forecast
+computation to ensure that users always have the latest / updated data for each forecast hour. From a data flow
+perspective this means that apart from the `AddWindClient` messages received through websockets (from connected
+browsers) availability of new weather data (HRRR or station) drives the (repeated) WindNinja computation and thus
+respective `HrrrFileAvailable` input messages are the main `WindActor` triggers.
+
+```                                                          
+                                    ┌───────────────────────────────────┐               
+                                    │     WindActor                     │               
+                               ┌────┴─┐                         ╭─────╮ │               
+                               │update│   ┌─────────────────────┴──┐  │ │               
+          ┌────── forecast ────┤action│◄──┤compute derived products│◄─╯ │               
+          │        JSON        └────┬─┘ 6 │       ▲                │    │               
+          │                         │     │       │5               │    │               
+          │                         │     │run WindNinja ◄──── Forecast ───────────────────────── WindNinja
+          │                         │     │       ▲                │    │                      (child process)
+          │                         │     │       │4               │    │               
+          │                         │     │get latest wx report ◄──┼────┼── HrrrFileAvailable ─── HrrrActor
+          │                         │     └────────────────────────┘    │                     
+          │                         │             ▲                     │               
+        ┌─┼───────────────┐         │             │3                    │               
+        │ │   SpaServer   │         │      get DEM file for region ◄────┼──────────────────────── DemSource
+        │ │               │         └───────────────────────────────────┘                      (server of file)
+        │ │ ┌───────────┐ │                       ▲                                     
+        │ │ │WindService│─│── AddWindClient ──────┘                                     
+        │ │ └───────▲───┘ │                     2                                       
+        └─┼─────────┼─────┘                                                             
+         7│         │1            ODIN server                                           
+──────────┼─────────┼─────────────────────────                                          
+          │websocket│             clients (browser)                                     
+        ┌─▼───────────┐                                                                 
+        │ odin_wind.js│                                                                 
+        └─────────────┘                                                                 
+```
+
+
+Since running WindNinja can be computationally intensive it should only be executed for regions that are explicitly
+requested by clients, which should also make sure that different clients use the same region coordinates for the same
+incidents (e.g. by means of ['odin_share`](../odin_share/odin_share.md) defined regions). This is especially important
+since we have to run WindNinja for each new HRRR forecast data set (up to 18/48 per hour - see
+[`odin_hrrr`](../odin_hrrr/odin_hrrr.md)). 
 
 The DEM data is acquired through [`odin_dem`](../odin_dem/odin_dem.md). This can either happen through a `serve_dem`
 server over the network (in case the tile map data for the DEM is too large) or directly and synchronously through
@@ -254,3 +309,148 @@ run_actor_system!( actor_system => {
 Since the `WindActor` to `SpaServer` interaction is fairly uniform (as described above) `odin_wind::actor` provides
 `server_subscribe_action( h_server)` and `server_update_action( h_server)` functions to simplify respective 
 [action](../odin_action/odin_action.md) setup.
+
+
+## WindServer
+
+Apart from that WindNinja requires potentially large input data (DEM source and repeated HRRR weather reports) it
+can also run in high fidelity mode (conservation of mass and momentum) which might overwhelm both available
+network bandwidth and computational resources (memory, speed) of user servers. Moreover, the produced forecast
+data files (wind fields) are relatively small (compressed CSV). As a consequence this is a prime example of
+computation we want to be able to offload from a user server and delegate to a remote [edge server](../intro.md)
+that runs at a location with sufficient connectivity and compute power (e.g. data center / cloud).
+
+We can achieve this by moving the `WindActor` into an `WindServer` edge server and replacing it in the user facing web
+server with a `WindServerClient` actor that is an adapter between clients and the remotely running `WindActor`.
+We basically split a local `WindActor` into a `WindServerClient` / `WindServer` pair running on different machines:
+
+```
+                   ┌───────────┐       ╔═══════════╗                        
+                   │ WindActor │◄─────►║ WindNinja ║                        
+                   └──┬─────▲──┘       ║ (process) ║                        
+                      │     │          ╚═══════════╝                                   
+                 ┏━━━━▼━━━━━┷━━━┓                                         
+                 ┃  WindServer  ┃                                         
+                 ┗━━━━▲━━━▲━━━━━┛                  tier 3: edge server    
+──────────────────────┼───┼───────────────────────────────────────────────
+           ┌──────────┘   └───────────┐                                  
+  ┏━━━━━━━━▼━━━━━━━━┓        ┏━━━━━━━━▼━━━━━━━━┓                          
+  ┃WindServerClient1┃   ╎    ┃WindServerClientM┃                          
+  ┗━━━━━┯━━━━━▲━━━━━┛   ╎    ┗━━━━━┯━━━━━▲━━━━━┛                          
+        │     │         ╎          │     │                                
+  ┌─────▼─────┼─────┐   ╎    ┌─────▼─────┼─────┐                          
+  │SpaServer1 │     │   ╎    │SpaServerM │     │                          
+  │  ┌───────────┐  │  ...   │  ┌───────────┐  │                          
+  │  │WindService│  │   ╎    │  │WindService│  │                          
+  │  └───────────┘  │   ╎    │  └───────────┘  │                          
+  └──────▲──▲───────┘   ╎    └──────▲──▲───────┘   tier 2: user server    
+─────────┼──┼────────── ╎ ──────────┼──┼──────────────────────────────────
+     ┌───┘  └────┐      ╎       ┌───┘  └────┐      tier 1: browser clients
+┌────▼───┐   ┌───▼────┐ ╎  ┌────▼───┐   ┌───▼────┐                        
+│browser1│...│browserN│ ╎  │browser1│...│browserN│                        
+└────────┘   └────────┘ ╎  └────────┘   └────────┘                        
+```
+
+The edge server uses a `WindServer` actor instead of the (user server)`SpaServer`/`WindService` combo to
+drive the `WindActor`. This allows the main computational chain to be reusable as-is (``WindActor`, `DemSource`, 
+`HrrrActor`, `SpaServer`, `WindService` and associated `odin_wind.js` JS module can all be reused without modifications).
+
+Remotely computed data from the edge server is cached by the `WindServerClient` on the local user server, which
+means we only have to reach out to the edge server for new data.
+
+This is a good example of how ODIN actors can help to make distributed computation scalable.
+
+The main caveat is that the data structures that are used in both `WindServerClient` and `WindServer` (notably
+`ForecastStore` and `Forecast`) should *not* contain transient information that is only required during the actual
+computation by `WindServer` (e.g. `WnJob` or `HrrrDataSetRequest`). Care must be taken to separate the data model
+into the shared and the `WindServer` private part.
+
+We also have to be aware that (repeated) wind field computation is a subscription service, i.e. we have to keep track of
+external clients and provide push capabilities to these clients through websockets. In the user server (`SpaServer`)
+case the subscribers are connected browsers. For the `WindServer` the subscribers are the user servers (websocket
+connections to remote `WindServerClient` instances). Both are repesented by `std::net::SocketAddr` values representing
+remote websocket end points. Neither should the edge server receive browser `SocketAddr` values nor should the user
+server unveil its own edge server subscription to browsers. We have to be aware of that we use (some of) the same data
+structures (e.g. `AddWindClient`) with related but not identical semantics and that we now have a 3 tier distributed
+system (edge server, user server, and browser clients).
+
+Subscription / push capabilities mean that both the edge server and the user server(s) are stateful. Other edge
+servers that provide one-way data streams or REST APIs can be considerably less complex.
+
+The user server code looks like this:
+
+```rust
+use odin_actor::prelude::*;
+use odin_server::prelude::*;
+use odin_share::prelude::*;
+use odin_wind::{ 
+    actor::{WindActorMsg, server_subscribe_action, server_update_action}, 
+    server_client::WindServerClient,
+    wind_service::WindService
+};
+
+run_actor_system!( actor_system => {
+    let pre_server = PreActorHandle::new( &actor_system, "server", 64);
+
+    // spawn a shared store actor - the JS module only allows forecast region requests for shared GeoRects
+    let hshare = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
+
+    let hwind = spawn_actor!( actor_system, "wind", WindServerClient::new(
+        odin_wind::load_config("wind_client.ron")?,
+        server_subscribe_action( pre_server.to_actor_handle()),
+        server_update_action( pre_server.to_actor_handle()) 
+    ))?;
+
+    let hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(
+        odin_server::load_config("spa_server.ron")?,
+        "wind",
+        SpaServiceList::new()
+            .add( build_service!( let hshare = hshare.clone() => ShareService::new( "odin_share_schema.js", hshare)) )
+            .add( build_service!( => WindService::new( hwind) ))
+    ))?;
+
+    Ok(())   
+});
+```
+
+The remote edge server code is:
+
+```rust
+use odin_actor::prelude::*;
+use odin_server::prelude::*;
+use odin_hrrr::{self,HrrrActor,HrrrConfig,HrrrFileAvailable,schedule::{HrrrSchedules,get_hrrr_schedules}};
+
+use odin_wind::{ 
+    actor::{WindActor, WindActorMsg}, 
+    server_client::WindServerClient,
+    ForecastStore, Forecast, 
+    server::{WindServer,WindServerMsg, wind_server_subscribe_action, wind_server_update_action}
+};
+
+run_actor_system!( actor_system => {
+    let pre_server = PreActorHandle::new( &actor_system, "server", 64);
+    let pre_hrrr = PreActorHandle::new( &actor_system, "hrrr", 8);
+
+    let hwind = spawn_actor!( actor_system, "wind", WindActor::new(
+        odin_wind::load_config("wind.ron")?,
+        pre_hrrr.to_actor_handle(),
+        wind_server_subscribe_action( pre_server.to_actor_handle()),
+        wind_server_update_action( pre_server.to_actor_handle()) 
+    ))?;
+
+    let hrrr = spawn_pre_actor!( actor_system, pre_hrrr, HrrrActor::with_statistic_schedules(
+        odin_hrrr::load_config( "hrrr_conus-8.ron")?,
+        data_action!( let hwind: ActorHandle<WindActorMsg> = hwind.clone() => |data: HrrrFileAvailable| {
+            Ok( hwind.try_send_msg( data)? )
+        })
+    ).await? )?;
+
+    let hserver = spawn_pre_actor!( actor_system, pre_server, WindServer::new(
+        odin_wind::load_config("wind_server.ron")?,
+        "wind",
+        hwind
+    ))?;
+
+    Ok(())   
+});
+```

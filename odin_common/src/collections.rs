@@ -314,3 +314,21 @@ impl <K,V> ReverseLookupHashMap<K,V> for HbHashMap<K,V> where V: PartialEq {
 
 
 /* #endegion hashmap */
+
+/// process items of collection with an async function that takes a collection item plus another value as argument
+/// for an async closure. The catch is that the argument has to be cloned for all but the last call of that closure
+/// (e.g. required if we have to async send the same (cloned) message to a number of recipients
+pub async fn process_async<I,T,U,F> (mut it: I, arg: U, mut f: F) where I: Iterator<Item=T>, U: Clone, F: AsyncFn(T,U) {
+    if let Some(e) = it.next() {
+        let mut e_next: T = e;
+        loop {
+            if let Some(ee) = it.next() {
+                f(e_next, arg.clone()).await;
+                e_next = ee;
+            } else { // e_next is the last one
+                f(e_next, arg).await;
+                break;
+            }
+        }
+    }
+}

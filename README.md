@@ -10,10 +10,11 @@ More specifically it is a framework to make it easy to import and process an ope
 
 The online documentation for odin-rs can be found on https://odin-fire.org/book (or built from `odin_book` in this repository).
 
-To get an idea of what such ODIN servers might look like we refer to two of our TFRSAC talks:
+To get an idea of what such ODIN servers might look like we refer to some of our recent talks:
 
-  * [spring 2023](https://www.youtube.com/watch?v=b9DfMBYCe-s&t=4950s)
-  * [fall 2022](https://www.youtube.com/watch?v=gCBXOaybDLA)
+  * [Cesium DevCon 2025](https://www.youtube.com/watch?v=n2uRriuTWdU&list=PLONdwUX5Dqocrmxc6rWp82X9-eWcpN2Md&index=4)
+  * [TFRSAC spring 2023](https://www.youtube.com/watch?v=b9DfMBYCe-s&t=4950s)
+  * [TFRSAC fall 2022](https://www.youtube.com/watch?v=gCBXOaybDLA)
 
 ODIN-RS is a Rust based successor of the [race-odin](https://nasarace.github.io/race-odin/) system that was implemented in Scala/Java (see [RACE](https://nasarace.github.io/race/)). This is still an on-going effort - please contact us if you are interested in the current status.
 

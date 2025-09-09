@@ -110,7 +110,7 @@ impl SpaService for OrbitalHotspotService {
         Ok(is_our_data)
     }
 
-    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
+    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut WsConnection) -> OdinServerResult<()> {
         let remote_addr = conn.remote_addr;
 
         // no matter if we already have data we send our list of satellites (once)

@@ -99,7 +99,7 @@ impl SpaService for GoesrHotspotService {
         Ok(is_our_data)
     }
 
-    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
+    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut WsConnection) -> OdinServerResult<()> {
         let satellites: Vec<&GoesrSatelliteInfo> = self.satellites.iter().map( |s| &s.info).collect();
         let ws_msg = WsMsg::json( GoesrHotspotService::mod_path(), "satellites", satellites)?;
         conn.send( ws_msg).await;

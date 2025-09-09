@@ -17,7 +17,7 @@ use tokio::main;
 use odin_common::geo::GeoRect;
 use odin_actor::prelude::*;
 use odin_hrrr::{self,HrrrActor,HrrrConfig,HrrrFileAvailable,schedule::{HrrrSchedules,get_hrrr_schedules}};
-use odin_wind::{actor::{AddClientResponse, AddWindClient, RemoveWindClient, SubscribeResponse, WindActor, WindActorMsg}, errors::Result, Forecast, ForecastStore};
+use odin_wind::{actor::{SubscribeResponse,WindActor, WindActorMsg}, errors::Result, Forecast, ForecastStore};
 
 run_actor_system!( actor_system => {
     let pre_hrrr = PreActorHandle::new( &actor_system, "hrrr", 8);

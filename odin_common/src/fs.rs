@@ -18,15 +18,21 @@ use std::fs::{self,DirEntry,FileTimes,File,OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Error as IOError, ErrorKind, Read, Write};
 use std::time::{SystemTime,Duration};
 use std::env;
+use std::sync::Arc;
 use chrono::{DateTime,Utc};
 use io::ErrorKind::*;
 use regex::Regex;
+use lazy_static::lazy_static;
 use std::path::{Path,PathBuf};
 use odin_build;
 
 use crate::datetime::EpochMillis;
 use crate::if_let;
 use crate::macros::io_error;
+
+lazy_static! {
+    pub static ref EMPTY_PATH: Arc<PathBuf> = Arc::new( Path::new("").to_path_buf());
+}
 
 type Result<T> = std::result::Result<T,std::io::Error>;
 
@@ -348,8 +354,9 @@ pub fn remove_old_files<T> (dir: &T, max_age: Duration)->Result<usize> where T: 
             let path = e.path();
             if path.is_file() {
                 let meta = fs::metadata(&path)?;
-                if let Ok(last_mod) = meta.modified() {
-                    if let Ok(age) = now.duration_since(last_mod) {
+                //if let Ok(ts) = meta.modified() {
+                if let Ok(ts) = meta.accessed() { // TODO - make sure this is updated
+                    if let Ok(age) = now.duration_since(ts) {
                         if age > max_age {
                             if fs::remove_file(&path).is_ok() { n_removed += 1 }
                         }

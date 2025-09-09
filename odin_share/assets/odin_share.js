@@ -53,22 +53,24 @@ var pendingSavedKeys = new Set();
 
 var renderOpts = { ...config.render };
 
-var shareDataSource = new Cesium.CustomDataSource("share");
-odinCesium.addDataSource(shareDataSource);
-
 compileConfigGlobs();
 
 createDataIcon();
+createRoleIcon();
+
+const viewer = await odinCesium.viewerReadyPromise; // Safari bug workaround - call before using odinCesium
+
 createDataWindow();
 initViewParameters();
-
-createRoleIcon();
 createRoleWindow();
 
 var dirView = initDirView();
 var ownRoleList = initOwnRoleList();
 var extRoleList = initExtRoleList();
 var msgList = initMsgList();
+
+var shareDataSource = new Cesium.CustomDataSource("share");
+odinCesium.addDataSource(shareDataSource);
 
 var selItem = undefined; // the (interactively) selected item
 
@@ -159,7 +161,6 @@ let share = new OdinShare();
 main.setShareObj(share);
 
 /* #endregion share object */
-
 
 function compileConfigGlobs() {
     for (var e of schema.keyCompletions) {

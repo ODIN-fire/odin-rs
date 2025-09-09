@@ -26,6 +26,7 @@ const ellipsoid = Cesium.Ellipsoid.WGS84;
 
 /* #region test *****************************************************************************/
 
+/*
 /// cesium_test driver
 main.exportFuncToMain( function test() {
     function processResult (res) {
@@ -48,42 +49,35 @@ main.exportFuncToMain( function test() {
     //cesium.enterGeoRect(processResult);
     //cesium.enterGeoCircle(processResult)
 
-    /*
-    let editor = main.getDefaultShareEditorForItemType( main.GEO_LINE_STRING);
-    if (editor) {
-        let input = new main.GeoLineString( points);
-        editor( input, processResult);
-    } else console.log("no editor");
-    */
+    
+    //let editor = main.getDefaultShareEditorForItemType( main.GEO_LINE_STRING);
+    //if (editor) {
+    //    let input = new main.GeoLineString( points);
+    //    editor( input, processResult);
+    //} else console.log("no editor");
+    
+    //let editor = main.getDefaultShareEditorForItemType( main.GEO_POLYGON);
+    //if (editor) {
+    //    let input = new main.GeoPolygon( points);
+    //    editor( input, processResult);
+    //} else console.log("no editor");
 
-    /*
-    let editor = main.getDefaultShareEditorForItemType( main.GEO_POLYGON);
-    if (editor) {
-        let input = new main.GeoPolygon( points);
-        editor( input, processResult);
-    } else console.log("no editor");
-    */
+    //let editor = main.getDefaultShareEditorForItemType( main.GEO_LINE);
+    //if (editor) {
+    //    editor( null, processResult);
+    //} else console.log("no editor");
 
-    /*
-    let editor = main.getDefaultShareEditorForItemType( main.GEO_LINE);
-    if (editor) {
-        editor( null, processResult);
-    } else console.log("no editor");
-    */
-
-    /*
-    let editor = editGeoPoint;
-    editor( null, processResult);
-     */
-
-    /*
-    let editor = editGeoRect;
-    editor( null, processResult);
-    */
+    //let editor = editGeoPoint;
+    //editor( null, processResult);
+    
+    //let editor = editGeoRect;
+    //editor( null, processResult);
 
     let editor = editGeoCircle;
     editor( null, processResult);
 });
+*/
+
 /* #endregion test */
 
 /* #region editor Window classes ************************************************************/

@@ -170,7 +170,7 @@ impl SpaService for ShareService {
         Ok(())
     }
 
-    async fn init_connection( &mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
+    async fn init_connection( &mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut WsConnection) -> OdinServerResult<()> {
         // we provide the schema as JS code in the share_config.js module
         if is_data_available {
             let action = dyn_shared_store_action!( 

@@ -26,7 +26,8 @@ use axum::{
         FromRef, Path as AxumPath, Query, RawQuery, Request, State
     },
     http::{HeaderMap, StatusCode, Uri},
-    middleware::map_request, response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
+    middleware::map_request, 
     routing::{get,options,head},
     handler::Handler,
     Router,ServiceExt
@@ -48,6 +49,7 @@ use async_trait::async_trait;
 
 use odin_build::LoadAssetFp;
 use odin_common::{fs::get_file_basename,strings::{self, mk_query_string},collections::empty_vec, datetime::epoch_millis};
+pub use odin_common::ws::{WsConnection,AddWsConnection,RemoveWsConnection}; // re-export (it's predominantly used for SpaService implementations)
 use odin_macro::define_struct;
 use odin_actor::prelude::*;
 
@@ -89,7 +91,7 @@ pub trait SpaService: Send + Sync + 'static {
     /// NOTE: this is called from within the actor loop of the server, i.e. we should NOT await message sends
     /// to the server from within init_connection() implementations as this might deadlock if the server mailbox is full.
     /// Directly send websocket messages through `conn.send(..)` in this case (which is also more efficient)
-    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
+    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut WsConnection) -> OdinServerResult<()> {
         Ok(())
     }
 
@@ -183,20 +185,6 @@ impl SpaServiceList {
     }
 }
 
-/// struct to keep track of active SinglePageApp connections
-pub struct SpaConnection {
-    pub remote_addr: SocketAddr,
-    pub ws_sender: SplitSink<WebSocket,Message>, // used to send through the websocket
-    pub ws_receiver_task: JoinHandle<()> // the task that (async) reads from the websocket
-}
-
-impl SpaConnection {
-    // note this should not be used if we send multiple messages to the same connection (use feed() or send_all() in this case)
-    pub async fn send (&mut self, msg: String)->OdinServerResult<()> {
-        Ok( self.ws_sender.send( Message::text(msg)).await? )
-    }
-}
-
 /// this is the state that can be passed into service specific axum handlers
 /// note this has to clone efficiently and needs to be invariant
 #[derive(Clone)]
@@ -221,7 +209,7 @@ pub struct SpaServer {
     name: String, // this is not from the config so that we can have the same for different apps
     services: Vec<SpaSvc>,
 
-    connections: HashMap<SocketAddr,SpaConnection>, // updated when receiving an AddConnection actor message
+    connections: HashMap<SocketAddr,WsConnection>, // updated when receiving an AddConnection actor message
     server_task: Option<JoinHandle<()>>, // for the server task itself, initialized upon _Start_
     heartbeat_timer: Option<AbortHandle>
 }
@@ -415,11 +403,11 @@ impl SpaServer {
                     }
 
                 }
-                hself.send_msg( RemoveConnection{remote_addr}).await;
+                hself.send_msg( RemoveWsConnection{remote_addr}).await;
             })?
         };
 
-        let conn = SpaConnection { remote_addr, ws_sender, ws_receiver_task };
+        let conn = WsConnection { remote_addr, ws_sender, ws_receiver_task };
         self.connections.insert( raddr, conn);
         println!("connection added: {remote_addr:?} ({})", self.connections.len());
 
@@ -591,16 +579,6 @@ impl SpaServer {
 
 /* #region actor *********************************************************************************************/
 
-#[derive(Debug)]
-pub struct AddConnection {
-    pub remote_addr: SocketAddr,
-    pub ws: WebSocket
-}
-
-#[derive(Debug)]
-pub struct RemoveConnection {
-    pub remote_addr: SocketAddr,
-}
 
 #[derive(Debug,Clone)]
 pub struct DataAvailable {
@@ -650,7 +628,7 @@ pub struct SendWsMsg {
 pub struct Open {}
 
 define_actor_msg_set! { pub SpaServerMsg =
-     AddConnection | DataAvailable | DispatchIncomingWsMsg | BroadcastWsMsg | SendAllOthersWsMsg | SendGroupWsMsg | SendWsMsg | RemoveConnection | Open
+     AddWsConnection | DataAvailable | DispatchIncomingWsMsg | BroadcastWsMsg | SendAllOthersWsMsg | SendGroupWsMsg | SendWsMsg | RemoveWsConnection | Open
 }
 
 impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
@@ -671,7 +649,7 @@ impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
     Open => cont! {
         self.open(); // open the default web browser on this url
     }
-    AddConnection => cont! {
+    AddWsConnection => cont! {
         let hself = self.hself.clone();
         if let Err(e) = self.add_connection( hself, actor_msg.remote_addr, actor_msg.ws).await {
             error!("failed to add connection to {:?}: {:?}", actor_msg.remote_addr, e);
@@ -709,7 +687,7 @@ impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
             error!("failed to send ws message: {e:?}");
         }
     }
-    RemoveConnection => cont! {
+    RemoveWsConnection => cont! {
         let hself = self.hself.clone();
         if let Err(e) = self.remove_connection( hself, actor_msg.remote_addr).await {
             error!("failed to remove connection to {:?}: {:?}", actor_msg.remote_addr, e);
@@ -942,7 +920,7 @@ impl SpaComponents {
             write!( buf, "{frag}\n");
         }
 
-        self.post_init_js_modules(&mut buf);
+        self.post_init_js_modules(&mut buf, name);
 
         write!( buf, "</body>\n");
         write!( buf, "</html>\n");
@@ -950,27 +928,46 @@ impl SpaComponents {
         buf
     }
 
-    fn post_init_js_modules (&self, buf: &mut String) {
+    fn post_init_js_modules (&self, buf: &mut String, name: &str) {
         let module_uris: Vec<&str> = self.header_items.iter()
             .filter_map( |e| if let HeaderItem::Module(uri) = e {Some(uri.as_str())} else {None})
             .collect();
 
         if !module_uris.is_empty() {
             let mut mod_names: Vec<&str> = Vec::with_capacity(module_uris.len());
+            // TODO - make sure main and ws are postInitialized last ??? HOW ???
 
-            write!( buf, "<script type=\"module\">\n");
+            write!( buf, "<script>\n");
 
-            for uri in module_uris.iter() {
-                let mod_name = get_file_basename(uri).unwrap();
-                mod_names.push(mod_name);
-                write!( buf, "import * as {mod_name} from '{uri}';\n");
+            // note that Safari 18.6 has a bug that does not properly resolve the module imports (Promise.all fires prematurely) 
+
+            write!( buf, "const modulePromises=[");
+            for i in 0..module_uris.len() {
+                if i>0 { write!( buf, ",\n"); } else { write!( buf, "\n"); }
+                let uri = module_uris[i];
+                mod_names.push( get_file_basename( uri).unwrap());
+                write!( buf, "  import('/{}{}')", name, &uri[1..]); // dynamic import needs full path in Safari
             }
+            write!( buf, "\n];\n");
 
+            let n = mod_names.len();
+            write!( buf, "Promise.all(modulePromises).then(([");
+            for i in 0..n {
+                if i>0 { write!( buf, ","); }
+                write!( buf, "{}", mod_names[i]);
+            }
+            write!( buf, "])=>{{\n");
+            write!( buf, "console.log('post-initializing', modulePromises.length, 'modules...');\n");
+
+            //for mod_name in &mod_names { write!( buf, "console.log('@@ mod ',{mod_name});\n"); }
+           
             for mod_name in mod_names.iter() {
-                write!( buf, "if ({mod_name}.postInitialize) {{ {mod_name}.postInitialize(); }}\n");
+                write!( buf, "  if (typeof {mod_name}.postInitialize === 'function') {{ try {{ {mod_name}.postInitialize(); }} catch (e) {{ console.error('error during postInitialize:', e);}} }}\n");
             }
 
-            write!( buf, "console.log('all js modules initialized');\n");
+            write!( buf, "console.log('post-initializing',  modulePromises.length, 'modules finished.');\n");
+            write!( buf, "}}).catch( (e)=>{{ console.log('module load error:', e);}});\n");
+
             write!( buf, "</script>\n");
         }
     }

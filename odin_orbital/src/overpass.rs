@@ -302,9 +302,9 @@ impl <T: TleStore> OverpassCalculator<T> {
         let mut t = oi.get_orbit_start(t_start); 
         let step_secs = self.sat_info.time_step.as_secs_f64();
         let mut n_steps: usize = (oi.rev_sec / step_secs).floor() as usize;
+        let mut n_steps1 = n_steps-1;
         let time_step = Duration::from_seconds(step_secs);
         let mut tvec: Vec<Instant> = vec![ Instant::new(0); n_steps + 20];
-        let i1 = n_steps-1;
         let avg_swath = self.sat_info.avg_swath_width.get::<meter>();
 
         let mut overpasses: Vec<Overpass> = Vec::new();
@@ -317,14 +317,14 @@ impl <T: TleStore> OverpassCalculator<T> {
             let (pteme, vteme, errs) = sgp4( &mut tle, &tvec); // propagate
 
             let q0 = qteme2itrf(&tvec[0]);
-            let q1 = qteme2itrf(&tvec[i1]);
+            let q1 = qteme2itrf(&tvec[n_steps1]);
    
             let itrf_last = q0 * pteme.column(0);
             let mut p_last = Cartesian3::from_col( &itrf_last);
             let mut is_recording = false;
 
-            for i in 1..=i1 {
-                let q = q0.slerp(&q1, (i as f64)/(i1 as f64)); // since we got quaternions we might as well interpolate (qteme2itrf() is expensive)
+            for i in 1..=n_steps1 {
+                let q = q0.slerp(&q1, (i as f64)/(n_steps1 as f64)); // since we got quaternions we might as well interpolate (qteme2itrf() is expensive)
 
                 let itrf = q * pteme.column(i);
                 let p = Cartesian3::from_col( &itrf);
@@ -356,12 +356,13 @@ impl <T: TleStore> OverpassCalculator<T> {
             }
             p_last.set_undefined();
 
-            t = tvec[n_steps-1] + Duration::from_seconds(10.0); // give it some margin past end
+            t = tvec[n_steps1] + Duration::from_seconds(10.0); // give it some margin past end
             let oi_next =  self.ois.find_closest(|o| (t - o.epoch()).as_seconds()).ok_or(op_failed!("no suitable OrbitInfo for {sat_id} at {t}"))?;
             if !is_same_ref( oi, oi_next) {
                 oi = oi_next;
                 tle = oi.get_tle();
                 n_steps = (oi.rev_sec / step_secs).floor() as usize;
+                n_steps1 = n_steps-1;
             }                    
 
             t = oi.get_orbit_start( t); // make sure we start on pole 

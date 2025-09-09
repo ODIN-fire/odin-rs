@@ -23,6 +23,7 @@ use kanal::{ bounded_async,AsyncSender,AsyncReceiver, SendFuture, SendError, Rec
 
 pub type MpscSender<M> = AsyncSender<M>;
 pub type MpscReceiver<M> =AsyncReceiver<M>;
+pub type MpscSendError = SendError;
 
 #[inline] 
 pub fn create_mpsc_sender_receiver <MsgType> (bound: usize) -> (MpscSender<MsgType>,MpscReceiver<MsgType>)

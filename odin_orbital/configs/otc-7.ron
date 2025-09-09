@@ -1,0 +1,19 @@
+OrbitalSatelliteInfo (
+    sat_id: 63357,
+    name: "OTC-7",
+
+    instrument: "OTC",
+    max_scan_angle: 20.2, // from nadir to horizon (ZA 8.3)
+    avg_height: 550000, // just to give a ballpark number ()
+    avg_swath_width: 200000, // in meters (single side)
+    avg_orbit_duration: Duration( secs: 5721, nanos: 0), // 95.347min
+
+    time_step: Duration( secs: 2, nanos: 0), // time step for calculating orbits
+
+    back_days: 3,    // initial historical data to retrieve
+    forward_days: 1, // for which we compute upcoming overpasses
+
+    max_completed: 10, // maximum number of completed overpasses/data sets to keep
+    max_upcoming: 3, // maximum number of upcoming overpasses to compute
+    max_tles: 16
+)

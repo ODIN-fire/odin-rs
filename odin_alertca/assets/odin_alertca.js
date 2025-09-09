@@ -175,6 +175,13 @@ class CameraEntry {
     replaceSymbolEntityLabel (newLabel) {
         this.assets.symbol.label.text = newLabel;
     }
+
+    updateData (newData) {
+        this.camera.data.push( newData);
+        if (this.assets.symbol) {
+            this.assets.symbol.billboard.rotation = util.toRadians( 360 - newData.azimut)
+        }
+    }
 }
 
 function getLabel (id) {
@@ -428,7 +435,7 @@ function handleUpdateMsg (msg) {
         let ce = cameraEntries.get(id);
         if (ce) {
             ce.date = msg.date;
-            ce.camera.data.push( data);
+            ce.updateData( data);
             if (alerts && alerts.length > 0) {
                 alerts.forEach( (a)=> ce.camera.alerts.push( a));
             }

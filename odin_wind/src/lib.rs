@@ -13,7 +13,11 @@
  */
 #![allow(unused)]
 
-use std::{collections::{HashMap, HashSet, VecDeque}, fs::File, io::{BufWriter,Write}, net::SocketAddr, path::{Path,PathBuf}, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet, VecDeque}, 
+    fs::File, io::{BufWriter,Write}, net::SocketAddr, 
+    path::{Path,PathBuf}, sync::Arc, time::Duration
+};
 use axum::Json;
 use odin_hrrr::HrrrDataSetRequest;
 use serde::{Serialize,Deserialize};
@@ -21,9 +25,12 @@ use chrono::{DateTime,Utc, Datelike, Timelike};
 use odin_build::{define_load_asset, define_load_config, pkg_cache_dir};
 use odin_common::{
     cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque, datetime, 
-    fs::{path_str_to_fname, replace_env_var_path, replace_filename}, 
-    geo::GeoRect, json_writer::{JsonWritable,JsonWriter}, sqrt, utm::UtmRect, BoundingBox, push_all_str
+    fs::{path_str_to_fname, replace_env_var_path, replace_filename}, geo::GeoRect, 
+    json_writer::{JsonWritable,JsonWriter}, push_all_str, 
+    ron::{TypedCompactRon, from_typed_compact_ron, to_typed_compact_ron}, 
+    sqrt, strings::extract_json_payload_object, utm::UtmRect, BoundingBox
 };
+use odin_action::DynDataRefAction;
 use odin_dem::DemSource;
 use lazy_static::lazy_static;
 use odin_gdal::{{gdal::{Dataset,raster::RasterBand}}, contour::ContourBuilder, read_row};
@@ -32,8 +39,12 @@ use odin_gdal::{{gdal::{Dataset,raster::RasterBand}}, contour::ContourBuilder, r
 pub mod actor;
 pub mod errors;
 use errors::Result;
+
+use crate::errors::op_failed;
 pub mod wind_service;
 
+pub mod server;
+pub mod server_client;
 
 lazy_static! {
     pub static ref PKG_CACHE_DIR: PathBuf = pkg_cache_dir!();
@@ -57,6 +68,52 @@ pub struct WindConfig {
     // the fields and levels we need from HRRR
     hrrr_fields: Vec<String>,
     hrrr_levels: Vec<String>,
+}
+
+#[derive(Debug,Clone,Serialize,Deserialize)] 
+pub struct WindRegion {
+    pub name: String,
+    pub bbox: GeoRect,
+}
+
+#[derive(Debug,Serialize,Deserialize)]
+pub struct AddWindClient {
+    pub wn_region: WindRegion,
+    pub remote_addr: SocketAddr
+}
+
+impl TypedCompactRon<'_> for AddWindClient {} 
+
+#[derive(Debug)]
+pub enum SubscribeResponse {
+    Add(AddWindClientResponse),
+    Remove(RemoveWindClientResponse)
+}
+
+/// the response to a AddWindClient message. This is fed into the subscribe_action
+#[derive(Debug,Clone,Serialize,Deserialize)]
+pub struct AddWindClientResponse {
+    pub wn_region: WindRegion,
+    pub is_new: bool,
+    pub rejection: Option<String>, // if None then client request was accepted (but region might already be monitored)
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_addr: Option<SocketAddr> // only present when sent internally
+}
+
+impl TypedCompactRon<'_> for AddWindClientResponse {}
+
+#[derive(Debug,Serialize,Deserialize)] 
+pub struct RemoveWindClient {
+    pub region: Option<String>, // of region
+    pub remote_addr: SocketAddr
+}
+
+impl TypedCompactRon<'_> for RemoveWindClient {}
+
+#[derive(Debug,Serialize,Deserialize)]
+pub struct RemoveWindClientResponse {
+    pub region: String,
 }
 
 /// the internal data structure that represents the input data for a single WindNinja run
@@ -130,7 +187,7 @@ impl From<WnJob> for Forecast {
 
 /// aggregate with the results of a single WindNinja run
 /// this is what we distribute as updates so it has to clone efficiently (use ARCs)
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct Forecast {
     // what we get from the WnJob
     pub region: Arc<String>,
@@ -141,12 +198,15 @@ pub struct Forecast {
     pub mesh_res: f64,          // WindNinja mesh resolution in meters
     pub wind_height: f64,       // of WindNinja computed values - above ground in meters
     pub wx_src: Arc<String>,    // e.g. "HRRR"
+
     pub wx_path: Arc<PathBuf>,  // the HRRR data this forecast is based on
     pub dem_path: Arc<PathBuf>, // the DEM data this forecast is based on
 
     // the primary WindNinja output file basename (huvw UTM grid). All other filenames (WGS84 grid/vec and contour) derived from here
     pub wn_out_base_name: Arc<String>, // this does *not* include the extension as we use it as the base for several products
 }
+
+impl TypedCompactRon<'_> for Forecast {}
 
 //--- the various paths of WindNinja computed products we derive from wn_out_base_name
 
@@ -213,60 +273,63 @@ impl Forecast {
     }
 }
 
-/// all available forecasts for a region, plus tracking of clients 
+
+/// data we need before we can create WnJobs. This is only kept in the WindActor
+pub struct WnJobRegion {
+    pub region: Arc<String>,
+    pub utm_rect: UtmRect,           // the (approximated) region bbox in UTM
+    pub dem_path: Arc<PathBuf>,      // pathname to respective DEM file
+    pub hrrr_ds_request: Arc<HrrrDataSetRequest>,
+}
+
+/// all available forecasts for a region, plus the respective clients for that region. This is where we store Forecast results
 pub struct ForecastRegion {
     pub region: Arc<String>,
     pub bbox: GeoRect,
-    pub utm_rect: UtmRect,
-    pub dem_path: Arc<PathBuf>,      // pathname to respective DEM file
-    pub hrrr_ds_request: Arc<HrrrDataSetRequest>,
-
-    pub n_clients: usize,       // if this drops to 0 we stop computing forecasts for this region
     pub client_addrs: HashSet<SocketAddr>,
-
     pub forecasts: VecDeque<Forecast> // this is a ringbuffer ordered by forecast date (note we only keep the most recent forecast for each hour)
 }
 
 impl ForecastRegion {
-    pub fn new (region: Arc<String>, bbox: GeoRect, utm_rect: UtmRect, dem_path: Arc<PathBuf>, hrrr_ds_request: Arc<HrrrDataSetRequest>, max_steps: usize)->Self {
+    pub fn new (region: Arc<String>, bbox: GeoRect, max_steps: usize)->Self {
         ForecastRegion {
             region,
             bbox,
-            utm_rect,
-            dem_path,
-            hrrr_ds_request,
-            n_clients: 0,
             client_addrs: HashSet::new(),
             forecasts: VecDeque::with_capacity( max_steps)
         }
     }
 
-    pub fn add_client (&mut self, remote_addr: Option<SocketAddr>) {
-        if let Some(addr) = remote_addr {
-            let len0 = self.client_addrs.len();
-            self.client_addrs.insert( addr);
-            if self.client_addrs.len() > len0 {
-                self.n_clients += 1;
-            }
-        } else {
-            self.n_clients +=1;
-        }
+    pub fn add_client (&mut self, remote_addr: SocketAddr) {
+        self.client_addrs.insert( remote_addr);
     }
 
-    pub fn remove_client (&mut self, remote_addr: &Option<SocketAddr>)->bool {
-        if let Some(addr) = remote_addr {
-            let len0 = self.client_addrs.len();
-            self.client_addrs.remove( addr);
-            if self.client_addrs.len() < len0 {
-                self.n_clients -= 1;
-                true
-            } else {
-                false
+    pub fn remove_client (&mut self, remote_addr: &SocketAddr)->bool {
+        self.client_addrs.remove( remote_addr)
+    }
+
+    pub fn add_forecast (&mut self, forecast: Forecast)->Option<&Forecast> {
+        let mut fcs = &mut self.forecasts;
+        for i in 0..fcs.len() {
+            let f = &fcs[i];
+            if f.date == forecast.date  { 
+                if forecast.step < f.step {  // this replaces an older, now obsolete forecast for the same hour
+                    fcs[i] = forecast;
+                    return Some( &fcs[i])
+
+                } else {
+                    println!("ignoring dead-on-arrival forecast {:?}", forecast);
+                    return None
+                }
+            } else if f.date > forecast.date { 
+                println!("inserting previously missing forecast {:?}", forecast);
+                fcs.insert_into_ringbuffer(i, forecast);
+                return Some(&fcs[i])
             }
-        } else {
-            self.n_clients -=1;
-            true
         }
+        // if we get here we append (and possibly drop the first forecast)
+        fcs.push_to_ringbuffer( forecast);
+        fcs.back()
     }
 }
 
@@ -286,6 +349,10 @@ impl JsonWritable for ForecastRegion {
 
 /// this is the data store snapshots are based on
 pub type ForecastStore = HashMap<Arc<String>,ForecastRegion>;
+
+/// message to request action execution with the current HotspotStore
+#[derive(Debug)] 
+pub struct ExecSnapshotAction(pub DynDataRefAction<ForecastStore>);
 
 pub fn forecast_regions_to_json (fcs: &ForecastStore)->String {
     let mut  w = JsonWriter::with_capacity( fcs.len() * 1024);

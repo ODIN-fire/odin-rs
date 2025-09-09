@@ -172,8 +172,11 @@ pub fn get_workspace_parent()->Option<PathBuf> {
 
 pub fn get_env_odin_root()->Option<PathBuf> {
     if let Ok(odin_root) = env::var("ODIN_ROOT") {
-        Some( Path::new(odin_root.as_str()).to_path_buf() )
-    } else { None }
+        if odin_root.len() > 0 {
+            return Some( Path::new(odin_root.as_str()).to_path_buf() )
+        }
+    }
+    None
 }
 
 pub fn default_odin_root()->PathBuf {

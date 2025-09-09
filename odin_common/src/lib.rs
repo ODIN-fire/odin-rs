@@ -35,9 +35,11 @@ pub mod schedule;
 pub mod admin;
 pub mod process;
 pub mod net;
+pub mod ws;
 pub mod uom;
 pub mod json_writer;
 pub mod u8extractor;
+pub mod ron;
 
 #[cfg(feature="s3")]
 pub mod s3;
@@ -176,4 +178,23 @@ impl PartialOrd for Percent {
 
 impl <T> From<T> for Percent where T: Into<f64> + Copy {
     fn from (t: T)->Self { Percent( t.into()) }
+}
+
+/// get the basic typename (without crate/module path and type params) of a type
+pub fn type_base_name<T> ()->&'static str {
+    let mut te = std::any::type_name::<T>(); 
+    
+    if let Some(i) = te.find('<') { // path part does not contain generic type params
+        te = &te[0..i];
+    } 
+    if let Some(i) = te.rfind(':') { // with generic type params cut off find the last path sep
+        te = &te[i+1..];
+    }
+    te
+}
+
+/// get the basic typename (without crate/module path and type params) of an object
+#[inline]
+pub fn type_base_name_of<T> (o: &T)->&'static str {
+    type_base_name::<T>()
 }

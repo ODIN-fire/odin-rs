@@ -14,14 +14,15 @@
 
 #![allow(unused)]
 
-/// example application to show Wind computed micro grid wind
+/// example application to show WindNinja computed micro grid wind (running WindNinja locally
+/// on the same machine)
 
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_share::prelude::*;
 use odin_hrrr::{self,HrrrActor,HrrrConfig,HrrrFileAvailable,schedule::{HrrrSchedules,get_hrrr_schedules}};
 use odin_wind::{ 
-    actor::{WindActor,WindActorMsg, AddClientResponse, server_subscribe_action, server_update_action}, 
+    actor::{WindActor,WindActorMsg, server_subscribe_action, server_update_action}, 
     ForecastStore, Forecast, 
     wind_service::WindService
 };

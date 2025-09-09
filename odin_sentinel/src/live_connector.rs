@@ -201,6 +201,9 @@ impl LiveConnection {
         }
     }
 
+    // TODO - make this use odin_common::ws::ws_loop
+    // but this means we have to extend the odin_common version with a reconnect closure or limit it to internal loop
+    // we also do more reporting here (not sure every websocket warrants admin notifications)
     async fn ws_loop (hself: ActorHandle<SentinelActorMsg>, config: Arc<SentinelConfig>, cache_dir: Arc<PathBuf>, client: Client,
                       device_ids: Vec<String>, mut latest_recs: HashMap<String,String>,
                       file_request_tx: MpscSender<FileRequest>, ws_cmd_rx: MpscReceiver<String>) {

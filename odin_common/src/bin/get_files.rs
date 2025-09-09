@@ -17,7 +17,7 @@ use std::{io::Write, path::Path};
 use odin_common:: {
     define_cli, 
     fs::{self, ensure_writable_dir, existing_non_empty_file_from_path, file_contents_as_string}, 
-    net::{get_differing_size_file, get_content_length, get_headermap}
+    net::{get_content_length, get_differing_size_file, get_header_key_values, get_headermap}
 };
 use reqwest::{Client,header::{HeaderMap,HeaderName,HeaderValue}};
 use anyhow::Result;
@@ -37,40 +37,39 @@ async fn main()->Result<()> {
     let mut n_files = 0;
     let mut n_bytes: u64 = 0;
     let client = Client::new();
-    let headers = get_headermap( &ARGS.headers)?;
-    let opt_headers = if headers.is_empty() {None} else {Some(headers)};
+    let hdrs = get_header_key_values( &ARGS.headers)?;
     
     if ARGS.from_file {
-        process_input_file( &client, &ARGS.input, &opt_headers, &mut n_files, &mut n_bytes).await?;
+        process_input_file( &client, &ARGS.input, Some(&hdrs), &mut n_files, &mut n_bytes).await?;
         println!("{n_files} files with {} bytes", n_bytes.to_formatted_string(&Locale::en));
 
     } else {
-        process_url( &client, &ARGS.input,  &opt_headers, &mut n_files, &mut n_bytes).await?;
+        process_url( &client, &ARGS.input,  Some(&hdrs), &mut n_files, &mut n_bytes).await?;
     }
 
     Ok(())
 }
 
 
-async fn process_input_file (client: &Client, fpath: &str, opt_headers: &Option<HeaderMap>, n_files: &mut usize, n_bytes: &mut u64) -> Result<()> {
+async fn process_input_file (client: &Client, fpath: &str, hdrs: Option<&Vec<(String,String)>>, n_files: &mut usize, n_bytes: &mut u64) -> Result<()> {
     let mut input_file = existing_non_empty_file_from_path(&ARGS.input)?;
     let input = file_contents_as_string( &mut input_file)?;
 
     for url in input.lines() {
-        process_url( client, url, opt_headers, n_files, n_bytes).await?;
+        process_url( client, url, hdrs, n_files, n_bytes).await?;
     }
 
     Ok(())
 }
 
-async fn process_url (client: &Client, url: &str, opt_headers: &Option<HeaderMap>, n_files: &mut usize, n_bytes: &mut u64) -> Result<()> {
+async fn process_url (client: &Client, url: &str, hdrs: Option<&Vec<(String,String)>>, n_files: &mut usize, n_bytes: &mut u64) -> Result<()> {
     print!("{url}.. ");
     std::io::stdout().flush();
 
     let res = if ARGS.size_only {
-        get_content_length( &client, url, opt_headers).await
+        get_content_length( &client, url, hdrs).await
     } else {
-        get_differing_size_file( &client, url, opt_headers, &ARGS.output_dir).await
+        get_differing_size_file( &client, url, hdrs, &ARGS.output_dir).await
     };
 
     match res {

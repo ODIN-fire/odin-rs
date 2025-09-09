@@ -19,6 +19,7 @@ use std::sync::LazyLock;
 use std::env;
 use regex::Regex;
 use serde::{Deserialize,Deserializer};
+use serde_json;
 
 /// stringify iterator for Display elements with given delimiter without per-element allocation
 pub fn mk_string<T: Display> (it: std::slice::Iter<'_,T>, delim: &str) -> Result<String,fmt::Error> {
@@ -207,4 +208,13 @@ fn de_arr <'a,T,const N: usize,D>(deserializer: D) -> Result<[T;N],D::Error>
         parse_array::<T,N>(string.as_str(),',')
             .map_err( |e| serde::de::Error::custom(format!("{:?}",e)))
     })
+}
+
+/// check if slice starts with JSON prefix followed by a JSON object value. If so extract and deserialize that object value 
+pub fn extract_json_payload_object<'a, T: Deserialize<'a>> (prefix: &str, msg: &'a str)->Option<T> {
+    if msg.starts_with( prefix) {
+        serde_json::from_str( &msg[prefix.len()..msg.len()-1]).ok()
+    } else {
+        None
+    }
 }

@@ -58,7 +58,7 @@ impl SpaService for AdsbService {
 
     // no data_available as this is highly dynamic (we could send it once the connector is live)
 
-    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut SpaConnection) -> OdinServerResult<()> {
+    async fn init_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, is_data_available: bool, conn: &mut WsConnection) -> OdinServerResult<()> {
         let remote_addr = conn.remote_addr;
 
         for hactor in &self.actors {

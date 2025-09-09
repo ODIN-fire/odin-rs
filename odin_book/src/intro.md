@@ -105,8 +105,9 @@ Monitors can combine/correlate different sensor systems (e.g. ground based and s
 
 ## Examples
 
-To get an idea of what ODIN servers might look like on end user machines we refer to two of our TFRSAC talks:
+To get an idea of what ODIN servers might look like on end user machines we refer to recordings of some of our recent talks:
 
-  * [spring 2023](https://www.youtube.com/watch?v=b9DfMBYCe-s&t=4950s)
-  * [fall 2022](https://www.youtube.com/watch?v=gCBXOaybDLA)
+* [Cesium DevCon 2025](https://www.youtube.com/watch?v=n2uRriuTWdU&list=PLONdwUX5Dqocrmxc6rWp82X9-eWcpN2Md&index=4)
+* [TFRSAC spring 2023](https://www.youtube.com/watch?v=b9DfMBYCe-s&t=4950s)
+* [TFRSAC fall 2022](https://www.youtube.com/watch?v=gCBXOaybDLA)
 

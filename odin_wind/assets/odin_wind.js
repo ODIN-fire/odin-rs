@@ -35,6 +35,8 @@ const RegionStatus = {
     INACTIVE: ""
 };
 
+const BBOX_PATTERN = util.glob2regexp("{rect/**,**/rect/**,**/rect}"); // any pathname with 'rect' in it
+
 // the supported display types
 const AnimDisplay = "animation";
 const VectorDisplay = "vector";
@@ -73,11 +75,11 @@ class ForecastRegion {
         this.purgeOldForecasts();
 
         let forecasts = this.forecasts;
-        let len = forecasts.length;
 
-        for (let i=0; i<len; i++) {
+        for (let i=0; i<forecasts.length; i++) {
             let f = forecasts[i];
-            if (newForecast.date < f.date) {
+
+            if (newForecast.date < f.date) { // insert older forecast
                 forecasts.splice(i, 0, newForecast);
                 if (isRegionSelected) ui.insertListItem( forecastView, newForecast, i);
 
@@ -85,7 +87,7 @@ class ForecastRegion {
             } else if (newForecast.date == f.date) {
                 if (newForecast.step <= f.step) { // this replaces an outdated forecast
                     forecasts[i] = newForecast;
-                    if (isRegionSelected) ui.appendListItem( forecastView, newForecast);
+                    if (isRegionSelected) ui.replaceListItem( forecastView, f, newForecast);
 
                 } // otherwise the new forecast was dead on arrival
                 return;
@@ -99,14 +101,18 @@ class ForecastRegion {
     purgeOldForecasts () {
         let forecasts = this.forecasts;
         let now = Date.now(); // TODO = should use simTime
-        let n = 0;
+        let nPurge = 0;
         for (let f of forecasts) {
-            let dh = util.hoursBetween(now, f.date);
+            let dh = util.hoursBetween( f.date, now);
             if (dh < 0) break; // the rest is in the future
-            if (dh > config.back_hours) n++; 
+            if (dh > config.backHours) nPurge++; 
         }
-        if (n>0) {
-            forecasts.splice(0,n);
+        if (nPurge>0) {
+            for (let i=0; i<nPurge; i++) {
+                forecasts[i].hideWindFields(); // if they are purged we can't control their visibility anymore
+                ui.removeListItemIndex( forecastView, 0);
+            }
+            forecasts.splice(0,nPurge);
         }
     }
 
@@ -192,11 +198,34 @@ class Forecast {
 
     status () { return this[selDisplay][selSource].status; }
 
-    startViewChange () { this[selDisplay][selSource].startViewChange(); }
+    startViewChange () { 
+        if (this.isShowing()) {
+            this.showWindField(false);
+            this._onHold = true;
+            this[selDisplay][selSource].startViewChange(); 
+        }
+    }
 
-    endViewChange () { this[selDisplay][selSource].endViewChange(); }
+    endViewChange () { 
+        if (this._onHold) {
+            this[selDisplay][selSource].endViewChange(); 
+            this.showWindField(true);
+            this._onHold = undefined;
+        }
+    }
 
-    renderChanged () { this[selDisplay][selSource].renderChanged(); }
+    renderChanged () { 
+        // TODO - to be consistent we either we have to set sliders upon source/display selection or we have
+        // to update all source/display entries here
+
+        if (Object.is(selDisplay, AnimDisplay)) {
+            this.animation[selSource].setRenderOpts( animRender);
+        } else if (Object.is(selDisplay, VectorDisplay)) {
+            this.vector[selSource].setRenderOpts( vectorRender);
+        } else if (Object.is(selDisplay, ContourDisplay)) {
+            this.contour[selSource].setRenderOpts( contourRender);
+        }
+    }
 
     isShowing() { return Object.is( this.status(), wf.WindFieldStatus.SHOWING); }
 
@@ -238,8 +267,6 @@ var sourceCb = undefined;
 var selectedRegion = undefined;
 var selectedForecast = undefined;
 
-setupEventListeners();
-
 createIcon();
 createWindow();
 
@@ -252,6 +279,9 @@ initForecastView();
 initAnimDisplayControls();
 initVectorDisplayControls();
 initContourDisplayControls();
+
+const viewer = await odinCesium.viewerReadyPromise; // Safari bug workaround (setupEventListeners use odinCesium)
+setupEventListeners();
 
 odinCesium.initLayerPanel("wind", config, showWind);
 console.log("odin_wind initialized");
@@ -275,8 +305,8 @@ function handleForecastRegions (frsMsg) {
         let fr = new ForecastRegion( r.region, r.bbox, RegionStatus.ACTIVE);
         forecastRegions.set(fr.name, fr);
 
-        for (let fc of r.forecasts) { // those are reported without region name, no need to recreate
-            fc.wxSrc = util.intern(fc.wxSrc);
+        for (let fcMsg of r.forecasts) { // those are reported without region name, no need to recreate
+            let fc = new Forecast( fcMsg.date, fcMsg.step, fcMsg.mesh, util.intern(fcMsg.wxSrc), fcMsg.urlBase);
             fr.addForecast( fc);
         }
     }
@@ -330,8 +360,6 @@ function handleForecast (fcMsg) {
 /* #endregion websocket message handler */
 
 /* #region share message handler ***************************************************************************/
-
-const BBOX_PATTERN = util.glob2regexp("{rect/**,**/rect/**,**/rect}"); // any pathname with 'rect' in it
 
 function handleShareMessage (msg) {
     if (msg.SHARE_INITIALIZED) { // we get that no matter what the share implementation is
@@ -595,6 +623,7 @@ function endViewChange() {
     wf.updateViewerParameters();
     for (let region of forecastRegions.values()) {
         for (let forecast of region.forecasts) {
+            
             forecast.endViewChange();
         }
     }
@@ -619,7 +648,7 @@ function toggleRegionSubscribe (event) {
             ws.sendWsMessage( MODULE_PATH, "addWindClient", {name: fcr.name, bbox: fcr.bbox});
 
         } else {
-            fcr.status = RegionStatus.WAITING;
+            // no status update yet - if this was the last client we will get a notification from the server
             fcr.isSubscribed = false;
             ui.updateListItem( regionView, fcr);
             ws.sendWsMessage( MODULE_PATH, "removeWindClient", {name: fcr.name, bbox: fcr.bbox});

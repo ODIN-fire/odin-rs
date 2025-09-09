@@ -15,7 +15,7 @@
 use odin_actor::OdinActionFailure;
 use thiserror::Error;
 use odin_gdal::gdal::errors::GdalError;
-use crate::actor::AddWindClient;
+use crate::AddWindClient;
 
 pub type Result<T> = std::result::Result<T, OdinWindError>;
 
@@ -52,9 +52,32 @@ pub enum OdinWindError {
     #[error("IO error {0}")]
     IOError( #[from] std::io::Error),
 
+    #[error("OdinNetError {0}")]
+    OdinNetError( #[from] odin_common::net::OdinNetError),
+
+    #[error("JSON error {0}")]
+    JsonError( #[from] serde_json::Error),
+
+    #[error("RON error {0}")]
+    RonError( #[from] ron::error::Error),
+
+    #[error("MPSC send error {0}")]
+    MpscSendError( #[from] odin_actor::MpscSendError),
+
     #[error("execution failed {0}")]
     ExecError(String),
 
     #[error("operation failed {0}")]
     OpFailedError(String)
+}
+
+pub fn op_failed (msg: impl ToString)->OdinWindError {
+    OdinWindError::OpFailedError(msg.to_string())
+}
+
+#[macro_export]
+macro_rules! op_failed {
+    ($fmt:literal $(, $arg:expr )* ) => {
+        op_failed( format!( $fmt $(, $arg)* ))
+    };
 }

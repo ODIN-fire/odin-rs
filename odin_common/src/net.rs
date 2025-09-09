@@ -14,8 +14,8 @@
 
 ///! common utility functions for network operations
 
-use std::{collections::HashMap, fs::File, io::{self, Write}, path::Path, sync::Arc};
-use reqwest::{header::{HeaderMap,HeaderName,HeaderValue,CONTENT_TYPE}, Client, IntoUrl, StatusCode, Response};
+use std::{collections::HashMap, fs::File, io::{self, Write}, net::{SocketAddr,IpAddr,Ipv4Addr}, path::Path, sync::Arc};
+use reqwest::{header::{HeaderMap,HeaderName,HeaderValue,CONTENT_TYPE}, Client, IntoUrl, Request, Response, StatusCode};
 use regex::Regex;
 use lazy_static::lazy_static;
 use serde::{de::DeserializeOwned,Serialize,Deserialize};
@@ -40,10 +40,18 @@ define_error!{ pub OdinNetError =
     NotFoundError(String) : "not found {0}",
     HttpError(#[from] reqwest::Error) : "http error: {0}",
     OpFailed(String) : "operation failed: {0}",
-    ParseError(String) : "parse error: {0}"
+    ParseError(String) : "parse error: {0}",
+    WsError(String) : "websocket error: {0}"
 }
 
 pub type Result<T> = std::result::Result<T, OdinNetError>;
+
+pub fn get_header_key_values (headers: &[String]) -> Result<Vec<(String,String)>> { 
+    Ok( headers.iter().flat_map( |s| {
+        let s = s.as_str();
+        s.find(':').map( |i| (s[0..i].to_string(), s[i+1..].to_string()))
+    }).collect() )
+}
 
 pub fn get_headermap (headers: &Vec<String>) -> Result<HeaderMap> {
     if headers.is_empty() {
@@ -64,29 +72,31 @@ pub fn get_headermap (headers: &Vec<String>) -> Result<HeaderMap> {
     }
 }
 
-pub const NO_HEADERS: Option<HeaderMap> = None;
+pub const NO_HEADERS: Option<&Vec<(String,String)>> = None;
 
 /// fetch file from URL using HTTP GET method. Retrieve in chunks to support large files
 /// Note this requires a full URL
-pub async fn get_file (client: &Client, url: &str, opt_headers: &Option<HeaderMap>, dir: &str) -> Result<u64>  {
+pub async fn get_file<'a,I> (client: &Client, url: &str, opt_headers: Option<I>, dir: impl AsRef<Path>) -> Result<u64>  
+    where I: IntoIterator<Item=&'a (String,String)>
+{
     if let Some(fname) = url_file_name( url) {
-        let path = Path::new( dir).join(fname);
+        let path = dir.as_ref().to_path_buf().join(fname);
         download_url( client, url, opt_headers, &path).await
     } else {
         Err( OdinNetError::OpFailed(format!("not a file URL: {}", url)) )
     }
 }
 
-pub async fn get_differing_size_file (client: &Client, url: &str, opt_headers: &Option<HeaderMap>, dir: &str) -> Result<u64>  {
+pub async fn get_differing_size_file<'a,I> (client: &Client, url: &str, opt_headers: Option<I>, dir: &str) -> Result<u64>  
+    where I: IntoIterator<Item=&'a (String,String)> + Clone
+{
     if let Some(fname) = url_file_name( url) {
         let path = Path::new( dir).join(fname);
 
-        if_let! {
-            Some(local_len) = file_length(&path),
-            Ok(remote_len) = get_content_length( client, url, opt_headers).await => {
-                if local_len == remote_len {
-                    return Ok(local_len) // we assume equal length means same content
-                }
+        if let Some(local_len) = file_length(&path)
+        && let Ok(remote_len) = get_content_length( client, url, opt_headers.clone()).await {
+            if local_len == remote_len {
+                return Ok(local_len) // we assume equal length means same content
             }
         }
 
@@ -121,15 +131,20 @@ pub async fn post_json_query<T,U> (client: &Client, url: &str, data: T) -> Resul
     }
 }
 
-pub async fn download_url (client: &Client, url: &str, opt_headers: &Option<HeaderMap>, path: impl AsRef<Path>) -> Result<u64> {
+pub async fn download_url<'a,I> (client: &Client, url: &str, headers: Option<I>, path: impl AsRef<Path>) -> Result<u64> 
+    where I: IntoIterator<Item=&'a (String,String)>
+{
     let mut file = File::create(path)?;
     let mut len: u64 = 0;
 
     let mut req = client.get(url);
-    if let Some(headermap) = &opt_headers {
-        req = req.headers(headermap.clone())
+
+    if let Some(headers) = headers {
+        for (key,value) in headers {
+            req = req.header( key, value);
+        }
     }
-    
+
     let mut response = req.send().await?;
 
     match response.status() {
@@ -152,10 +167,15 @@ pub async fn download_url (client: &Client, url: &str, opt_headers: &Option<Head
 }
 
 /// get content-length of URL without retrieving the actual content
-pub async fn get_content_length (client: &Client, url: &str, opt_headers: &Option<HeaderMap>)->Result<u64> {
+pub async fn get_content_length<'a,I> (client: &Client, url: &str, opt_headers: Option<I>)->Result<u64> 
+    where I: IntoIterator<Item=&'a (String,String)>
+{
     let mut req = client.head(url);
-    if let Some(headermap) = &opt_headers {
-        req = req.headers(headermap.clone())
+
+    if let Some(headers) = opt_headers {
+        for (key,value) in headers {
+            req = req.header(key, value);
+        }
     }
 
     let response = req.send().await?;
@@ -239,6 +259,8 @@ lazy_static! {
     ]);
 }
 
+pub const ZERO_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
+
 pub fn encoding_for_extension (ext: &str) -> Option<&'static str> {
     ENC_MAP.get(ext).map(|v| &**v)
 }
@@ -253,3 +275,4 @@ pub async fn from_json<T> (response: Response)->Result<T> where T: DeserializeOw
 
     serde_json::from_slice( &bytes).map_err(|e| OdinNetError::ParseError(e.to_string()))
 }
+

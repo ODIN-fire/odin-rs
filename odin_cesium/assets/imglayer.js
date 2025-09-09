@@ -11,21 +11,23 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
-import { config } from "./imglayer_config.js";
 import * as util from "../odin_server/ui_util.js";
 import { ExpandableTreeNode } from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
 import * as odinCesium from "./odin_cesium.js";
+import { config } from "./imglayer_config.js";
 
 //--- module initialization
 
 const MOD_NAME = "odin_cesium::ImgLayerService";
 
-var defaultRender = config.render;
 var sources = config.sources;
+var defaultRender = config.render;
 var selectedSrc = undefined;
 
-await initImgLayers();
+
+////////////////////////////////////////////////
+// this is a Safari 18.6 bug woraround that does not properly wait for all modules to be loaded before calling postInitialize hooks from the body script
 
 createIcon();
 createWindow();
@@ -39,9 +41,63 @@ ui.setTree( sourceView, srcTree);
 
 ui.registerThemeChangeHandler(themeChanged);
 
+// explicit await on Promise.all() seems to let Safari wait with the body-script postInitialize() calls until imglayer is properly initialized
+console.log("initializing " + sources.length + " imager layers..");
+const providers = await Promise.all( getLayerPromises());
+const viewer = await odinCesium.viewerReadyPromise; // Safari bug workaround - this should not be required based on import order
+
+addLayers(viewer, providers);
+console.log( providers.length, "imagery layers loaded");
+
+/*
+Promise.all( getLayerPromises()).then( (providers) => {
+    console.log( providers.length, "imagery providers resolved.");
+    odinCesium.viewerReadyPromise.then( (viewer)=> {
+        addLayers( viewer, providers);
+        console.log( providers.length, "imagery layers loaded");
+    }).catch( (error) => { console.log( "could not obtain Cesium viewer:", error); });
+}).catch( (error) => { console.log( "failed to load imagery layer:", error); });
+*/
+
 odinCesium.registerMouseClickHandler(handleMouseClick);
 odinCesium.initLayerPanel("imglayer", config, showImgLayer);
-console.log("ui_cesium_imglayer initialized");
+
+console.log("imglayer initialized");
+
+function getLayerPromises() {
+    let promises = [];
+    for (var i=0; i<sources.length; i++) {
+        let src = sources[i];
+        if (src.provider) {
+            promises.push( Promise.resolve(src.provider)); // if provider is not a Promise this will create a resolved one
+        } else { throw new Error( "no provider in imagery Source layer "+ src.pathName); }
+    }
+    return promises;
+}
+
+function addLayers (viewer, providers) {
+    viewer.imageryLayers.removeAll(false);
+
+    for (var i=0; i<sources.length; i++) {
+        let src = sources[i];
+        if (!src.show) src.show = false;
+        let opts = { show: src.show }; // TODO - add other non-render opts here (rectangle, cutoutRectangle, max/minTerrainLevel, ..)
+        if (src.render) {
+            if (src.render.alphaColor) opts.colorToAlpha = Cesium.Color.fromCssColorString(src.render.alphaColor);
+            if (typeof src.render.alphaColorThreshold !== 'undefined') opts.colorToAlphaThreshold = src.render.alphaColorThreshold;
+        }
+        console.log("loaded imagery provider: ", src.pathName, ", show=", src.show);
+
+        // check if provider is actually a layer (Bing). Only create a layer from resoved provider promise if not
+        let layer = (providers[i].brightness) ? providers[i] : new Cesium.ImageryLayer(providers[i], opts);
+        src.layer = layer;
+        setLayerRendering( layer, {...defaultRender, ...src.render});
+        layer.show = src.show;
+        viewer.imageryLayers.add( layer);
+
+        loadColorMap(src);
+    }
+}
 
 //--- end init
 
@@ -120,7 +176,7 @@ function toggleShowSource(event) {
 function hideExclusives (src) {
     let exclusive = src.exclusive;
     if (exclusive && exclusive.length > 0) {
-        sources.forEach( s=> {
+        sources.forEach( (s)=> {
             if ((s !== src) && s.exclusive && util.haveEqualElements(exclusive, s.exclusive)) {
                 if (s.show) {
                     s.show = false;
@@ -156,39 +212,6 @@ function initColorMapView() {
     }
     return view;
 }
-
-async function initImgLayers() {
-    console.log("initializing " + sources.length + " imager layers..");
-    let viewer = await odinCesium.viewerReadyPromise;
-
-    let viewerLayers = viewer.imageryLayers;
-    viewerLayers.removeAll(false);
-
-    for (var i=0; i<sources.length; i++) {
-        let src = sources[i];
-        if (!src.show) src.show = false;
-        let opts = { show: src.show }; // TODO - add other non-render opts here (rectangle, cutoutRectangle, max/minTerrainLevel, ..)
-        if (src.render) {
-            if (src.render.alphaColor) opts.colorToAlpha = Cesium.Color.fromCssColorString(src.render.alphaColor);
-            if (typeof src.render.alphaColorThreshold !== 'undefined') opts.colorToAlphaThreshold = src.render.alphaColorThreshold;
-        }
-        // note that src.provider can either return a provider object or a promise
-        let layer = src.provider ? await Cesium.ImageryLayer.fromProviderAsync( Promise.resolve(src.provider), opts) : 
-                                   Cesium.ImageryLayer.fromWorldImagery({style: src.style});
-        console.log("loaded imagery provider: ", src.pathName, ", show=", src.show);
-
-        src.layer = layer;
-        setLayerRendering(layer, {...defaultRender, ...src.render});
-        layer.show = src.show;
-        viewerLayers.add(layer);
-
-        loadColorMap(src);
-    }
-
-    console.log("loaded ", sources.length, " imagery layers");
-}
-
-
 
 // set rendering parameters in instantiated ImageryLayer
 function setLayerRendering (layer,render) {

@@ -3025,7 +3025,7 @@ export function replaceListItemIndex(o, idx, item) {
 export function replaceListItem(o, oldItem, newItem) {
     let e = getList(o);
     if (e) {
-        let ie = getElementOfListItem(oldItem);
+        let ie = e._uiItemMap.get(oldItem);
         if (ie) {
             e._uiItemMap.delete(ie._uiItem);
             _setListItem(e, ie, newItem);

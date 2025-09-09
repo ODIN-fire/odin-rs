@@ -27,7 +27,10 @@ use csv;
 use async_trait::async_trait;
 use bit_set::BitSet;
 use odin_common::{
-    angle::{Angle180, Latitude, Longitude}, cartesian3::{dist_squared, find_closest_index, Cartesian3}, cartographic::{earth_radius_at_geodetic_latitude, Cartographic}, cos, datetime::{self, de_duration_from_fractional_secs, de_from_epoch_millis, from_epoch_millis, minutes, ser_duration_as_fractional_secs, ser_epoch_millis}, geo::{GeoPoint, GeoRect}, macros::if_let, net::download_url, sin 
+    angle::{Angle180, Latitude, Longitude}, cartesian3::{dist_squared, find_closest_index, Cartesian3}, 
+    cartographic::{earth_radius_at_geodetic_latitude, Cartographic}, cos, 
+    datetime::{self, de_duration_from_fractional_secs, de_from_epoch_millis, from_epoch_millis, minutes, ser_duration_as_fractional_secs, ser_epoch_millis}, 
+    geo::{GeoPoint, GeoRect}, macros::if_let, net::{download_url, NO_HEADERS}, sin 
 };
 use odin_dem::DemSource;
 use odin_macro::public_struct;
@@ -378,7 +381,7 @@ async fn import_firms_hotspots<I,R> (importer: &mut I, n_days: usize, cops: &mut
     let config = importer.get_config();
     let client = Client::new(); // no need to keep it around as this is only called every couple of hours
 
-    let size = download_url( &client, &url, &None, &file_path).await?;
+    let size = download_url( &client, &url, NO_HEADERS, &file_path).await?;
 
     if size > 0 {
         let file = File::open( file_path)?;

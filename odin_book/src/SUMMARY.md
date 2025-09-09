@@ -53,5 +53,7 @@
     - [odin_orbital](odin_orbital/odin_orbital.md)
     - [odin_wind](odin_wind/odin_wind.md)
     - [odin_adsb](odin_adsb/odin_adsb.md)
+    - [odin_alertca](odin_alertca/odin_alertca.md)
+    - [odin_n5](odin_n5/odin_n5.md)
 
 [Glossary](glossary.md)

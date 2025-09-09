@@ -63,7 +63,7 @@ export function getLastMsgCount() { return lastMsgCount; }
 // messages have the format { "mod": "<module-path>", "<MsgType>": <payload-object> }
 // note that MsgType is an uppercase typename as it is directly derived from the respective server type
 function handleServerMessage(msg) {
-    //console.log(JSON.stringify(msg));
+    //console.log("websocket received: ", JSON.stringify(msg));
     let modName = msg.mod;
     if (modName) {
         let handlerFunc = wsHandlers.get(modName);

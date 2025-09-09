@@ -26,6 +26,22 @@ import * as settings from "../odin_server/ui_settings.js";
 const MOD_PATH = "odin_cesium::CesiumService";
 const VIEW_PATTERN = util.glob2regexp("{view/**,**/view/**,**/view}");
 
+const metricScaleUnits = [ 1000000, 500000, 100000, 50000, 10000, 5000, 1000, 500, 100, 50, 10 ]; // in meters
+const usMileScaleUnits = [ 1000, 500, 100, 50, 10, 5, 1, 0.25 ];
+const usYardScaleUnits = [ 500, 100, 50, 10 ];
+
+const UI_POSITIONS = "race-ui-positions";
+const LOCAL = "local-";  // prefix for local position set names
+
+const WGS84BoundingSphere = Cesium.BoundingSphere.fromEllipsoid(Cesium.Ellipsoid.WGS84);
+
+const ORTHO_PITCH = -Math.PI/2;
+const TERRAIN_HEIGHT = 100000; // in meters
+
+// mouse query cached positions
+const cp2 = new Cesium.Cartesian2(); // screen
+const cp3 = new Cesium.Cartesian3(); // ecef
+
 ws.addWsHandler( MOD_PATH, handleWsMessages);
 
 // initialize share interface of this module
@@ -35,8 +51,11 @@ main.addSyncHandler( handleSyncMessage);
 
 setCesiumContainerVisibility(false); // don't render before everybody is initialized
 
-const UI_POSITIONS = "race-ui-positions";
-const LOCAL = "local-";  // prefix for local position set names
+// create these before any potentially blocking action so that they appear in order
+createTimeIcon();
+createViewIcon();
+createLayerIcon();
+
 
 class LayerEntry {
     constructor (wid,layerConfig,showAction) {
@@ -78,37 +97,6 @@ class CameraPosition {
 
 export var viewer = undefined; // set after we have terrain
 
-export const viewerReadyPromise = new Promise( (resolve,reject) => {
-    let tid = setInterval(() => {
-        if (viewer) {
-            console.log("Cesium viewer ready.");
-            clearTimeout(tid);
-            resolve(viewer);
-        }
-    }, 500); // check every 500 ms
-});
-
-// set when constructing elements and initialized through websocket message
-var localClock = undefined;  // do we need a promise for it?
-var utcClock = undefined; 
-
-// a promise other modules can latch on to if they need an initialized utc clock
-export const utcClockPromise = new Promise( (resolve,reject) => {
-    let tid = setInterval(() => {
-        if (ui.isClockSet(utcClock)) {
-            console.log("clock running.");
-            clearTimeout(tid);
-            resolve(utcClock);
-        }
-    }, 1000); // check every 1000 ms
-});
-
-export function withCurrentUtcMillis (f) {
-    utcClockPromise.then( (utcClock)=>f( ui.getClockEpochMillis(utcClock)))
-}
-
-//export var viewer = undefined;
-
 var cameraSpec = undefined;
 var lastCamera = undefined; // saved last position & orientation
 
@@ -145,9 +133,46 @@ const centerOrientation = {
     roll: Cesium.Math.toRadians(0.0)
 };
 
+// set when constructing elements and initialized through websocket message
+var localClock = undefined;  // do we need a promise for it?
+var utcClock = undefined; 
+
 if (Cesium.Ion.defaultAccessToken) {
     console.log("using configured Ion access token");
 }
+
+// create and initialize the general UI
+createTimeWindow();
+initViewWindow();
+initLayerWindow();
+settings.initSettingsWindow();
+initMapScale();
+
+export const viewerReadyPromise = new Promise( (resolve,reject) => {
+    let tid = setInterval(() => {
+        if (viewer) {
+            console.log("Cesium viewer ready.");
+            clearTimeout(tid);
+            resolve(viewer);
+        }
+    }, 500); // check every 500 ms
+});
+
+// a promise other modules can latch on to if they need an initialized utc clock
+export const utcClockPromise = new Promise( (resolve,reject) => {
+    let tid = setInterval(() => {
+        if (ui.isClockSet(utcClock)) {
+            console.log("clock running.");
+            clearTimeout(tid);
+            resolve(utcClock);
+        }
+    }, 1000); // check every 1000 ms
+});
+
+export function withCurrentUtcMillis (f) {
+    utcClockPromise.then( (utcClock)=>f( ui.getClockEpochMillis(utcClock)))
+}
+
 
 export var hasImagery = false; // set by imagery module
 
@@ -175,12 +200,6 @@ viewer = new Cesium.Viewer('cesiumContainer', {
 
 let dataSource = new Cesium.CustomDataSource("positions");
 addDataSource(dataSource);
-
-initTimeWindow();
-initViewWindow();
-initLayerWindow();
-settings.initSettingsWindow();
-initMapScale();
 
 // position fields
 let cameraLat = ui.getField("view.camera.latitude");
@@ -247,9 +266,6 @@ function showContext() {
 }
 
 //--- terrain handling
-
-const ORTHO_PITCH = -Math.PI/2;
-const TERRAIN_HEIGHT = 100000; // in meters
 
 export function isOrthoView () {
     let pitch = viewer.camera.pitch;
@@ -345,7 +361,6 @@ function checkImagery() {
 }
 
 function initViewWindow() {
-    createViewIcon();
     createViewWindow();
     positionsView = initPositionsView();
 }
@@ -382,7 +397,7 @@ function createViewWindow() {
             ui.TextInput("", "view.camera.altitude", "5.5rem", {changeAction: setViewFromFields, isFixed: true}),
             ui.HorizontalSpacer(0.4)
           ),
-          ui.TreeList("view.positions", 10, "30rem", setCameraFromSelection, setCameraName),
+          (positionsView = ui.TreeList("view.positions", 10, "30rem", setCameraFromSelection, setCameraName)),
           ui.RowContainer()(
             ui.TextInput("name", "view.camera.name", "15rem", {isFixed: true, placeHolder: 'enter path of new view'}),
             ui.Button("pick", pickViewPoint),
@@ -418,10 +433,6 @@ function createViewIcon() {
 
 /* #region time window ****************************************************************/
 
-function initTimeWindow() {
-    createTimeIcon();
-    createTimeWindow();
-}
 
 function createTimeWindow() {
     let view = ui.Window("clock", "time", "./asset/odin_cesium/time.svg")(
@@ -444,7 +455,6 @@ function createTimeIcon() {
 /* #region layer window ***************************************************************/
 
 function initLayerWindow() {
-    createLayerIcon();
     createLayerWindow();
     layerOrderView = initLayerOrderView();
     layerHierarchyView = initLayerHierarchyView();
@@ -999,7 +1009,6 @@ function updateCamera() {
 
 /* #region map scale ************************************************************/
 
-const WGS84BoundingSphere = Cesium.BoundingSphere.fromEllipsoid(Cesium.Ellipsoid.WGS84);
 
 function initMapScale() {
     mapScale = ui.MoveableCanvas(["ui_mapscale"], {right: 50, bottom: 10});
@@ -1054,8 +1063,6 @@ function withMetersPerPixel (f) {
     f( dPixel)
 }
 
-const metricScaleUnits = [ 1000000, 500000, 100000, 50000, 10000, 5000, 1000, 500, 100, 50, 10 ]; // in meters
-
 function getMetricScale (dPixel) { 
     let unit, nUnits, unitPx, label, tickBase;
     let maxWidth = config.scale.width;
@@ -1081,9 +1088,6 @@ function getMetricScale (dPixel) {
     
     return { unit, nUnits, unitPx, tickBase, label }
 }
-
-const usMileScaleUnits = [ 1000, 500, 100, 50, 10, 5, 1, 0.25 ];
-const usYardScaleUnits = [ 500, 100, 50, 10 ];
 
 function getUsScale (dPixel) {
     let unit, nUnits, unitPx, label, tickBase;
@@ -1293,10 +1297,6 @@ function globalMouseClickHandler (event) {
     }
 }
 
-// mouse query cached positions
-const cp2 = new Cesium.Cartesian2(); // screen
-const cp3 = new Cesium.Cartesian3(); // ecef
-
 export function getCartographicMousePosition(e, result=null) {
     cp2.x = e.clientX;
     cp2.y = e.clientY;
@@ -1463,17 +1463,19 @@ export function setDownView() {
     const center = new Cesium.Cartesian2(canvas.clientWidth / 2.0, canvas.clientHeight / 2.0);
     const ellipsoid = viewer.scene.globe.ellipsoid;
     let wc = viewer.camera.pickEllipsoid(center,ellipsoid);
-    let pos = Cesium.Cartographic.fromCartesian(wc);
+    if (wc) { // we might look at a shallow angle and there is no ellipsoid pick point
+        let pos = Cesium.Cartographic.fromCartesian(wc);
 
-    //let pos = viewer.camera.positionCartographic;
-    if (pos.height < minCameraHeight) pos = new Cesium.Cartographic(pos.longitude,pos.latitude,minCameraHeight);
+        //let pos = viewer.camera.positionCartographic;
+        if (pos.height < minCameraHeight) pos = new Cesium.Cartographic(pos.longitude,pos.latitude,minCameraHeight);
 
-    viewer.trackedEntity = undefined;
+        viewer.trackedEntity = undefined;
 
-    viewer.camera.flyTo({
-        destination: Cesium.Cartographic.toCartesian(pos),
-        orientation: centerOrientation
-    });
+        viewer.camera.flyTo({
+            destination: Cesium.Cartographic.toCartesian(pos),
+            orientation: centerOrientation
+        });
+    }
 }
 
 export function restoreCamera() {

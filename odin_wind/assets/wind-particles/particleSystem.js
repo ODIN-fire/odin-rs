@@ -41,6 +41,7 @@ export class ParticleSystem {
             this.particlesComputing.windTextures[key].destroy();
         });
 
+
         Object.keys(this.particlesRendering.framebuffers).forEach((key) => {
             this.particlesRendering.framebuffers[key].destroy();
         });
@@ -90,9 +91,13 @@ export class ParticleSystem {
     applyUserInput(userInput) {
         this.userInput = {...userInput};
 
+            this.forEachPrimitive( p=> p.show = false);
+
         this.particlesComputing.updateUserInputUniforms(userInput);
         this.particlesRendering.updateUserInputUniforms(userInput);
         this.refreshParticles();
+
+            this.forEachPrimitive( p=> p.show = true);
     }
 
     applyViewerParameters(viewerParameters) {

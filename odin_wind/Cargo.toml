@@ -7,7 +7,7 @@ edition = "2024"
 [dependencies]
 lazy_static = { workspace = true }
 tokio = { workspace = true }
-warp = "0.3"
+tokio-tungstenite = { workspace = true }
 reqwest = { workspace = true , features = ["json","blocking"] }
 bytes = { workspace = true }
 structopt = { workspace = true }
@@ -20,6 +20,8 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
+http = { workspace = true }
+futures-util = { workspace = true }
 
 odin_common = { workspace = true }
 odin_hrrr = { workspace = true }
@@ -32,6 +34,10 @@ odin_cesium = { workspace = true }
 odin_share = { workspace = true }
 odin_gdal = { workspace = true }
 
+tracing-subscriber = "0.3.19"
+
 [features]
+trace_server = []
+
 ## inline crate-specific resources (configs and assets) into the executable (see odin_build)
 embedded_resources = []

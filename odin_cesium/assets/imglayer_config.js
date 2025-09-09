@@ -58,6 +58,7 @@ export const config = {
             exclusive:['globe'],
             render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         },
+
         //{ 
         //    pathName: 'weather/amsr2',
         //    info: 'NASA AMSR2 snow water equivalent',
@@ -101,7 +102,7 @@ export const config = {
         //{  // not everybody has the VERM data
         //    pathName: "fuel/VERM",
         //    info: "Vegetation Ember Relative Mass index 2023",
-        //    provider: await Cesium.TileMapServiceImageryProvider.fromUrl( "./tms/verm"),
+        //    provider: Cesium.TileMapServiceImageryProvider.fromUrl( "./tms/verm"),
         //    exclusive: ["fuel"],
         //    render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         //},

@@ -175,9 +175,9 @@ pub fn load_config_path<C,P> (path: P) -> Result<C> where C: for <'a> serde::Des
 // the global ODIN dirs of the application, which are invariant after init
 // we don't have a global CONFIG_DIR or ASSET_DIR since respective resources can reside in a number of locations
 // (including in-memory).
-pub static ROOT_DIR: OnceLock<PathBuf> = OnceLock::new();
-pub static CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
-pub static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+static ROOT_DIR: OnceLock<PathBuf> = OnceLock::new();
+static CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
+static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 
 /// the global root dir: `ODIN_ROOT`

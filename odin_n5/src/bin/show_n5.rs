@@ -14,15 +14,12 @@
 
 #![allow(unused)]
 
-use std::sync::Arc;
-use odin_common::json_writer::{JsonWritable,JsonWriter};
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_n5::{
     actor::N5Actor, get_json_update_msg, get_n5_devices, live_connector::LiveN5Connector, 
     load_config, Device, N5Config, N5DataUpdate, N5DeviceStore, n5_service::N5Service,
 };
-use anyhow::Result;
 
 run_actor_system!( actor_system => {
     let pre_n5 = PreActorHandle::new( &actor_system, "n5", 8);
@@ -56,8 +53,6 @@ run_actor_system!( actor_system => {
             )
         )
     )?;
-
-
 
     Ok(())
 });
