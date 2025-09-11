@@ -56,7 +56,6 @@ createTimeIcon();
 createViewIcon();
 createLayerIcon();
 
-
 class LayerEntry {
     constructor (wid,layerConfig,showAction) {
         this.id = layerConfig.name;    // (unique) full path: /cat/.../name
@@ -137,27 +136,6 @@ const centerOrientation = {
 var localClock = undefined;  // do we need a promise for it?
 var utcClock = undefined; 
 
-if (Cesium.Ion.defaultAccessToken) {
-    console.log("using configured Ion access token");
-}
-
-// create and initialize the general UI
-createTimeWindow();
-initViewWindow();
-initLayerWindow();
-settings.initSettingsWindow();
-initMapScale();
-
-export const viewerReadyPromise = new Promise( (resolve,reject) => {
-    let tid = setInterval(() => {
-        if (viewer) {
-            console.log("Cesium viewer ready.");
-            clearTimeout(tid);
-            resolve(viewer);
-        }
-    }, 500); // check every 500 ms
-});
-
 // a promise other modules can latch on to if they need an initialized utc clock
 export const utcClockPromise = new Promise( (resolve,reject) => {
     let tid = setInterval(() => {
@@ -173,35 +151,20 @@ export function withCurrentUtcMillis (f) {
     utcClockPromise.then( (utcClock)=>f( ui.getClockEpochMillis(utcClock)))
 }
 
+if (Cesium.Ion.defaultAccessToken) {
+    console.log("using configured Ion access token");
+}
 
-export var hasImagery = false; // set by imagery module
+Cesium.GeoJsonDataSource.clampToGround = true; // should this be configured?
 
-export const ellipsoidTerrainProvider = new Cesium.EllipsoidTerrainProvider();
-export const topoTerrainProvider = await (config.terrainProviderPromise ? config.terrainProviderPromise : Cesium.createWorldTerrainAsync());
-console.log("terrain provider loaded.");
-var terrainProvider = config.showTerrain ? topoTerrainProvider : ellipsoidTerrainProvider;  // just the initialization - might be changed to topoTerrainProvider later
+// create and initialize the general UI
+createTimeWindow();
+initViewWindow();
+initLayerWindow();
+settings.initSettingsWindow();
+initMapScale();
 
-var osmBuildings = undefined; // OSM buildings 3D tileset loaded on demand
-
-// NOTE - this has to be instantiated *before* we await anything as it is a global object that might be used by other modules
-viewer = new Cesium.Viewer('cesiumContainer', {
-    terrainProvider: terrainProvider,
-    skyBox: false,
-    infoBox: false,
-    baseLayerPicker: false,  // if true primitives don't work anymore ?? 
-    baseLayer: false,        // set during imageryService init
-    sceneModePicker: true,
-    navigationHelpButton: false,
-    homeButton: false,
-    timeline: false,
-    animation: false,
-    requestRenderMode: requestRenderMode,
-});
-
-let dataSource = new Cesium.CustomDataSource("positions");
-addDataSource(dataSource);
-
-// position fields
+// pointer / camera position fields
 let cameraLat = ui.getField("view.camera.latitude");
 let cameraLon = ui.getField("view.camera.longitude");
 let cameraAlt = ui.getField("view.camera.altitude");
@@ -213,44 +176,87 @@ let pointerUtmE = ui.getField("view.pointer.utmE");
 let pointerUtmZ = ui.getField("view.pointer.utmZ");
 let cameraName = ui.getField("view.camera.name");
 
-setTargetFrameRate(config.targetFrameRate);
-initFrameRateSlider();
-
+setInitialViewPositions();
 if (requestRenderMode) ui.setCheckBox("view.rm", true);
 
-setCanvasSize();
+export var hasImagery = false; // set by imagery module
+var osmBuildings = undefined; // OSM buildings 3D tileset loaded on demand
+
+var ellipsoidTerrainProvider = new Cesium.EllipsoidTerrainProvider();
+var topoTerrainProvider = undefined;
+var terrainProvider = ellipsoidTerrainProvider;
+
+// use this promise in dependent JS modules that require the viewer to be instantiated. 
+// Normal use is to do a toplevel await on viewerReadyPromise
+export const viewerReadyPromise = new Promise( async (resolve,reject) => {
+
+    // WATCH OUT - on Safari awaiting Cesium.createWorldTerrainAsync() fails because of CORS rejection when connected to 
+    // (at least the NASA) VPN. This is not ODIN specific and also hangs https://sandcastle.cesium.com/?src=Clamp%20Entities%20to%20Ground.html&label=Terrain
+    // ultimately we want to fix this - and reduce client-side network traffic - by providing our own Cesium TerrainProvider (possibly from odin_dem)
+    if (config.fakeTerrain) {
+        console.log("faking terrain provider on Safari");
+        topoTerrainProvider = ellipsoidTerrainProvider; // we fake it - this is to avoid the Safari hang
+    } else {
+        topoTerrainProvider = await (config.terrainProviderPromise ? config.terrainProviderPromise : Cesium.createWorldTerrainAsync());
+        console.log("terrain provider loaded");
+    }
+    terrainProvider = config.showTerrain ? topoTerrainProvider : ellipsoidTerrainProvider;  // just the initialization - might be changed to topoTerrainProvider later
+
+    viewer = new Cesium.Viewer('cesiumContainer', {
+        terrainProvider: terrainProvider,
+        skyBox: false,
+        infoBox: false,
+        baseLayerPicker: false,  // if true primitives don't work anymore ?? 
+        baseLayer: false,        // set during imageryService init
+        sceneModePicker: true,
+        navigationHelpButton: false,
+        homeButton: false,
+        timeline: false,
+        animation: false,
+        requestRenderMode: requestRenderMode,
+    });
+
+    viewer.resolutionScale = window.devicePixelRatio; // 2.0
+    viewer.scene.fxaa = true;
+    //viewer.scene.globe.depthTestAgainstTerrain=true;
+
+    // event listeners
+    viewer.camera.moveEnd.addEventListener(updateCamera);
+
+    registerMouseMoveHandler(updateMouseLocation);
+    viewer.scene.canvas.addEventListener('mousemove', handleMouseMove);
+    viewer.scene.canvas.addEventListener('mousedown', handleMouseDown);
+    viewer.scene.canvas.addEventListener('mouseup', handleMouseUp);
+    viewer.scene.canvas.addEventListener('click', handleMouseClick);
+    viewer.scene.canvas.addEventListener('dblclick', handleMouseDblClick);
+
+    // FIXME - this seems to be broken as of Cesium 105.1
+    //viewer.scene.postRender.addEventListener(function() {
+    viewer.scene.preRender.addEventListener(function() {
+        pendingRenderRequest = false;
+    });
+
+    let dataSource = new Cesium.CustomDataSource("positions");
+    addDataSource(dataSource);
+
+    setTargetFrameRate(config.targetFrameRate);
+    initFrameRateSlider();
+
+    setCanvasSize();
+    setInitialView();
+
+    console.log("odin_cesium viewer initialized");
+    resolve(viewer);
+});
+main.addPostInitPromise(viewerReadyPromise); // make sure we don't postInitialize before this is resolved
+
 window.addEventListener('resize', setCanvasSize);
 
-viewer.resolutionScale = window.devicePixelRatio; // 2.0
-viewer.scene.fxaa = true;
-//viewer.scene.globe.depthTestAgainstTerrain=true;
-
 //showContext(); // for debugging purposes
-
-Cesium.GeoJsonDataSource.clampToGround = true; // should this be configured?
-
-// event listeners
-viewer.camera.moveEnd.addEventListener(updateCamera);
-
-registerMouseMoveHandler(updateMouseLocation);
-viewer.scene.canvas.addEventListener('mousemove', handleMouseMove);
-viewer.scene.canvas.addEventListener('mousedown', handleMouseDown);
-viewer.scene.canvas.addEventListener('mouseup', handleMouseUp);
-viewer.scene.canvas.addEventListener('click', handleMouseClick);
-viewer.scene.canvas.addEventListener('dblclick', handleMouseDblClick);
 
 document.addEventListener('keydown', handleKeyDown); // does not work on canvas
 registerKeyDownHandler( globalKeyDownHandler); // global hotkeys
 registerMouseClickHandler( globalMouseClickHandler); // global click
-
-// FIXME - this seems to be broken as of Cesium 105.1
-//viewer.scene.postRender.addEventListener(function() {
-viewer.scene.preRender.addEventListener(function() {
-    pendingRenderRequest = false;
-});
-
-setInitialViewPositions();
-setInitialView();
 
 console.log("ui_cesium initialized");
 
@@ -796,16 +802,18 @@ export function requestRender(force = false) {
     // TODO - this "double-tap" is a (not fully dependable) workaround for a race-condition in Cesium that might not have a fully 
     // updated scene when rendering, which can lead to missed updates 
 
-    viewer.scene.requestRender();
-    setTimeout( ()=>viewer.scene.requestRender(), 200);
-    /*
-    if (force || (requestRenderMode && !pendingRenderRequest)) {
-        pendingRenderRequest = true;
-        //viewer.scene.render();
+    if (viewer) { // might be called from other modules before viewer is initialized. No need to sync in this case
         viewer.scene.requestRender();
-        // TODO - this does not dependably trigger a redraw as of Cesium 1.126 (requires screen interaction - like moving mouse over canvas)
+        setTimeout( ()=>viewer.scene.requestRender(), 200);
+        /*
+        if (force || (requestRenderMode && !pendingRenderRequest)) {
+            pendingRenderRequest = true;
+            //viewer.scene.render();
+            viewer.scene.requestRender();
+            // TODO - this does not dependably trigger a redraw as of Cesium 1.126 (requires screen interaction - like moving mouse over canvas)
+        }
+        */
     }
-    */
 }
 
 // imperative rendering
@@ -861,13 +869,17 @@ function setCanvasSize() {
 }
 
 export function setDoubleClickHandler (action) {
-    let selHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-    selHandler.setInputAction(action, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+    viewerReadyPromise.then( (viewer) => {
+        let selHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+        selHandler.setInputAction(action, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+    });
 }
 
 export function setEntitySelectionHandler(onSelect) {
-    let selHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-    selHandler.setInputAction(onSelect, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    viewerReadyPromise.then( (viewer) => {
+        let selHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+        selHandler.setInputAction(onSelect, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    });
 }
 
 export function createDataSource (name, show) {
@@ -878,7 +890,7 @@ export function createDataSource (name, show) {
 }
 
 export function addDataSource(dataSrc) {
-    viewer.dataSources.add(dataSrc);
+    viewerReadyPromise.then( (viewer) => viewer.dataSources.add(dataSrc));
 }
 
 export function removeDataSource(dataSrc) {
@@ -1342,9 +1354,11 @@ function updateMouseLocation(e) {
             ui.setField(pointerLon, longitudeString);
     
             let a = [pos];
-            Cesium.sampleTerrainMostDetailed(topoTerrainProvider, a).then( (a) => {
-                ui.setField(pointerElev, Math.round(a[0].height));
-            });
+            if (!Object.is(topoTerrainProvider, ellipsoidTerrainProvider)) { // might be faked (Safari CORS workaround HACK)
+                Cesium.sampleTerrainMostDetailed(topoTerrainProvider, a).then( (a) => {
+                    ui.setField(pointerElev, Math.round(a[0].height));
+                });
+            }
 
             let utm = util.latLon2Utm(latDeg, lonDeg);
             ui.setField(pointerUtmN, utm.northing);

@@ -50,6 +50,17 @@ export function addWsHandler(modName,newHandler) {
     wsHandlers.set( modName, newHandler);
 }
 
+// execute after all js modules have initialized to make sure handlers have been set
+// this is crucial for modules that get initialization data through the ws - as soon as we are connected this is sent by the server
+export function postInitialize() {
+    //setTimeout( () => {
+        connect();
+        // reconnect if the websocket was closed due to a suspend or inactivity
+        document.addEventListener('visibilitychange', checkReconnect);
+        console.log("ws postInitialize complete");
+    //}, 1000);
+}
+
 //--- these can all be used to assess connectivity status
 export function isConnected () { return (ws != undefined); }
 
@@ -190,14 +201,4 @@ function checkReconnect () {
         console.log("reconnecting WebSocket..");
         connect();
     }
-}
-
-
-// execute after all js modules have initialized to make sure handlers have been set
-// this is crucial for modules that get initialization data through the ws - as soon as we are connected this is sent by the server
-export function postInitialize() {
-    connect();
-
-    // reconnect if the websocket was closed due to a suspend or inactivity
-    document.addEventListener('visibilitychange', checkReconnect);
 }

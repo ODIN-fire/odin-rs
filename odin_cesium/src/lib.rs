@@ -31,7 +31,7 @@ use odin_server::prelude::*;
 define_load_config!{}
 define_load_asset!{}
 
-pub const CESIUM_VERSION: &'static str = "1.132";
+pub const CESIUM_VERSION: &'static str = "1.133";
 
 /* #region CesiumService *************************************************************************************/
 
@@ -82,7 +82,7 @@ impl SpaService for CesiumService {
             spa.add_css( format!("https://cesium.com/downloads/cesiumjs/releases/{CESIUM_VERSION}/Build/Cesium/Widgets/widgets.css"));
         }
 
-        // unfortunately CesiumWorldTerrain cannot be proxies as it uses a protocol with its own authentication headers and OPTIONS queries
+        // unfortunately CesiumWorldTerrain cannot be proxied as it uses a protocol with its own authentication headers and OPTIONS queries
 
         spa.add_css( asset_uri!("odin_cesium.css"));
 

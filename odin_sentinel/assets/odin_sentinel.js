@@ -25,7 +25,6 @@ const MOD_PATH = "odin_sentinel::sentinel_service::SentinelService";
 ws.addWsHandler( MOD_PATH, handleWsMessages);
 
 var sentinelInactiveMillis = (config.inactiveMinutes ? config.inactiveMinutes : 15) * 60000;
-var sentinelDataSource = odinCesium.createDataSource("sentinel", config.layer.show);
 var sentinelView = undefined;
 var sentinelEntries = new Map();
 var sentinelInfos = new Map();
@@ -199,6 +198,9 @@ class SentinelEntry {
 createIcon();
 createWindow();
 sentinelView = initSentinelView();
+
+await odinCesium.viewerReadyPromise;
+var sentinelDataSource = odinCesium.createDataSource("sentinel", config.layer.show);
 
 sentinelImageView = initSentinelImagesView();
 sentinelAccelView = initSentinelAccelView();

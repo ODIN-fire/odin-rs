@@ -26,8 +26,6 @@ import * as odinCesium from "../odin_cesium/odin_cesium.js";
 
 const MODULE_PATH ="odin_adsb::adsb_service::AdsbService";
 
-ws.addWsHandler( MODULE_PATH, handleWsMessages);
-
 /* #region types *******************************************************************************************/
 
 const NO_PATH = "";
@@ -266,11 +264,14 @@ var trackEntryFilter = noTrackEntryFilter;
 
 createIcon();
 createWindow();
+
+await odinCesium.viewerReadyPromise;
+
 var trackSourceView = initTrackSourceView();
 var trackEntryView = initTrackEntryView();
 
 odinCesium.setEntitySelectionHandler(trackSelection);
-ws.addWsHandler(handleWsMessages);
+ws.addWsHandler( MODULE_PATH, handleWsMessages);
 
 odinCesium.initLayerPanel("adsb", config, showAdsb);
 console.log("odin_adsb initialized");

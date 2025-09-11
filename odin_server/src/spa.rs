@@ -951,12 +951,15 @@ impl SpaComponents {
             write!( buf, "\n];\n");
 
             let n = mod_names.len();
-            write!( buf, "Promise.all(modulePromises).then(([");
+            write!( buf, "Promise.all(modulePromises).then( async ([");
             for i in 0..n {
                 if i>0 { write!( buf, ","); }
                 write!( buf, "{}", mod_names[i]);
             }
             write!( buf, "])=>{{\n");
+
+            write!( buf, "main.resolvePostInitPromises();\n");
+
             write!( buf, "console.log('post-initializing', modulePromises.length, 'modules...');\n");
 
             //for mod_name in &mod_names { write!( buf, "console.log('@@ mod ',{mod_name});\n"); }

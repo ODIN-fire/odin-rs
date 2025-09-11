@@ -192,7 +192,6 @@ function getLabel (id) {
 
 /* #region initialization ******************************************************************************/
 
-var cameraDataSource = odinCesium.createDataSource("alertCA", config.layer.show);
 var cameraEntries = new Map(); // id->Camera
 
 var cameraView = undefined;
@@ -203,6 +202,10 @@ var alertView = undefined;
 
 createIcon();
 createWindow();
+
+await odinCesium.viewerReadyPromise;
+var cameraDataSource = odinCesium.createDataSource("alertCA", config.layer.show);
+
 initCameraView();
 initDataView();
 initAlertsView();

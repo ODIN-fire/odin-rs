@@ -223,7 +223,6 @@ class N5Entry {
 
 /* #endregion data types */
 
-var n5DataSource = odinCesium.createDataSource("n5", config.layer.show);
 var deviceEntries = new Map();  // id -> device
 
 var deviceView = undefined;
@@ -233,7 +232,11 @@ var dataView = undefined;
 var alertView = undefined;
 
 createIcon();
-createWindow();                                           
+createWindow();                        
+
+await odinCesium.viewerReadyPromise;
+var n5DataSource = odinCesium.createDataSource("n5", config.layer.show);
+
 initDeviceView();
 initDataView();                                           
 initAlertsView();

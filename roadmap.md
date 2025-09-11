@@ -3,8 +3,9 @@
 This file contains a list of tentatively planned future `odin-rs` components and work items. The order might
 change.
 
-workaround for Safari JS module initialization problem (for dependencies on async modules - which is mostly 
-odin_cesium.js). As of Safari 18.6.1 
+Create own or proxied Cesium Terrain server. Apart from reducing client network traffic this is also workaround
+for Safari JS module initialization problems due to hanging odin_cesium.js init (async Ion terrain not loading 
+because of CORS when running in (NASA) VPN).
 
 ODIN server side fire detection from images (e.g. in combination with odin_alertca and odin_sentinel). This
 is mainly intended to reduce the number of false positives from field based sensors and ultimately should

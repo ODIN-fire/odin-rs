@@ -48,6 +48,18 @@ export function withMainObj (objName, f) {
     }
 }
 
+// postInitPromises are essential promises that should be resolved before we start postInitialization of modules
+export var postInitPromises = [];
+export function addPostInitPromise (promise) {
+    postInitPromises.push( promise);
+}
+
+export async function resolvePostInitPromises() {
+    console.log("resolving", postInitPromises.length, "post init promises");
+    await Promise.all( postInitPromises);
+    console.log("post init promises resolved.");
+}
+
 /// post module init hook
 export function postInitialize() {
     if (Object.is(defaultShare, main.share)) {
