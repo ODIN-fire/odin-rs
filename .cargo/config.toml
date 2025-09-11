@@ -1,6 +1,7 @@
 
 [build]
 
+# tokio_unstable is unfortunately still required for tracing and task names (actors are tasks in ODIN)
 rustflags = ["--cfg", "tokio_unstable", "-Ctarget-cpu=native", "-g", "-D", "warnings"]
 
 rustdocflags = ["-D", "warnings"]

@@ -21,7 +21,7 @@ thiserror = { workspace = true }
 axum = { workspace = true }
 trait-set = { workspace = true }
 
-globset = "0.4.15"
+globset = { workspace = true }
 regex = {workspace = true }
 anyhow = { workspace = true }
 bytes = { workspace = true }

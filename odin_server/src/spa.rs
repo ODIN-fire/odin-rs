@@ -318,7 +318,7 @@ impl SpaServer {
 
     fn create_cached_client (&self)->ClientWithMiddleware {
         let mode = CacheMode::Default;
-        let manager = CACacheManager { path: odin_build::cache_dir().join("proxies") };
+        let manager = CACacheManager::new( odin_build::cache_dir().join("proxies"), true);
         let options = HttpCacheOptions::default();
         
         ClientBuilder::new(Client::new())

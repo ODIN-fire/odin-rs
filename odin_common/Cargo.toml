@@ -25,7 +25,7 @@ thiserror = { workspace = true }
 parse_duration = "2.1.1"
 reqwest = { workspace = true, features = ["blocking"] }
 lazy_static = { workspace = true }
-ctrlc = { version = "*", features = ["termination"] }
+ctrlc = { version = "3.5.0", features = ["termination"] }
 futures-util = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
@@ -35,7 +35,7 @@ gethostname = "1.0.2"
 regex = { workspace = true }
 num-format = "0.4.4"
 anyhow = { workspace = true }
-globset = "0.4.15"
+globset = { workspace = true }
 nav-types = "0.5.2"
 trait-set = { workspace = true }
 hashbrown = { workspace = true }
@@ -43,11 +43,11 @@ flate2 = { workspace = true }
 memchr = { workspace = true }
 kanal = {workspace = true }
 
-aws-config = { version = "1.6.3", features = ["behavior-version-latest"], optional = true }
-aws-sdk-s3 = { version = "1.86.0", features = ["rt-tokio"], optional = true }
-aws-smithy-types = { version = "1.3.1", features = ["serde-serialize"], optional = true }
+aws-config = { version = "1.8.6", features = ["behavior-version-latest"], optional = true }
+aws-sdk-s3 = { version = "1.105.0", features = ["rt-tokio"], optional = true }
+aws-smithy-types = { version = "1.3.2", features = ["serde-serialize"], optional = true }
 aws-smithy-types-convert = { version = "0.60.9", features = ["convert-chrono"], optional = true }
-aws-smithy-runtime-api = { version = "1.8.0", optional = true }
+aws-smithy-runtime-api = { version = "1.9.0", optional = true }
 
 dhat = { version = "0.3.3", optional = true }
 

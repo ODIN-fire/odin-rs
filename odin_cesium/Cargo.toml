@@ -26,7 +26,7 @@ structopt = { workspace = true }
 lazy_static = { workspace = true }
 reqwest = { workspace = true }
 http = { workspace = true }
-zip = "3.0.0"
+zip = { workspace = true }
 
 [build-dependencies]
 odin_build = { workspace = true }

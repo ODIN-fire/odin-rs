@@ -32,7 +32,7 @@
 //! # }
 //!```
 
-use tokio::{self, select, spawn, task::{Builder,JoinHandle}, time::{sleep, Sleep}};
+use tokio::{self, select, spawn, task::{Builder,JoinHandle}, time::{sleep, Sleep}}; // note that task::Builder requires the tokio_unstable cfg
 use kanal::{unbounded_async,AsyncReceiver,AsyncSender};
 use std::{cmp::max, collections::VecDeque, fmt::Debug, sync::{atomic::{AtomicBool, AtomicU64, Ordering}, Arc, Mutex}, time::{Duration,SystemTime}};
 use chrono::{DateTime, TimeZone};

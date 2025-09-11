@@ -34,7 +34,7 @@ odin_cesium = { workspace = true }
 odin_share = { workspace = true }
 odin_gdal = { workspace = true }
 
-tracing-subscriber = "0.3.19"
+tracing-subscriber = { workspace = true }
 
 [features]
 trace_server = []

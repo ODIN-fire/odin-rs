@@ -12,3 +12,17 @@ rejections by the browser and hence can lead to a blocked JS module initializati
 
 #### Planned Action:
 create own Cesium terrain provider in ODIN
+
+
+### linker cannot be replaced on macOS
+
+using `lld` on macOS by creating a `~/.cargo/config.toml`:
+
+```toml
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+```
+
+fails to link tokio_unstable (which is unfortunately still required for tracing and giving tasks names)
+This means on macOS the standard Xcode (default) linker has to be used
+(mold does not support the Apple -dynamic option)

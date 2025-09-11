@@ -25,7 +25,7 @@ odin_n5 = { workspace = true }
 odin_alertca = { workspace = true }
 
 tokio = { workspace = true }
-anyhow = "*"
+anyhow = { workspace = true }
 
 [build-dependencies]
 odin_build = { workspace = true }
