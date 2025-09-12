@@ -14,10 +14,10 @@
 #![allow(unused)]
 
 use tokio::main;
-use odin_common::geo::GeoRect;
+use odin_common::{geo::GeoRect, net::ZERO_ADDR};
 use odin_actor::prelude::*;
 use odin_hrrr::{self,HrrrActor,HrrrConfig,HrrrFileAvailable,schedule::{HrrrSchedules,get_hrrr_schedules}};
-use odin_wind::{actor::{SubscribeResponse,WindActor, WindActorMsg}, errors::Result, Forecast, ForecastStore};
+use odin_wind::{AddWindClient,SubscribeResponse,WindRegion,actor::{WindActor, WindActorMsg}, errors::Result, Forecast, ForecastStore};
 
 run_actor_system!( actor_system => {
     let pre_hrrr = PreActorHandle::new( &actor_system, "hrrr", 8);
@@ -43,7 +43,8 @@ run_actor_system!( actor_system => {
     ).await? )?;
 
     // test driver - this will kick off computation
-    hwind.try_send_msg( AddWindClient::new("region/ca/BigSur",GeoRect::from_wsen_degrees( -122.043, 35.99, -121.231, 36.594), None))?;
+    let wn_region = WindRegion::new( "region/ca/BigSur", GeoRect::from_wsen_degrees( -122.043, 35.99, -121.231, 36.594));
+    hwind.try_send_msg( AddWindClient {wn_region, remote_addr: ZERO_ADDR})?;
 
     Ok(())
 });

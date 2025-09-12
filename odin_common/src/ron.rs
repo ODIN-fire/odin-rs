@@ -66,7 +66,7 @@ pub fn is_maybe_type<'a,T> (s: &str)->bool where T: Deserialize<'a> {
 }
 
 /// try to instantiate a type T from given input str
-/// Does not enter the expensive parsing unless the input satisfies is_maybe_type<T>
+/// Does not enter the expensive parsing unless the input satisfies `is_maybe_type(s)`
 /// Note this does not return a Result as there could actually be different types with the same base_name (RON does not serialize type paths)
 pub fn from_typed_compact_ron <'a,T> (s: &'a str)-> Option<T> where T: Deserialize<'a> {
     if is_maybe_type::<T>(s) {

@@ -76,6 +76,12 @@ pub struct WindRegion {
     pub bbox: GeoRect,
 }
 
+impl WindRegion {
+    pub fn new (name: impl ToString, bbox: GeoRect)->Self {
+        WindRegion { name: name.to_string(), bbox }
+    }
+}
+
 #[derive(Debug,Serialize,Deserialize)]
 pub struct AddWindClient {
     pub wn_region: WindRegion,
