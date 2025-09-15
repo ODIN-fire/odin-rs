@@ -153,7 +153,7 @@ respective `HrrrFileAvailable` input messages are the main `WindActor` triggers.
 
 Since running WindNinja can be computationally intensive it should only be executed for regions that are explicitly
 requested by clients, which should also make sure that different clients use the same region coordinates for the same
-incidents (e.g. by means of ['odin_share`](../odin_share/odin_share.md) defined regions). This is especially important
+incidents (e.g. by means of [`odin_share`](../odin_share/odin_share.md) defined regions). This is especially important
 since we have to run WindNinja for each new HRRR forecast data set (up to 18/48 per hour - see
 [`odin_hrrr`](../odin_hrrr/odin_hrrr.md)). 
 
@@ -233,7 +233,7 @@ are served through `WindService` routes from the `odin_wind/assets/wind-particle
 `odin_wind` has one configuration file for the `WindActor` that can normally reside inside the repository as it does not contain
 authorization data:
 
-```ron
+```rust,ignore
 WindConfig(
     max_age: Duration( secs: 3600, nanos: 0), // 1h - how long to keep cached data files
     max_forecasts: 9, // max number of forecasts to keep for each region (in ringbuffer)
@@ -313,7 +313,7 @@ Since the `WindActor` to `SpaServer` interaction is fairly uniform (as described
 
 ## WindServer
 
-Apart from that WindNinja requires potentially large input data (DEM source and repeated HRRR weather reports) it
+Apart from that WindNinja requires potentially large input data sets (DEM source and repeated HRRR weather reports) it
 can also run in high fidelity mode (conservation of mass and momentum) which might overwhelm both available
 network bandwidth and computational resources (memory, speed) of user servers. Moreover, the produced forecast
 data files (wind fields) are relatively small (compressed CSV). As a consequence this is a prime example of
@@ -352,8 +352,8 @@ We basically split a local `WindActor` into a `WindServerClient` / `WindServer` 
 ```
 
 The edge server uses a `WindServer` actor instead of the (user server)`SpaServer`/`WindService` combo to
-drive the `WindActor`. This allows the main computational chain to be reusable as-is (``WindActor`, `DemSource`, 
-`HrrrActor`, `SpaServer`, `WindService` and associated `odin_wind.js` JS module can all be reused without modifications).
+drive the `WindActor`. This allows the main computational chain to be reusable as-is. `WindActor`, `DemSource`, 
+`HrrrActor`, `SpaServer`, `WindService` and associated `odin_wind.js` JS module can all be reused without modifications.
 
 Remotely computed data from the edge server is cached by the `WindServerClient` on the local user server, which
 means we only have to reach out to the edge server for new data.
@@ -362,8 +362,8 @@ This is a good example of how ODIN actors can help to make distributed computati
 
 The main caveat is that the data structures that are used in both `WindServerClient` and `WindServer` (notably
 `ForecastStore` and `Forecast`) should *not* contain transient information that is only required during the actual
-computation by `WindServer` (e.g. `WnJob` or `HrrrDataSetRequest`). Care must be taken to separate the data model
-into the shared and the `WindServer` private part.
+computation by `WindActor` (e.g. `WnJob` or `HrrrDataSetRequest`). Care must be taken to separate the data model
+into the shared and the `WindActor` private part.
 
 We also have to be aware that (repeated) wind field computation is a subscription service, i.e. we have to keep track of
 external clients and provide push capabilities to these clients through websockets. In the user server (`SpaServer`)
