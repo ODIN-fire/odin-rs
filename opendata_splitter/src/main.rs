@@ -13,8 +13,6 @@
  */
 #![allow(unused)]
 
-#[macro_use]
-extern crate lazy_static;
 
 use std::{fs, io};
 use std::collections::HashSet;
@@ -30,63 +28,30 @@ use chrono::naive::NaiveDate;
 use geojson::{Feature, FeatureCollection, GeoJson, Value};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use structopt::StructOpt;
 use uom::si::area::acre;
 use indexmap::IndexMap;
 
-#[macro_use]
-//extern crate uom;
 use uom::si::f64::*;
 
 // odin's own imports
 use odin_common::fs::{ensure_writable_dir, existing_non_empty_file, file_contents_as_string, set_filepath_contents, set_filepath_contents_with_backup};
-use odin_common::datetime::{is_between_inclusive,ser_short_rfc3339,parse_utc_datetime_from_os_str_date};
-use odin_common::macros::if_let;
+use odin_common::datetime::{is_between_inclusive,ser_short_rfc3339,parse_utc_datetime_from_str_date};
+use odin_common::{define_cli,if_let};
 
-/// structopt command line arguments
-#[derive(StructOpt,Clone,Debug)]
-struct CliOpts {
-    /// only report which feature files would be written (do not store files)
-    #[structopt(long)]
-    dry_run: bool,
-
-    #[structopt(short,long)]
-    verbose: bool,
-
-    /// if set, use CreateDate or DateCurrent if {Polygon,Line,Point}DateTime is not set or has null value
-    #[structopt(long)]
-    estimate_date: bool,
-
-    /// optional start date filter in yyyy-mm-dd format (interpreted as UTC, used to initialize new summary.json)
-    #[structopt(long,parse(from_os_str = parse_utc_datetime_from_os_str_date))]
-    start_date: Option<DateTime<Utc>>,
-
-    /// optional end date filter in yyyy-mm-dd format (interpreted as UTC, used to initialize new summary.json)
-    #[structopt(long,parse(from_os_str = parse_utc_datetime_from_os_str_date))]
-    end_date: Option<DateTime<Utc>>,
+define_cli!{ ARGS [about="split open data historical fire perimeter files"] =
+    dry_run: bool [help="only report which feature files would be written (do not store files)", long],
+    verbose: bool [help="verbose output", short, long],
+    estimate_date: bool [help="use CreateDate or DateCurrent if {Polygon,Line,Point}DateTime is not set or has null value", long],
+    start_date: Option<DateTime<Utc>> [help="optional start date filter in yyyy-mm-dd format (interpreted as UTC, used to initialize new summary.json)", long, value_parser=parse_utc_datetime_from_str_date],
+    end_date: Option<DateTime<Utc>> [help="optional end date filter in yyyy-mm-dd format (interpreted as UTC, used to initialize new summary.json)", long, value_parser=parse_utc_datetime_from_str_date],
 
     //--- output options
-
-    /// if set, store all feature properties found in input. If not set store only feature specific subset
-    #[structopt(long)]
-    keep_properties: bool,
-
-    /// directory to store generated files in (defaults to fire name)
-    #[structopt(short,long)]
-    output_dir: Option<String>,
+    keep_properties: bool [help="store all feature properties found in input. If not set store only feature specific subset", long],
+    output_dir: Option<String> [help="directory to store generated files in (defaults to fire name)", short, long],
 
     //--- positional input args
-
-    /// name of fire (also used for output dir if not set explicitly)
-    fire_name: String,
-
-    /// pathnames of *.geojson input files to process
-    input_files: Vec<String>,
-}
-
-lazy_static! {
-    #[derive(Debug)]
-    static ref ARGS: CliOpts = CliOpts::from_args();
+    fire_name: String [help=" name of fire (also used for output dir if not set explicitly)"],
+    input_files: Vec<String> [help=" pathnames of geojson input files to process"]
 }
 
 /// timestamped feature file entry (stored in summary)

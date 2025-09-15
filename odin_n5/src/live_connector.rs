@@ -47,15 +47,20 @@ impl N5Connector for LiveN5Connector {
 
             let jh = spawn( "N5-connector", async move {
                 let client = Client::new();
-                if let Ok(devices) = get_n5_devices( &client, config.as_ref(), true).await {
-                    let device_ids: Vec<u32> = devices.iter().map( |d| d.id).collect();
-                    hself.send_msg( InitStore(devices)).await;
+                match get_n5_devices( &client, config.as_ref(), true).await {
+                    Ok(devices) => {
+                        let device_ids: Vec<u32> = devices.iter().map( |d| d.id).collect();
+                        hself.send_msg( InitStore(devices)).await;
 
-                    loop {
-                        sleep( config.retrieve_interval).await;
-                        if let Ok(updates) = get_n5_data( &client, config.as_ref(), &device_ids).await {
-                            hself.send_msg( UpdateStore(updates)).await;
+                        loop {
+                            sleep( config.retrieve_interval).await;
+                            if let Ok(updates) = get_n5_data( &client, config.as_ref(), &device_ids).await {
+                                hself.send_msg( UpdateStore(updates)).await;
+                            }
                         }
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
                     }
                 }
             })?;

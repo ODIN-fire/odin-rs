@@ -11,6 +11,7 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
+import * as main from "../odin_server/main.js";
 import * as util from "../odin_server/ui_util.js";
 import { ExpandableTreeNode } from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
@@ -43,21 +44,10 @@ ui.registerThemeChangeHandler(themeChanged);
 
 // explicit await on Promise.all() seems to let Safari wait with the body-script postInitialize() calls until imglayer is properly initialized
 console.log("initializing " + sources.length + " imager layers..");
+
 const providers = await Promise.all( getLayerPromises());
-const viewer = await odinCesium.viewerReadyPromise; // Safari bug workaround - this should not be required based on import order
-
-addLayers(viewer, providers);
-console.log( providers.length, "imagery layers loaded");
-
-/*
-Promise.all( getLayerPromises()).then( (providers) => {
-    console.log( providers.length, "imagery providers resolved.");
-    odinCesium.viewerReadyPromise.then( (viewer)=> {
-        addLayers( viewer, providers);
-        console.log( providers.length, "imagery layers loaded");
-    }).catch( (error) => { console.log( "could not obtain Cesium viewer:", error); });
-}).catch( (error) => { console.log( "failed to load imagery layer:", error); });
-*/
+const viewer = await odinCesium.viewerReadyPromise;
+addLayers( viewer, providers);
 
 odinCesium.registerMouseClickHandler(handleMouseClick);
 odinCesium.initLayerPanel("imglayer", config, showImgLayer);
@@ -88,8 +78,9 @@ function addLayers (viewer, providers) {
         }
         console.log("loaded imagery provider: ", src.pathName, ", show=", src.show);
 
-        // check if provider is actually a layer (Bing). Only create a layer from resoved provider promise if not
+        // check if provider is actually a layer (e.g. Bing). Only create an ImageryLayer from resoved provider promise if not
         let layer = (providers[i].brightness) ? providers[i] : new Cesium.ImageryLayer(providers[i], opts);
+
         src.layer = layer;
         setLayerRendering( layer, {...defaultRender, ...src.render});
         layer.show = src.show;
@@ -97,6 +88,8 @@ function addLayers (viewer, providers) {
 
         loadColorMap(src);
     }
+
+    console.log( providers.length, "imagery layers loaded");
 }
 
 //--- end init

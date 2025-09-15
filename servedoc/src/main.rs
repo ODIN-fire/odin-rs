@@ -12,28 +12,16 @@
  * and limitations under the License.
  */
 
-#[macro_use]
-extern crate lazy_static;
 
 use warp::Filter;
 use warp::path::FullPath;
 use std::fs;
-use structopt::StructOpt;
+use odin_common::define_cli;
 
-#[derive(Clone,Debug,StructOpt)]
-struct Opt {
-    #[structopt(long,default_value="8080")]
-    port: u16,
-
-    #[structopt(short,long)]
-    verbose: bool,
-
-    #[structopt(long,default_value="target/doc")]
-    root: String,
-}
-
-lazy_static! {
-    static ref OPT: Opt = Opt::from_args();
+define_cli!{ OPT [about="simple web server to serve target/doc contents"] =
+    port: u16 [help="port to serve on (default 8080)", long, default_value="8080"],
+    verbose: bool [help="verbose output", short, long],
+    root: String [help="root directory (default target/doc)", long, default_value="target/doc"]
 }
 
 /// simple web server to serve target/doc contents on port 8080

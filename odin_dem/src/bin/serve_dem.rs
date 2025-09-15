@@ -42,7 +42,6 @@ use axum::{
 use http::StatusCode;
 use serde::{Serialize,Deserialize};
 use serde_json;
-use structopt::StructOpt;
 use tokio::{net::TcpListener, task::AbortHandle};
 use tower_http::{
     classify::{ServerErrorsAsFailures, SharedClassifier},

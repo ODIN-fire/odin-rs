@@ -63,7 +63,7 @@ thiserror = { workspace = true }
 ron = { workspace = true }
 anyhow = { workspace = true }
 lazy_static = { workspace = true }
-structopt = { workspace = true }
+clap = { workspace = true }
 paste = { workspace = true }
 http = { workspace = true }
 url = { workspace = true }

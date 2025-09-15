@@ -11,48 +11,19 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
-use lazy_static::lazy_static;
-use structopt::StructOpt;
 
+use odin_common::define_cli;
 use odin_gdal::{transform_geo_to_utm_bounds, transform_utm_to_geo_bounds};
 
-#[derive(StructOpt)]
-struct CliOpts {
-    /// west boundary in degrees
-    #[structopt(long,short,allow_hyphen_values=true)]
-    west: f64,
-
-    /// south boundary in degrees
-    #[structopt(long,short,allow_hyphen_values=true)]
-    south: f64,
-
-    /// east boundary in degrees
-    #[structopt(long,short,allow_hyphen_values=true)]
-    east: f64,
-
-    /// north boundary in degrees
-    #[structopt(long,short,allow_hyphen_values=true)]
-    north: f64,
-
-    /// do we want the interior or exterior target rectangle
-    #[structopt(short,long)]
-    interior: bool,
-
-    /// utm zone
-    #[structopt(long)]
-    zone: Option<u32>,
-
-    /// southern hemisphere zone
-    #[structopt(long)]
-    is_south: bool,
-
-    // reverse transformation (UTM -> epsg:4326 (lat,lon))
-    #[structopt(short="r",long)]
-    utm_to_latlon: bool,
-}
-
-lazy_static! {
-    static ref ARGS: CliOpts = CliOpts::from_args();
+define_cli! { ARGS [about="translate WGS84 bounding box into UTM coordinates"] =
+    west: f64 [help="west boundary in degrees", long, short, allow_hyphen_values=true],
+    south: f64 [help="south boundary in degrees", long ,short, allow_hyphen_values=true],
+    east: f64 [help="east boundary in degrees", long ,short, allow_hyphen_values=true],
+    north: f64 [help="north boundary in degrees", long ,short, allow_hyphen_values=true],
+    interior: bool [help="do we want the interior or exterior target rectangle", short, long],
+    zone: Option<u32> [help="optional UTM zone", long],
+    is_south: bool [help="use southern hemisphere zone", long],
+    utm_to_latlon: bool [help="reverse transformation (UTM -> epsg:4326 (lat,lon))", short='r', long]
 }
 
 fn main() {

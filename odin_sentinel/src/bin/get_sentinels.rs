@@ -13,47 +13,26 @@
  */
 #![allow(unused)]
 
-use lazy_static::lazy_static;
 use std::{process::Output, path::PathBuf, str::FromStr, fmt::{Display,Formatter}, fs::File, io::Write};
 use anyhow::Result;
-use structopt::StructOpt;
 use displaydoc::Display;
 use tokio;
 use reqwest;
 use strum::EnumString;
-
+use odin_common::define_cli;
 use odin_sentinel::{get_http_client, load_config, SentinelConfig, SentinelStore};
 use odin_build;
 
-#[derive(Debug,EnumString)]
-#[strum(serialize_all="snake_case")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 enum OutputFormat { Rust, Ron, Json }
 
-
-#[derive(StructOpt)]
-#[structopt(about = "Delphire Sentinel data retriever tool")]
-struct CliOpts {
-    /// run verbose
-    #[structopt(short,long)]
-    verbose: bool,
-
-    /// produce formatted output
-    #[structopt(short,long)]
-    pretty: bool,
-
-    /// output format (rust,ron,json)
-    #[structopt(short,long,default_value="rust")]
-    format: OutputFormat,
-
-    /// optional path where to store output
-    #[structopt(short,long)]
-    output: Option<PathBuf>,
+define_cli!{ ARGS [about="Delphire Sentinel data retriever tool"] =
+    verbose: bool [help="run verbose", short, long],
+    pretty: bool [help="produce formatted output", short, long],
+    format: OutputFormat [help="output format to use (rust, json)", short, long, value_enum, default_value="rust"],
+    output: Option<PathBuf> [help="optional path where to store output", short, long]
 
     //.. and more to follow
-}
-
-lazy_static! {
-    static ref ARGS: CliOpts = CliOpts::from_args();
 }
 
 #[tokio::main]

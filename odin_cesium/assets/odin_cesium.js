@@ -248,7 +248,10 @@ export const viewerReadyPromise = new Promise( async (resolve,reject) => {
     console.log("odin_cesium viewer initialized");
     resolve(viewer);
 });
-main.addPostInitPromise(viewerReadyPromise); // make sure we don't postInitialize before this is resolved
+
+// make sure we don't postInitialize before this is resolved
+// this seems to fail on Safari (despite claiming that postInitPromises have been resolved)
+main.addPostInitPromise(viewerReadyPromise); 
 
 window.addEventListener('resize', setCanvasSize);
 
@@ -259,6 +262,23 @@ registerKeyDownHandler( globalKeyDownHandler); // global hotkeys
 registerMouseClickHandler( globalMouseClickHandler); // global click
 
 console.log("ui_cesium initialized");
+
+// executed *after* all modules have been loaded and initialized (i.e. after any awaits they do during their init)
+export function postInitialize() {
+    initModuleLayerViewData();    
+
+    checkImagery(); // make sure we have a base layer (normally provided by imglayer.js)
+
+    const credit = new Cesium.Credit('<a href="https://openstreetmap.org/" target="_blank">OpenStreetMap</a>');
+    viewer.creditDisplay.addStaticCredit(credit);
+
+    setCesiumContainerVisibility(true);
+    keepPolylineWorkersAlive();
+
+    setRequestRenderTimer(); // set background render timer according to configured requestRenderMode
+
+    console.log("odin_cesium.postInitialize complete.");
+}
 
 //--- end initialization
 
@@ -885,7 +905,7 @@ export function setEntitySelectionHandler(onSelect) {
 export function createDataSource (name, show) {
     let dataSrc = new Cesium.CustomDataSource(name);
     dataSrc.show = show;
-    viewer.dataSources.add(dataSrc);
+    addDataSource(dataSrc);
     return dataSrc;
 }
 
@@ -2127,20 +2147,4 @@ function handleSyncMessage (msg) {
 
 /* #endregion share interface */
 
-// executed *after* all modules have been loaded and initialized (i.e. after any awaits they do during their init)
-export function postInitialize() {
-    initModuleLayerViewData();    
-
-    checkImagery(); // make sure we have a base layer (normally provided by other modules)
-
-    const credit = new Cesium.Credit('<a href="https://openstreetmap.org/" target="_blank">OpenStreetMap</a>');
-    viewer.creditDisplay.addStaticCredit(credit);
-
-    setCesiumContainerVisibility(true);
-    keepPolylineWorkersAlive();
-
-    setRequestRenderTimer(); // set background render timer according to configured requestRenderMode
-
-    console.log("odin_cesium.postInitialize complete.");
-}
 

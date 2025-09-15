@@ -58,7 +58,7 @@ compileConfigGlobs();
 createDataIcon();
 createRoleIcon();
 
-const viewer = await odinCesium.viewerReadyPromise; // Safari bug workaround - call before using odinCesium
+//const viewer = await odinCesium.viewerReadyPromise; // Safari bug workaround - call before using odinCesium
 
 createDataWindow();
 initViewParameters();

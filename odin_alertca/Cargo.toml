@@ -35,10 +35,8 @@ lazy_static = { workspace = true }
 paste = { workspace = true }
 http = { workspace = true }
 url = { workspace = true }
-clap = { workspace = true }
 serde_with = { workspace = true }
-
-structopt = { workspace = true } # replace
+clap = { workspace = true }
 
 
 [build-dependencies]

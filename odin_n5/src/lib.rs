@@ -18,7 +18,7 @@ use intmap::IntMap;
 use serde::{de::DeserializeOwned, Deserialize, Serialize, Serializer};
 use serde_json;
 use chrono::{DateTime,Utc};
-use http::header::ACCEPT;
+use http::{header::ACCEPT, StatusCode};
 use reqwest::{Client,Response,header::{HeaderMap,HeaderName,HeaderValue,CONTENT_TYPE}};
 use ron::{self, to_string};
 use async_trait::async_trait;
@@ -398,8 +398,12 @@ pub trait N5Connector {
 pub async fn get_devices (client: &Client, conf: &N5Config)->Result<Vec<Device>> {
     let uri = format!("{}/devices?page_size=100&page=1&sort_dir=ASC", conf.base_uri);
     let response = get_response( client, conf, uri.as_str()).await?;
-    let device_response: DevicesResponse = from_json( response).await?;
-    Ok(device_response.results)
+    if response.status() == StatusCode::OK {
+        let device_response: DevicesResponse = from_json( response).await?;
+        Ok(device_response.results)
+    } else {
+        Err( OdinN5Error::OpFailedError( format!("get_devices failed with N5 server status code {}", response.status())) )
+    }
 }
 
 pub async fn get_data (client: &Client, conf: &N5Config, device_id: u32)->Result<Vec<Data>> {
@@ -476,7 +480,7 @@ pub async fn get_current_device_data (client: &Client, conf: &N5Config, device_i
     }
 }
 
-/// initial N5Device retrieval
+/// initial N5Device retrieval (both device list and initial data)
 pub async fn get_n5_devices (client: &Client, conf: &N5Config, init: bool)->Result<Vec<N5Device>> {
     let devices = get_devices(client, conf).await?;
     let mut n5_devices: Vec<N5Device> = devices.into_iter().map( |d| N5Device::from(d, conf)).collect();

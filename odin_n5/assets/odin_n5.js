@@ -234,7 +234,7 @@ var alertView = undefined;
 createIcon();
 createWindow();                        
 
-await odinCesium.viewerReadyPromise;
+//await odinCesium.viewerReadyPromise;
 var n5DataSource = odinCesium.createDataSource("n5", config.layer.show);
 
 initDeviceView();

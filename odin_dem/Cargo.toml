@@ -23,7 +23,7 @@ odin_gdal = { workspace = true }
 odin_server = { workspace = true }
 
 lazy_static = { workspace = true }
-structopt = { workspace = true }
+clap = { workspace = true }
 tokio-util = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }

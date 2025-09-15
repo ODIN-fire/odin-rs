@@ -937,7 +937,7 @@ impl SpaComponents {
             let mut mod_names: Vec<&str> = Vec::with_capacity(module_uris.len());
             // TODO - make sure main and ws are postInitialized last ??? HOW ???
 
-            write!( buf, "<script>\n");
+            write!( buf, "<script type=\"module\">\n");
 
             // note that Safari 18.6 has a bug that does not properly resolve the module imports (Promise.all fires prematurely) 
 
@@ -958,7 +958,7 @@ impl SpaComponents {
             }
             write!( buf, "])=>{{\n");
 
-            write!( buf, "main.resolvePostInitPromises();\n");
+            write!( buf, "await main.resolvePostInitPromises();\n");
 
             write!( buf, "console.log('post-initializing', modulePromises.length, 'modules...');\n");
 

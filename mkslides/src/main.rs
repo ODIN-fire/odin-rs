@@ -17,75 +17,27 @@ mod scripts;
 mod template;
 mod styles;
 
-#[macro_use]
-extern crate lazy_static;
-
 use std::fs::File;
 use std::io::Write;
-use odin_common::fs;
+use odin_common::{define_cli,fs};
 
-use structopt::StructOpt;
 use anyhow::{anyhow, Result};
 use markdown::{to_html_with_options, ParseOptions, CompileOptions, Options};
 
-#[derive(StructOpt)]
-pub struct CliOpts {
-
-    /// slide separator line
-    #[structopt(long,default_value="---")]
-    slide_separator: String,
-
-    /// basic font family
-    #[structopt(long,default_value="Arial, sans-serif")]
-    basic_font_family: String,
-
-    /// basic CSS font size
-    #[structopt(long,default_value="3.5vh")]
-    basic_font_size: String,
-
-    /// title font size factor
-    #[structopt(long,default_value="150")]
-    h1_factor: u32,
-
-    /// slide header font size factor
-    #[structopt(long,default_value="130")]
-    h2_factor: u32,
-
-    /// slide list item font size factor
-    #[structopt(long,default_value="110")]
-    li_factor: u32,
-
-    /// header margins
-    #[structopt(long,default_value="0.2em 0 0.2em 0")]
-    header_margin: String,
-
-    /// list margins
-    #[structopt(long,default_value="0.5em 0 0 0")]
-    list_margin: String,
-
-    /// item margins
-    #[structopt(long,default_value="0 0 0.3em 0")]
-    item_margin: String,
-
-    /// HTML template
-    #[structopt(short,long,default_value="odin_slides.html")]
-    template_path: String,
-
-    /// path for CSS
-    #[structopt(short,long,default_value="odin_slides.css")]
-    style_path: String,
-
-    /// path for HTML output (default is 'index.html')
-    #[structopt(short,long,default_value="index.html")]
-    output_path: String,
-
-    /// the markdown file path for the slides
-    md_path: String
-}
-
-lazy_static! {
-    #[derive(Debug)]
-    pub static ref ARGS: CliOpts = CliOpts::from_args();
+define_cli!{ ARGS [about="create slide-deck HTML from markdown file"] = 
+    slide_separator: String [help="slide separator line", long, default_value="---"],
+    basic_font_family: String [help="basic font family", long, default_value="Arial, sans-serif"],
+    basic_font_size: String [help="basic CSS font size",long,  default_value="3.5vh"],
+    h1_factor: u32 [help="title font size factor", long,default_value="150"],
+    h2_factor: u32 [help="slide header font size factor", long, default_value="130"],
+    li_factor: u32 [help="slide list item font size factor", long, default_value="110"],
+    header_margin: String [help="header margins", long, default_value="0.2em 0 0.2em 0"],
+    list_margin: String [help="list margins",long,default_value="0.5em 0 0 0"],
+    item_margin: String [help="item margins", long, default_value="0 0 0.3em 0"],
+    template_path: String [help="HTML template",short,long,default_value="odin_slides.html"],
+    style_path: String [help="path for CSS", short,long,default_value="odin_slides.css"],
+    output_path: String [help="path for HTML output (default is 'index.html')", short,long,default_value="index.html"],
+    md_path: String  [help="the markdown file path for the slides"]
 }
 
 fn main() -> Result<()> {

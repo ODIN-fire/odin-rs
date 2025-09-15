@@ -199,7 +199,7 @@ createIcon();
 createWindow();
 sentinelView = initSentinelView();
 
-await odinCesium.viewerReadyPromise;
+//await odinCesium.viewerReadyPromise;
 var sentinelDataSource = odinCesium.createDataSource("sentinel", config.layer.show);
 
 sentinelImageView = initSentinelImagesView();

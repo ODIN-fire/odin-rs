@@ -12,74 +12,30 @@
  * and limitations under the License.
  */
 
-#[macro_use]
-extern crate lazy_static;
-
-use structopt::{StructOpt,clap::AppSettings};
-
 use std::path::Path;
-use gdal::Dataset;
-use gdal::spatial_ref::SpatialRef;
+use gdal::{Dataset, spatial_ref::SpatialRef};
+use odin_common::define_cli;
 use odin_gdal::{get_driver_name_from_filename, to_csl_string_list, warp::{ResampleAlg, SimpleWarpBuilder}, GdalDataType};
 use anyhow::{Result, anyhow};
 
+define_cli! { ARGS [about="simple GDAL warper"] =
+    te: Option<Vec<f64>> [help="target extent xmin, ymin, xmax, ymax", long, allow_hyphen_values=true, num_args=4],
+    t_srs: Option<String> [help="target SRS", long],
+    t_format: Option<String> [help="optional target format (default is GTiff)", long],
+    t_type: Option<String> [help="GDAL target type (I16, F32 etc.)", long],
+    t_res: Option<Vec<f64>> [help="optional target pixel resolution", long, allow_hyphen_values=true, num_args=2],
+    s_nodata: Vec<f64> [help="source NO_DATA value", long, allow_hyphen_values=true],
+    t_nodata: Vec<f64> [help="target NO_DATA_VALUE", long, allow_hyphen_values=true],
+    s_band: Option<Vec<u32>> [help="source bands to process (1-based)", short, long],
+    t_band: Option<Vec<u32>> [help="target bands to store (1-based)", short, long],
+    resample_alg: Option<String> [help="resample algorithm to use (see GDAL doc)", short, long],
+    co: Vec<String> [help="optional target create options", long, num_args=1],
+    err_threshold: Option<f64> [help="optional max output error threshold (default 0.0)", long],
 
-/// structopt command line arguments
-#[derive(StructOpt,Debug)]
-#[structopt(about = "simple GDAL warpter", settings = &[AppSettings::AllowNegativeNumbers])]
-struct CliOpts {
-    /// target extent xmin, ymin, xmax, ymax
-    #[structopt(long,allow_hyphen_values=true,number_of_values=4)]
-    te: Option<Vec<f64>>,
-
-    /// target SRS definition
-    #[structopt(long)]
-    t_srs: Option<String>,
-
-    /// optional target format (default is GTiff)
-    #[structopt(long)]
-    t_format: Option<String>,
-
-    #[structopt(long)]
-    t_type: Option<String>,
-
-    /// optional target pixel resolution 
-    #[structopt(long,allow_hyphen_values=true,number_of_values=2)]
-    t_res: Option<Vec<f64>>,
-
-    #[structopt(long,allow_hyphen_values=true)]
-    s_nodata: Vec<f64>,
-
-    #[structopt(long,allow_hyphen_values=true)]
-    t_nodata: Vec<f64>,
-
-    #[structopt(short,long)]
-    s_band: Option<Vec<u32>>,
-
-    #[structopt(short,long)]
-    t_band: Option<Vec<u32>>,
-    
-    #[structopt(short,long)]
-    resample_alg: Option<String>,
-
-     /// optional target create options
-    #[structopt(long, number_of_values=1)]
-    co: Vec<String>,
-
-    /// optional max output error threshold (default 0.0)
-    #[structopt(long)]
-    err_threshold: Option<f64>,
-
-    /// input filename
-    src_filename: String,
-
-    /// output filename
-    tgt_filename: String,
+    src_filename: String [help="input filename"],
+    tgt_filename: String [help="output filename"]
 }
 
-lazy_static! {
-    static ref ARGS: CliOpts = CliOpts::from_args();
-}
 
 fn main () -> Result<()> {
     let src_path = Path::new(ARGS.src_filename.as_str());

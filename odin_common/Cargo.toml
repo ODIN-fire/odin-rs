@@ -30,7 +30,7 @@ futures-util = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 axum = { workspace = true }
-structopt = { workspace = true }
+clap = { workspace = true }
 gethostname = "1.0.2"
 regex = { workspace = true }
 num-format = "0.4.4"

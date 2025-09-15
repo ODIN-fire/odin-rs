@@ -8,4 +8,5 @@ lazy_static = { workspace = true }
 tokio = { workspace = true }
 warp = "0.3.7"
 bytes = { workspace = true }
-structopt = { workspace = true }
+clap = { workspace = true }
+odin_common = { workspace = true }

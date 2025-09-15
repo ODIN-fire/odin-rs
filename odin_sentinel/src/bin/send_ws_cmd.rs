@@ -27,10 +27,9 @@ use tokio_util::codec::{FramedRead, LinesCodec};
 use tokio_tungstenite::tungstenite::{protocol::Message,error::Error};
 use futures::{SinkExt,StreamExt};
 use std::{io::{stdin,stdout,Write},time::Duration,fmt::Debug};
-use strum::EnumString;
 
 use odin_build;
-use odin_common::{if_let,define_cli,check_cli};
+use odin_common::{if_let,define_cli};
 use odin_sentinel::{
     get_device_list_from_config,get_http_client,
     OdinSentinelError, SentinelConfig, Result,
@@ -38,20 +37,18 @@ use odin_sentinel::{
     load_config,
 };
 
-#[derive(Debug,EnumString)]
-#[strum(serialize_all="snake_case")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 enum InputFormat { Raw, Ron, Json }
 
 define_cli! { ARGS [about="Delphire Sentinel websocket command tool"] = 
     execute: Vec<String>  [help="send command in non-interactive mode", short,long],
-    format: InputFormat   [help="input format for commands (raw,ron,json)", short,long,default_value="raw"],
+    format: InputFormat   [help="input format for commands (raw,ron,json)", short,long, value_enum, default_value="raw"],
     show_ping: bool       [help="show ping/pong messages",long]
 }
 
 #[tokio::main]
 async fn main()->anyhow::Result<()> {
     odin_build::set_bin_context!();
-    check_cli!(ARGS);
 
     let config: SentinelConfig = load_config( "sentinel.ron")?;
     if ARGS.execute.is_empty() {

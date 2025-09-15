@@ -82,7 +82,11 @@ impl SpaService for CesiumService {
             spa.add_css( format!("https://cesium.com/downloads/cesiumjs/releases/{CESIUM_VERSION}/Build/Cesium/Widgets/widgets.css"));
         }
 
-        // unfortunately CesiumWorldTerrain cannot be proxied as it uses a protocol with its own authentication headers and OPTIONS queries
+        // unfortunately we can't proxy CesiumWorldTerrain since it uses Cesium.js generated app keys for authentication
+        // the API requires an "Authurization: Bearer .." access token which is NOT the normal (configured) user acces token but
+        // is dynamically set from within Cesium.js (has a 1d expiration)
+        // the only robust solution for local/proxied terrain is to have our own Cesium TerrainProvider server
+        //spa.add_proxy( "cesium-terrain", "https://assets.ion.cesium.com/us-east-1/asset_depot/1/CesiumWorldTerrain/v1.2");
 
         spa.add_css( asset_uri!("odin_cesium.css"));
 

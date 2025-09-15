@@ -92,7 +92,6 @@ geo-types = { version = "0.7.16" }
 geojson = { version = "0.24.2" }
 nalgebra = { version = "0.34.0"}
 lazy_static = { version = "1.5.0" }
-structopt = { version = "0.3.26" }
 paste = { version ="1.0.15" }
 regex = { version = "1.11.1" }
 hashbrown = { version = "0.15.3" }
@@ -100,7 +99,8 @@ bit-set = { version = "0.8.0" }
 ndarray = { version = "0.16.1" }
 flate2 = { version = "1.1.2" }
 memchr = { version = "2.7.5" }
-clap = { version = "4.5.41", features = ["derive"]}
+clap = { version = "4.5.47", features = ["derive"]}
+
 dashmap = { version = "6" }
 trait-set = { version = "0.3.0" } # remove when trait aliases become stabilized
 tracing-subscriber = { version = "0.3.20" }
@@ -109,6 +109,7 @@ glob = { version = "0.3.3" }
 globset = { version = "0.4.16" }
 rand = { version = "0.9.2" }
 zip = { version = "5.1.1"}
+
 
 
 [profile.release]

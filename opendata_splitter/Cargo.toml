@@ -11,7 +11,7 @@ chrono = { workspace = true }
 geojson = "0.24.2"
 lazy_static = { workspace = true }
 serde_json = { workspace = true }
-structopt = { workspace = true }
+clap = { workspace = true }
 serde = { workspace = true }
 uom = { workspace = true }
 indexmap = { version = "2.9.0", features = ["serde"] }

@@ -8,7 +8,7 @@ odin_common = { workspace = true }
 
 lazy_static = { workspace = true }
 markdown = "1.0.0"
-structopt = { workspace = true }
+clap = { workspace = true }
 anyhow = { workspace = true }
 regex = { workspace = true }
 

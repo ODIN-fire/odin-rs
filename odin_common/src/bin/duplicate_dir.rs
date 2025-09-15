@@ -23,7 +23,7 @@ use anyhow::{Result,anyhow};
 
 define_cli! { ARGS [about="duplicate_dir - duplicate directory tree"] =
     link_files: bool [ help="only use symbolic (soft) links for files", long, short],
-    exclude: Vec<String> [help="exclude file or directory matching glob", long, short, number_of_values=1],
+    exclude: Vec<String> [help="exclude file or directory matching glob", long, short, num_args=1],
     source_dir: String [help="root directory to duplicate"],
     target_dir: String [help="directory to duplicate to (will be created/overwritten)"]
 }

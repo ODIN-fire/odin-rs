@@ -41,7 +41,7 @@ serde_with = { workspace = true }
 anyhow = { workspace = true }
 meshgridrs = "0.1.1"
 paste = { workspace = true }
-structopt = { workspace = true }
+clap = { workspace = true }
 lazy_static = { workspace = true }
 regex = { workspace = true }
 trait-set = { workspace = true }

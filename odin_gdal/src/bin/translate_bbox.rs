@@ -11,34 +11,20 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
-use lazy_static::lazy_static;
-use structopt::StructOpt;
+
 use gdal::spatial_ref::SpatialRef;
+use odin_common::define_cli;
 use odin_gdal::{transform_bounds_2d,errors::Result};
 
-#[derive(StructOpt)]
-#[structopt(global_setting = structopt::clap::AppSettings::AllowNegativeNumbers)]
-struct CliOpts {
-    /// number of points to use to densify bounding polygon
-    #[structopt(long,allow_hyphen_values=true)]
-    densify: Option<i32>,
+define_cli! { ARGS [about="translate axis align bounding box between spatial reference systems"] = 
+    densify: Option<i32> [help="number of points to use to densify bounding polygon", long, allow_hyphen_values=true],
+    s_srs: String [help="source SRS (used for min/max coordinates)", short, long],
+    t_srs: String [help="target SRS (to convert to)", short, long],
 
-    /// source SRS (used for min/max coordinates)
-    #[structopt(short,long)]
-    s_srs: String,
-
-    /// target SRS (to convert to)
-    #[structopt(short,long)]
-    t_srs: String,
-
-    x_min: f64,
-    y_min: f64,
-    x_max: f64,
-    y_max: f64,
-}
-
-lazy_static! {
-    static ref ARGS: CliOpts = CliOpts::from_args();
+    x_min: f64 [help="minimum x boundary (in source SRS)"],
+    y_min: f64 [help="minimum y boundary (in source SRS)"],
+    x_max: f64 [help="maximum x boundary (in source SRS)"],
+    y_max: f64 [help="maximum y boundary (in source SRS)"]
 }
 
 fn main() -> Result<()> {

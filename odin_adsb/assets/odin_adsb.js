@@ -265,7 +265,7 @@ var trackEntryFilter = noTrackEntryFilter;
 createIcon();
 createWindow();
 
-await odinCesium.viewerReadyPromise;
+// await odinCesium.viewerReadyPromise;
 
 var trackSourceView = initTrackSourceView();
 var trackEntryView = initTrackEntryView();

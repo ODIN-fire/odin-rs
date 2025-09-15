@@ -11,60 +11,24 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
-#[macro_use]
-extern crate lazy_static;
 
-use structopt::StructOpt;
 use std::path::Path;
 use gdal::Dataset;
+use odin_common::define_cli;
 use odin_gdal::contour::ContourBuilder;
 use anyhow::Result;
 
-/// structopt command line arguments
-#[derive(StructOpt,Debug)]
-struct CliOpts {
-    /// tgt_layer_name in output
-    #[structopt(long)]
-    tgt_layer: Option<String>,
-
-    /// set to 3d elevation
-    #[structopt(long)]
-    three_d: bool,
-
-    /// attr name
-    #[structopt(long, short)]
-    attr: Option<String>,
-
-    /// attr_max_name
-    #[structopt(long)]
-    amax: Option<String>,
-
-    /// attr_min_name
-    #[structopt(long)]
-    amin: Option<String>,
-
-    /// polygonize
-    #[structopt(long, short)]
-    polygon: bool,
-
-    /// band number
-    #[structopt(long, short)]
-    band: i32,
-
-    /// interval 
-    #[structopt(long, short)]
-    interval: i32,
-
-    /// input filename
-    src_filename: String,
-
-    /// output filename
-    tgt_filename: String,
-
-}
-
-lazy_static! {
-    static ref ARGS: CliOpts = CliOpts::from_args();
+define_cli! { ARGS [about="create contour polygons from GDAL data source"] =
+    tgt_layer: Option<String> [help="tgt_layer_name in output", long],
+    three_d: bool [help="set 3D elevation", long],
+    attr: Option<String> [help="attr name", short, long],
+    amax: Option<String> [help="attr_max_name", long],
+    amin: Option<String> [help="attr_min_name", long],
+    polygon: bool [help="polygonize", short, long],
+    band: i32 [help="band number of input band (1 based)", short, long],
+    interval: i32 [help="interval size", short, long],
+    src_filename: String [help="input filename"],
+    tgt_filename: String [help="output filename"]
 }
 
 fn main () -> Result<()> {

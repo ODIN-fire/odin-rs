@@ -195,9 +195,9 @@ macro_rules! map_to_opaque_error {
 
 /* #region define_cli  ****************************************************************************************/
 
-/// syntactic sugar macro for structopt based command line interface definition
+/// syntactic sugar macro for clap based command line interface definition
 /// ```no_run
-/// use odin_common::{check_cli,define_cli};
+/// use odin_common::define_cli;
 ///
 /// define_cli! { ARGS [about="my silly prog"] = 
 ///   verbose: bool        [help="run verbose", short],
@@ -206,64 +206,51 @@ macro_rules! map_to_opaque_error {
 /// }
 /// 
 /// fn main () {
-///    check_cli!(ARGS); // makes sure we exit on -h or --help (and do not execute anything until we know ARGS parsed)
 ///    let config = &ARGS.config;
 ///    // rest of code
 /// }
 /// ```
 /// expands into:
 /// ```no_run
-/// use structopt::StructOpt;
+/// use clap::Parser;
 /// use lazy_static::lazy_static;
 /// 
-/// #[derive(StructOpt)]
-/// #[structopt(about = "my silly prog")]
+/// #[derive(Parser)]
+/// #[command(about = "my silly prog")]
 /// struct CliOpts {
-///     #[structopt(help = "run verbose", short)]
+///     #[arg(help = "run verbose", short)]
 ///     verbose: bool,
 /// 
-///     #[structopt(help = "start date")]
+///     #[arg(help = "start date")]
 ///     date: String,
 /// 
-///     #[structopt(help = "pathname of config", long, default_value = "blah")]
+///     #[arg(help = "pathname of config", long, default_value = "blah")]
 ///     config: String,
-/// 
-///     #[structopt(skip=true)] // hidden field to check initialization without referencing any of the arg fields
-///     _initialized: bool
 /// }
 /// 
-/// fn main () {
-/// # struct ARGS_TYPE { _initialized : bool }
-/// # let ARGS = ARGS_TYPE{ _initialized: false };
-///    { let _is_initialized = &ARGS._initialized; }
-///    // ...
+/// lazy_static! {
+///     static ref ARGS: CliOpts = CliOpts::parse();
 /// }
 /// ```
 #[macro_export]
 macro_rules! define_cli {
     ($name:ident [ $( $sopt:ident $(= $sx:expr)? ),* ] = $( $( #[$meta:meta] )? $fname:ident : $ftype:ty [ $( $fopt:ident $(= $fx:expr)?),* ] ),* ) => {
-        use structopt::StructOpt;
+        use clap::Parser;
         use lazy_static::lazy_static;
 
-        #[derive(StructOpt)]
-        #[structopt( $( $sopt $(=$sx)? ),* )]
+        #[derive(Parser)]
+        #[command( $( $sopt $(=$sx)? ),* )]
         struct CliOpts {
             $(
-                #[structopt( $( $fopt $(=$fx)? ),* )]
+                #[arg( $( $fopt $(=$fx)? ),* )]
                 $(#[$meta])?
                 $fname : $ftype,
             )*
-            #[structopt(skip=true)]
-            _initialized: bool
         }
-        lazy_static! { static ref $name: CliOpts = CliOpts::from_args(); }
+        lazy_static! { static ref $name: CliOpts = CliOpts::parse(); }
     }
 }
 
-#[macro_export]
-macro_rules! check_cli {
-    ($sopt:ident) => { { let _is_initialized = &$sopt._initialized; } }
-}
 
 /// syntactic sugar macro to define thiserror Error enums:
 /// ```

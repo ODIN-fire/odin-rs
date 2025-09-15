@@ -21,8 +21,7 @@ axum = { workspace = true }
 memchr = { workspace = true }
 uom = { workspace = true }
 dashmap = { workspace = true }
-
-structopt = { workspace = true } # replace
+clap = { workspace = true }
 
 odin_common = { workspace = true }
 odin_actor = { workspace = true }

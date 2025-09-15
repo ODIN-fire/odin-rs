@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-import { config } from "./odin_wind_config.js";
-
 import * as main from "../odin_server/main.js";
 import * as util from "../odin_server/ui_util.js";
 import * as data from "../odin_server/ui_data.js";
@@ -24,6 +22,8 @@ import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
 import * as wf from "./windfield.js";
+import { config } from "./odin_wind_config.js";
+
 
 /* #region types **************************************************************************************/
 
@@ -280,7 +280,7 @@ initAnimDisplayControls();
 initVectorDisplayControls();
 initContourDisplayControls();
 
-const viewer = await odinCesium.viewerReadyPromise; // Safari bug workaround (setupEventListeners use odinCesium)
+//const viewer = await odinCesium.viewerReadyPromise; // Safari bug workaround (setupEventListeners use odinCesium)
 setupEventListeners();
 
 odinCesium.initLayerPanel("wind", config, showWind);
@@ -589,25 +589,28 @@ function initContourDisplayControls() {
 
 /// some of our windfield visualizations have to be aware of view changes
 function setupEventListeners() {
-    let scene = odinCesium.viewer.scene;
+    // since this requires an initialized Cesium.Viewer we have to sync with odin_cesium.js init
+    odinCesium.viewerReadyPromise.then( (viewer) => {
+        let scene = viewer.scene;
 
-    odinCesium.viewer.camera.moveStart.addEventListener(startViewChange);
-    odinCesium.viewer.camera.moveEnd.addEventListener(endViewChange);
+        viewer.camera.moveStart.addEventListener(startViewChange);
+        viewer.camera.moveEnd.addEventListener(endViewChange);
 
-    var resized = false;
+        var resized = false;
 
-    window.addEventListener("resize", () => {
-        resized = true;
-        //scene.primitives.show = false;
-        //windEntries.forEach(e => e.removePrimitives());
-    });
+        window.addEventListener("resize", () => {
+            resized = true;
+            //scene.primitives.show = false;
+            //windEntries.forEach(e => e.removePrimitives());
+        });
 
-    scene.preRender.addEventListener(() => {
-        if (resized) {
-            //windEntries.forEach(e => e.updatePrimitives());
-            resized = false;
-            //scene.primitives.show = true;
-        }
+        scene.preRender.addEventListener(() => {
+            if (resized) {
+                //windEntries.forEach(e => e.updatePrimitives());
+                resized = false;
+                //scene.primitives.show = true;
+            }
+        });
     });
 }
 

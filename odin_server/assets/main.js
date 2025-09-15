@@ -48,12 +48,16 @@ export function withMainObj (objName, f) {
     }
 }
 
-// postInitPromises are essential promises that should be resolved before we start postInitialization of modules
+// postInitPromises are essential promises that have to be resolved before we start post initialization of modules
+// note these are dynamic promises that are created during module init, i.e. those are not the same as the
+// (static) module init promises themselves (which can be obtained from dynamic import statements for each module)
 export var postInitPromises = [];
+
 export function addPostInitPromise (promise) {
     postInitPromises.push( promise);
 }
 
+// note this function call has to be awaited to make sure all promises are resolved (this is usually done from the body script module)
 export async function resolvePostInitPromises() {
     console.log("resolving", postInitPromises.length, "post init promises");
     await Promise.all( postInitPromises);

@@ -12,13 +12,10 @@
  * and limitations under the License.
  */
 
-#[macro_use]
-extern crate lazy_static;
-
 use warp::Filter;
 use bytes::Bytes;
 use std::process::Command;
-use structopt::StructOpt;
+use odin_common::define_cli;
 
 
 /// webrun - a simple http server that responds to http://localhost:303x/run POST requests with a body that
@@ -37,21 +34,10 @@ const RESET_STYLES: &str = "\u{001b}[0m";
 const REVERSED: &str = "\u{001b}[7m";
 //const RED: &str = "\u{001b}[31m";
 
-#[derive(Clone,Debug,StructOpt)]
-struct Opt {
-    #[structopt(long,default_value="4000")]
-    base_port: u16,
-
-    #[structopt(short,long,default_value="1")]
-    console: u16,
-    
-    #[structopt(short,long)]
-    verbose: bool
-}
-
-lazy_static! {
-    static ref OPT: Opt = Opt::from_args();
-    static ref PORT: u16 = OPT.base_port + OPT.console;
+define_cli!{ OPT [about="run command line programs received from POST requests"] =
+    base_port: u16 [help="base port (default 4000", long, default_value_t=4000],
+    console: u16 [help="console start number (default 1)", short, long, default_value_t=1],
+    verbose: bool [help="verbose output", short, long]
 }
 
 static HOST: &str = "localhost";
@@ -60,6 +46,8 @@ static PATH: &str = "run";
 
 #[tokio::main]
 async fn main() {
+  let port = OPT.base_port + OPT.console;
+
   let cors = warp::cors()
     //.allow_any_origin() // this would allow us to run slides from the file system but leaves webrun wide open
     .allow_origin( ORIGIN)  // note this means we have to run slides through servedoc
@@ -91,7 +79,7 @@ async fn main() {
     });
 
   warp::serve(run_request.with(cors))
-      .run(([127, 0, 0, 1], *PORT))
+      .run(([127, 0, 0, 1], port))
       .await;
 }
 
@@ -99,7 +87,7 @@ fn print_prompt () {
   print!("{}", CLEAR_SCREEN);
   if OPT.verbose {
     println!("{}{}console {} - waiting for POST command from {} on http://{}:{}/{} (terminate with ctrl-C)..{}", 
-              RESET_STYLES,REVERSED, OPT.console, ORIGIN, HOST, *PORT, PATH, RESET_STYLES);
+              RESET_STYLES,REVERSED, OPT.console, ORIGIN, HOST, OPT.base_port + OPT.console, PATH, RESET_STYLES);
     
   } else {
     println!("{}{}console {} - waiting for command..{}", RESET_STYLES,REVERSED, OPT.console, RESET_STYLES);

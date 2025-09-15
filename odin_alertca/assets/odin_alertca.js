@@ -203,7 +203,7 @@ var alertView = undefined;
 createIcon();
 createWindow();
 
-await odinCesium.viewerReadyPromise;
+//await odinCesium.viewerReadyPromise;
 var cameraDataSource = odinCesium.createDataSource("alertCA", config.layer.show);
 
 initCameraView();

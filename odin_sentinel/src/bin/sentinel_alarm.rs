@@ -17,7 +17,7 @@
 use anyhow::Result;
 use odin_build::define_load_config;
 use odin_actor::prelude::*;
-use odin_common::{define_cli,check_cli, admin, heap, datetime::millis};
+use odin_common::{define_cli, admin, heap, datetime::millis};
 use odin_sentinel::{
     load_config, AlarmMessenger, ConsoleAlarmMessenger, LiveSentinelConnector, SentinelStore, SentinelStates, SentinelState, SentinelActor, 
     SentinelAlarmMonitor, SentinelAlarmMonitorConfig, SentinelAlarmMonitorMsg, SentinelInactiveAlert, 
@@ -43,7 +43,6 @@ async fn main ()->Result<()> {
 
     #[cfg(feature="dhat")] heap::init_dhat!();
 
-    check_cli!(ARGS);
     let mut actor_system = ActorSystem::with_env_tracing("main");
     actor_system.request_termination_on_ctrlc(); // don't just exit without notification
 

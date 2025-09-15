@@ -18,6 +18,7 @@ use std::time::{Duration, UNIX_EPOCH, SystemTime};
 use std::ffi::OsStr;
 use std::fmt;
 use parse_duration::parse;
+use anyhow::anyhow;
 use crate::if_let;
 
 #[derive(Serialize,Deserialize,Debug,Clone,Copy,PartialEq)]
@@ -213,11 +214,11 @@ pub fn serialize_optional_duration<S>(dur: &Option<Duration>, s: S) -> Result<S:
     s.serialize_none()
 }
 
-//--- support for structopt parsers
+//--- support for clap parsers
 
-pub fn parse_utc_datetime_from_os_str_date (s: &OsStr) -> DateTime<Utc> {
-    let nd = NaiveDate::parse_from_str(s.to_str().unwrap(), "%Y-%m-%d").unwrap();
-    naive_local_date_to_utc_datetime(nd).unwrap()
+pub fn parse_utc_datetime_from_str_date (s: &str) -> anyhow::Result<DateTime<Utc>> {
+    let nd = NaiveDate::parse_from_str( s, "%Y-%m-%d").map_err(|e| anyhow!("error parsing date {e}"))?;
+    naive_local_date_to_utc_datetime(nd).ok_or( anyhow!("invalid date spec {}", s))
 }
 
 //--- misc string format parsing

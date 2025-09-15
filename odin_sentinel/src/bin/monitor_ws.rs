@@ -15,7 +15,6 @@
 
 use std::{process::Output, path::PathBuf, str::FromStr, fmt::{Display,Formatter}, fs::File, io::Write, time::Duration};
 use anyhow::Result;
-use structopt::StructOpt;
 use displaydoc::Display;
 use tokio;
 use tokio_tungstenite::{tungstenite::protocol::Message};
@@ -24,41 +23,21 @@ use futures::{pin_mut,select,Stream,stream::{self,StreamExt},SinkExt};
 use async_stream::stream;
 use strum::EnumString;
 use chrono::prelude::*;
-use lazy_static::lazy_static;
-
+use odin_common::define_cli;
 use odin_sentinel::{SentinelConfig,load_config,get_device_list_from_config,get_http_client};
 use odin_sentinel::ws::{connect,read_next_ws_msg,request_join,WsStream,WsMsg,WsCmd};
 use odin_build;
 
-#[derive(Debug,EnumString)]
-#[strum(serialize_all="snake_case")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 enum OutputFormat { Rust, Ron, Json }
 
-
-#[derive(StructOpt)]
-#[structopt(about = "Delphire Sentinel websocket monitoring tool")]
-struct CliOpts {
-    /// run verbose
-    #[structopt(short)]
-    verbose: bool,
-
-    /// output time
-    #[structopt(short)]
-    time: bool,
-
-    /// produce formatted output
-    #[structopt(short)]
-    pretty: bool,
-
-    /// output format (rust,ron,json)
-    #[structopt(short,long,default_value="rust")]
-    format: OutputFormat,
+define_cli! { ARGS [about="Delphire Sentinel websocket monitoring tool"] = 
+    verbose: bool [help="run verbose", short, long],
+    time: bool [help="show time", short, long],
+    pretty: bool [help="format output", short, long],
+    format: OutputFormat [help="output format (rust, ron, json)", short, long, value_enum, default_value="rust"]
 
     //.. and more to follow
-}
-
-lazy_static! {
-    static ref ARGS: CliOpts = CliOpts::from_args();
 }
 
 #[tokio::main]

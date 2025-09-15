@@ -21,7 +21,6 @@ use std::{
 };
 use schedule::HrrrSchedules;
 use serde::{Deserialize,Serialize};
-use structopt::StructOpt;
 use chrono::{DateTime,Datelike,Timelike,Utc,SecondsFormat};
 use reqwest;
 use regex::Regex;
