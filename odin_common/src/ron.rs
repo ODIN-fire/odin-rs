@@ -17,6 +17,7 @@
 /// module with utility functions for RON serialization/deserialization
 /// useful for ODIN-to-ODIN messages
 
+use std::path::Path;
 use lazy_static::lazy_static;
 use ron::{ser::PrettyConfig, error::Result};
 use serde::{Serialize,Deserialize};
@@ -84,4 +85,10 @@ pub trait TypedCompactRon<'a> where Self: Serialize + Deserialize<'a> {
     fn try_from_typed_compact_ron (s: &'a str)->Option<Self> { 
         from_typed_compact_ron::<Self>(s) 
     }
+}
+
+pub fn from_path<T,P> (path: P)->Result<T> where T: for<'a> Deserialize<'a>, P: AsRef<Path> {
+    let bs = std::fs::read( path)?;
+    let t: T = ron::de::from_bytes( bs.as_slice())?;
+    Ok(t)
 }

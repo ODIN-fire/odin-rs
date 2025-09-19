@@ -141,7 +141,10 @@ class TrackSource {
             label: trackEntityLabelOpts( te, trackColor, heightRef)
         };
 
-        return new Cesium.Entity( entityOpts);
+        let entity = new Cesium.Entity( entityOpts);
+        entity._uiTrackEntry = te; // for entity selection
+
+        return entity;
     }
 
     createTrackInfoAsset (te) {
@@ -397,27 +400,32 @@ function handleWsUpdate (msg) {
         });
     }
 
-    msg.updated.forEach( (track) => {
-        let te = ts.trackEntries.get( track.icao24);
+    msg.updated.forEach( (track) => { // this is actually for updated and new entries
         let labelChanged = false;
-        if (te) {
+
+        let te = ts.trackEntries.get( track.icao24);
+        if (te) { // update
             if (te.track.date > track.date) return; // ignore
             track.trace = te.track.trace; // copy from previous so that we don't allocate a new array
+            track.trace.push( track.position); // add the current position to the trace
+
             te.track = track;
             if (track.callsign && te.label != track.callsign) {
                 labelChanged = true;
                 te.label = track.callsign;
             }
+            updateTrack( ts, te, labelChanged);
+
         } else { // a new track reported in an update
             track.trace = new data.CircularBuffer( config.maxTraceLength);
+            track.trace.push( track.position); // add the current position to the trace
+
             te = new TrackEntry( ts, track);
             ts.trackEntries.set( track.icao24, te);
+            addTrack(ts, te);
         }
-        track.trace.push( track.position); // add the current position to the trace
 
-        if (track.date > ts.date) ts.date = track.date;
-
-        updateTrack( ts, te, labelChanged);
+        if (track.date > ts.date) ts.date = track.date; // update source date
     });
 
     ui.updateListItem( trackSourceView, ts);
