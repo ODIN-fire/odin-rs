@@ -1,0 +1,11 @@
+ImageClassifierConfig(
+    name: "smoke_yolo11_640",
+    model_path: "$ODIN_ROOT/data/odin_onnx/smoke-yolov11.onnx",
+    model_width: 640,
+    model_height: 640,
+    
+    fit_policy: Scale,  // Scale, Pad, Mosaic
+    pad_rgb: (255, 0, 255),
+    //pad_rgb: (0,0,0).
+    mosaic_factor: 0.2    // overlap factor in mosaic image width [0..1]
+)

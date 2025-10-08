@@ -31,7 +31,7 @@ use odin_server::prelude::*;
 define_load_config!{}
 define_load_asset!{}
 
-pub const CESIUM_VERSION: &'static str = "1.133";
+pub const CESIUM_VERSION: &'static str = "1.134";
 
 /* #region CesiumService *************************************************************************************/
 
@@ -188,6 +188,7 @@ impl SpaService for ImgLayerService {
         spa.add_module( asset_uri!("imglayer.js"));
 
         spa.add_proxy("globe-natgeo", "https://services.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer");
+        spa.add_proxy("usgs-topo", "https://basemap.nationalmap.gov/ArcGIS/rest/services/USGSTopo/MapServer");
         spa.add_modified_proxy("globe-osm", "https://tile.openstreetmap.org", to_string_vec(OSM_HDR), empty_vec(), true, empty_vec());
         spa.add_modified_proxy("globe-otm", "https://tile.opentopomap.org", to_string_vec(OSM_HDR), empty_vec(), true, empty_vec());
 

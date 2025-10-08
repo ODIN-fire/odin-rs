@@ -103,6 +103,9 @@ var requestRenderMode = config.requestRenderMode;
 var pendingRenderRequest = false;
 var targetFrameRate = -1;
 
+var animationSecs = config.animationSecs;
+if (animationSecs === undefined) animationSecs = 3;
+
 var layerOrder = []; // populated by initLayerPanel calls from modules
 var layerOrderView = undefined; // showing the registered module layers
 var layerHierarchy = [];
@@ -389,6 +392,7 @@ function checkImagery() {
 function initViewWindow() {
     createViewWindow();
     positionsView = initPositionsView();
+    initViewParameters();
 }
 
 function createViewWindow() {
@@ -432,7 +436,8 @@ function createViewWindow() {
           ),
           ui.Panel("view parameters", false)(
             ui.CheckBox("render on-demand", toggleRequestRenderMode, "view.rm"),
-            ui.Slider("frame rate", "view.fr", setFrameRate)
+            ui.Slider("frame rate", "view.fr", setFrameRate),
+            ui.Slider("animation secs", "view.anim", setAnimationSecs)
           )
     );
 }
@@ -454,6 +459,12 @@ function initPositionsView() {
 
 function createViewIcon() {
     return ui.Icon("./asset/odin_cesium/camera.svg", (e)=> ui.toggleWindow(e,'view'), "camera view");
+}
+
+function initViewParameters() {
+    let e = ui.getSlider('view.anim');
+    ui.setSliderRange(e, 0, 5, 0.5, util.f_1);
+    ui.setSliderValue(e, animationSecs);
 }
 
 
@@ -1303,7 +1314,7 @@ function globalKeyDownHandler (event) {
         if (event.shiftKey) {
             if (event.keyCode >= 49 && event.keyCode <= 57) {
                 let i = Math.min(event.keyCode - 49, config.zoomLevels.length-1);
-                zoomToHeight( config.zoomLevels[i]);
+                zoomToHeight( config.zoomLevels[i], event.altKey);
             }
         }
     }
@@ -1311,9 +1322,11 @@ function globalKeyDownHandler (event) {
     if (event.shiftKey) {
         //console.log("@@ ", event);
         if (event.key == "Home") {
-            setHomeView();
+            setHomeView( event.altKey);
         } else if (event.key == "PageDown") {
-            setDownView();
+            setDownView( event.altKey);
+        } else if (event.key == "Escape") {
+            clearSelectedEntity();
         }
     }
 
@@ -1325,7 +1338,9 @@ function globalMouseClickHandler (event) {
         let cp = camera.positionCartographic;
         let pos = getCartographicMousePosition(event);
         pos.height = cp.height;
-        zoomTo( Cesium.Cartographic.toCartesian(pos));
+        let newCameraPos = Cesium.Cartographic.toCartesian(pos);
+
+        zoomTo( newCameraPos, event.altKey); // it alt/option is pressed we don't animate
     }
 }
 
@@ -1407,7 +1422,8 @@ function setViewFromFields() {
 
         viewer.camera.flyTo({
             destination: Cesium.Cartesian3.fromDegrees(lonDeg, latDeg, altM),
-            orientation: centerOrientation
+            orientation: centerOrientation,
+            duration: animationSecs
         });
     } else {
         alert("please enter latitude, longitude and altitude");
@@ -1433,43 +1449,62 @@ export function saveCamera() {
     //console.log(spec);
 }
 
-export function zoomToHeight (height) {
+export function zoomToHeight (height,instantaneous=false) {
     let cp = viewer.camera.position;
     let pNew = Cesium.Ellipsoid.WGS84.scaleToGeodeticSurface( cp, new Cesium.Cartesian3());
     let ds = Cesium.Cartesian3.magnitude(pNew);
     let a = (ds + height) / ds;
     Cesium.Cartesian3.multiplyByScalar( pNew, a, pNew);
 
-    zoomTo(pNew);
+    zoomTo(pNew,instantaneous);
 }
 
-export function zoomTo(cameraPos) {
+export function zoomTo(cameraPos,instantaneous=false) {
     saveCamera();
 
-    viewer.camera.flyTo({
-        destination: cameraPos,
-        orientation: centerOrientation
-    });
+    if (!instantaneous) {
+        viewer.camera.flyTo({
+            destination: cameraPos,
+            orientation: centerOrientation,
+            duration: animationSecs
+        });
+
+    } else {
+        viewer.camera.setView({
+            destination: cameraPos,
+            orientation: centerOrientation
+        });
+    }
 }
 
-function setInitialView () {
+function setInitialView (instantaneous=false) {
     let initPos = initPosition ? initPosition : homePosition;
-    setCamera( initPos);
+    setCamera( initPos, instantaneous);
 }
 
-export function setHomeView() {
-    setCamera(homePosition);
+export function setHomeView(instantaneous=false) {
+    setCamera(homePosition, instantaneous);
 }
 
-export function setCamera(camera) {
+export function setCamera(camera,instantaneous=false) {
     saveCamera();
 
     viewer.selectedEntity = undefined;
     viewer.trackedEntity = undefined;
-    viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(camera.lon, camera.lat, camera.alt),
-        orientation: centerOrientation
-    });
+    let cameraPos = Cesium.Cartesian3.fromDegrees(camera.lon, camera.lat, camera.alt);
+
+    if (!instantaneous) {
+        viewer.camera.flyTo({
+            destination: cameraPos,
+            orientation: centerOrientation,
+            duration: animationSecs
+        });
+    } else {
+        viewer.camera.setView({
+            destination: cameraPos,
+            orientation: centerOrientation
+        });
+    }
 }
 
 function setCameraFromSelection(event){
@@ -1490,7 +1525,7 @@ function setCameraName(event) {
 
 var minCameraHeight = 50000;
 
-export function setDownView() {
+export function setDownView(instantaneous=false) {
 
     // use the position we are looking at, not the current camera position
     const canvas = viewer.scene.canvas;
@@ -1505,10 +1540,18 @@ export function setDownView() {
 
         viewer.trackedEntity = undefined;
 
-        viewer.camera.flyTo({
-            destination: Cesium.Cartographic.toCartesian(pos),
-            orientation: centerOrientation
-        });
+        if (!instantaneous) {
+            viewer.camera.flyTo({
+                destination: Cesium.Cartographic.toCartesian(pos),
+                orientation: centerOrientation,
+                duration: animationSecs
+            });
+        } else {
+            viewer.camera.setView({
+                destination: Cesium.Cartographic.toCartesian(pos),
+                orientation: centerOrientation
+            });
+        }
     }
 }
 
@@ -1528,6 +1571,11 @@ export function toggleFullScreen(event) {
 function setFrameRate(event) {
     let v = ui.getSliderValue(event.target);
     setTargetFrameRate(v);
+}
+
+function setAnimationSecs(event) {
+    let v = ui.getSliderValue(event.target);
+    animationSecs = v;
 }
 
 //--- module layers

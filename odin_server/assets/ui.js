@@ -1700,7 +1700,7 @@ function _computeSliderValue(e, v) {
     let inc = e._uiStep;
     if (inc) {
         if (inc == 1) return Math.round(v);
-        else return minValue + Math.round((v - minValue) / inc) * inc;
+        else return minValue + Math.round( (v-minValue) *1000 / inc ) * inc/1000;
     } else {
         return v;
     }

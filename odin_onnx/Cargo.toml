@@ -1,0 +1,31 @@
+[package]
+name = "odin_onnx"
+version = "0.1.0"
+edition = "2024"
+
+
+[dependencies]
+
+# our ODIN crates
+odin_build = { workspace = true }
+odin_common = { workspace = true }
+odin_server = { workspace = true }
+
+lazy_static = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ron = { workspace = true }
+thiserror = { workspace = true }
+ndarray = { workspace = true }
+
+#ort = "1.16.3"
+ort = "2.0.0-rc.10"
+image = "0.25.8"
+
+[features]
+
+## inline crate-specific resources (configs and assets) into the executable (see odin_build)
+embedded_resources = []

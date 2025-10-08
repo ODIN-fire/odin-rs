@@ -97,8 +97,25 @@ export class WindFieldVisualization {
         this.renderChanged();
     }
 
+    spdColor (spd) {
+        let renderOpts = this.renderOpts;
+
+        if (renderOpts.colors) {
+            // spd is in m/sec
+            let i = Math.floor( spd / 2.2352); // renderOpts colors are in 5mph steps
+            if (i >= renderOpts.colors.length) {
+                i = renderOpts.colors.length-1;
+            } 
+            return renderOpts.colors[i];
+        } else {
+            return null;
+        }
+    }
+
     //--- those are called by our owner and have to be overridden
-    setVisible (showIt) {}
+    setVisible (showIt) {} // set visibility (but keep primitives)
+    clear() {} // set invisible and release all resources
+
     renderChanged() {}
     updateDisplayPanel() {}
     startViewChange() {}
@@ -132,18 +149,27 @@ export class AnimField extends WindFieldVisualization {
                 this.setStatus( WindFieldStatus.SHOWING);
 
             } else {
-                AnimField.animShowing--;
+                if (AnimField.animShowing > 0) AnimField.animShowing--;
                 if (this.particleSystem) {
-                    // TODO - do we have to stop rendering first ?
-                    this.particleSystem.forEachPrimitive( p=> p.show = false);
-                    if (AnimField.animShowing == 0) {                        
-                        odinCesium.setRequestRenderMode(true);
-                        odinCesium.requestRender();
+                    if (AnimField.animShowing == 0) {
+                        odinCesium.setRequestRenderMode(true)
                     }
+                    this.particleSystem.forEachPrimitive( p=> p.show = false);
                     this.setStatus( WindFieldStatus.LOADED);
                 }
+                odinCesium.requestRender();
             }
+        }
+    }
 
+    clear () {
+        this.setVisible(false);
+        this.setStatus( WindFieldStatus.REMOTE);
+
+        if (this.particleSystem){
+            this.particleSystem.clearFramebuffers();
+            this.particleSystem.release();
+            this.particleSystem = undefined;
         }
     }
 
@@ -320,58 +346,29 @@ export class VectorField extends WindFieldVisualization {
         }
     }
 
+    clear () {
+        this.setVisible(false);
+        this.pointPrimitive = undefined;
+        this.linePrimitive = undefined;
+        this.vectors = undefined;
+        this.setStatus( WindFieldStatus.REMOTE);
+    }
+
     async loadVectorsFromUrl() {
         let points = new Cesium.PointPrimitiveCollection();
         let vectors = []; // array of GeometryInstances
         let i = 0;
-        let j = 0;
-        let renderOpts = this.renderOpts;
 
         let dc = new Cesium.DistanceDisplayConditionGeometryInstanceAttribute(0,50000);
         let vecAttrs = {  distanceDisplayCondition: dc };
-        let vecClrs = [renderOpts.color];
-        
-        function procLine (line) {
-            if (i > 1) { // vector line
-                let values = util.parseCsvValues(line);
-                if (values.length == 7) { // 2 cartesian3 + spd
-                    let p0 = new Cesium.Cartesian3(values[0],values[1],values[2]);
-                    let p1 = new Cesium.Cartesian3(values[3],values[4],values[5]);
-    
-                    //let spd = values[6];
             
-                    let pp = points.add({
-                        position: p0,
-                        pixelSize: renderOpts.pointSize,
-                        color: renderOpts.color
-                    });
-                    pp.distanceDisplayCondition = new Cesium.DistanceDisplayCondition(0,150000);
-                    // pp.scaleByDistance = new Cesium.NearFarScalar(1.5e2, 15, 8.0e6, 0.0);
-                                
-                    vectors[j++] = new Cesium.GeometryInstance({
-                        geometry: new Cesium.PolylineGeometry({
-                            positions: [p0,p1],
-                            colors: vecClrs,
-                            width: renderOpts.strokeWidth,
-                        }),
-                        attributes:  vecAttrs
-                    });
-                }
-            } else if (i > 0) { // header line (ignore)
-            } else { // prefix comment line "# columns: X, rows: Y"
-                let m = line.match(csvVectorPrefixLine);
-                if (m) {
-                    let len = parseInt(m[1]);
-                    vectors = Array(len);
-                }
-            }
-            i++;
-        };
-    
         let url = this.dataUrl();
 
         this.setStatus( WindFieldStatus.LOADING);
-        await util.forEachTextLine( url, procLine);
+        await util.forEachTextLine( url, (line)=> {
+            this.procLine( line, i, points, vectors, vecAttrs);
+            i++;
+        });
         console.log("loaded ", i-2, " vectors from ", url);
 
         this.vectors = vectors;
@@ -381,6 +378,43 @@ export class VectorField extends WindFieldVisualization {
         odinCesium.addPrimitive(this.pointPrimitive);
         if (this.linePrimitive) odinCesium.addPrimitive(this.linePrimitive);
         odinCesium.requestRender();
+    }
+
+    procLine (line, i, points, vectors, vecAttrs) {
+        if (i > 1) { // vector line
+            let values = util.parseCsvValues(line);
+            if (values.length == 7) { // 2 cartesian3 + spd
+                let p0 = new Cesium.Cartesian3(values[0],values[1],values[2]);
+                let p1 = new Cesium.Cartesian3(values[3],values[4],values[5]);
+
+                let spd = values[6];
+                let clr = this.spdColor( spd);
+        
+                let pp = points.add({
+                    position: p0,
+                    pixelSize: this.renderOpts.pointSize,
+                    color: clr
+                });
+                pp.distanceDisplayCondition = new Cesium.DistanceDisplayCondition(0,150000);
+                // pp.scaleByDistance = new Cesium.NearFarScalar(1.5e2, 15, 8.0e6, 0.0);
+                            
+                vectors.push( new Cesium.GeometryInstance({
+                    geometry: new Cesium.PolylineGeometry({
+                        positions: [p0,p1],
+                        colors: [clr],
+                        width: this.renderOpts.strokeWidth,
+                    }),
+                    attributes:  vecAttrs
+                }));
+            }
+        } else if (i > 0) { // header line (ignore)
+        } else { // prefix comment line "# length:N_VECS"
+            let m = line.match(csvVectorPrefixLine);
+            if (m) {
+                let len = parseInt(m[1]);
+                vectors = Array(len);
+            }
+        }
     }
 
     createVectorPrimitive(vectors) {
@@ -459,13 +493,19 @@ export class ContourField extends WindFieldVisualization {
         }
     }
 
+    clear () {
+        this.setVisible(false);
+        this.dataSource = undefined;
+        this.setStatus( WindFieldStatus.REMOTE);
+    }
+
     async loadContoursFromUrl() {
         let url = this.dataUrl();
 
         let geoJsonRenderOpts = { 
-            stroke: this.renderOpts.strokeColor, 
+            material: this.renderOpts.colors[0], 
             strokeWidth: this.renderOpts.strokeWidth, 
-            fill: this.renderOpts.fillColors[0]
+            //fill: this.renderOpts.colors[0]
         };
 
         let response = await fetch( url);
@@ -491,15 +531,45 @@ export class ContourField extends WindFieldVisualization {
         for (const e of entities) {
             let props = e.properties;
             if (props) {
-                let minSpeed = this.getPropValue(props, "minSpeed");
-                let maxSpeed = this.getPropValue(props, "maxSpeed");
-
-                if (minSpeed) {
-                    let i = Math.max(0, Math.min( Math.trunc(minSpeed / 5), renderOpts.fillColors.length-1)); // minSpeed < 0 ??
-                    e.polygon.material = renderOpts.fillColors[i];
-                }
+                this.setPolygonAttrs( e, this.getPropValue(props, "minSpeed"), this.getPropValue(props, "maxSpeed"));
+                //this.setPolylineAttrs( e, this.getPropValue(props, "windSpeed"));
             }
         }
+    }
+
+    renderChanged() {
+        let entities = this.dataSource.entities.values;
+        let renderOpts = this.renderOpts;
+
+        for (const e of entities) {
+            let props = e.properties;
+            if (props) {
+                this.setPolygonAttrs( e, this.getPropValue(props, "minSpeed"), this.getPropValue(props, "maxSpeed"));
+                //this.setPolylineAttrs( e, this.getPropValue(props, "windSpeed"));
+            }
+        }
+
+        odinCesium.requestRender();
+    }
+
+    setPolygonAttrs (entity, minSpeed, maxSpeed) {
+        let renderOpts = this.renderOpts;
+        let clrIdx = Math.floor( (maxSpeed + minSpeed)/2 / 2.2352);
+        let alpha = renderOpts.alpha * (clrIdx +1) / renderOpts.colors.length;
+
+        entity.polygon.material = renderOpts.colors[clrIdx].withAlpha( alpha);
+        entity.polygon.height = 0;
+        entity.polygon.outline = false;
+        entity.polygon.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+    }
+
+    setPolylineAttrs (entity, windSpeed) {
+        let renderOpts = this.renderOpts;
+        let clrIdx = Math.floor( (windSpeed-2.2352) / 2.2352);
+
+        entity.polyline.width = renderOpts.strokeWidth;
+        entity.polyline.material = renderOpts.colors[clrIdx];
+        entity.polyline.clampToGround = true;
     }
 
     getPropValue(props,key) {

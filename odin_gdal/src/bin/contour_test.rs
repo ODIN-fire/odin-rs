@@ -26,7 +26,7 @@ define_cli! { ARGS [about="create contour polygons from GDAL data source"] =
     amin: Option<String> [help="attr_min_name", long],
     polygon: bool [help="polygonize", short, long],
     band: i32 [help="band number of input band (1 based)", short, long],
-    interval: i32 [help="interval size", short, long],
+    interval: f64 [help="interval size", short, long],
     src_filename: String [help="input filename"],
     tgt_filename: String [help="output filename"]
 }

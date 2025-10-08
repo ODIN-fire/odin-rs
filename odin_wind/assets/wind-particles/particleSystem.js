@@ -91,13 +91,13 @@ export class ParticleSystem {
     applyUserInput(userInput) {
         this.userInput = {...userInput};
 
-            this.forEachPrimitive( p=> p.show = false);
+        this.forEachPrimitive( p=> p.show = false);
 
         this.particlesComputing.updateUserInputUniforms(userInput);
         this.particlesRendering.updateUserInputUniforms(userInput);
         this.refreshParticles();
 
-            this.forEachPrimitive( p=> p.show = true);
+        this.forEachPrimitive( p=> p.show = true);
     }
 
     applyViewerParameters(viewerParameters) {

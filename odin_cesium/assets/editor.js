@@ -21,8 +21,9 @@ import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
 import * as cesium from "./odin_cesium.js";
 
-const viewer = cesium.viewer;
 const ellipsoid = Cesium.Ellipsoid.WGS84;
+
+const viewer = await cesium.viewerReadyPromise;
 
 /* #region test *****************************************************************************/
 

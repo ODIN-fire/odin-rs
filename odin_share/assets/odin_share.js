@@ -69,8 +69,7 @@ var ownRoleList = initOwnRoleList();
 var extRoleList = initExtRoleList();
 var msgList = initMsgList();
 
-var shareDataSource = new Cesium.CustomDataSource("share");
-odinCesium.addDataSource(shareDataSource);
+var shareDataSource = odinCesium.createDataSource("share", config.layer.show);
 
 var selItem = undefined; // the (interactively) selected item
 

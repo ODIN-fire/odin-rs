@@ -1,0 +1,11 @@
+ImageClassifierConfig(
+    name: "fire-detection-engine-onnx",
+    model_path: "$ODIN_ROOT/data/odin_onnx/fde-u8.onnx",
+    model_width: 224,
+    model_height: 224,
+    
+    fit_policy: Scale,  // Scale, Pad, Mosaic
+    pad_rgb: (255, 0, 255),
+    //pad_rgb: (0,0,0).
+    mosaic_factor: 0.2    // overlap factor in mosaic image width [0..1]
+)

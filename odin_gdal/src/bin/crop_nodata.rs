@@ -15,29 +15,29 @@
 use std::path::Path;
 use gdal::Dataset;
 use odin_common::define_cli;
-use odin_gdal::{crop_no_data,to_csl_string_list};
+use odin_gdal::{crop_no_data, get_data_bounds, to_csl_string_list};
 use odin_gdal::errors::Result;
 
 define_cli! { ARGS [about="crop provided GDAL raster file so that it does not contain NO_DATA values"] =
-    nodata_threshold: f64 [help="nodata threshold [0..1]", long, short, default_value="0.2"],
     co: Vec<String> [help="create options", long],
     src_path: String [help="input filename"],
-    tgt_path: String [help="output filename"]
+    tgt_path: Option<String> [help="(optional) output filename (only report crop boundaries if not present"]
 }
 
 fn main()->Result<()> {
     let src_path = Path::new(ARGS.src_path.as_str());
     let src_ds = Dataset::open(src_path)?;
-    let tgt_path = Path::new(ARGS.tgt_path.as_str());
+    let (width,height) = src_ds.raster_size();
 
-    let create_opts = to_csl_string_list(&ARGS.co)?;
-    let nodata_threshold = ARGS.nodata_threshold;
+    println!("original size: width = {width}, height = {height}");
+    let bbox = get_data_bounds( &src_ds, 1)?;
+    println!("cropped size:  width = {}, height = {}", bbox.east - bbox.west, bbox.south - bbox.north);
+    println!("cropped to {bbox:?}");
 
-    match crop_no_data( &src_ds, nodata_threshold, tgt_path, create_opts)  {
-        Ok(bbox) => {
-            println!("cropped to {bbox:?}");
-            Ok(())
-        }
-        Err(e) => Err(e)
+    if let Some(tgt_pathname) = &ARGS.tgt_path {
+        let tgt_path = Path::new( tgt_pathname);
+        let create_opts = to_csl_string_list(&ARGS.co)?;
+        crop_no_data( &src_ds, tgt_path, create_opts)?;
     }
+    Ok(())
 }

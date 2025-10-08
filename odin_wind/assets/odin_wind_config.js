@@ -1,5 +1,15 @@
 // example windninja_service.js module config
 
+const windSpeedColors = [ // in 5mph increments
+    Cesium.Color.fromCssColorString("#d9cfff"), // < 5mph
+    Cesium.Color.fromCssColorString("#20d4f8"),   // < 10mph
+    Cesium.Color.fromCssColorString("#0bd25e"), // < 15mph
+    Cesium.Color.fromCssColorString("#ddff00"), // < 20mph
+    Cesium.Color.fromCssColorString("#ffc400"), // < 25mph
+    Cesium.Color.fromCssColorString("#FF4500"),   // < 30mph
+    Cesium.Color.fromCssColorString("#d000d0")    // > 30mph
+];
+
 export const config = {
     layer: {
         name: "/weather/wind",
@@ -21,9 +31,9 @@ export const config = {
     },
 
     vectorRender: { 
-        pointSize: 4.0, 
+        pointSize: 5.0, 
         strokeWidth: 1.5, 
-        color: Cesium.Color.fromCssColorString('blue')
+        colors: windSpeedColors
     },
 
     animRender: { 
@@ -31,7 +41,7 @@ export const config = {
         maxParticles: 4096, 
         lineWidth: 1.5, 
         color: Cesium.Color.fromCssColorString('yellow'), 
-        speedFactor: 0.2, 
+        speedFactor: 0.12, 
         particleHeight: 0.0, 
         fadeOpacity: 0.99, 
         dropRate: 0.002, 
@@ -39,14 +49,8 @@ export const config = {
     },
 
     contourRender: { 
-        strokeWidth: 2.0, 
-        strokeColor: Cesium.Color.fromCssColorString('hotpink'), 
-        fillColors:[
-            Cesium.Color.fromCssColorString('#f0000000'),
-            Cesium.Color.fromCssColorString('#f0000040'),
-            Cesium.Color.fromCssColorString('#f0000060'),
-            Cesium.Color.fromCssColorString('#f0000080'),
-            Cesium.Color.fromCssColorString('#f00000a0')
-        ]
+        strokeWidth: 1.5,
+        alpha: 0.9,
+        colors: windSpeedColors
     }
 };

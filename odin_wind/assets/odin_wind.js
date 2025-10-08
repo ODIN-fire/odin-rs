@@ -109,7 +109,7 @@ class ForecastRegion {
         }
         if (nPurge>0) {
             for (let i=0; i<nPurge; i++) {
-                forecasts[i].hideWindFields(); // if they are purged we can't control their visibility anymore
+                forecasts[i].clearWindFields(); // if they are purged we can't control their visibility anymore
                 ui.removeListItemIndex( forecastView, 0);
             }
             forecasts.splice(0,nPurge);
@@ -235,6 +235,7 @@ class Forecast {
         this[selDisplay][selSource].setVisible( showIt); 
     }
 
+    // this keeps them loaded but sets primitives invisible
     hideWindFields () {
         this.animation.windNinja.setVisible(false);
         this.vector.windNinja.setVisible(false);
@@ -247,6 +248,21 @@ class Forecast {
         this.animation.hrrr_80m.setVisible(false);
         this.vector.hrrr_80m.setVisible(false);
         this.contour.hrrr_80m.setVisible(false);
+    }
+
+    // this releases all resources and causes a reload of the data files upon next display
+    clearWindFields () {
+        this.animation.windNinja.clear();
+        this.vector.windNinja.clear();
+        this.contour.windNinja.clear();
+
+        this.animation.hrrr_10m.clear();
+        this.vector.hrrr_10m.clear();
+        this.contour.hrrr_10m.clear();
+
+        this.animation.hrrr_80m.clear();
+        this.vector.hrrr_80m.clear();
+        this.contour.hrrr_80m.clear();
     }
 }
 
@@ -452,22 +468,29 @@ function createWindow() {
                 ui.ColorField("color", "wind.anim.color", true, animColorChanged),
             )
         ),
+        // TODO - those fields should be created from config
         ui.Panel("vector display")(
             ui.Slider("point size", "wind.vector.point_size", vectorPointSizeChanged),
             ui.Slider("line width", "wind.vector.width", vectorLineWidthChanged),
-            ui.ColorField("line color", "wind.vector.color", true, vectorLineColorChanged),
-
+            ...colorFields( vectorRender, "wind.vector", vectorLineColorChanged)
         ),
         ui.Panel("contour display")(
             ui.Slider("stroke width", "wind.contour.stroke_width", contourStrokeWidthChanged),
-            ui.ColorField("stroke color", "wind.contour.stroke_color", true, contourStrokeColorChanged),
-            ui.ColorField("0-5mph", "wind.contour.color0", true, contourFillColorChanged),
-            ui.ColorField("5-10mph", "wind.contour.color1", true, contourFillColorChanged),
-            ui.ColorField("10-15mph", "wind.contour.color2", true, contourFillColorChanged),
-            ui.ColorField("15-20mph", "wind.contour.color3", true, contourFillColorChanged),
-            ui.ColorField(">20mph", "wind.contour.color4", true, contourFillColorChanged)
+            ui.Slider("fill alpha", "wind.contour.alpha", contourAlphaChanged),
+            ...colorFields( contourRender, "wind.contour", contourColorChanged)
         )
     );
+}
+
+function colorFields (renderOpts, group, callback) {
+    let fields = [];
+    for (let i=0; i<renderOpts.colors.length; i++) {
+        let spd = i*5;
+        let lbl = (i < renderOpts.colors.length-1) ? `${spd}-${spd+5}mph` : `>${spd}mph`;
+        let id = `${group}.color${i}`;
+        fields.push( ui.ColorField( lbl, id, true, callback));
+    }
+    return fields;
 }
 
 function initDisplayCb() {
@@ -477,6 +500,14 @@ function initDisplayCb() {
 
 function isAnimDisplay () {
     return selDisplay == "animation";
+}
+
+function isVectorDisplay () {
+    return selDisplay == "vector";
+}
+
+function isContourDisplay () {
+    return selDisplay == "contour";
 }
 
 function initSourceCb() {
@@ -491,7 +522,7 @@ function initRegionView() {
             { name: "status", width: "3rem", attrs: [], map: e => e.status },
             { name: "fcs", tip: "number of available forecasts",  width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.nForecasts() },
             ui.listItemSpacerColumn(1),
-            { name: "sub", tip: "subscribe", width: "2.1rem", attrs: [], map: e => ui.createCheckBox(e.isSubscribed, toggleRegionSubscribe) },
+            { name: "upd", tip: "update", width: "2.1rem", attrs: [], map: e => ui.createCheckBox(e.isSubscribed, toggleRegionSubscribe) },
             { name: "show", tip: "show region bbox", width: "2.1rem", attrs: [], map: e => ui.createCheckBox( e.isRectShowing(), toggleShowRegion) }
         ]);
     }
@@ -519,31 +550,31 @@ function initAnimDisplayControls() {
     let r = animRender;
 
     e = ui.getSlider("wind.anim.particles");
-    ui.setSliderRange(e, 0, 128, 16);
+    ui.setSliderRange(e, 0, 128, 16, util.f_0);
     ui.setSliderValue(e, r.particlesTextureSize);
 
     e = ui.getSlider("wind.anim.height");
-    ui.setSliderRange(e, 0, 10000, 500);
+    ui.setSliderRange(e, 0, 10000, 500, util.f_0);
     ui.setSliderValue(e, r.particleHeight);
 
     e = ui.getSlider("wind.anim.fade_opacity");
-    ui.setSliderRange(e, 0.8, 1.0, 0.01, new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }));
+    ui.setSliderRange(e, 0.8, 1.0, 0.01, util.f_2);
     ui.setSliderValue(e, r.fadeOpacity);
 
     e = ui.getSlider("wind.anim.drop");
-    ui.setSliderRange(e, 0.0, 0.01, 0.001, new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 3 }));
+    ui.setSliderRange(e, 0.0, 0.01, 0.001, util.f_3);
     ui.setSliderValue(e, r.dropRate);
 
     e = ui.getSlider("wind.anim.drop_bump");
-    ui.setSliderRange(e, 0.0, 0.05, 0.005, new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 3 }));
+    ui.setSliderRange(e, 0.0, 0.05, 0.005, util.f_3);
     ui.setSliderValue(e, r.dropRateBump);
 
     e = ui.getSlider("wind.anim.speed");
-    ui.setSliderRange(e, 0.0, 0.3, 0.02, new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }));
+    ui.setSliderRange(e, 0.0, 0.3, 0.02, util.f_2);
     ui.setSliderValue(e, r.speedFactor);
 
     e = ui.getSlider("wind.anim.width");
-    ui.setSliderRange(e, 0.0, 3.0, 0.5, new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }));
+    ui.setSliderRange(e, 0.0, 3.0, 0.5, util.f_1);
     ui.setSliderValue(e, r.lineWidth);
 
     e = ui.getField("wind.anim.color");
@@ -554,31 +585,37 @@ function initVectorDisplayControls() {
     var e = undefined;
 
     e = ui.getSlider("wind.vector.point_size");
-    ui.setSliderRange(e, 0, 8, 0.5);
+    ui.setSliderRange(e, 0, 8, 0.5, util.f_1);
     ui.setSliderValue(e, vectorRender.pointSize);
 
     e = ui.getSlider("wind.vector.width");
-    ui.setSliderRange(e, 0, 5, 0.2);
+    ui.setSliderRange(e, 0, 5, 0.2, util.f_1);
     ui.setSliderValue(e, vectorRender.strokeWidth);
 
-    e = ui.getField("wind.vector.color");
-    ui.setField(e, vectorRender.color.toCssHexString());
+    for (var i=0; i<vectorRender.colors.length; i++) {
+        e = ui.getField(`wind.vector.color${i}`);
+        if (e) {
+            e._uiIdx = i;
+            ui.setField(e, vectorRender.colors[i].toCssHexString());
+        }
+    }
 }
 
 function initContourDisplayControls() {
     var e = undefined;
 
     e = ui.getSlider("wind.contour.stroke_width");
-    ui.setSliderRange(e, 0, 3, 0.5);
+    ui.setSliderRange(e, 0, 3, 0.5, util.f_1);
     ui.setSliderValue(e, contourRender.strokeWidth);
 
-    e = ui.getField("wind.contour.stroke_color");
-    ui.setField(e, contourRender.strokeColor.toCssHexString());
+    e = ui.getSlider("wind.contour.alpha");
+    ui.setSliderRange(e, 0, 1.0, 0.1, util.f_1);
+    ui.setSliderValue(e, contourRender.alpha);
 
-    for (var i = 0; i<contourRender.fillColors.length; i++) {
+    for (var i = 0; i<contourRender.colors.length; i++) {
         e = ui.getField(`wind.contour.color${i}`);
         if (e) {
-            ui.setField(e, contourRender.fillColors[i].toCssHexString());
+            ui.setField(e, contourRender.colors[i].toCssHexString());
         }
     }
 }
@@ -684,7 +721,7 @@ function toggleShowWindField (event) {
 function clearWindFields() {
     if (selectedRegion) {
         for (let forecast of selectedRegion.forecasts) {
-            forecast.hideWindFields();
+            forecast.clearWindFields();
         }
         ui.updateListItems( forecastView);
     }
@@ -826,10 +863,14 @@ function vectorLineWidthChanged(event) {
 }
 
 function vectorLineColorChanged(event) {
+    let e = event.target;
     let clr= Cesium.Color.fromCssColorString( event.target.value);
     if (clr) {
-        vectorRender.color = clr;
-        if (selectedForecast && isVectorDisplay()) { selectedForecast.renderChanged();}
+        let idx = e._uiIdx;
+        if (idx >= 0 && idx < vectorRender.colors.length) {
+            vectorRender.colors[idx] = clr;
+            if (selectedForecast && isVectorDisplay()) { selectedForecast.renderChanged(); }
+        }
     }
 }
 
@@ -842,18 +883,25 @@ function contourStrokeWidthChanged(event) {
     if (selectedForecast && isContourDisplay()) { selectedForecast.renderChanged();}
 }
 
-function contourStrokeColorChanged(event) {
+function contourColorChanged(event) {
+    let idx = colorIndex( event.target);
     let clr= Cesium.Color.fromCssColorString( event.target.value);
+    console.log("@@ change color", idx);
     if (clr) {
-        contourRender.strokeColor = clr;
+        contourRender.colors[idx] = clr;
         if (selectedForecast && isContourDisplay()) { selectedForecast.renderChanged();}
     }
 }
 
-function contourFillColorChanged(event) {
-    // TODO
+function contourAlphaChanged(event) {
+    contourRender.alpha =  ui.getSliderValue(event.target);
+    if (selectedForecast && isContourDisplay()) { selectedForecast.renderChanged();}
 }
 
 /* #endregion contour display settings */
 
+function colorIndex (e) {
+    let id = e.id;
+    return parseInt( id.charAt( id.length-1));
+}
 

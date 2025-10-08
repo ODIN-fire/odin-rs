@@ -28,7 +28,7 @@ use odin_common::{
     fs::{path_str_to_fname, replace_env_var_path, replace_filename}, geo::GeoRect, 
     json_writer::{JsonWritable,JsonWriter}, push_all_str, 
     ron::{TypedCompactRon, from_typed_compact_ron, to_typed_compact_ron}, 
-    sqrt, strings::extract_json_payload_object, utm::UtmRect, BoundingBox
+    sin, cos, atan, atan2, sqrt, strings::extract_json_payload_object, utm::UtmRect, BoundingBox
 };
 use odin_action::DynDataRefAction;
 use odin_dem::DemSource;
@@ -337,6 +337,20 @@ impl ForecastRegion {
         fcs.push_to_ringbuffer( forecast);
         fcs.back()
     }
+
+    pub fn purge_old_forecasts (&mut self, cut_off: DateTime<Utc>) {
+        let mut fcs = &mut self.forecasts;
+
+        while let Some(f) = fcs.front() {
+            if f.date < cut_off {
+                fcs.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub fn has_forecasts (&self)->bool { !self.forecasts.is_empty() }
 }
 
 impl JsonWritable for ForecastRegion {
@@ -356,9 +370,17 @@ impl JsonWritable for ForecastRegion {
 /// this is the data store snapshots are based on
 pub type ForecastStore = HashMap<Arc<String>,ForecastRegion>;
 
-/// message to request action execution with the current HotspotStore
+/// message to request action execution with the current ForecastStore
 #[derive(Debug)] 
 pub struct ExecSnapshotAction(pub DynDataRefAction<ForecastStore>);
+
+pub fn purge_old_forecasts (fcs: &mut ForecastStore, cut_off: DateTime<Utc>) {
+    for fcr in fcs.values_mut() {
+        fcr.purge_old_forecasts(cut_off);
+    }
+
+    fcs.retain( |_,fcr| { fcr.has_forecasts()} );
+}
 
 pub fn forecast_regions_to_json (fcs: &ForecastStore)->String {
     let mut  w = JsonWriter::with_capacity( fcs.len() * 1024);
@@ -373,6 +395,8 @@ pub fn forecast_regions_to_json (fcs: &ForecastStore)->String {
     w.to_string()
 }
 
+// this is saving huvw data as a CSV grid with the wind speed components for each grid position
+// it is used as input data for particle system animations
 pub fn write_huvw_csv_grid<P> (ds: &Dataset, path: P, bands: &[usize])->Result<()> where P: AsRef<Path> {
     if bands.len() < 3 { return Err( errors::OdinWindError::OpFailedError("not enough bands for huvw grid".into())) }
 
@@ -389,7 +413,7 @@ pub fn write_huvw_csv_grid<P> (ds: &Dataset, path: P, bands: &[usize])->Result<(
     let v_band = ds.rasterband(bands[2])?;
 
     // the w band is optional (we might only have horizontal wind components in the input dataset)
-    let w_band = if bands.len() > 3 { Some(ds.rasterband(3)?) } else { None };
+    let w_band = if bands.len() > 3 { Some(ds.rasterband(bands[3])?) } else { None };
 
     let mut h_line: Vec<f32> = vec![0.0; cols];
     let mut u_line: Vec<f32> = vec![0.0; cols];
@@ -425,18 +449,20 @@ pub fn write_huvw_csv_grid<P> (ds: &Dataset, path: P, bands: &[usize])->Result<(
     Ok(())
 }
 
+// return a wind speed related factor we apply to the cell size
+fn cell_scale_factor (spd: f64) ->f64 {
+    if spd < 2.2352       { 0.4 }  // < 5 mph
+    else if spd < 4.4704  { 0.5 }  // < 10 mph
+    else if spd < 6.7056  { 0.6 }  // < 15 mph
+    else if spd < 8.9408  { 0.7 }  // < 20 mph
+    else if spd < 13.4112 { 0.8 }  // < 30 mph
+    else                  { 0.9 }  // > 30 mph
+}
+
 /// note that vector origins are in ECEF and the length is relative (to the cell size) for display purposes.
 /// Note also that the input dataset has to be a WGS84 grid and x- and y- resolution (cell size) should be the same
 pub fn write_huvw_csv_cell_vectors<P> (ds: &Dataset, path: P, mesh_res: f64, bands: &[usize])->Result<()> where P: AsRef<Path> {
     if bands.len() < 3 { return Err( errors::OdinWindError::OpFailedError("not enough bands for huvw grid".into())) }
-
-    // somewhat arbitrary - we might have a color coded version with fixed lengths in the future
-    fn cell_scale_factor (spd: f64) ->f64 {
-        if spd < 2.2352      { 0.2 }  // < 5 mph
-        else if spd < 4.4704 { 0.4 }  // < 10 mph
-        else if spd < 8.9408 { 0.6 }  // < 20 mph
-        else                 { 0.8 }  // >= 20 mph
-    }
 
     let (cols,rows) = ds.raster_size();
     let a = ds.geo_transform()?;
@@ -453,7 +479,7 @@ pub fn write_huvw_csv_cell_vectors<P> (ds: &Dataset, path: P, mesh_res: f64, ban
     let v_band = ds.rasterband(bands[2])?;
 
     // the w band is optional (we might only have horizontal wind components in the input dataset)
-    let w_band = if bands.len() > 3 { Some(ds.rasterband(3)?) } else { None };
+    let w_band = if bands.len() > 3 { Some(ds.rasterband(bands[3])?) } else { None };
 
     let mut h_line: Vec<f32> = vec![0.0; cols];
     let mut u_line: Vec<f32> = vec![0.0; cols];
@@ -471,7 +497,9 @@ pub fn write_huvw_csv_cell_vectors<P> (ds: &Dataset, path: P, mesh_res: f64, ban
         read_row( &u_band, j as isize, u_line.as_mut_slice())?;
         read_row( &v_band, j as isize, v_line.as_mut_slice())?;
 
-        if let Some(w_band) = &w_band { read_row( w_band, j as isize, w_line.as_mut_slice())?; }
+        if let Some(w_band) = &w_band { 
+            read_row( w_band, j as isize, w_line.as_mut_slice())?; 
+        }
 
         for i in 0..cols {
             let h = h_line[i] as f64;  // TODO - does this include wind height or do we have to add it explicitly?
@@ -479,7 +507,7 @@ pub fn write_huvw_csv_cell_vectors<P> (ds: &Dataset, path: P, mesh_res: f64, ban
             let v = v_line[i] as f64;
             let w = w_line[i] as f64;
 
-            let spd = sqrt(u*u + v*v + w*w);
+            let spd = sqrt(u*u + v*v + w*w); // in m/s
 
             // the grid values are for the respective grid cell centers. There is no rotation
             let lon_deg = x0 + (cx * i as f64) + cx2; // grid point longitude (degrees)
@@ -487,15 +515,22 @@ pub fn write_huvw_csv_cell_vectors<P> (ds: &Dataset, path: P, mesh_res: f64, ban
             let cp = Cartographic::from_degrees( lon_deg, lat_deg, h);
             let p: Cartesian3 = cp.into();
 
-            let s = cell_scale_factor(spd) * mesh_res;  // length of display vector in [m]
-            let f = s / spd;
 
-            let su = u * f;
-            let sv = v * f;
-            let sw = w * f;
+            // those angles are geodetic
+            let alpha = atan2( v, u); // bearing
+            let beta = atan2( w, sqrt( u*u + v*v)); // pitch
+
+            // with cell size < 1000m we can just approximate geodetic as cartesian
+            let s = cell_scale_factor(spd);  // relative length of vector in deg
+            let d_lon = cx*s * cos(alpha);
+            let d_lat = -cy*s * sin(alpha);
+            let d_h = mesh_res*s * sin(beta);
+
+            let cp1 = Cartographic::from_degrees((lon_deg + d_lon), lat_deg + d_lat, h + d_h);
+            let p1: Cartesian3 = cp1.into();
 
             // since cell size is assumed to be > 100m we don't need decimals. These vectors are only for display
-            write!( buf, "{:.0},{:.0},{:.0},{:.0},{:.0},{:.0},{:.1}\n", p.x, p.y, p.z, p.x+su, p.y+sv, p.z+sw, spd);
+            write!( buf, "{:.0},{:.0},{:.0},{:.0},{:.0},{:.0},{:.1}\n", p.x, p.y, p.z, p1.x, p1.y, p1.z, spd);
         }
     }
 
@@ -510,10 +545,11 @@ pub fn write_windspeed_contour<P> (ds: &Dataset, path: P, band: usize) -> Result
 
     contourer
         .set_band( band as i32)
-        .set_interval(5)
-        .set_poly()
+        .set_interval( 2.2352) // in m/sec, 5mph steps
+        .set_poly()  // use polylines since polygon outlines cannot be clamped to ground and accumulative alpha channel fill looks distorted
         .set_attr_min_name("minSpeed")?
         .set_attr_max_name("maxSpeed")?
+        //.set_attr_name("windSpeed")?
         .set_quiet()
         .exec()?;
 

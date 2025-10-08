@@ -21,7 +21,7 @@ use gdal::spatial_ref::SpatialRef;
 use gdal_sys::{GDALProgressFunc, GDALTermProgress};
 use gdal_sys::OGRFieldType::OFTInteger;
 use gdal_sys::{GDALDatasetH, OGRDataSourceH, GDALContourGenerateEx, CSLConstList, GDALGetRasterBand, OGR_DS_CreateLayer, OGRLayerH, OGRwkbGeometryType, OGR_L_GetLayerDefn};
-use libc::{c_int, c_uint};
+use libc::{c_double, c_int, c_uint};
 use crate::get_driver_name_from_filename;
 use crate::errors::{Result, last_gdal_error, misc_error, OdinGdalError, reset_last_gdal_error};
 
@@ -32,7 +32,7 @@ pub struct ContourBuilder <'a> {
     src_band: Option<gdal_sys::GDALRasterBandH>,
     tgt_layer_name: CString,
     field_id_index: Option<c_int>,
-    interval: Option<c_int>,
+    interval: Option<c_double>,
     attr_min_name: Option<CString>,
     attr_min_id: Option<c_int>,
     attr_max_name: Option<CString>,
@@ -79,8 +79,8 @@ impl <'a> ContourBuilder<'a> {
         }
     }
 
-    pub fn set_interval (&mut self, interval: i32) -> &mut ContourBuilder<'a>  {
-        self.interval = Some(interval);
+    pub fn set_interval (&mut self, interval: f64) -> &mut ContourBuilder<'a>  {
+        self.interval = Some(interval as c_double);
         self
     }
 
@@ -169,7 +169,7 @@ impl <'a> ContourBuilder<'a> {
                     return Err(OdinGdalError::MiscError("-a is ignored in polygonal contouring mode. use -amin/-amax instead.".to_string()))
                 }
             } else {
-                if self.attr_max_name.is_some() | self.attr_min_name.is_some() {
+                if self.attr_max_name.is_some() || self.attr_min_name.is_some() {
                     self.attr_max_name = None;
                     self.attr_min_name = None;
                     return Err(OdinGdalError::MiscError("-amin/-amax is ignored in line contouring mode. use -a instead.".to_string()))
@@ -259,6 +259,7 @@ impl <'a> ContourBuilder<'a> {
                 options.add_string("POLYGONIZE=YES");
             }
             options.add_string(&format!("ID_FIELD={:?}", self.field_id_index.unwrap()).to_string());
+
             if let Some(interval) = self.interval{
                 options.add_string(&format!("LEVEL_INTERVAL={}", interval).to_string());
             } else {

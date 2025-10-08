@@ -18,6 +18,7 @@ export const config = {
       {key: "view/state/CA/Los Angeles",   default: { lat: 34.04000, lon: -118.02000, alt: 120000} }
     ],
     zoomLevels: [ 3500, 25000, 100000, 500000, 3000000, 7000000, 10000000 ],
+    animationSecs: 3, // duration of zoom/pan animation 
     localTimeZone: 'America/Los_Angeles',
     color: Cesium.Color.fromCssColorString('red'),
     outlineColor: Cesium.Color.fromCssColorString('yellow'),

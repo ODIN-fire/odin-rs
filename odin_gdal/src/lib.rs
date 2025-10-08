@@ -17,12 +17,13 @@ pub mod errors;
 pub mod warp;
 pub mod contour;
 
-use gdal::{errors::CplErrType, raster::RasterCreationOptions};
+use gdal::{errors::CplErrType, raster::RasterCreationOptions, DatasetOptions, GdalOpenFlags};
 use lazy_static::lazy_static;
 use static_init::{constructor};
 use std::{collections::HashMap, ffi::{CStr, CString}, fs::File, ops::{Fn, Index, Sub}, path::Path, ptr::{null, null_mut}, sync::Mutex, usize};
 use libc::{c_void,c_char,c_uint, c_int};
 use trait_set::trait_set;
+use clap::ValueEnum;
 
 // we re-export these so that other crates don't have to use a direct gdal depedency to import.
 // this is to ensure we run bindgen for new GDAL versions that don't yet have pre-computed bindings in gdal-sys
@@ -30,7 +31,7 @@ pub use gdal::{self, Driver, DriverManager, Metadata, MetadataEntry, Dataset, er
 pub use gdal::raster::{GdalType,GdalDataType,RasterBand,Buffer};
 pub use gdal::spatial_ref::{CoordTransform, CoordTransformOptions, SpatialRef};
 
-use gdal_sys::{self,CPLErrorReset, OGRErr, OSRExportToWkt, OSRNewSpatialReference, OSRSetFromUserInput, CPLErr};
+use gdal_sys::{self,CPLErrorReset, OGRErr, OSRExportToWkt, OSRNewSpatialReference, OSRSetFromUserInput, GDALFillNodata, CPLErr};
 use geo::{Coord, Rect};
 
 use odin_common::{
@@ -127,6 +128,16 @@ pub fn ok_ce_none (res: CPLErr::Type) -> Result<()> {
 
 pub fn gdal_badarg(details: String) -> GdalError {
     GdalError::BadArgument(details)
+}
+
+pub fn open_update<P:AsRef<Path>> (path: P)->Result<Dataset> {
+    let dso = DatasetOptions {
+        open_flags: GdalOpenFlags::GDAL_OF_UPDATE,
+        allowed_drivers: None,
+        open_options: None,
+        sibling_files: None
+    };
+    Ok( Dataset::open_ex(path, dso)? )
 }
 
 /// run the provided closure with the global GDAL error handler disabled. Note this does not
@@ -590,14 +601,14 @@ pub fn compress_create_opts ()->RasterCreationOptions {
 /// crop the provided dataset by cutting top/bottom lines that contain more nodata values than the given threshold and
 /// skip leading/trailing columns with nodata from the rest.
 /// This function is mainly useful when warping a dataset between different SRS that do not preserve bounds (e.g. from UTM to WGS84)
-pub fn crop_no_data<P> (ds: &Dataset, nodata_threshold: f64, path: P, create_opts: Option<RasterCreationOptions>) -> Result<Dataset> 
+pub fn crop_no_data<P> (ds: &Dataset, path: P, create_opts: Option<RasterCreationOptions>) -> Result<Dataset> 
     where P: AsRef<Path>
 {
     let n_bands = ds.raster_count();
     if n_bands < 1 { return Err( OdinGdalError::MiscError("no rasterbands to crop".into())) }
     if ! is_homogenous(ds) { return Err( OdinGdalError::MiscError("dataset not homogenous".into())) }
 
-    let bbox = get_data_bounds(ds, 1, nodata_threshold)?;
+    let bbox = get_data_bounds(ds, 1)?;
     let width = bbox.east - bbox.west + 1;
     let height = bbox.south - bbox.north + 1;
 
@@ -760,20 +771,50 @@ pub fn compute_rasterband_lines<T,F> (input_bands: &[&RasterBand], output_band: 
     Ok(())
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum FillNoDataAlg {
+    InverseDistance,
+    NearestNeighbor
+}
+
+pub fn fill_nodata (ds: &mut Dataset, max_dist: usize, smoothing_passes: usize, fill_alg: FillNoDataAlg) -> Result<()> {
+    unsafe {
+        let mut options = CslStringList::new();
+        match fill_alg {
+            FillNoDataAlg::InverseDistance => options.add_string("INTERPOLATION=INV_DIST"),
+            FillNoDataAlg::NearestNeighbor => options.add_string("INTERPOLATION=NEAREST")
+        };
+
+        let n_bands = ds.raster_count();
+
+        for i in 1..=n_bands {
+            let band = ds.rasterband(i)?;
+            let h_band = band.c_rasterband();
+
+            let c_res = gdal_sys::GDALFillNodata( h_band, null_mut(), max_dist as f64, 0, smoothing_passes as c_int, options.as_ptr(), None, null_mut());
+            if c_res != gdal_sys::CPLErr::CE_None {
+                return Err(last_gdal_error());
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// get min/max row/column indices of provided dataset so that the returned sub-region does not contain any nodata values.
-/// Top and bottom rows that contain internal or more than a max percentage of leading/trailing nodata values are prunded
-/// This function is useful to crop datasets that have been warped from a different SRS and the warping introduced nodata values
-/// around the edges
-pub fn get_data_bounds (ds: &Dataset, ref_band: usize, nodata_threshold: f64) -> Result<BoundingBox<usize>> {
+/// NOTE - this assumes the data area edges are continuous and not concave (flaring out to opposite edges)
+/// this is the case for WGS_84 <-> UTM conversions but not necessarily for for other SRS
+/// the algorithm first determines the top and bottom row for which the number of leading/trailing NODATA pixels is not decreasing anymore
+/// and then gets the minimum/maximum scanline indices for pixels with valid data in between those min/max lines
+pub fn get_data_bounds (ds: &Dataset, ref_band: usize) -> Result<BoundingBox<usize>> {
     let (n_cols, n_rows) = ds.raster_size();
     let n_bands = ds.raster_count();
     if ref_band > n_bands { return Err(OdinGdalError::MiscError("reference band index out of range".into())) }
-    let max_nodata = (n_cols as f64 * nodata_threshold) as usize;
 
     let mut min_x = 0;
-    let mut max_x = n_cols;
+    let mut max_x = n_cols-1;
     let mut min_y = 0;
-    let mut max_y = n_rows;
+    let mut max_y = n_rows-1;
 
     let band = ds.rasterband(ref_band)?;
     if let Some(nodata_value) = band.no_data_value() { // nothing to do if we don't hava a nodata value
@@ -781,51 +822,44 @@ pub fn get_data_bounds (ds: &Dataset, ref_band: usize, nodata_threshold: f64) ->
         if b_cols != n_cols || b_rows != n_rows { return Err(OdinGdalError::MiscError("dataset has non-uniform dimensions".into())) }
 
         let mut scanline = vec![ nodata_value; n_cols]; // scanline buffer
-        let mut has_data = false;
 
-        //--- prune top nodata rows
+        let mut last_total = n_cols;
+        //--- get top row within [min_x..max_x]
         for j in 0..n_rows {
             band.read_into_slice( (0 as isize, j as isize), (n_cols,1), (n_cols,1), &mut scanline, None)?;
             let (n_leading, n_trailing, n_total) = count_nodata( &scanline, nodata_value);
-            if n_total == n_leading + n_trailing { // no nodata inside leading..trailing allowed
-                if n_total < max_nodata { // total leading/trailing does not exceed threshold
-                    min_x = usize::max(min_x, n_leading);
-                    max_x = usize::min(max_x, n_cols - n_trailing -1);
-                    min_y = j;
-                    has_data = true;
-                    break;
-                }
-            }
-        }
-        if !has_data { return Err(OdinGdalError::MiscError("no data in dataset".into())) }
+            if n_leading + n_trailing < n_total { return Err(OdinGdalError::MiscError("upper data edge is not convex".into())) }
 
-        //--- prune bottom nodata rows
+            if n_total >= last_total {
+                min_y = if n_total > last_total {j-1} else {j};
+                break;
+            }
+            last_total = n_total;
+        }
+
+        //--- get bottom row within [min_x..max_x]
+        let mut last_total = n_cols;
         for j in (0..n_rows).rev() {
             band.read_into_slice( (0 as isize, j as isize), (n_cols,1), (n_cols,1), &mut scanline, None)?;
             let (n_leading, n_trailing, n_total) = count_nodata( &scanline, nodata_value);
-            if n_total == n_leading + n_trailing { // no nodata inside leading..trailing allowed
-                if n_total < max_nodata { // total leading/trailing does not exceed threshold
-                    min_x = usize::max(min_x, n_leading);
-                    max_x = usize::min(max_x, n_cols - n_trailing -1);
-                    max_y = j;
-                    break;
-                }
+            if n_leading + n_trailing < n_total { return Err(OdinGdalError::MiscError("lower data edge is not convex".into())) }
+
+            let x1 = n_cols - n_trailing -1;
+            if n_total >= last_total {
+                max_y = if n_total > last_total {j+1} else {j};
+                break;
             }
+            last_total = n_total;
         }
 
-        //--- get min/max cols in-between
-        for j in min_y+1..max_y {
+        //--- get min/max x in between
+        for j in min_y..=max_y {
             band.read_into_slice( (0 as isize, j as isize), (n_cols,1), (n_cols,1), &mut scanline, None)?;
             let (n_leading, n_trailing, n_total) = count_nodata( &scanline, nodata_value);
+            if n_leading + n_trailing < n_total { return Err(OdinGdalError::MiscError("data area has holes".into())) }
 
-            if n_total == n_leading + n_trailing { // no nodata inside leading..trailing
-                min_x = usize::max(min_x, n_leading);
-                max_x = usize::min(max_x, n_cols - n_trailing -1);
-
-            } else {
-                // if we encounter any embedded nodata values that cannot be cropped we have to bail
-                return Err(OdinGdalError::MiscError("interspersed nodata values".into()))
-            }
+            min_x = usize::max( min_x, n_leading);
+            max_x = usize::min( max_x, n_cols - n_trailing -1);
         }
     }
 

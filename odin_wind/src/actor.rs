@@ -22,24 +22,24 @@ use serde::{Serialize,Deserialize};
 
 use odin_build::pkg_cache_dir;
 use odin_common::{
-    collections::RingDeque, datetime::{hours,short_utc_datetime_string}, fs::{basename, gzip_path, odin_data_filename, path_str_to_fname, path_to_unchecked_string, remove_old_files, replace_env_var_path, set_accessed}, geo::GeoRect, pow2, sqrt, utm::{self,UtmRect,UtmZone,UTM}, BoundingBox 
+    collections::RingDeque, datetime::{hours,short_utc_datetime_string,utc_now}, fs::{basename, gzip_path, odin_data_filename, path_str_to_fname, path_to_unchecked_string, remove_old_files, replace_env_var_path, set_accessed}, geo::GeoRect, pow2, sqrt, utm::{self,UtmRect,UtmZone,UTM}, BoundingBox 
 };
 use odin_hrrr::{AddDataSet, RemoveDataSet, HrrrActorMsg, HrrrDataSetConfig, HrrrDataSetRequest, HrrrFileAvailable};
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_gdal::{
-    gdal::Dataset, GdalType, RasterInfo, 
+    gdal::Dataset, GdalType, RasterInfo, FillNoDataAlg,
     copy_full_rasterband, compute_rasterband_lines, get_raster_info, rasterband_index_for, 
     warp::{warp_to_raster_info, warp_to_rect, ResampleAlg}
 };
 use crate::{
-    errors::{OdinWindError,Result}, 
-    get_tmp_path, hrrr_10_contour_suffix, hrrr_10_grid_suffix, hrrr_10_vector_suffix, hrrr_80_contour_suffix, 
-    hrrr_80_grid_suffix, hrrr_80_vector_suffix, hrrr_wgs84_suffix, huvw_contour_suffix, huvw_grid_suffix, 
-    huvw_vector_suffix, huvw_wgs84_suffix, write_huvw_csv_cell_vectors, write_huvw_csv_grid, write_windspeed_contour, 
-    wind_service::{self, WindService}, 
-    AddWindClient, AddWindClientResponse, ExecSnapshotAction, Forecast, ForecastRegion, ForecastStore, 
-    RemoveWindClient, RemoveWindClientResponse, SubscribeResponse, WindConfig, WindRegion, WnJob, WnJobRegion, WX_HRRR 
+    errors::{OdinWindError,Result}, get_tmp_path, 
+    hrrr_10_contour_suffix, hrrr_10_grid_suffix, hrrr_10_vector_suffix, hrrr_80_contour_suffix, hrrr_80_grid_suffix, 
+    hrrr_80_vector_suffix, hrrr_wgs84_suffix, huvw_contour_suffix, huvw_grid_suffix, huvw_vector_suffix, huvw_wgs84_suffix, 
+    purge_old_forecasts, wind_service::{self, WindService}, 
+    write_huvw_csv_cell_vectors, write_huvw_csv_grid, write_windspeed_contour, 
+    AddWindClient, AddWindClientResponse, ExecSnapshotAction, Forecast, ForecastRegion, ForecastStore, RemoveWindClient, 
+    RemoveWindClientResponse, SubscribeResponse, WindConfig, WindRegion, WnJob, WnJobRegion, WX_HRRR 
 };
 
 //macro_rules! info { ($fmt:literal $(, $arg:expr )* ) => { {print!("INFO: "); println!( $fmt $(, $arg)* )} } }
@@ -190,7 +190,8 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
             self.subscribe_action.execute(response).await.map_err(|e| OdinWindError::ActionFailure(e.to_string()))?;
         }
 
-        self.forecast_store.remove( region);
+        // TODO - should we remove the forecasts we already got for that region? Old forecasts are cleaned up anyways
+        //self.forecast_store.remove( region);
 
         Ok(())
     }
@@ -222,7 +223,7 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
     }
 
     async fn add_hrrr_region (&self, wn_region: &WindRegion)->Result<Arc<HrrrDataSetRequest>> {
-        let mut bbox = wn_region.bbox.add_degrees( -0.3, -0.3, 0.3, 0.3); // make sure we cover the bbox after warping to EPSG 4326
+        let mut bbox = wn_region.bbox.add_degrees( -0.1, -0.1, 0.1, 0.1); // make sure we cover the bbox after warping to EPSG 4326
         let region = wn_region.name.clone();
         let set_name = "hrrr-wind".to_string();
         let mut hrrr_cfg = HrrrDataSetConfig::new( region, bbox, set_name, self.config.hrrr_fields.clone(), self.config.hrrr_levels.clone());
@@ -284,7 +285,7 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
         info!("creating derived products for forecast {} date {} step {}", forecast.region, forecast.date, forecast.step);
 
         let huvw_wgs84_path = forecast.get_wn_path( huvw_wgs84_suffix());
-        let huvw_ds = self.get_cropped_wgs84_ds( &forecast, &huvw_wgs84_path, false)?; // this is the basis for derived data
+        let huvw_ds = self.get_huvw_wgs84_ds( &forecast, &huvw_wgs84_path, false)?; // this is the basis for derived data
         let huvw_bands: &[usize] = &[1, 2, 3, 4]; // GDAL band numbers are 1-based 
         let s_band = 5; // the windspeed band
 
@@ -302,14 +303,13 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
         Self::create_vector_csv( &forecast.get_wn_path( hrrr_10_vector_suffix()), &hrrr_ds, hrrr_10_bands, forecast.mesh_res)?;
         Self::create_contour_json( &forecast.get_wn_path( hrrr_10_contour_suffix()), &hrrr_ds, 5)?;
 
-
         let hrrr_80_bands: &[usize] = &[7, 3, 4];
         Self::create_grid_csv( &forecast.get_wn_path( hrrr_80_grid_suffix()), &hrrr_ds, hrrr_80_bands);
         Self::create_vector_csv( &forecast.get_wn_path( hrrr_80_vector_suffix()), &hrrr_ds, hrrr_80_bands, forecast.mesh_res)?;
         Self::create_contour_json( &forecast.get_wn_path( hrrr_80_contour_suffix()), &hrrr_ds, 6)?;
 
-        remove_file( &huvw_wgs84_path)?;
-        remove_file( &hrrr_wgs84_path)?;
+        //remove_file( &huvw_wgs84_path)?;
+        //remove_file( &hrrr_wgs84_path)?;
 
         self.finish_forecast(forecast).await
     }
@@ -347,22 +347,20 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
 
     /// translate UTM forecast grid back into WGS84 (epsg 4326) and crop to account for noData values caused by the translation
     /// (UTM is cartesian, WGS84 is ellipsoid)
-    fn get_cropped_wgs84_ds <P> (&self, forecast: &Forecast, path: P, keep_utm: bool) -> Result<Dataset> 
+    fn get_huvw_wgs84_ds <P> (&self, forecast: &Forecast, path: P, keep_utm: bool) -> Result<Dataset> 
         where P: AsRef<Path> 
     {
-        let huvw_wn = forecast.get_wn_output_path(); // the WindNinja huvw output filename
-        let huvw_tmp = get_tmp_path( forecast.wn_out_base_name.as_str()); // the (temp) non-cropped output in WGS84 (contains nodata) 
+        let huvw_wn = forecast.get_wn_output_path(); // the WindNinja huvw output filename (in UTM)
 
-        let tmp_ds = odin_gdal::warp::warp_to_wgs84( &huvw_wn, &huvw_tmp, vec![-9999.0])?;
-        let huvw_ds = odin_gdal::crop_no_data( &tmp_ds, 0.2, path, Some(odin_gdal::compress_create_opts()))?;
+        let mut huvw_ds = odin_gdal::warp::warp_to_wgs84( &huvw_wn, path, vec![-9999.0])?; // note - this has NODATA values around edges
+        odin_gdal::fill_nodata( &mut huvw_ds, 50, 3, FillNoDataAlg::InverseDistance)?; // fill NODATA values
 
-        std::fs::remove_file( &huvw_tmp)?;
         if !keep_utm { std::fs::remove_file( &huvw_wn)? }
 
         Ok(huvw_ds)
     }
 
-    /// warp the HRRR dataset into the same WGS84 grid as the WindNinja huvw output and compute the windspeed bands for 10m and 08m
+    /// warp the HRRR dataset into the same WGS84 grid as the WindNinja huvw output and compute the windspeed bands for 10m and 80m
     /// since we need them for respective contours
     /// this will produce a [u10, v10, u80, v80, s10, s80, h] dataset
     fn get_hrrr_wgs84_ds<P> ( &self, hrrr_ds: &Dataset, huvw_ds: &Dataset, tgt_path: P) -> Result<Dataset> 
@@ -419,9 +417,14 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
     }
 
     fn cleanup (&mut self) {
+        //--- remove old files
         if remove_old_files( &pkg_cache_dir!(), hours(6)).is_err() {
             warn!("failed to cleanup cache");
         }
+
+        //--- remove old Forecast entries
+        let cut_off = utc_now() - hours(1); // remove forecasts for dates more than an hour ago
+        purge_old_forecasts( &mut self.forecast_store, cut_off);
     }
 }
 
