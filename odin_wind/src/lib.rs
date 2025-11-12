@@ -421,6 +421,7 @@ pub fn write_huvw_csv_grid<P> (ds: &Dataset, path: P, bands: &[usize])->Result<(
     let mut w_line: Vec<f32> = vec![0.0; cols];
 
     w_line[0] = 0.1; // FIXME - something in the shaders breaks if there is only one w value
+    // TODO - if we don't have a w_band (HRRR) we should approximate it from the terrain slope (in windspeed dir) for the 10m level
 
     let mut file = File::create(path)?;
     let mut buf = BufWriter::new( file);

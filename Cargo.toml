@@ -24,6 +24,7 @@ members = [
   "odin_n5",
   "odin_alertca",
   "odin_onnx",
+  "odin_image",
   
   "gpshub",
   "opendata_splitter",
@@ -54,11 +55,12 @@ odin_wind   = { version = "*", path = "odin_wind" }
 odin_adsb  = { version = "*", path = "odin_adsb" }
 odin_n5     = { version = "*", path = "odin_n5" }
 odin_alertca = { version = "*", path = "odin_alertca" }
-odin_imgclass = { version = "*", path = "odin_onnx" }
+odin_onnx = { version = "*", path = "odin_onnx" }
+odin_image = { version = "*", path = "odin_image" }
 
 # external crates for which we have to ensure the same version
-axum = { version = "0.8.4", features = [ "http2", "ws", "macros"] }
-reqwest = { version = "0.12.22", features = ["json", "stream"] }
+axum = { version = "0.8.6", features = [ "http2", "ws", "macros"] }
+reqwest = { version = "0.12.24", features = ["json", "stream"] }
 reqwest-middleware = { version = "0.4.2" }
 tower = { version = "0.5.2", features = ["full"] }
 tower-http = { version = "0.6.6", features = ["full"] }
@@ -71,46 +73,48 @@ bytes = { version = "1.10.1" }
 futures = { version = "0.3.31" }
 futures-util = { version = "0.3.31", features = ["sink"] }
 async-trait = { version = "0.1.88" }
-tokio = { version = "1.47.1", features = ["full", "tracing"] }
-tokio-tungstenite = { version = "0.27.0", features = ["native-tls"] }
-#tokio-tungstenite = { version = "0.27.0", features = ["rustls"] } # this requires to explicitly handle certificates
-tokio-util = { version = "0.7.15", features = ["full"] }
+tokio = { version = "1.48.0", features = ["full", "tracing"] }
+tokio-tungstenite = { version = "0.28.0", features = ["native-tls"] }
+#tokio-tungstenite = { version = "0.28.0", features = ["rustls"] } # this requires to explicitly handle certificates
+tokio-util = { version = "0.7.16", features = ["full"] }
 kanal = { version = "0.1.1", features = ["async"] } # TODO - do we want to promote this to workspace? What about flume?
-rustls = { version = "0.23.27" }
-serde = { version = "1.0.219", features = ["derive", "rc"] }
-serde_json = { version = "1.0.143" }
+rustls = { version = "0.23.32" }
+serde = { version = "1.0.228", features = ["derive", "rc"] }
+serde_json = { version = "1.0.145" }
 serde_with = { version = "3.12.0" }
-ron = { version = "0.10.1" }
+ron = { version = "0.11.0" }
 uom = { version = "0.37.0", features = ["serde", "f32", "i64"] }
 num = { version = "0.4.3" }
-chrono = { version = "0.4.41", features = ["serde"] }
+chrono = { version = "0.4.42", features = ["serde"] }
 chrono-tz = { version = "0.10.4", features = ["serde"] }
 thiserror = { version = "2.0.12" }
 anyhow = { version = "1.0.99" }
 gdal = { version = "0.18.0", features = ["array"] }
 gdal-sys = { version = "0.11.0", features = ["bindgen"]}
-geo = { version = "0.30.0" }
-geo-types = { version = "0.7.16" }
+geo = { version = "0.31.0" }
+geo-types = { version = "0.7.17" }
 geojson = { version = "0.24.2" }
-nalgebra = { version = "0.34.0"}
+nalgebra = { version = "0.34.1"}
 lazy_static = { version = "1.5.0" }
 paste = { version ="1.0.15" }
 regex = { version = "1.11.1" }
-hashbrown = { version = "0.15.3" }
-bit-set = { version = "0.8.0" }
-ndarray = { version = "0.16.1" }
-flate2 = { version = "1.1.2" }
+hashbrown = { version = "0.16.0" }
+bit-set = { version = "0.8.0", features = ["serde"] }
+ndarray = { version = "0.17.0" }
+flate2 = { version = "1.1.4" }
+miniz_oxide = { version = "0.8.9" }
 memchr = { version = "2.7.5" }
-clap = { version = "4.5.47", features = ["derive"]}
+clap = { version = "4.5.49", features = ["derive"]}
 
-dashmap = { version = "6" }
+dashmap = { version = "6.1.0" }
 trait-set = { version = "0.3.0" } # remove when trait aliases become stabilized
 tracing-subscriber = { version = "0.3.20" }
 tracing = { version = "0.1.41"}
 glob = { version = "0.3.3" }
 globset = { version = "0.4.16" }
 rand = { version = "0.9.2" }
-zip = { version = "5.1.1"}
+zip = { version = "6.0.0"}
+image = { version = "0.25.8" }
 
 
 

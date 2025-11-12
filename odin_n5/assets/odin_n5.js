@@ -196,8 +196,8 @@ class N5Entry {
                     horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
                     verticalOrigin: Cesium.VerticalOrigin.TOP,
                     fillColor: config.color,
-                    showBackground: true,
-                    backgroundColor: config.labelBackground, // alpha does not work against model
+                    //showBackground: true,
+                    //backgroundColor: config.labelBackground, // alpha does not work against model
                     outlineColor: clr,
                     outlineWidth: 1,
                     pixelOffset: config.infoOffset,

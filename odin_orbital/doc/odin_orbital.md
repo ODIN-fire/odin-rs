@@ -75,7 +75,7 @@ and finally uses `TLEs`,`OverpassConstraints` and `OrbitInfos` to compute the `O
 
 The basic algorithm to detect relevant overpasses is to check if the ground point or any of the swath end points of a trajectory time step 
 are within the open polyhedron that is formed by the earth center and the planes that are defined by the macro-region vertices (which therefore
-have to form a concave spherical polygon). This is an efficient operation using cartesian coordinates (ECEF) and precalculated polyhedron normal
+have to form a convex spherical polygon). This is an efficient operation using cartesian coordinates (ECEF) and precalculated polyhedron normal
 vectors, which is crucial for being able to obtain overpasses over large areas (such as CONUS) and several days. Should the region of interest be small with respect to the average swath width then additional test points along the (ground track orthogonal) scan line can be added to prevent
 that we miss overpasses due to small regions being entirely within one side of the swath.
 

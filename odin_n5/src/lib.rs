@@ -457,8 +457,13 @@ async fn get_response (client: &Client, conf: &N5Config, uri: &str)->Result<Resp
 /// the high level data retrieval - this transforms 
 pub async fn get_current_device_data (client: &Client, conf: &N5Config, device_id: u32)->Result<N5Data> {
     let data = get_data( client, conf, device_id).await?; // this gets the current snapshot
+
     let heat_map = get_heat_map( client, conf, device_id).await?;
+    let ic_score = if !heat_map.is_empty() { heat_map[0].ic_score } else { -1.0 };
+
     let wind = get_wind( client, conf, device_id).await?;
+    let (wind_spd,wind_dir) = if !wind.is_empty() {( wind[0].wind_speed_reading, wind[0].wind_direction_reading ) } else { (-1.0, 0.0)};
+
     //let smoke_index = get_smoke_index( client, conf, device_id).await?; // TODO activate when accessible
 
     if data.len() > 0 && heat_map.len() > 0 /*&& smoke_index.len() > 0 */ {
@@ -468,9 +473,11 @@ pub async fn get_current_device_data (client: &Client, conf: &N5Config, device_i
             temperature: ThermodynamicTemperature::new::<degree_celsius>( data[0].temperature),
             humidity: Percent::new( data[0].humidity),
             pressure: Pressure::new::<pascal>( data[0].pressure), // TODO - check unit
-            wind_spd: Velocity::new::<meter_per_second>( wind[0].wind_speed_reading),
-            wind_dir: Angle360::from_degrees( wind[0].wind_direction_reading),
-            ic_score: heat_map[0].ic_score,   // IR reading
+
+            wind_spd: Velocity::new::<meter_per_second>( wind_spd),
+            wind_dir: Angle360::from_degrees( wind_dir),
+
+            ic_score: ic_score,   // IR reading
             smoke_index: 0.0, // smoke_index[0].smoke_index_reading // TODO activate when accessible
             air_quality: data[0].air_quality, // PM 2.5 ? units?
         };

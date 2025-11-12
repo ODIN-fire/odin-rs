@@ -29,3 +29,9 @@ anyhow = { workspace = true }
 
 [build-dependencies]
 odin_build = { workspace = true }
+
+[features]
+# features that require private api keys
+sentinel = []
+n5 = []
+adsb = []

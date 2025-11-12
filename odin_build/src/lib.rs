@@ -198,6 +198,10 @@ pub fn cache_dir()->&'static PathBuf {
     CACHE_DIR.get_or_init(|| ensure_existing_path( root_dir().join( Path::new("cache"))))
 }
 
+pub fn show_root_dir() {
+    println!("using ODIN root dir {}", root_dir().to_str().unwrap_or("<invalid UTF-8>"));
+}
+
 /// the BinContext derived data dir: `ODIN_ROOT/data/<bin-crate>/<bin-name>`
 /// this will try to create the directory if it does not exist and panics if that fails
 pub fn bin_data_dir ()->PathBuf {

@@ -18,6 +18,7 @@ serde_json = { workspace = true }
 ron = { workspace = true }
 num = { workspace = true }
 nalgebra = { workspace = true }
+ndarray = { workspace = true }
 geo = { workspace = true }
 geo-types = { workspace = true }
 uom = { workspace = true }
@@ -40,8 +41,15 @@ nav-types = "0.5.2"
 trait-set = { workspace = true }
 hashbrown = { workspace = true }
 flate2 = { workspace = true }
+miniz_oxide = { workspace = true }
 memchr = { workspace = true }
 kanal = {workspace = true }
+image = { workspace = true }
+
+image-compare = { version = "0.5.0" }
+imageproc = { version = "0.25.0" }
+linreg = { version = "0.2.0" }
+tiff = { version = "0.10.3" }
 
 aws-config = { version = "1.8.6", features = ["behavior-version-latest"], optional = true }
 aws-sdk-s3 = { version = "1.105.0", features = ["rt-tokio"], optional = true }

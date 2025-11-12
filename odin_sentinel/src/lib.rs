@@ -113,7 +113,7 @@ pub struct SensorRecord <T> where T: RecordDataBounds {
     // here is the crux - we get this as different properties ("gps" etc - it depends on T)
     // since we need to preserve the mapping for subsequent serializing we have to provide alias annotations (for de)
     // *and* our own Serialize impl 
-    #[serde(alias="accelerometer",alias="anemometer",alias="cloudcover",alias="event",alias="fire",alias="image",alias="gas",alias="gps",alias="gyroscope",
+    #[serde(alias="accelerometer",alias="anemometer",alias="cloudcover",alias="detection",alias="event",alias="fire",alias="image",alias="gas",alias="gps",alias="gyroscope",
             alias="magnetometer",alias="orientation",alias="person",alias="power",alias="smoke",alias="thermometer",alias="valve",alias="voc")]
     pub data: T,
 }
@@ -211,6 +211,7 @@ define_algebraic_type!{
         Arc<SensorRecord<AccelerometerData>> |
         Arc<SensorRecord<AnemometerData>> |
         Arc<SensorRecord<CloudcoverData>> |
+        Arc<SensorRecord<DetectionData>> |
         Arc<SensorRecord<EventData>> |
         Arc<SensorRecord<FireData>> |
         Arc<SensorRecord<GasData>> |
@@ -269,6 +270,12 @@ define_sensor_data! { Anemometer =
 
 define_sensor_data! { Cloudcover =
     pub percent: f32,
+}
+
+define_sensor_data! { Detection = 
+    pub classes: Vec<String>,
+    pub confidences: Vec<f64>,
+    pub bounding_boxes: Vec<[u32;4]>
 }
 
 define_sensor_data! { Event =
@@ -364,6 +371,7 @@ pub enum SensorCapability {
     Accelerometer,
     Anemometer,
     Cloudcover,
+    Detection,
     Event,
     Fire,
     Gas,
@@ -388,6 +396,7 @@ impl SensorCapability {
             "accelerometer" => Some( Self::Accelerometer ),
             "anemometer"    => Some( Self::Anemometer ),
             "cloudcover"    => Some( Self::Cloudcover ),
+            "detection"     => Some( Self::Detection ),
             "event"         => Some( Self::Event ),
             "fire"          => Some( Self::Fire ),
             "gas"           => Some( Self::Gas ),
@@ -631,6 +640,7 @@ define_struct! {
         accelerometer: VecDeque< Arc<SensorRecord<AccelerometerData>> > = VecDeque::new(),
         anemometer:    VecDeque< Arc<SensorRecord<AnemometerData>> > = VecDeque::new(),
         cloudcover:    VecDeque< Arc<SensorRecord<CloudcoverData>> > = VecDeque::new(),
+        detection:     VecDeque< Arc<SensorRecord<DetectionData>> > = VecDeque::new(),
         event:         VecDeque< Arc<SensorRecord<EventData>> > = VecDeque::new(),
         fire:          VecDeque< Arc<SensorRecord<FireData>> > = VecDeque::new(),
         gas:           VecDeque< Arc<SensorRecord<GasData>> > = VecDeque::new(),
@@ -665,6 +675,7 @@ impl Sentinel {
             Accelerometer => init_recs( &mut self.accelerometer, get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
             Anemometer    => init_recs( &mut self.anemometer,    get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
             Cloudcover    => init_recs( &mut self.cloudcover,    get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
+            Detection     => init_recs( &mut self.detection,     get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
             Event         => init_recs( &mut self.event,         get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
             Fire          => init_recs( &mut self.fire,          get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
             Gas           => init_recs( &mut self.gas,           get_time_sorted_records( client, base_uri, access_token, device_id, sensor_no, n_last).await?, max_len),
@@ -690,6 +701,7 @@ impl Sentinel {
             Arc<SensorRecord<AccelerometerData>> => sort_in_record( &mut self.accelerometer, sentinel_update, self.max_len),
             Arc<SensorRecord<AnemometerData>>    => sort_in_record( &mut self.anemometer,    sentinel_update, self.max_len),
             Arc<SensorRecord<CloudcoverData>>    => sort_in_record( &mut self.cloudcover,    sentinel_update, self.max_len),
+            Arc<SensorRecord<DetectionData>>     => sort_in_record( &mut self.detection,     sentinel_update, self.max_len),
             Arc<SensorRecord<EventData>>         => sort_in_record( &mut self.event,         sentinel_update, self.max_len),
             Arc<SensorRecord<FireData>>          => sort_in_record( &mut self.fire,          sentinel_update, self.max_len),
             Arc<SensorRecord<GasData>>           => sort_in_record( &mut self.gas,           sentinel_update, self.max_len),
@@ -717,6 +729,7 @@ impl Sentinel {
         add_latest_recs( &self.accelerometer, latest_recs);
         add_latest_recs( &self.anemometer, latest_recs);
         add_latest_recs( &self.cloudcover, latest_recs);
+        add_latest_recs( &self.detection, latest_recs);
         add_latest_recs( &self.event, latest_recs);
         add_latest_recs( &self.fire, latest_recs);
         add_latest_recs( &self.gas, latest_recs);
@@ -744,6 +757,7 @@ impl Sentinel {
         set_latest(&mut latest, &self.accelerometer);
         set_latest(&mut latest, &self.anemometer);
         set_latest(&mut latest, &self.cloudcover);
+        set_latest(&mut latest, &self.detection);
         set_latest(&mut latest, &self.event);
         set_latest(&mut latest, &self.fire);
         set_latest(&mut latest, &self.gas);
@@ -1124,9 +1138,17 @@ async fn from_json<T> (response: Response)->Result<T> where T: DeserializeOwned 
 
 pub async fn get_device_list (client: &Client, base_uri: &str, access_token: &str)->Result<DeviceList> {
     let uri = format!("{base_uri}/devices");
-    let response = client.get(uri).bearer_auth(access_token).send().await?;
-    let device_list: DeviceList = from_json(response).await?;
-    Ok(device_list)
+    match client.get(uri).bearer_auth(access_token).send().await {
+        Ok(response) => {
+            let device_list: DeviceList = from_json(response).await?;
+            Ok(device_list)
+        }
+        Err(e) => {
+            // since this is our first query be explicit about errors
+            let msg = format!("error obtaining device list from {base_uri}: {e:?}");
+            Err( OdinSentinelError::OpFailed(msg) )
+        }
+    }
 }
 
 pub async fn get_device_list_from_config (client: &Client, config: &SentinelConfig)->Result<DeviceList> {
