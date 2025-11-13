@@ -19,7 +19,7 @@ use image::{
     imageops::{FilterType,resize},
 };
 
-use ndarray::{Array4, Axis, s};
+use ndarray::{Array,Array4, ArrayView};
 use ort::{
 	inputs,
 	session::{Session, SessionOutputs, Input, Output},
@@ -104,9 +104,10 @@ pub fn fit (img: &RgbImage, config: &ImageClassifierConfig)->Result<Vec<RgbImage
     }
 }
 
-pub fn get_inference_input (img: &RgbImage)->Result<Array4<f32>> {
+
+pub fn img_to_array4 (img: &RgbImage)->Array4<f32> {
 	//let mut input = Array3::zeros( (3, img.width() as usize, img.height() as usize));
-	let mut input = Array4::zeros((1, 3, img.width() as usize, img.height() as usize)); // TODO - this should be a 3dim model
+	let mut input = Array::zeros((1, 3, img.width() as usize, img.height() as usize)); // TODO - this should be a 3dim model
 
 	for (x, y, rgb) in img.enumerate_pixels() {
 		input[[0, 0, y as usize, x as usize]] = rgb.0[0] as f32 / 255.0;
@@ -114,14 +115,16 @@ pub fn get_inference_input (img: &RgbImage)->Result<Array4<f32>> {
 		input[[0, 2, y as usize, x as usize]] = rgb.0[2] as f32 / 255.0;
 	}
 
-    Ok(input)
+    input
 }
 
-pub fn run_inference<'a> (session: &'a mut Session, config: &ImageClassifierConfig, img: &'a RgbImage) -> Result<SessionOutputs<'a>>  {
+/*
+pub fn run_inference<'a,F> (session: &'a mut Session, config: &ImageClassifierConfig, img: &'a RgbImage, ) -> Result<SessionOutputs<'a>>  {
     get_inference_input(img).and_then( |input|{
         Ok( session.run( inputs![ "images" => TensorRef::from_array_view( &input)?])? )
     })
 }
+*/
 
 pub fn print_session_info (session: &Session)->Result<()> {
     let meta = session.metadata()?;

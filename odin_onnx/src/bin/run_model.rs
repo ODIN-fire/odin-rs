@@ -13,14 +13,20 @@
  */
 #![allow(unused)]
 
+use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 use image;
+
+use ndarray::{Array, Array4, Axis, s};
+use ort::{
+        session::{Session, SessionOutputs},
+        value::{Tensor,TensorRef,ValueRef,TensorValueType}
+};
+
 use odin_common::{define_cli, ron};
 use odin_onnx::{
-    fit, print_session_info, run_inference, ImageClassifierConfig
+    fit, print_session_info, img_to_array4, ImageClassifierConfig
 };
-use ort::session::{output, Session};
-use std::path::PathBuf;
 
 define_cli! { ARGS [about="run image classifier model for given configuration and input image"] =
     dry_run: bool [help="just load and display model - don't run inference", long],
@@ -40,7 +46,9 @@ fn main() -> Result<()> {
     let imgs = fit( &img, &config)?;
     if !ARGS.dry_run {
         for img in &imgs {
-            match run_inference( &mut session, &config, &img) {
+            let input: Array4<f32> = img_to_array4(img);
+
+            match session.run( ort::inputs![ "images" => Tensor::from_array(input)? ]) {
                 Ok(outputs) => {
                     println!("inference output");
                     for (key,value_ref) in outputs.iter() {

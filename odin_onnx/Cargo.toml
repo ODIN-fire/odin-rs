@@ -19,10 +19,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 ron = { workspace = true }
 thiserror = { workspace = true }
-ndarray = { workspace = true }
+
+#ndarray = { workspace = true }
+ndarray = "0.16"  # NOTE! ort v2.0.0-rc.10 fails with current (workspace) ndarray due to version hell 
 
 #ort = "1.16.3"
-ort = "2.0.0-rc.10"
+ort = { version="2.0.0-rc.10", features = ["ndarray"] }
 image = "0.25.8"
 
 [features]
