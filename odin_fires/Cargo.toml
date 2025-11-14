@@ -1,5 +1,5 @@
 [package]
-name = "odin_firehistory"
+name = "odin_fires"
 version = "0.1.0"
 edition = "2024"
 

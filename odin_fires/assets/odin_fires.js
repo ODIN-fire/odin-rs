@@ -20,14 +20,14 @@
  * we are moving to the "Historical Operational Data" database (which is structured around polygons/lines/points) the structure will change
  */
 
-import { config } from "./odin_firehistory_config.js";
+import { config } from "./odin_fires_config.js";
 
 import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
 
-const MOD_PATH = "odin_firehistory::firehistory_service::FireHistoryService";
+const MOD_PATH = "odin_fires::fire_service::FireService";
 
 
 //--- data section
@@ -41,17 +41,32 @@ class FireEntry {
         });
     }
 
-    showPerimeter (perimeter,showIt) {
+    // explicit loading/unloading of perimeters assets
+    displayPerimeter (perimeter,showIt) {
         let ds = perimeter.ds;
         if (ds) {
             if (ds.show != showIt) {
                 ds.show = showIt;
+                if (!showIt) { // free resources
+                    odinCesium.removeDataSource(ds);
+                    perimeter.ds = null;
+                }
+
                 odinCesium.requestRender();
                 ui.updateListItem(firePerimeterView,perimeter);
             }
         } else {
-            loadPerimeter( this, perimeter);
+            loadPerimeter( this, perimeter); // this is async
         }
+    }
+
+    // this only toggles visibility but does not load/unload assets
+    setPerimeterVisibiity (showIt) {
+        this.fireSummary.perimeters.forEach ( p=> {
+            if (p.ds) {
+                p.ds.show = showIt;
+            }
+        });
     }
 }
 
@@ -79,7 +94,7 @@ function getFireDataItems (e) {
 }
 
 async function loadPerimeter (e, perimeter) {
-    let url = `firehistory-data/${e.fireSummary.year}/${e.fireSummary.name}/perimeters/${perimeter.id}.geojson`;
+    let url = `fire-data/${e.fireSummary.year}/${e.fireSummary.name}/perimeters/${perimeter.id}.geojson`;
     
     fetch(url).then( (response) => {
         if (response.ok) {
@@ -147,7 +162,7 @@ var selectedFire = undefined;
 var firePerimeterView = undefined;
 var selectedPerimeter = undefined;
 
-var fireHistoryDataView = undefined;
+var fireInfoView = undefined;
 
 var stepThroughMode = false;
 var syncTimelines = false;
@@ -159,57 +174,59 @@ createWindow();
 fireYearView = initFireYearView();
 fireListView = initFireListView();
 firePerimeterView = initFirePerimeterView();
-fireHistoryDataView = ui.getKvTable("firehistory.data");
+fireInfoView = ui.getKvTable("fires.info");
 initFirePerimeterDisplayControls();
 
 ws.addWsHandler( MOD_PATH, handleWsMessages);
 
-odinCesium.initLayerPanel("firehistory", config, showFireHistory);
-console.log("firehistory initialized");
+odinCesium.initLayerPanel("fires", config, showFires);
+console.log("fires initialized");
 
 //--- end initialization
 
 function createIcon() {
-    return ui.Icon("./asset/odin_firehistory/firehistory-icon.svg", (e)=> ui.toggleWindow(e,'firehistory'), "fire history");
+    return ui.Icon("./asset/odin_fires/fires-icon.svg", (e)=> ui.toggleWindow(e,'fires'), "operational fire data");
 }
 
 function createWindow() {
-    let view = ui.Window("Historical Fire Data", "firehistory", "./asset/odin_firehistory/firehistory-icon.svg")(
-        ui.LayerPanel("firehistory", toggleShowFireHistory),
+    let nItems = 8;
+
+    let view = ui.Window("Operational Fire Data", "fires", "./asset/odin_fires/fires-icon.svg")(
+        ui.LayerPanel("fires", toggleShowFires),
         ui.Panel("fires", true)(
             ui.RowContainer()(
-                ui.List("firehistory.years", 5, selectYear),
+                ui.List("fires.years", 5, selectYear),
                 ui.HorizontalSpacer(0.5),
-                ui.List("firehistory.fires", 5, selectFire,null,null,zoomToFire)
+                ui.List("fires.fires", 5, selectFire,null,null,zoomToFire)
             )
         ),
-        ui.Panel("fire data", true)(
-            ui.KvTable("firehistory.data", 15, 25,25)
+        ui.Panel("fire info", false)(
+            ui.KvTable("fires.info", 15, 25,25)
         ),
         ui.Panel("ignition points", false)(
-            ui.List("firehistory.ignitions", 5)
+            ui.List("fires.ignitions", 5)
         ),
         ui.Panel("timelines", true) (
             ui.TabbedContainer()(
-                ui.Tab("perimeters", true)( ui.List("firehistory.perimeters", 10, selectPerimeter) ),
-                ui.Tab("containment", false)( ui.List("firehistory.containment", 10) ),
-                ui.Tab("events", false)( ui.List("firehistory.events", 10) ),
-                ui.Tab("resources", false)( ui.List("firehistory.resources", 10) ),
-                ui.Tab("firelines", false)( ui.List("firehistory.firelines", 10) ),
-                ui.Tab("wind", false)( ui.List("firehistory.wind", 10) ),
+                ui.Tab("perimeters", true)( ui.List("fires.perimeters", nItems, selectPerimeter) ),
+                ui.Tab("containment", false)( ui.List("fires.containment", nItems) ),
+                ui.Tab("events", false)( ui.List("fires.events", nItems) ),
+                ui.Tab("resources", false)( ui.List("fires.resources", nItems) ),
+                ui.Tab("firelines", false)( ui.List("fires.firelines", nItems) ),
+                ui.Tab("wind", false)( ui.List("fires.wind", nItems) ),
             ),
             ui.RowContainer()(
                 ui.CheckBox("sync timelines", toggleSyncTimelines),
                 ui.CheckBox("step through", setStepThrough),
-                ui.ListControls("firehistory.perimeters",null,null,null,null,clearPerimeters)
+                ui.ListControls("fires.perimeters",null,null,null,null,clearPerimeters)
             )
         ),
         ui.Panel("display parameters", false)(
-            ui.Slider("stroke width", "firehistory.perimeter.stroke_width", perimeterStrokeWidthChanged),
-            ui.ColorField("stroke color", "firehistory.perimeter.stroke_color", true, perimeterStrokeColorChanged),
-            ui.ColorField("fill color", "firehistory.perimeter.fill_color", true, perimeterFillColorChanged),
-            ui.Slider("fill opacity", "firehistory.perimeter.opacity", perimeterFillOpacityChanged),
-            ui.Slider("dim factor", "firehistory.perimeter.dim_factor", perimeterDimFactorChanged),
+            ui.Slider("stroke width", "fires.perimeter.stroke_width", perimeterStrokeWidthChanged),
+            ui.ColorField("stroke color", "fires.perimeter.stroke_color", true, perimeterStrokeColorChanged),
+            ui.ColorField("fill color", "fires.perimeter.fill_color", true, perimeterFillColorChanged),
+            ui.Slider("fill opacity", "fires.perimeter.opacity", perimeterFillOpacityChanged),
+            ui.Slider("dim factor", "fires.perimeter.dim_factor", perimeterDimFactorChanged),
         )
     );
 
@@ -217,7 +234,7 @@ function createWindow() {
 }
 
 function initFireYearView() {
-    let view = ui.getList("firehistory.years");
+    let view = ui.getList("fires.years");
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "year", tip: "fire season", width: "4rem", attrs: ["fixed"], map: e => e },
@@ -228,7 +245,7 @@ function initFireYearView() {
 }
 
 function initFireListView() {
-    let view = ui.getList("firehistory.fires");
+    let view = ui.getList("fires.fires");
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "name", tip: "name of fire", width: "8rem", attrs:[], map: e=> e.fireSummary.name },
@@ -240,7 +257,7 @@ function initFireListView() {
 }
 
 function initFirePerimeterView() {
-    let view = ui.getList("firehistory.perimeters");
+    let view = ui.getList("fires.perimeters");
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "show", tip: "show/hide perimeter", width: "2.5rem", attrs: [], map: e => ui.createCheckBox(e.ds && e.ds.show, toggleShowPerimeter) },
@@ -255,7 +272,7 @@ function initFirePerimeterView() {
 }
 
 function initFireContainmentView() {
-    let view = ui.getList("firehistory.perimeters");
+    let view = ui.getList("fires.perimeters");
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "dtg", tip: "local date/time of perimeter", width: "7rem", attrs:["fixed"], map: e=> util.toLocalMDHMString(e.datetime) },
@@ -277,22 +294,22 @@ function getSizePercent(curSize) {
 }
 
 function initFirePerimeterDisplayControls() {
-    let e = ui.getSlider('firehistory.perimeter.stroke_width');
+    let e = ui.getSlider('fires.perimeter.stroke_width');
     ui.setSliderRange(e, 0, 5.0, 0.5, util.f_1);
     ui.setSliderValue(e, perimeterRender.strokeWidth);
 
-    e = ui.getSlider('firehistory.perimeter.opacity');
+    e = ui.getSlider('fires.perimeter.opacity');
     ui.setSliderRange(e, 0, 1.0, 0.1, util.f_1);
     ui.setSliderValue(e, perimeterRender.fillOpacity);
 
-    e = ui.getSlider('firehistory.perimeter.dim_factor');
-    ui.setSliderRange(e, 0, 1.0, 0.1, util.f_1);
+    e = ui.getSlider('fires.perimeter.dim_factor');
+    ui.setSliderRange(e, 0, 2.0, 0.1, util.f_1);
     ui.setSliderValue(e, perimeterRender.dimFactor);
 
-    e = ui.getField("firehistory.perimeter.stroke_color");
+    e = ui.getField("fires.perimeter.stroke_color");
     ui.setField(e, perimeterRender.strokeColor.toCssHexString());
 
-    e = ui.getField("firehistory.perimeter.fill_color");
+    e = ui.getField("fires.perimeter.fill_color");
     ui.setField(e, perimeterRender.fillColor.toCssHexString());
 }
 
@@ -336,10 +353,10 @@ function selectPerimeter(event) {
     selectedPerimeter = ui.getSelectedListItem(firePerimeterView);
     if (stepThroughMode) {
         if (selectedPerimeter) {
-            if (prevPerimeter && prevPerimeter.ds) selectedFire.showPerimeter(prevPerimeter,false);
+            if (prevPerimeter && prevPerimeter.ds) selectedFire.displayPerimeter(prevPerimeter,false);
             ui.updateListItem(firePerimeterView,prevPerimeter);
 
-            if (selectedFire) selectedFire.showPerimeter(selectedPerimeter,true);
+            if (selectedFire) selectedFire.displayPerimeter(selectedPerimeter,true);
             ui.updateListItem(firePerimeterView,selectedPerimeter);
         }
     } 
@@ -347,7 +364,7 @@ function selectPerimeter(event) {
 
 function updateFireDataView() {
     let kvList = selectedFire ? getFireDataItems(selectedFire) : null;
-    ui.setKvList(fireHistoryDataView, kvList);
+    ui.setKvList(fireInfoView, kvList);
 }
 
 function toggleShowPerimeter(event) {
@@ -355,7 +372,7 @@ function toggleShowPerimeter(event) {
     if (cb) {
         let perimeter = ui.getListItemOfElement(cb);
         if (perimeter && selectedFire) {
-            selectedFire.showPerimeter(perimeter, ui.isCheckBoxSelected(cb));
+            selectedFire.displayPerimeter(perimeter, ui.isCheckBoxSelected(cb));
         }
     }
 }
@@ -379,13 +396,17 @@ function clearPerimeters () {
     odinCesium.requestRender();
 }
 
-function toggleShowFireHistory(event) {
+function toggleShowFires(event) {
     let showIt = ui.isCheckBoxSelected(event.target);
-    // TBD
+    fireEntries.forEach( (fe)=>fe.setPerimeterVisibility( showIt));
+    odinCesium.requestRender();
 }
 
-function showFireHistory(cond) {
-    // TBD
+function showFires(cond) {
+    fireEntries.forEach( fe=> {
+        fe.setPerimeterVisibiity( cond)
+    });
+    odinCesium.requestRender();
 }
 
 //--- interactive display parameters
@@ -418,6 +439,7 @@ function perimeterFillColorChanged(event) {
 
 function perimeterDimFactorChanged(event) {
     perimeterRender.dimFactor = ui.getSliderValue(event.target);
+    updatePerimeterRendering(false);
 }
 
 function updatePerimeterRendering(onlyPrevious=true) {
@@ -436,12 +458,17 @@ function updatePerimeterRendering(onlyPrevious=true) {
                     ds.entities.values.forEach( e=> {
                         if (e.polygon) {
                             e.polygon.material = renderOpts.fill;
+                            //e.polygon.outline = true;
                             e.polygon.outlineWidth = renderOpts.strokeWidth;
                             e.polygon.outlineColor = renderOpts.stroke;
                         }
+                        if (e.polyline) {
+                            e.polyline.width = renderOpts.strokeWidth;
+                            e.polyline.material = renderOpts.stroke;
+                        }
                     });
                 }
-                dimFactor *= 0.8;
+                dimFactor *= perimeterRender.dimFactor;
             }
         }
 

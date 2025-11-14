@@ -29,21 +29,21 @@ use odin_actor::prelude::*;
 use odin_cesium::{CesiumService, ImgLayerService};
 use odin_common::{define_serde_struct, fs::{filepath_contents_as_string, get_filename_extension, matching_files_in_tree}};
 
-use crate::{load_asset, load_summaries, FireHistoryConfig,FireSummary, errors::Result};
+use crate::{load_asset, load_summaries, FiresConfig,FireSummary, errors::Result};
 
-pub struct FireHistoryService {
-    config: FireHistoryConfig,
+pub struct FireService {
+    config: FiresConfig,
     summaries: Vec<(PathBuf,FireSummary)>
 }
 
-impl FireHistoryService {
-    pub fn new( config: FireHistoryConfig)->Result<Self> { 
+impl FireService {
+    pub fn new( config: FiresConfig)->Result<Self> { 
         let regex = Regex::new( &config.summary_pattern)?;
 
         // we don't use the FireSummary objects here but still want to make sure contents of the files are valid
         let summaries: Vec<(PathBuf,FireSummary)> = load_summaries( &config.src_dir, regex)?;
 
-        Ok( FireHistoryService { config, summaries } ) 
+        Ok( FireService { config, summaries } ) 
     }
 
     async fn data_handler (path: AxumPath<String>, dir: Arc<PathBuf>) -> Response {
@@ -71,7 +71,7 @@ impl FireHistoryService {
 }
 
 #[async_trait]
-impl SpaService for FireHistoryService {
+impl SpaService for FireService {
     fn add_dependencies(&self, spa_builder: SpaServiceList) -> SpaServiceList {
         spa_builder
             .add( build_service!( => ImgLayerService::new()))
@@ -80,12 +80,12 @@ impl SpaService for FireHistoryService {
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()> {
         spa.add_assets( self_crate!(), load_asset);
 
-        spa.add_module( asset_uri!("odin_firehistory_config.js"));
-        spa.add_module( asset_uri!("odin_firehistory.js"));
+        spa.add_module( asset_uri!("odin_fires_config.js"));
+        spa.add_module( asset_uri!("odin_fires.js"));
 
         let dir = Arc::new(Path::new( &self.config.src_dir).to_path_buf());
         spa.add_route( |router, spa_server_state| {
-            router.route( &format!("/{}/firehistory-data/{{*unmatched}}", spa_server_state.name.as_str()), get({
+            router.route( &format!("/{}/fire-data/{{*unmatched}}", spa_server_state.name.as_str()), get({
                 move |path| Self::data_handler(path, dir.clone())
             }))
         });
@@ -97,7 +97,7 @@ impl SpaService for FireHistoryService {
         let remote_addr = conn.remote_addr;
 
         for (path,summary) in &self.summaries {
-            let ws_msg = WsMsg::json( FireHistoryService::mod_path(), "fireSummary", summary)?;
+            let ws_msg = WsMsg::json( FireService::mod_path(), "fireSummary", summary)?;
             hself.try_send_msg( SendWsMsg{remote_addr,ws_msg})?;
         }
 

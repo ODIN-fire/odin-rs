@@ -20,18 +20,18 @@ use odin_common::define_cli;
 use odin_actor::{load_config, prelude::*};
 use odin_server::prelude::*;
 use odin_cesium::{CesiumService, ImgLayerService};
-use odin_firehistory::firehistory_service::FireHistoryService;
+use odin_fires::fire_service::FireService;
 
 run_actor_system!( actor_system => {
     
-    let config = odin_firehistory::load_config("firehistory.ron")?;
-    let firehistory_svc = FireHistoryService::new( config)?;
+    let config = odin_fires::load_config("fires.ron")?;
+    let fire_svc = FireService::new( config)?;
 
     spawn_actor!( actor_system, "spa_server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
-        "firehistory",
+        "fires",
         SpaServiceList::new()
-            .add(build_service!( => firehistory_svc)) 
+            .add(build_service!( => fire_svc)) 
     ));
 
     Ok(())

@@ -16,3 +16,4 @@ The following crates are currently included
 - [odin_adsb](odin_adsb/odin_adsb.md) - ADS-B based aircraft tracking
 - [odin_alertca](odin_alertca/odin_alertca.md) - AlertCalifornia.org webcam integration
 - [odin_n5](odin_n5/odin_n5.md) - N5Sensors.com fire sensor integration
+- [odin-fires](odin_fires/odin_fires.md) - a micro service for historical and ongoing incident data such as perimeters

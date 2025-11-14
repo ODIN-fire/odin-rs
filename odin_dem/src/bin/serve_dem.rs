@@ -72,7 +72,7 @@ define_serde_struct! { GetWhDemQuery: Debug =
     bbox:[f64;4]             [deserialize_with="odin_common::strings::deserialize_arr4"],
     width: u32,
     height: u32,
-    format: String           [default = "default_format"],
+    format: String           [default = "default_format"]
 }
 
 type GetMapQuery = GetWhDemQuery; // they have the same parameters

@@ -20,11 +20,11 @@ use regex;
 use serde_json;
 use ron;
 
-pub type Result<T> = std::result::Result<T,OdinFireHistoryError>;
+pub type Result<T> = std::result::Result<T,OdinFiresError>;
 
 
 #[derive(Error,Debug)]
-pub enum OdinFireHistoryError {
+pub enum OdinFiresError {
     #[error("build error {0}")]
     BuildError( #[from] odin_build::OdinBuildError),
 

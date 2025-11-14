@@ -26,7 +26,7 @@ use odin_common::{
     geo::GeoPoint
 };
 
-pub mod firehistory_service;
+pub mod fire_service;
 pub mod errors;
 pub use errors::Result;
 
@@ -35,7 +35,7 @@ define_load_asset!{}
 
 /// specification of where to look up fire summaries
 #[derive(Deserialize,Serialize,Debug)]
-pub struct FireHistoryConfig {
+pub struct FiresConfig {
     pub src_dir: EnvPathBuf,
     pub summary_pattern: String
 }
@@ -67,7 +67,7 @@ FireSummary [rename_all="camelCase"] =
 
     containment: Vec<Containment>
 
-        //... and more to come
+        //... and many more to come (esp. ops)
 }
 
 
@@ -114,7 +114,7 @@ pub fn load_summaries<P: AsRef<Path>> (dir: P, file_pattern: Regex)->Result<Vec<
             }
             Err(e) => {
                 eprintln!("error parsing file {:?}: {}", p, e);
-                return Err( errors::OdinFireHistoryError::SerdeError(e));
+                return Err( errors::OdinFiresError::SerdeError(e));
             }
         }
     }
