@@ -886,7 +886,6 @@ function contourStrokeWidthChanged(event) {
 function contourColorChanged(event) {
     let idx = colorIndex( event.target);
     let clr= Cesium.Color.fromCssColorString( event.target.value);
-    console.log("@@ change color", idx);
     if (clr) {
         contourRender.colors[idx] = clr;
         if (selectedForecast && isContourDisplay()) { selectedForecast.renderChanged();}

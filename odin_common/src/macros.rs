@@ -251,7 +251,6 @@ macro_rules! define_cli {
     }
 }
 
-
 /// syntactic sugar macro to define thiserror Error enums:
 /// ```
 /// use odin_common::define_error;
@@ -288,34 +287,37 @@ macro_rules! define_error {
 
 /* #endregion define_cli */
 
-
-/// syntactic sugar macro to expand into a struct with serde attribute macros
-/// This mostly expands optional "[ attr,.. ]" groups into respective #[serde(attrs...)] container or field attribute macros
-/// use like this:
-/// ```
-/// use odin_common::define_serde_struct;
-/// use serde::{Serialize,Deserialize};
-/// # fn default_service() -> String { "foo".to_string() }
-/// define_serde_struct! {
-///     pub GetMapQuery : Debug [deny_unknown_fields] = 
-///        service: String [alias = "svc", default="default_service"],
-///        layers: Option<String>
+/// syntactic sugar macro to define serde enabled structs without cluttering sources with attribute macros
+/// this expands something like 
+/// ```no_run
+/// define_serde_struct! { 
+///     pub Foo: Debug [rename_all="camelCase"] =
+///         name: String,
+///         date: DateTime<Utc> [serialize_with="ser_short_rfc3339"]
 /// }
 /// ```
-/// 
-/// TODO - we might turn this into q proc macro so that we can also do ad hoc default value spec without the need for additional functions
+/// into: 
+/// ```no_run
+/// #[derive(Serialize,Deserialize,Debug)]
+/// #[serde(rename_all="camelCase")]
+/// pub struct Foo {
+///     name: String,
+///     #[serde(serialize_with="ser_short_rfc3339")]
+///     date: DateTime<Utc>
+/// }
+/// ```
 #[macro_export]
 macro_rules! define_serde_struct {
-    ( $vis:vis $name:ident $( : $( $dt:ty),* )? $( [ $( $sopt:ident $(= $sx:literal)? ),* ] )? = 
-       $( $( #[$fmeta:meta] )? $fvis:vis $fname:ident: $ftype:ty $( [ $( $fopt:ident $(= $fx:literal)? ),* ] )? ),*  $(,)?) => {
-        #[derive(Serialize,Deserialize $( $( , $dt)* )? )]
-        $( #[serde( $( $sopt $( = $sx)? ),* ) ])?
-        $vis struct $name {
-            $( 
-                $( #[ $fmeta ] )?
-                $( #[serde(  $( $fopt $( =$fx )?),*  )] )?
-                $fvis $fname : $ftype
-            ),*
+    ( $( #[$smeta:meta] )? $svis:vis $sname:ident $(: $( $dt:ty),* )? $([ $( $sopt:ident $(= $sx:expr)? ),* ])? = $( $( #[$fmeta:meta] )? $fvis:vis $fname:ident : $ftype:ty $([ $( $fopt:ident $(= $fx:expr)?),* ])? ),* ) => {
+
+        #[derive(Deserialize,Serialize $( $( , $dt)* )?)]
+        $( #[serde( $( $sopt $(=$sx)? ),* )] )?
+        $(#[$smeta])? $svis struct $sname {
+            $(
+                $( #[serde( $( $fopt $(=$fx)? ),* )] )?
+                $(#[$fmeta])?
+                $fvis $fname : $ftype,
+            )*
         }
     }
 }

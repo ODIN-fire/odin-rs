@@ -1,0 +1,41 @@
+[package]
+name = "odin_firehistory"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "show_fires"
+path = "src/bin/show_fires.rs"
+
+[dependencies]
+# our ODIN crates
+odin_common = { workspace = true }
+odin_cesium = { workspace = true }
+odin_actor = { workspace = true }
+odin_server = { workspace = true }
+odin_macro = { workspace = true }
+odin_build = { workspace = true }
+
+tokio = { workspace = true}
+axum = { workspace = true }
+flate2 = {workspace = true }
+chrono = { workspace = true }
+geojson = "0.24.2"
+lazy_static = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+ron = { workspace = true }
+uom = { workspace = true }
+regex = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true}
+async-trait = { workspace = true }
+
+indexmap = { version = "2.9.0", features = ["serde"] }
+
+[build-dependencies]
+odin_build = { workspace = true }
+
+[features]
+embedded_resources = []

@@ -80,6 +80,8 @@ impl Default for PerimeterFilterData {
     }
 }
 
+// FIXME - this should use the public crate definition and keep internal data out of the structure
+
 /// summary of fire information, stored in `<fire-name>/summary.json`.
 /// this is the primary model of the data we want to collect
 /// if this file exists it is read during program start

@@ -25,9 +25,9 @@ members = [
   "odin_alertca",
   "odin_onnx",
  # "odin_image",
+  "odin_firehistory",
   
   "gpshub",
-  "opendata_splitter",
   "mkslides",
   "servedoc",
   "webrun"
@@ -57,6 +57,7 @@ odin_n5     = { version = "*", path = "odin_n5" }
 odin_alertca = { version = "*", path = "odin_alertca" }
 odin_onnx = { version = "*", path = "odin_onnx" }
 #odin_image = { version = "*", path = "odin_image" }
+odin_firehistory = { version = "*", path = "odin_firehistory" }
 
 # external crates for which we have to ensure the same version
 axum = { version = "0.8.6", features = [ "http2", "ws", "macros"] }

@@ -1990,7 +1990,6 @@ export function triggerCheckBoxAction(o) {
     let e = getCheckBox(o);
     if (e) {
         let click = new CustomEvent("click", { target: e });
-        console.log("@@ dispatching ", click);
         e.dispatchEvent(click);
     }
 }

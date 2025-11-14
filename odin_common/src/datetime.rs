@@ -150,6 +150,14 @@ pub fn ser_short_rfc3339<S: Serializer> (dt: &DateTime<Utc>, s: S) -> Result<S::
     s.serialize_str(&dfm)
 }
 
+pub fn ser_short_rfc3339_opt<S: Serializer> (opt_dt: &Option<DateTime<Utc>>, s: S) -> Result<S::Ok, S::Error>  {
+    if let Some(dt) = *opt_dt {
+        ser_short_rfc3339( &dt, s)
+    } else {
+        s.serialize_none()
+    }
+}
+
 pub fn ser_epoch_millis<S: Serializer> (dt: &DateTime<Utc>, s: S) -> Result<S::Ok, S::Error>  {
     s.serialize_i64(dt.timestamp_millis())
 }

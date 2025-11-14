@@ -405,6 +405,27 @@ pub fn matching_files_in_dir<P: AsRef<Path>> (dir: &P, fname_regex: &Regex) -> R
     Ok(list)
 }
 
+pub fn matching_files_in_tree <P: AsRef<Path>> (dir: P, fname_regex: &Regex) -> Result<Vec<PathBuf>> {
+    let mut list: Vec<PathBuf> = Vec::new();
+
+    if dir.as_ref().is_dir() {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                list.append( & mut matching_files_in_tree( &path, fname_regex)?);
+            } else {
+                 if let Some(fname) = filename( &path) {
+                    if fname_regex.is_match( fname) {
+                        list.push(path)
+                    }
+                }
+            }
+        }
+    }
+    Ok( list )
+}
+
 pub fn store_file_contents_in_dir<P: AsRef<Path>> (dir: &P, filename: &str, contents: &[u8]) -> Result<()> {
     let dir: &Path = dir.as_ref();
 

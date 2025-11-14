@@ -8,3 +8,4 @@ local/
 .vscode/
 rustc-ice*.txt
 odin_book/external/
+_odin_*

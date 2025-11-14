@@ -1,0 +1,4 @@
+FireHistoryConfig(
+    src_dir: "$ODIN_ROOT/data/odin_firehistory",
+    summary_pattern: ".+-summary.json"
+)
