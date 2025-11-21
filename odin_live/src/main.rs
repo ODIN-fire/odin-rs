@@ -30,6 +30,7 @@ use odin_wind::{self, actor::{WindActor,WindActorMsg, server_subscribe_action, s
 use odin_adsb::{AircraftStore,actor::AdsbActor,adsb_service::AdsbService, sbs::SbsConnector};
 use odin_n5::{self, N5DeviceStore, N5DataUpdate, n5_service::N5Service, actor::N5Actor, live_connector::LiveN5Connector};
 use odin_alertca::{self,actor::AlertCaActor, alertca_service::AlertCaService, live_connector::LiveAlertCaConnector, CameraStore, CameraUpdate};
+use odin_fires::{fire_service::FireService};
 
 // note that odin_sentinel, odin_n5 and odin_adsb all require non-public data sources and hence are feature gated
 
@@ -45,6 +46,10 @@ run_actor_system!( actor_system => {
 
     //--- add the geolayer service
     let svc_list = svc_list.add( build_service!( => GeoLayerService::new( &odin_geolayer::default_data_dir())));
+
+    //--- add the fires service
+    // (service construction can fail since it has to parse externally generated data files)
+    let svc_list = svc_list.add( build_service!(let svc = FireService::new(odin_fires::load_config("fires.ron")?)? => svc));
 
     //--- spawn the micro grid wind simulator
     let hwind = spawn_actor!( actor_system, "wind", WindActor::new(

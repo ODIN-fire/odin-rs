@@ -101,9 +101,24 @@ async function loadPerimeter (e, perimeter) {
             let data = response.json();
             if (data) {
                 let renderOpts = getPerimeterRenderOptions();
-                renderOpts.clampToGround = false; // HACK to make outline visible
+                //renderOpts.clampToGround = false; // HACK to make outline visible
 
                 Cesium.GeoJsonDataSource.load(data, renderOpts).then( (ds) => {
+                    for (const e of ds.entities.values) {
+                        if (e.polygon) {
+                            if (!e.polyline) {
+                                e.polyline = {
+                                    positions: e.polygon.hierarchy._value.positions,
+                                    material: renderOpts.strokeColor,
+                                    width: renderOpts.strokeWidth,
+                                    clampToGround: true
+                                };
+                                e.addProperty('polyline');
+                                e.polygon.outline = false;
+                            }
+                        }
+                    }
+
                     perimeter.ds = ds;
                     ds.show = true;
                     odinCesium.addDataSource(ds);
@@ -459,8 +474,8 @@ function updatePerimeterRendering(onlyPrevious=true) {
                         if (e.polygon) {
                             e.polygon.material = renderOpts.fill;
                             //e.polygon.outline = true;
-                            e.polygon.outlineWidth = renderOpts.strokeWidth;
-                            e.polygon.outlineColor = renderOpts.stroke;
+                            //e.polygon.outlineWidth = renderOpts.strokeWidth;
+                            //e.polygon.outlineColor = renderOpts.stroke;
                         }
                         if (e.polyline) {
                             e.polyline.width = renderOpts.strokeWidth;

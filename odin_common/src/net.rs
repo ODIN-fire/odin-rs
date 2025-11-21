@@ -20,7 +20,7 @@ use regex::Regex;
 use lazy_static::lazy_static;
 use serde::{de::DeserializeOwned,Serialize,Deserialize};
 
-use crate::{define_error, fs::{self, file_length}, if_let};
+use crate::{define_error, fs::{self, file_length, get_filename_extension}, if_let};
 
 const SCHEME: usize = 1;
 const USR: usize = 2;
@@ -257,6 +257,16 @@ lazy_static! {
 
         // and more to follow..
     ]);
+}
+
+pub fn enc_for (path: &str)->Option<&'static str> {
+    let path_ext = get_filename_extension(path);
+    for (ext,enc) in ENC_MAP.iter() {
+        if path_ext == Some(*ext) { 
+            return Some(enc)
+        }
+    }
+    None
 }
 
 pub const ZERO_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);

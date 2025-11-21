@@ -3,7 +3,7 @@
 The `odin_fires` application domain crate provides a data model and `SpaService` to display operational fire data
 such as name, incident identifiers, location, perimeters and more. 
 
-This was started as an attempt to provide visualization for the "Fire Progression" database from https://data-nifc.opendata.arcgis.com/ 
+This was started as an attempt to provide visualization for the "Fire Progression" database from <https://data-nifc.opendata.arcgis.com> 
 (which is succeeded by the "Historical Operational Data" database). This data was not directly displayable as it contains 
 [GeoJSON](https://geojson.org/) `FeatureCollections` with all perimeter `Polygons` in one file. Our intention is to extend the
 functionality to a full data model for wildfire incidents that can be dynamically updated, i.e. that is applicable to both historical

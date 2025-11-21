@@ -43,6 +43,12 @@ pub enum OdinServerError {
     #[error("axum error: {0}")]
     AxumError( #[from] axum::Error),
 
+    #[error("SQL error: {0}")]
+    Sqlx(#[from] sqlx::Error),
+
+    #[error("task join error: {0}")]
+    TaskJoin(#[from] tokio::task::JoinError),
+
     #[error("RON deserialization error {0}")]
     RonDeError( #[from] ron::de::SpannedError),
 

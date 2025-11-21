@@ -168,7 +168,10 @@ pub struct SpaServiceList {
 impl SpaServiceList {
     pub fn new ()->Self { SpaServiceList{seen: Vec::new(), services: Vec::new()} }
 
-    pub fn add<F,T> (self, svc_ctor: F)->Self where F: FnOnce()->T, T: SpaService + 'static {
+    /// this is the version for infallible service ctor construction
+    pub fn add<F,T> (self, svc_ctor: F)->Self 
+        where F: FnOnce()->T, T: SpaService + 'static 
+    {
         let name = type_name::<T>();
         if !self.seen.contains(&name) {
             let svc = svc_ctor();
@@ -181,6 +184,27 @@ impl SpaServiceList {
             sb
         } else {
             self
+        }
+    }
+
+    /// use this if the service ctor construction can fail (use the ? operator on the call result)
+    /// (alternatively you can use the capture variable section of the build_service! macro to instantiate fallible parts
+    /// if it can be evaluated at the point of the add() call)
+    pub fn try_add<F,T,E> (self, svc_ctor: F)->OdinServerResult<Self> 
+        where F: FnOnce()->std::result::Result<T,E>, T: SpaService + 'static, E: std::error::Error 
+    {
+        let name = type_name::<T>();
+        if !self.seen.contains(&name) {
+            let svc = svc_ctor().map_err(|e| OdinServerError::OpFailed( format!("failed to instantiate service {name}: {e}")))?;
+            let mut sb = svc.add_dependencies( self);
+            sb.seen.push(name);
+
+            let svc_state = SpaSvc::new(svc);
+            sb.services.push( svc_state);
+
+            Ok(sb)
+        } else {
+            Ok(self)
         }
     }
 }

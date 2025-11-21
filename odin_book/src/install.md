@@ -207,3 +207,14 @@ The xtools command line tools can be installed as part of Xcode from the Apple A
 
 Since GDAL itself has a lot of dependencies it is highly recommended to use a standard [homebrew](https://brew.sh/) installation (which on Apple silicon is in `/opt/homebrew/`). Non-standard locations might force buiding packages from source, which is prone to fail for complex packages such as python. While it is possible to build and install GDAL manually - and to configure `odin-rs` accordingly - we do not recommend this as it would still require a working `homebrew` for the GDAL dependencies. Please refer to the [`odin_gdal`](odin_gdal/odin_gdal.md) documentation
 for how to build/use GDAL libraries from source.
+
+As of 11/20/2025 the current Rust [gdal v0.18.0](https://crates.io/crates/gdal) crate that is used as a wrapper around the native `GDAL` library does not compile due to changes in `GDAL 3.12.0`. Until the Rust project releases a new version the workaround is either to install an older `GDAL 3.11.x` version through the native package manager (e.g. homebrew) or to fall back in the `odin-fire` workspace `Cargo.toml` to directly use the GDAL repository URL in the dependency spec like so:
+
+```toml
+...
+#gdal = { version = "0.18", features = ["array", "bindgen"] }  # <<< reinstate when a new crate version is released
+#gdal-sys = { version = "0.11", features = ["bindgen"]}        # <<< reinstate when a new crate version is released
+gdal = { git = "https://github.com/georust/gdal.git", features = ["array", "bindgen"] }
+gdal-sys = { git = "https://github.com/georust/gdal.git", features = ["bindgen"] }
+...
+```

@@ -24,7 +24,6 @@ members = [
   "odin_n5",
   "odin_alertca",
   "odin_onnx",
- # "odin_image",
   "odin_fires",
   
   "gpshub",
@@ -56,15 +55,20 @@ odin_adsb  = { version = "*", path = "odin_adsb" }
 odin_n5     = { version = "*", path = "odin_n5" }
 odin_alertca = { version = "*", path = "odin_alertca" }
 odin_onnx = { version = "*", path = "odin_onnx" }
-#odin_image = { version = "*", path = "odin_image" }
 odin_fires = { version = "*", path = "odin_fires" }
 
 # external crates for which we have to ensure the same version
 axum = { version = "0.8.6", features = [ "http2", "ws", "macros"] }
+axum-login = { version = "0.18" }
+password-auth = { version = "1.0.0" }
+passwords = { version = "3.1" }
 reqwest = { version = "0.12.24", features = ["json", "stream"] }
 reqwest-middleware = { version = "0.4.2" }
 tower = { version = "0.5.2", features = ["full"] }
 tower-http = { version = "0.6.6", features = ["full"] }
+tower-sessions = { version = "0.14.0", default-features = false, features = ["signed"] }
+tower-sessions-sqlx-store = { version = "0.15.0", features = ["sqlite"] }
+sqlx = { version = "0.8.6", features = ["sqlite", "time", "runtime-tokio"] }
 http = { version = "1.3.1" }
 http-cache-reqwest = { version = "0.16.0" }
 cacache = { version = "13.1.0" }
@@ -83,15 +87,19 @@ rustls = { version = "0.23.32" }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = { version = "1.0.145" }
 serde_with = { version = "3.12.0" }
-ron = { version = "0.11.0" }
+ron = { version = "0.12.0" }
 uom = { version = "0.37.0", features = ["serde", "f32", "i64"] }
 num = { version = "0.4.3" }
 chrono = { version = "0.4.42", features = ["serde"] }
 chrono-tz = { version = "0.10.4", features = ["serde"] }
 thiserror = { version = "2.0.12" }
 anyhow = { version = "1.0.99" }
-gdal = { version = "0.18.0", features = ["array"] }
-gdal-sys = { version = "0.11.0", features = ["bindgen"]}
+
+#gdal = { version = "0.18", features = ["array", "bindgen"] }  # <<< reinstate when a new crate version is released
+#gdal-sys = { version = "0.11", features = ["bindgen"]}        # <<< reinstate when a new crate version is released
+gdal = { git = "https://github.com/georust/gdal.git", features = ["array", "bindgen"] } # required as of 11/20/25 for GDAL 3.12.0  (gdal v0.18.0 does not compile)
+gdal-sys = { git = "https://github.com/georust/gdal.git", features = ["bindgen"] }
+
 geo = { version = "0.31.0" }
 geo-types = { version = "0.7.17" }
 geojson = { version = "0.24.2" }

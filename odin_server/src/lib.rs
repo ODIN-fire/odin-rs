@@ -29,7 +29,7 @@ use serde::{Deserialize,Serialize};
 use tokio::task::JoinHandle;
 
 use odin_build::prelude::*;
-use odin_common::{strings, fs, net, if_let};
+use odin_common::{fs::{self, get_filename_extension}, if_let, net, strings};
 
 pub mod prelude;
 pub mod spa;
@@ -37,6 +37,8 @@ pub mod ui_service;
 
 pub mod ws_service;
 pub use ws_service::{WsMsg,WsMsgParts};
+
+pub mod auth;
 
 pub mod errors;
 use errors::{OdinServerResult,op_failed};
@@ -146,8 +148,15 @@ pub fn server_error (msg: &str) -> impl IntoResponse {
 
 // TODO - this should be merged with file_response()
 pub fn compressable_file_response<P: AsRef<Path>> (dir: P, path: &str, not_found_msg: &str)->Response {
+    let file_ext = get_filename_extension(path);
+
     for (ext,enc) in net::ENC_MAP.iter() {
-        let pathname = dir.as_ref().join( format!("{path}.{ext}"));
+        let pathname = if file_ext == Some(*ext) { // check if path aleady has an enc extension
+            dir.as_ref().join( path)
+        } else {
+            dir.as_ref().join( format!("{path}.{ext}"))
+        };
+
         if pathname.is_file() {
             let mut headers = HeaderMap::new();
             headers.insert( CONTENT_ENCODING, HeaderValue::from_static(enc));

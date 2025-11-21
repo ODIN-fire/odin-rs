@@ -47,26 +47,7 @@ impl FireService {
     }
 
     async fn data_handler (path: AxumPath<String>, dir: Arc<PathBuf>) -> Response {
-        let pathname = dir.join( path.as_str());
-        // add to watch list, check, send to WS if change
-        if pathname.is_file() {
-            // check if zip , unzip if zip
-            if Some("gz") == get_filename_extension(pathname.to_str().unwrap()) {
-                let file = fs::File::open(pathname).unwrap();
-                let file = BufReader::new(file);
-                let mut contents = GzDecoder::new(file);
-                let mut bytes = Vec::new();
-
-                contents.read_to_end(&mut bytes).unwrap();
-                (StatusCode::OK, bytes).into_response()
-
-            } else {
-                (StatusCode::OK, fs::read(pathname).unwrap()).into_response()
-            }
-           
-        } else { // add 
-            (StatusCode::NOT_FOUND, "history data not found").into_response()
-        }
+        compressable_file_response( dir.as_ref(), path.as_str(), "fire data not found")
     }
 }
 

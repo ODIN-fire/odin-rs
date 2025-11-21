@@ -24,14 +24,11 @@ use odin_fires::fire_service::FireService;
 
 run_actor_system!( actor_system => {
     
-    let config = odin_fires::load_config("fires.ron")?;
-    let fire_svc = FireService::new( config)?;
-
     spawn_actor!( actor_system, "spa_server", SpaServer::new(
         odin_server::load_config("spa_server.ron")?,
         "fires",
         SpaServiceList::new()
-            .add(build_service!( => fire_svc)) 
+            .add(build_service!( let svc = FireService::new(odin_fires::load_config("fires.ron")?)? => svc))
     ));
 
     Ok(())

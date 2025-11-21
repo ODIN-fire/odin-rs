@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 pub use crate::{
-    self_crate, asset_uri, proxy_uri, build_service, get_asset_response, 
+    self_crate, asset_uri, proxy_uri, build_service, get_asset_response, compressable_file_response, file_response, 
     spa::{SpaServer, SpaServerMsg, SpaServerState, SpaComponents, SpaService, WsConnection, SpaServiceList, DataAvailable, 
         SendWsMsg, SendGroupWsMsg, SendAllOthersWsMsg, BroadcastWsMsg, WsMsgReaction, open
     }, 
