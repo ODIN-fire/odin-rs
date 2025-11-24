@@ -107,6 +107,7 @@ class N5Entry {
                 distanceDisplayCondition: config.billboardDC,
                 color: clr,
                 heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                disableDepthTestDistance: Number.MAX_SAFE_INTEGER,  // otherwise symbol might get clipped by terrain
             },
             label: {
                 text: device.id.toString(),

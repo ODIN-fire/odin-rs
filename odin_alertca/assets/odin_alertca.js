@@ -83,6 +83,7 @@ class CameraEntry {
                 distanceDisplayCondition: config.billboardDC,
                 color: clr,
                 heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                disableDepthTestDistance: Number.MAX_SAFE_INTEGER,  // otherwise symbol might get clipped by terrain
                 alignedAxis: Cesium.Cartesian3.UNIT_Z,
                 rotation: util.toRadians( 360 - azimut)
             },
@@ -99,7 +100,7 @@ class CameraEntry {
                 pixelOffset: config.labelOffset,
                 distanceDisplayCondition: config.labelDC,
                 heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-                disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                disableDepthTestDistance:Number.MAX_SAFE_INTEGER,
             },
             point: {
                 pixelSize: config.pointSize,

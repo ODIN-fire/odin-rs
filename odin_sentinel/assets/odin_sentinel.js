@@ -735,6 +735,7 @@ function createSymbolAsset(sentinelEntry) {
         billboard: {
             image: './asset/odin_sentinel/sentinel-sym.png',
             distanceDisplayCondition: config.billboardDC,
+            disableDepthTestDistance: Number.MAX_SAFE_INTEGER,  // otherwise symbol might get clipped by terrain
             color: config.color,
             //heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
         },
@@ -778,8 +779,8 @@ function createDetailAsset (sentinelEntry) {
             horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
             verticalOrigin: Cesium.VerticalOrigin.TOP,
             fillColor: config.color,
-            showBackground: true,
-            backgroundColor: config.labelBackground, // alpha does not work against model
+            //showBackground: true,
+            //backgroundColor: config.labelBackground, // alpha does not work against model
             outlineColor: config.color,
             outlineWidth: 1,
             pixelOffset: config.infoOffset,

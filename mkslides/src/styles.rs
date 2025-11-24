@@ -18,19 +18,36 @@ pub fn get_odin_style_css() -> String {
 }
 
 pub fn style_vars () -> String {
-    let mut style_vars = String::with_capacity(256);
+    let mut style_vars = String::with_capacity(512);
 
     style_vars.push_str(":root {");
+    style_vars.push_str(&format!("  --color: {};\n", &ARGS.color));
+    style_vars.push_str(&format!("  --background: {};\n", &ARGS.background));
+
     style_vars.push_str(&format!("  --font-family: {};\n", &ARGS.basic_font_family));
     style_vars.push_str(&format!("  --font-size: {};\n", &ARGS.basic_font_size));
 
     style_vars.push_str(&format!("  --h1-factor: {}%;\n", &ARGS.h1_factor));
     style_vars.push_str(&format!("  --h2-factor: {}%;\n", &ARGS.h2_factor));
+    style_vars.push_str(&format!("  --h3-factor: {}%;\n", &ARGS.h3_factor));
     style_vars.push_str(&format!("  --item-factor: {}%;\n", &ARGS.li_factor));
 
     style_vars.push_str(&format!("  --header-margin: {};\n", &ARGS.header_margin));
     style_vars.push_str(&format!("  --list-margin: {};\n", &ARGS.list_margin));
     style_vars.push_str(&format!("  --item-margin: {};\n", &ARGS.item_margin));
+
+    style_vars.push_str(&format!("  --invert-img: {};\n", &ARGS.invert_img));
+
+    style_vars.push_str(&format!("  --quote-color: {};\n", &ARGS.quote_color));
+    style_vars.push_str(&format!("  --code-color: {};\n", &ARGS.code_color));
+    style_vars.push_str(&format!("  --link-color: {};\n", &ARGS.link_color));
+    style_vars.push_str(&format!("  --info-color: {};\n", &ARGS.info_color));
+
+    if !ARGS.logo.is_empty() {
+        style_vars.push_str(&format!("  --logo-src: url({});\n", &ARGS.logo));
+    } else {
+        style_vars.push_str(&format!("  --logo-src: ;\n"));
+    }
 
     style_vars.push_str( "}");
 
@@ -42,6 +59,8 @@ body {
     margin: 0 10px 0 10px;
     font-size: var(--font-size);
     font-family: var(--font-family);
+    color: var(--color);
+    background: var(--background);
 }
 
 /*---------------------------- print support -----------------------------*/
@@ -73,12 +92,29 @@ body {
     text-align: center;
 }
 
-.slide h2,h3 {
+.slide h2 {
     text-align: center;
     font-size: var(--h2-factor);
     margin: 0;
     padding: var(--header-margin);
     border-bottom: 2px solid LightGray;
+}
+
+.slide h2::after {
+    float: right;
+    content: var(--logo-src);
+    margin-right: 1rem;
+}
+
+.slide h3 {
+    text-align: left;
+    font-size: var(--h3-factor);
+    border-bottom: 1px solid LightGray;
+}
+
+img.cover {
+    margin-top: 1rem;
+    width: 100%;
 }
 
 p.author, address {
@@ -115,14 +151,30 @@ table.keys {
     text-align: center;
 }
 
-p.comment {
-  display: block;
-  font-size: 80%;
-  font-style: italic;
-  text-align: center;
+.inline-block {
+    display: inline-block;
 }
 
-p.box {
+.float-right {
+    float: right;
+    display: inline-block;
+    vertical-align: top;
+}
+
+a:link, a:visited {
+  color: var(--link-color);
+}
+
+div.quote {
+  display: block;
+  color: var(--quote-color);
+  font-size: 100%;
+  font-style: italic;
+  text-align: center;
+  margin: 1em;
+}
+
+div.box {
     display: block;
     border: 2px solid orange;
     padding: 0.5em;
@@ -130,12 +182,32 @@ p.box {
     background: LightYellow;
 }
 
-p.standout {
+div.standout {
     display: block;
     padding: 0.5em;
     margin: 0.5em;
     text-align: center;
     font-weight: bolder;
+}
+
+div.quad {
+    display: inline-block;
+    border: 2px solid gray;
+    border-radius: 15px;
+    padding: 0 0.5rem 0 0.5rem;
+    margin: 1rem 0 1rem 1rem;
+    box-shadow: 5px 5px 10px gray; 
+    width: 47%;
+    height: 42%;
+    font-size: 80%;
+}
+
+div.quad-title {
+    display: block;
+    text-align: center;
+    font-size: 120%;
+    margin: 0;
+    border-bottom: 2px solid LightGray;
 }
 
 div.spacer {
@@ -175,7 +247,7 @@ pre {
 
 code {
     font-size: 80%;
-    color: DarkBlue;
+    color: var(--code-color);
 }
 
 .stopwatch {
@@ -183,7 +255,7 @@ code {
     right: 0;
     top: 0;
     font-size: 50%;
-    color: Blue;
+    color: var(--info-color);
 }
 
 .slidecounter {
@@ -191,7 +263,7 @@ code {
     left: 0;
     top: 0;
     font-size: 50%;
-    color: Blue;
+    color: var(--info-color);
 }
 
 div.run {
@@ -292,6 +364,10 @@ td:hover {
 
 /*---------------------------- content image classes -----------------------------*/
 
+img.invertable {
+    filter: invert(var(--invert-img));
+}
+
 /* left and right have to be wrapped into a div */
 
 img.left {
@@ -308,11 +384,6 @@ img.right {
     vertical-align: middle;
     /* padding: 1rem 1rem 0 2rem; */
     margin: 15px 15px 15px 30px;
-}
-
-img.rightFloat {
-    float: right;
-    display: inline-block;
 }
 
 img.center {

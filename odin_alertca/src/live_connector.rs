@@ -23,7 +23,7 @@ use odin_actor::prelude::*;
 use odin_common::{
     angle::{Angle360,Angle90}, 
     cartographic::Cartographic,
-     datetime::EpochMillis, 
+     datetime::{EpochMillis,secs}, 
      extract_all, 
      fs::filepath_contents, geo::GeoPoint, u8extractor::{read_val, MemMemFinder, U8Readable}
 };
@@ -57,6 +57,8 @@ impl LiveAlertCaConnector {
 impl AlertCaConnector for LiveAlertCaConnector {
 
     async fn start (&mut self, hself: ActorHandle<AlertCaActorMsg>)->Result<()> {
+        const MAX_RETRIES: usize = 3;
+
         if self.task.is_none() {
             let config = self.config.clone();
             let cameras = self.cameras.clone();
@@ -65,10 +67,15 @@ impl AlertCaConnector for LiveAlertCaConnector {
                 let client = Client::new();
                 let finder = PropertyFinder::new();
                 let mut last_updates = create_last_updates(&config);
+                let mut retries = MAX_RETRIES;
+                let mut sleep_dur = config.update_interval;
 
                 loop {
                     match get_camera_updates( &client, &config, &cameras, &finder, &mut last_updates).await {
                         Ok(mut updates) => {
+                            retries = MAX_RETRIES;
+                            sleep_dur = config.update_interval;
+
                             for update in updates.iter_mut() {
                                 let img_path = image_filepath( update.id.as_str(), update.data.last_update);
                                 match get_latest_image( &client, &config, update.id.as_str(), &img_path).await {
@@ -85,10 +92,19 @@ impl AlertCaConnector for LiveAlertCaConnector {
                             updates.retain( |update| update.data.image.is_some() ); // drop the updates for which we didn't get images
                             hself.send_msg( CameraUpdates(updates)).await; // let the actor know
                         }
-                        Err(e) => eprintln!("error processing camera list: {e}")
+                        Err(e) => {
+                            if retries > 0 {
+                                retries -= 1;
+                                sleep_dur = secs(30);
+                                println!("retry retrieving camera list in 30 sec..");
+                            } else {
+                                sleep_dur = config.update_interval;
+                                eprintln!("error processing camera list: {e}")
+                            }
+                        }
                     }
 
-                    sleep( config.update_interval).await;
+                    sleep( sleep_dur).await;
                 }
             })?;
             self.task = Some(jh.abort_handle());
