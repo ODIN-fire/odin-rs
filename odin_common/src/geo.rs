@@ -28,7 +28,7 @@ use serde::{Serialize,Deserialize};
 use serde::ser::{Serialize as SerializeTrait, SerializeSeq, Serializer, SerializeStruct};
 use serde::de::{self, Deserialize as DeserializeTrait, Deserializer, Visitor, SeqAccess, MapAccess};
 
-use geo::{Closest, Contains, Coord, CoordsIter, Distance, Line, LineString, Point, Polygon, Rect};
+use geo::{Closest, Contains, Coord, CoordsIter, Distance, IsConvex, Line, LineString, Point, Polygon, Rect};
 use geo::algorithm::line_measures::metric_spaces::{Haversine,Geodesic};
 use geo::algorithm::geodesic_area::GeodesicArea;
 use geo::algorithm::haversine_closest_point::HaversineClosestPoint;
@@ -407,11 +407,51 @@ impl GeoPolygon {
         }
 
         GeoRect::from_wsen( 
-            Longitude::from_radians(west), 
-            Latitude::from_radians(south), 
-            Longitude::from_radians(east), 
-            Latitude::from_radians(north)
+            Longitude::from_degrees(west), 
+            Latitude::from_degrees(south), 
+            Longitude::from_degrees(east), 
+            Latitude::from_degrees(north)
         )
+    }
+
+    pub fn is_convex (&self)->bool {
+        self.0.exterior().is_convex()
+    }
+
+    /// test if poygon vertices are ordered clockwise (see https://en.wikipedia.org/wiki/Curve_orientation)
+    pub fn is_clockwise (&self)->bool {
+        let ps = self.0.exterior();
+        let imax = self.0.exterior().coords_count()-1;
+
+        let mut b = Coord { x: f64::MIN, y: f64::MAX };
+        let mut j = 0;  // index of point on hull
+        
+        //--- find point on convex hull (e.g. lowest y with largest x)
+        for i in 0..=imax {
+            if ps[i].y < b.y {
+                if ps[i].x > b.x {
+                    b = ps[i].clone();
+                    j = i;
+                }
+            }
+        }
+
+        //--- get neighboring vertices (don't need to be on hull)
+        let a = if j == 0 { ps[imax] } else { ps[j-1].clone() }; // prev        
+        let c = if j == imax { ps[0].clone() } else { ps[j+1].clone() }; // next
+
+        (b.x - a.x)*(c.y - a.y) - (c.x - a.x)*(b.y - a.y) < 0.0
+    }
+
+    /// ensure our vertices are ordered clockwise
+    /// TODO = also check/reverse interiors 
+    pub fn make_clockwise (&mut self) {
+        if !self.is_clockwise() {
+            let pts: Vec<Coord<f64>> = self.0.exterior().points().rev().map(|p| p.0.clone()).collect();
+            let new_ext = LineString::new( pts);
+            let new_poly = Polygon::new( new_ext, Vec::with_capacity(0));
+            self.0 = new_poly;
+        }
     }
 }
 

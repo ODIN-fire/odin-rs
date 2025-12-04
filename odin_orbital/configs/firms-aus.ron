@@ -1,0 +1,47 @@
+
+FirmsConfig(
+    base_url: "https://firms.modaps.eosdis.nasa.gov",
+    map_key: "your-super-secret-map-key", // GET YOUR OWN FROM from https://firms.modaps.eosdis.nasa.gov/api/area/
+
+    bounds: GeoRect(
+        west: 122.49,
+        south: -43.45,
+        east: 158.54,
+        north: -6.37 
+    ),
+
+    dem: Server("http://your_dem_server"), // alternatively use File("your-dem-vrt-path")
+
+    satellites: [
+        FirmsSatelliteData(
+            sat_id: 54234,
+            sat_name: "NOAA-21",
+            data_source: "VIIRS_NOAA21_NRT",
+            download_delay: Duration( secs: 180, nanos: 0) // initial download 3min after overpass
+        ),
+        FirmsSatelliteData(
+            sat_id: 43013,
+            sat_name: "NOAA-20",
+            data_source: "VIIRS_NOAA20_NRT",
+            download_delay: Duration( secs: 180, nanos: 0) 
+        ),
+        FirmsSatelliteData(
+            sat_id: 37849,
+            sat_name: "SNPP",
+            data_source: "VIIRS_SNPP_NRT",
+            download_delay: Duration( secs: 180, nanos: 0) 
+        ),
+        FirmsSatelliteData(
+            sat_id: 39084,
+            sat_name: "L8",
+            data_source: "LANDSAT_NRT",
+            download_delay: Duration( secs: 180, nanos: 0) 
+        ),
+        FirmsSatelliteData(
+            sat_id: 49260,
+            sat_name: "L9",
+            data_source: "LANDSAT_NRT",
+            download_delay: Duration( secs: 180, nanos: 0) 
+        )
+    ]
+)

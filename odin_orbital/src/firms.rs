@@ -38,7 +38,7 @@ use crate::{errors::{op_failed, OdinOrbitalError, Result}, HotspotList, OrbitalS
 use crate::{Hotspot, HotspotConfidence, HotspotImporter, overpass::Overpass, CompletedOverpass};
 
 /// config of how/when to access hotspot data for supported satellites from FIRMS 
-#[derive(Debug,Serialize,Deserialize)]
+#[derive(Debug,Serialize,Deserialize,Clone)]
 #[public_struct]
 struct FirmsConfig {
     base_url: String,
@@ -58,7 +58,7 @@ impl FirmsConfig {
     }
 }
 
-#[derive(Debug,Serialize,Deserialize)]
+#[derive(Debug,Serialize,Deserialize,Clone)]
 #[public_struct]
 struct FirmsSatelliteData {
     sat_id: u32,

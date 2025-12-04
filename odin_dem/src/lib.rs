@@ -278,7 +278,7 @@ pub async fn query_dem_heights (base_url: &str, no_data: Option<f64>, pts: &[(f6
 
 /// potential DEM access alternatives
 /// this is the key abstraction for clients that should work with both a local filesystem DEM and a `serve_dem`` server
-#[derive(Debug,Serialize,Deserialize)]
+#[derive(Debug,Serialize,Deserialize,Clone)]
 pub enum DemSource {
     Server(String), // get DEM from URL - this has to be a serve_dem
     File(EnvPathBuf) // get DEM from local (VRT) file

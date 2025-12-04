@@ -16,20 +16,25 @@
 use odin_common::{cartesian3::{self, Cartesian3}, cartographic::{self, approximate_surface_centroid, Cartographic}, rad};
 
 /// unit tests for cartesian3 and cartographic
-/// run with "cargo test test_inside -- --nocapture"
+/// run with "cargo test --test test_cart test_inside -- --nocapture"
 
 #[test]
-fn test_inside () {
+fn test_inside_north () {
     let vs: Vec<Cartographic> = vec![
         (-129.8029, 50.4250 ), 
         (-122.5463, 32.3474 ),
         ( -97.6721, 24.1709 ),
         ( -79.8117, 24.1709 ),
         ( -62.8262, 47.7229 )
-    ].iter().map( |p| Cartographic::from_degrees(p.0, p.1, 0.0)).collect();
+    ].iter().rev().map( |p| Cartographic::from_degrees(p.0, p.1, 0.0)).collect();
 
     let vs_ecef: Vec<Cartesian3> = vs.iter().map( |v| Cartesian3::from(v)).collect();
     let normals = Cartesian3::normals( &vs_ecef);
+
+    //let m = approximate_surface_centroid(&vs);
+    //let m_ecef = Cartesian3::from(m);
+    //assert!( m_ecef.is_inside_normals( &normals[0..1]));
+    //println!("centroid is inside");
 
     println!("-- test inside");
     let ps: Vec<Cartesian3> = vec![
@@ -54,6 +59,51 @@ fn test_inside () {
         (-88.98, 21.5),
         (-111.5, 26.56)
 
+    ].iter().map( |p| Cartesian3::from( Cartographic::from_degrees(p.0, p.1, 830000.0))).collect();
+
+    for p in ps.iter() {
+        print!("  {}", Cartographic::from(p));
+        assert!( !p.is_inside_normals(&normals));
+        println!("✅");
+    }
+
+}
+
+#[test]
+fn test_inside_south () {
+        let vs: Vec<Cartographic> = vec![  // Australia
+        (113.05801, -18.97405 ),
+        (127.45054, -10.48397 ),
+        (145.35916, -10.00886 ),
+        (157.35657, -25.92689 ),
+        (148.14081, -45.3998  ),
+        (115.40796, -36.71612 ),
+        (111.00113, -24.70902 )
+    ].iter().map( |p| Cartographic::from_degrees(p.0, p.1, 0.0)).collect();
+
+    let vs_ecef: Vec<Cartesian3> = vs.iter().map( |v| Cartesian3::from(v)).collect();
+    let normals = Cartesian3::normals( &vs_ecef);
+
+    //let m = approximate_surface_centroid(&vs);
+    //let m_ecef = Cartesian3::from(m);
+    //assert!( m_ecef.is_inside_normals( &normals[0..1]));
+    //println!("centroid is inside");
+
+    println!("-- test inside");
+    let ps: Vec<Cartesian3> = vec![
+        (132.145509, -22.214941)
+    ].iter().map( |p| Cartesian3::from( Cartographic::from_degrees(p.0, p.1, 830000.0))).collect();
+
+    for p in ps.iter() {
+        println!("  {}: {}", Cartographic::from(p), p);
+        println!("  0: {}\n  1: {}", vs_ecef[0], vs_ecef[1]);
+        assert!( p.is_inside_normals(&normals));
+        println!("✅");
+    }
+
+    println!("-- test outside");
+    let ps: Vec<Cartesian3> = vec![
+        (-88.98, 21.5)
     ].iter().map( |p| Cartesian3::from( Cartographic::from_degrees(p.0, p.1, 830000.0))).collect();
 
     for p in ps.iter() {

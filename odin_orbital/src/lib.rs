@@ -438,3 +438,15 @@ pub fn update_orbital_data ()->Result<()> {
 
     Ok(())
 }
+
+// load the GeoPolygon config with the provided name and make sure it is both concave and vertices are ordered clockwise
+pub fn load_region_config (filename: &str)->Result<GeoPolygon> {
+    let mut poly: GeoPolygon = load_config(filename)?;
+    if !poly.is_convex() {
+        return Err( op_failed!("region config is not a convex polygon"))
+    }
+
+    poly.make_clockwise();
+
+    Ok(poly)
+}

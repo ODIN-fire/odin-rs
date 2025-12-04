@@ -17,7 +17,7 @@
  use odin_common::angle::*;
  use odin_common::geo::*;
 
-// run with "cargo test test_basic -- --nocapture"
+// run with "cargo test --test test_geo test_basic -- --nocapture"
 
  #[test]
  fn test_basic() {
@@ -121,4 +121,27 @@
     let p = GeoPoint::from_lon_lat_degrees( -121.9, 36.9);
     println!("polygon contains {:?}: {}", p, polygon.contains(&p));
 
+ }
+
+ #[test]
+
+ fn test_clockwise () {
+    // counter-clockwise CONUS hull
+    let mut poly = GeoPolygon::from_exterior_geo_points( vec![
+        GeoPoint::from_lon_lat_degrees( -129.8029,  52.0 ),
+        GeoPoint::from_lon_lat_degrees( -130.40192, 40.0444 ),
+        GeoPoint::from_lon_lat_degrees( -122.1342,  29.91261 ),
+        GeoPoint::from_lon_lat_degrees( -97.6721,   24.1709 ),
+        GeoPoint::from_lon_lat_degrees( -78.92798,  22.0 ),
+        GeoPoint::from_lon_lat_degrees( -58.08073,  45.92986 ),
+        GeoPoint::from_lon_lat_degrees( -129.8029,  53.0 ),
+        GeoPoint::from_lon_lat_degrees( -129.8029,  52.0 )
+    ]);
+
+    assert!(poly.is_clockwise() == false);
+    println!("input poly is counter-clockwise: ✅");
+
+    poly.make_clockwise();
+    assert!( poly.is_clockwise());
+    println!("input poly mutated to clockwise: ✅");
  }

@@ -594,6 +594,7 @@ use serde::de::{Deserialize as DeserializeTrait, Deserializer};
 use std::{fmt::Debug,ops::Deref,ffi::OsStr};
 
 // a PathBuf that can use env vars as path elements
+#[derive(Clone)]
 pub struct EnvPathBuf(pub PathBuf);
 
 impl Debug for EnvPathBuf {

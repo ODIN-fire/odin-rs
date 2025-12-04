@@ -102,16 +102,15 @@ impl Cartesian3 {
         n
     }
 
-    /// Note - this assumes the first/last point is NOT duplicated 
-    pub fn normals (vs: &Vec<Cartesian3>)->Vec<Cartesian3> {
+    /// Note - this assumes the first/last point is NOT duplicated. GeoPolygons are!
+    pub fn normals (vs: &[Cartesian3])->Vec<Cartesian3> {
         let len = vs.len();
         let mut ns: Vec<Cartesian3> = Vec::with_capacity(len);
 
         for i in 1..len {
-            let normal = vs[i-1].normal( &vs[i]);
-            ns.push(normal);
+            ns.push( vs[i].normal( &vs[i-1]));
         }
-        ns.push( vs[len-1].normal( &vs[0]));
+        ns.push( vs[0].normal( &vs[len-1]));
 
         ns
     }
@@ -243,13 +242,15 @@ impl Cartesian3 {
     /// answer if point is within open polyhedron that is defined by (inwards pointing) normals, i.e. 
     /// p is on the same side of all bounding planes.
     /// Note this requires the polyhedron outside planes to define convex polygons
-    pub fn is_inside_normals (&self, normals: &Vec<Cartesian3>)->bool {
+    /// NOTE ALSO - the polygon vertices have to be ordered clockwise
+    pub fn is_inside_normals (&self, normals: &[Cartesian3])->bool {
         let len = normals.len();
         for i in 0..len {
             if self.dot(&normals[i]) < 0.0 {
                 return false;
             }
         }
+
         true
     }
 

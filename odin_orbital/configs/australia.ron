@@ -1,0 +1,13 @@
+// convex polygon with Australia hull
+
+GeoPolygon(
+    exterior: [
+        GeoPoint( lon: 113.05801, lat: -18.97405 ),
+        GeoPoint( lon: 127.45054, lat: -10.48397 ),
+        GeoPoint( lon: 145.35916, lat: -10.00886 ),
+        GeoPoint( lon: 157.35657, lat: -25.92689 ),
+        GeoPoint( lon: 148.14081, lat: -45.3998 ),
+        GeoPoint( lon: 115.40796, lat: -36.71612 ),
+        GeoPoint( lon: 111.00113, lat: -24.70902 )
+    ]
+)

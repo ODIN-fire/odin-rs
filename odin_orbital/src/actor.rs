@@ -32,7 +32,14 @@ use odin_common::{
 };
 use odin_macro::public_struct;
 use crate::{
-    duration_days, duration_minutes, duration_secs_f64, duration_std, errors::{action_failed, OdinOrbitalError, Result}, firms::{OliHotspotImporter, ViirsHotspotImporter}, hotspot_service::{HotspotSat,OrbitalHotspotService}, init_orbital_data, instant_from_datetime, instant_now, load_config, overpass::{self, save_overpasses_to, OverpassCalculator}, save_retrieved_hotspots_to, tle_store::SpaceTrackTleStore, update_orbital_data, CompletedOverpass, HotspotImporter, HotspotList, NoHotspotImporter, OrbitalSatelliteInfo, Overpass, TleStore
+    duration_days, duration_minutes, duration_secs_f64, duration_std, 
+    errors::{action_failed, OdinOrbitalError, Result}, 
+    firms::{OliHotspotImporter, ViirsHotspotImporter, FirmsConfig}, 
+    hotspot_service::{HotspotSat,OrbitalHotspotService}, 
+    init_orbital_data, instant_from_datetime, instant_now, load_config, 
+    overpass::{self, save_overpasses_to, OverpassCalculator}, 
+    save_retrieved_hotspots_to, tle_store::SpaceTrackTleStore, update_orbital_data, 
+    CompletedOverpass, HotspotImporter, HotspotList, NoHotspotImporter, OrbitalSatelliteInfo, Overpass, TleStore
 }; 
 
 //macro_rules! info { ($fmt:literal $(, $arg:expr )* ) => { {print!("INFO: "); println!( $fmt $(, $arg)* )} } }
@@ -338,7 +345,7 @@ impl_actor! { match msg for Actor<OrbitalHotspotActor<T,I,A,O,H>, OrbitalHotspot
 
 
 pub fn spawn_orbital_hotspot_actors (actor_system: &mut ActorSystem, hserver: ActorHandle<SpaServerMsg>, 
-                                                             region: GeoPolygon, sat_infos: &Vec<&str>) -> Result<Vec<HotspotSat>> 
+                                                             region: GeoPolygon, data: FirmsConfig, sat_infos: &Vec<&str>) -> Result<Vec<HotspotSat>> 
 {
     let cache_dir = pkg_cache_dir!();
     let region = Arc::new(region);
@@ -378,13 +385,13 @@ pub fn spawn_orbital_hotspot_actors (actor_system: &mut ActorSystem, hserver: Ac
         // TODO - this is suboptimal as it is a structural bottleneck. Maybe we should turn the importer into a Box<dyn HotspotImporter> 
         let hupdater = match sat_info.instrument.as_str() {
             "VIIRS" => {
-                let importer = ViirsHotspotImporter::new( load_config("firms.ron")?, sat_info.clone(), cache_dir.clone());
+                let importer = ViirsHotspotImporter::new( data.clone(), sat_info.clone(), cache_dir.clone());
                 spawn_actor!( actor_system, name, 
                     OrbitalHotspotActor::new(sat_info.clone(), region.clone(), tle_store, importer, init_action, overpass_action, hotspot_action)
                 )?
             }
             "OLI" => {
-                let importer = OliHotspotImporter::new( load_config("firms.ron")?, sat_info.clone(), cache_dir.clone());
+                let importer = OliHotspotImporter::new( data.clone(), sat_info.clone(), cache_dir.clone());
                 spawn_actor!( actor_system, name, 
                     OrbitalHotspotActor::new(sat_info.clone(), region.clone(), tle_store, importer, init_action, overpass_action, hotspot_action)
                 )?

@@ -169,7 +169,7 @@ class TrackSource {
                 outlineWidth: 1,
                 pixelOffset: config.infoOffset,
                 //disableDepthTestDistance: config.minLabelDepth,
-                //disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                disableDepthTestDistance: Number.MAX_SAFE_INTEGER,
                 distanceDisplayCondition: config.infoDC
             }
         };
@@ -641,7 +641,7 @@ function trackEntityLabelOpts (trackEntry, trackColor, heightRef) {
         outlineWidth: 1,
         pixelOffset: config.labelOffset,
         //disableDepthTestDistance: config.minLabelDepth,
-        //disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        disableDepthTestDistance: Number.MAX_SAFE_INTEGER,
         distanceDisplayCondition: config.labelDC,
         heightReference: heightRef
     };

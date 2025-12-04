@@ -23,7 +23,7 @@ use odin_build::pkg_cache_dir;
 use odin_common::{angle::Angle90,define_cli,fs::set_file_contents};
 use odin_orbital::{
     errors::OdinOrbitalError, 
-    init_orbital_data, instant_from_datetime_spec, load_config, 
+    init_orbital_data, instant_from_datetime_spec, load_config, load_region_config,
     overpass::OverpassCalculator, 
     tle_store::SpaceTrackTleStore, 
     OrbitalSatelliteInfo
@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
     let cache_dir = pkg_cache_dir!();
     init_orbital_data();
 
-    let region = load_config( &ARGS.region)?;
+    let region = Arc::new( load_region_config( &ARGS.region)?); // note this has to be convex and clockwise
     let sat_info: Arc<OrbitalSatelliteInfo> = Arc::new(load_config( &ARGS.sat_info)?);
 
     let t: Instant = if let Some(ds) = &ARGS.date { instant_from_datetime_spec(ds)? } else { Instant::now() };

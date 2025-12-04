@@ -238,7 +238,11 @@ impl<T> SharedStore<T> for HashMap<String,T>
 pub fn hashmap_store_from<P,T> (path: &P)->Result<HashMap<String,T>, OdinShareError> where P: AsRef<Path>, T: SharedStoreValueConstraints {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let map: HashMap<String,T> = serde_json::from_reader(reader)?;
+
+    let map: HashMap<String,T> = serde_json::from_reader(reader).map_err(|e| {
+        eprintln!("failed to parse shared items: {e}");
+        e
+    })?;
     Ok( map )
 }
 

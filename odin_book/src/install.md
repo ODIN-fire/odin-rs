@@ -218,3 +218,15 @@ gdal = { git = "https://github.com/georust/gdal.git", features = ["array", "bind
 gdal-sys = { git = "https://github.com/georust/gdal.git", features = ["bindgen"] }
 ...
 ```
+
+Alternatively you can install an older `gdal` package through your native package manager. On a Mac using the `homebrew` package manager this
+will require manual intervention as `homebrew` formulas usually just support the latest versions. To install manually follow these steps:
+
+1. download the historical version to install from <https://github.com/Homebrew/homebrew-core/blob/main/Formula/g/gdal.rb> (use
+"history" button to the right, then select the "view code at this point" file symbol)
+2. run `brew install <downloaded-gdal.rb>`
+3. if this refuses to link gdal run `brew unlink gdal; brew link gdal --force`
+
+Be aware of that unless you do a subsequent `brew pin gdal` this will be overwritten each time you upgrade outdated packages. In general it
+is recommended not to interfere with the native package manager versions as this can quickly cause 
+["dependency hell"](https://en.wikipedia.org/wiki/Dependency_hell).

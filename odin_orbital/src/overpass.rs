@@ -432,7 +432,7 @@ impl OverpassConstraints {
         let avg_swath = compute_avg_swath( sat_info.as_ref());
 
         let vertices: Vec<Cartesian3> = region.iter().map(|v| v.into()).collect();
-        let normals: Vec<Cartesian3> = Cartesian3::normals(&vertices);
+        let normals: Vec<Cartesian3> = Cartesian3::normals( &vertices[0..vertices.len()-1]); // note that GeoPolygons are closed!
         let bounds: GeoRect = base_region.bounds();
 
         let (z_min,z_max) = Self::compute_bounds( sat_info.avg_height.get::<meter>(), &vertices);

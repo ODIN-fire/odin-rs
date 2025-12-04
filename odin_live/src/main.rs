@@ -21,7 +21,7 @@ use odin_common::{arc,json_writer::JsonWriter};
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_goesr::{GoesrHotspotService, actor::spawn_goesr_hotspot_actors};
-use odin_orbital::{actor::spawn_orbital_hotspot_actors,hotspot_service::OrbitalHotspotService};
+use odin_orbital::{actor::spawn_orbital_hotspot_actors,hotspot_service::OrbitalHotspotService,firms::FirmsConfig};
 use odin_share::prelude::*;
 use odin_geolayer::GeoLayerService;
 use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, SentinelActor, sentinel_service::SentinelService};
@@ -74,14 +74,15 @@ run_actor_system!( actor_system => {
     let svc_list = svc_list.add( build_service!( => GoesrHotspotService::new( goesr_sats)));
 
     //--- spawn the orbital satellite actors
-    let region = odin_orbital::load_config("conus.ron")?;
+    let region = odin_orbital::load_region_config( "conus.ron")?;
+    let data = odin_orbital::load_config( "firms.ron")?;
     let orbital_sat_configs = vec![ 
         "noaa-21_viirs.ron", "noaa-20_viirs.ron", "snpp_viirs.ron", 
         "landsat-8_oli.ron", "landsat-9_oli.ron",
         "sentinel-2a_msi.ron", "sentinel-2b_msi.ron", "sentinel-2c_msi.ron", // those don't have hotspot data yet
         "otc-1.ron", "otc-2.ron", "otc-3.ron", "otc-4.ron", "otc-5.ron", "otc-6.ron", "otc-7.ron", "otc-8.ron",
     ];
-    let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), region, &orbital_sat_configs)?;
+    let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), region, data, &orbital_sat_configs)?;
     let svc_list = svc_list.add( build_service!( => OrbitalHotspotService::new( orbital_sats)));
 
     //--- spawn AlertCaActor

@@ -53,18 +53,18 @@ export function render (entityCollection, opts) {
                 outlineWidth: (opts.outlineWidth ? opts.outlineWidth : 1),
                 color: (opts.markerColor ? opts.markerColor : e.billboard.color), 
                 distanceDisplayCondition: (opts.pointDC ? opts.pointDC : defaultPointDC),
-                disableDepthTestDistance: 20000,
+                disableDepthTestDistance: Number.MAX_SAFE_INTEGER,
                 //height: 10,
                 //heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
             };
 
             //e.billboard = null;
             e.billboard.distanceDisplayCondition = (opts.billboardDC ? opts.billboardDC : defaultBillboardDC);
-            e.billboard.disableDepthTestDistance = 20000;
             e.billboard.color = opts.markerColor;
             e.billboard.horizontalOrigin = Cesium.HorizontalOrigin.CENTER;
             e.billboard.verticalOrigin = Cesium.VerticalOrigin.CENTER;
-            //e.billboard.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+            e.billboard.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+            e.billboard.disableDepthTestDistance = Number.MAX_SAFE_INTEGER;
 
             if (opts.markerSymbol && opts.markerSymbol.endsWith(".png")) {
                 e.billboard.image = opts.markerSymbol;

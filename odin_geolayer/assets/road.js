@@ -55,6 +55,7 @@ export function render (entityCollection, opts) {
                     e.billboard.color = opts.markerColor;
                     e.billboard.horizontalOrigin = Cesium.HorizontalOrigin.CENTER;
                     e.billboard.verticalOrigin = Cesium.VerticalOrigin.CENTER;
+                    e.billboard.disableDepthTestDistance = Number.MAX_SAFE_INTEGER;
                 }
 
                 e.point = {

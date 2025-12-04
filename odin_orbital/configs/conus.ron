@@ -2,6 +2,14 @@
 
 GeoPolygon(
     exterior: [
+          GeoPoint( lon: -129.8029, lat: 50.4250 ),
+          GeoPoint( lon: -122.5463, lat: 32.3474 ),
+          GeoPoint( lon:  -97.6721, lat: 24.1709 ),
+          GeoPoint( lon:  -79.8117, lat: 24.1709 ),
+          GeoPoint( lon:  -62.8262, lat: 47.7229 ),
+          GeoPoint( lon: -129.8029, lat: 50.4250 )
+
+        /* not convex
         GeoPoint( lon: -129.8029, lat: 52.0 ),
         GeoPoint( lon: -130.40192, lat: 40.0444 ),
         GeoPoint( lon: -122.1342, lat: 29.91261 ),
@@ -10,5 +18,7 @@ GeoPolygon(
         GeoPoint( lon: -58.08073, lat: 45.92986 ),
         GeoPoint( lon: -129.8029, lat: 53.0 ),
         GeoPoint( lon: -129.8029, lat: 52.0 )
+        */
+
     ]
 )

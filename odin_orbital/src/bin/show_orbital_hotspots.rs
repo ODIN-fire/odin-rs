@@ -21,13 +21,15 @@ use odin_common::define_cli;
 use odin_server::prelude::*;
 use odin_share::prelude::*;
 use odin_orbital::{
-    init_orbital_data, load_config,
+    init_orbital_data, load_config, load_region_config,
     actor::spawn_orbital_hotspot_actors,
-    hotspot_service::{HotspotSat, OrbitalHotspotService}
+    hotspot_service::{HotspotSat, OrbitalHotspotService},
+    firms::FirmsConfig
 };
 
 define_cli! { ARGS [about="show overpasses and hotspots for given satellites"] =
-    region: String [help="filename of region", short, long, default_value="conus.ron"],
+    region: String [help="filename of region config", short, long, default_value="conus.ron"],
+    data: String [help="filename of data source config", short, long, default_value="firms.ron"],
     sat_infos: Vec<String> [help="filenames of OrbitalSatelliteInfo configs"]
 }
 
@@ -39,11 +41,12 @@ run_actor_system!( actor_system => {
     let hshare = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
 
     // the macro region to calculate overpasses for
-    let region = load_config( &ARGS.region)?;
+    let region = load_region_config( &ARGS.region)?;
+    let data = load_config( &ARGS.data)?;
 
     // spawn N OrbitalHotspotActors feeding into a single SpaServer actor
     let sats: Vec<&str> = ARGS.sat_infos.iter().map(|s| s.as_str()).collect();
-    let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), region, &sats)?;
+    let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), region, data, &sats)?;
 
     // and finally spawn the SpaServer actor with a OrbitalHotspotService
     let hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(
