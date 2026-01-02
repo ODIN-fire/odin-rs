@@ -1,0 +1,126 @@
+[package]
+name = "odin_image"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+odin_build = { workspace = true }
+odin_common = { workspace = true }
+
+ndarray = { workspace = true }
+num = { workspace = true }
+thiserror = { workspace = true }
+lazy_static = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+trait-set = { workspace = true }
+flate2 = { workspace = true }
+miniz_oxide = { workspace = true }
+memchr = { workspace = true }
+image = { workspace = true }
+bit-set = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+image-compare = { version = "0.5.0" }
+edge-detection = { version = "0.3.0" }
+imageproc = { version = "0.25.0" }
+ab_glyph = { version = "0.2.32" }
+linreg = { version = "0.2.0" }
+tiff = { version = "0.10.3" }
+
+[build-dependencies]
+odin_build = { workspace = true }
+
+[features]
+embedded_resources = []
+binaries = []
+
+# various binaries we only build on demand
+[[bin]]
+name = "avg_tile_focus"
+required-features = ["binaries"]
+
+[[bin]]
+name = "blur"
+required-features = ["binaries"]
+
+[[bin]]
+name = "comp_diff"
+required-features = ["binaries"]
+
+[[bin]]
+name = "crop"
+required-features = ["binaries"]
+
+[[bin]]
+name = "detect_edges"
+required-features = ["binaries"]
+
+[[bin]]
+name = "detect_smoke"
+required-features = ["binaries"]
+
+[[bin]]
+name = "draw_tiles"
+required-features = ["binaries"]
+
+[[bin]]
+name = "fractal_dim"
+required-features = ["binaries"]
+
+[[bin]]
+name = "gray_hist_compare"
+required-features = ["binaries"]
+
+[[bin]]
+name = "gray_struc_compare"
+required-features = ["binaries"]
+
+[[bin]]
+name = "gw_diff"
+required-features = ["binaries"]
+
+[[bin]]
+name = "gw_tile"
+required-features = ["binaries"]
+
+[[bin]]
+name = "horizon"
+required-features = ["binaries"]
+
+[[bin]]
+name = "hsv_diff"
+required-features = ["binaries"]
+
+[[bin]]
+name = "hsv_tile"
+required-features = ["binaries"]
+
+[[bin]]
+name = "rgb_compare"
+required-features = ["binaries"]
+
+[[bin]]
+name = "rgb_equalize"
+required-features = ["binaries"]
+
+[[bin]]
+name = "rgb_normalize"
+required-features = ["binaries"]
+
+[[bin]]
+name = "rgb_stats"
+required-features = ["binaries"]
+
+[[bin]]
+name = "set_mask"
+required-features = ["binaries"]
+
+[[bin]]
+name = "tile_size"
+required-features = ["binaries"]
+
+[[bin]]
+name = "to_luma"
+required-features = ["binaries"]

@@ -340,9 +340,9 @@ export class ExpandableTreeNode extends TreeNode {
         if (node) {
             node.remove();
             removedNodes.push(node);
-            
+
             node = node.parent;
-            while (node && !node.hasChildren() && !node.data && !node.isSticky){ 
+            while (node && !node.hasChildren() && !node.data && !node.isSticky){
                 node.remove();
                 removedNodes.push(node);
                 node = node.parent;
@@ -372,7 +372,7 @@ export class ExpandableTreeNode extends TreeNode {
     }
 
     // the closest node with an expanded parent
-    nearestVisible () { 
+    nearestVisible () {
         let n = this;
         let p = this.parent;
         while (p) {
@@ -491,7 +491,7 @@ export class ExpandableTreeNode extends TreeNode {
 
     sortInChild (newNode) {
         newNode.parent = this;
-    
+
         var prev = undefined;
         for (var n = this.firstChild; n && n.name < newNode.name; n = n.nextSibling) prev = n;
         if (prev) {
@@ -501,7 +501,7 @@ export class ExpandableTreeNode extends TreeNode {
             newNode.nextSibling = this.firstChild;
             this.firstChild = newNode;
         }
-    } 
+    }
 
     setExpanded (cond) {
         this.isExpanded = cond;
@@ -818,78 +818,142 @@ export class SkipList {
 
 export class CircularBuffer {
     constructor(maxSize) {
-        this.maxSize = maxSize;
-        this.size = 0;
+        this.maxLength = maxSize;
+        this.length = 0;
         this.i0 = -1;
         this.i1 = -1;
         this.buffer = [];
     }
 
-    get length() { return this.size; }
+    ifEmpty() { return this.length == 0 }
+    isFull() { return (this.length == this.maxLength); }
 
-    static fromArray (array, maxSize) {
-        let cb = new CircularBuffer( maxSize);
-        if (array.length > maxSize) {
-            cb.buffer = array.slice( array.length - maxSize);
+    static fromArray (array, maxLength) {
+        let cb = new CircularBuffer( maxLength);
+        if (array.length > maxLength) {
+            cb.buffer = array.slice( array.length - maxLength);
         } else {
             cb.buffer = array;
         }
 
-        cb.size = cb.buffer.length;
+        cb.length = cb.buffer.length;
         cb.i0 = 0;
-        cb.i1 = cb.size-1;
+        cb.i1 = cb.length-1;
 
         return cb;
     }
 
+    toArray() {
+        let a = [];
+        for (let i = 0; i < this.length; i++) a.push(this.at(i));
+        return a;
+    }
+
     push(v) {
         this.i1++;
-        this.i1 %= this.maxSize;
+        this.i1 %= this.maxLength;
         this.buffer[this.i1] = v;
 
-        if (this.size < this.maxSize) {
-            if (this.size == 0) this.i0 = 0;
-            this.size++;
+        if (this.length < this.maxLength) {
+            if (this.length == 0) this.i0 = 0;
+            this.length++;
         } else {
             this.i0++;
-            this.i0 %= this.maxSize;
+            this.i0 %= this.maxLength;
+        }
+    }
+
+    pushFront(v) {
+        if (this.isFull()) {
+          this.i0 = this.i1;
+          if (this.i1 > 0) this.i1--; else this.i1 = this.maxLength-1;
+        } else {
+          if (this.i0 > 0) this.i0--; else this.i0 = this.maxLength-1;
+          this.length++;
+        }
+        this.buffer[this.i0] = v;
+    }
+
+    insertBefore (i, v) {
+        if (i < 0 || i > this.length) return;
+
+        if (this.isFull()) {
+            i--;
+        } else {
+            if (this.i0 > 0) this.i0--; else this.i0 = this.maxLength-1;
+            this.length++;
+        }
+        for (let j = 0; j < i; j++) this.set(j, this.at(j + 1));
+        this.set(i, v);
+    }
+
+    sortIn (v, isBefore) {
+        if (this.length > 0) {
+            if (isBefore( this.last(), v)) { // simple append
+                this.push(v);
+                return true;
+            }
+            if (isBefore( v, this.first())) {
+                if (this.isFull()) {
+                    return false;
+                } else {
+                    this.pushFront(v);
+                    return true;
+                }
+            }
+
+            for (let i = 0; i < this.length; i++) {
+                if (isBefore(v, this.at(i))) {
+                    this.insertBefore(i,v);
+                    return true;
+                }
+            }
+
+        } else {
+            this.push(v);
+            return true;
         }
     }
 
     dropLast(n) {
         if (n > 0) {
-            if (n >= this.size) this.clear();
+            if (n >= this.length) this.clear();
             else {
-                this.size -= n;
+                this.length -= n;
                 this.i1 -= n;
-                if (this.i1 < 0) this.i1 += this.maxSize;
+                if (this.i1 < 0) this.i1 += this.maxLength;
             }
         }
     }
 
     dropFirst(n) {
         if (n > 0) {
-            if (n >= this.size) this.clear();
+            if (n >= this.length) this.clear();
             else {
-                this.size -= n;
+                this.length -= n;
                 this.i0 += n;
-                this.i0 %= this.maxSize;
+                this.i0 %= this.maxLength;
             }
         }
     }
 
     at(i) {
-        if (i >= 0 && i < this.size) {
-            let idx = (this.i0 + i) % this.maxSize;
+        if (i >= 0 && i < this.length) {
+            let idx = (this.i0 + i) % this.maxLength;
             return this.buffer[idx];
         } else return undefined;
     }
 
-
+    set(i,v) {
+        if (i >= 0 && i < this.length) {
+            let j = (this.i0 + i) % this.maxLength;
+            this.buffer[j] = v;
+        }
+    }
     reverseAt(i) {
-        if (i >= 0 && i < this.size) {
+        if (i >= 0 && i < this.length) {
             let idx = (this.i1 - i);
-            if (idx < 0) idx = this.maxSize + idx;
+            if (idx < 0) idx = this.maxLength + idx;
             return this.buffer[idx];
         } else return undefined;
     }
@@ -900,13 +964,13 @@ export class CircularBuffer {
 
     *
     [Symbol.iterator]() {
-        if (this.size > 0) {
+        if (this.length > 0) {
             let i = this.i0;
             while (true) {
                 yield this.buffer[i];
                 if (i == this.i1) break;
                 i++;
-                i %= this.maxSize;
+                i %= this.maxLength;
             }
         }
     }
@@ -916,17 +980,17 @@ export class CircularBuffer {
     }
 
     first() {
-        if (this.size > 0) return this.buffer[this.i0];
+        if (this.length > 0) return this.buffer[this.i0];
         else return undefined;
     }
 
     last() {
-        if (this.size > 0) return this.buffer[this.i1];
+        if (this.length > 0) return this.buffer[this.i1];
         else return undefined;
     }
 
     clear() {
-        this.size = 0;
+        this.length = 0;
         this.i0 = -1;
         this.i1 = -1;
         this.buffer = [];
@@ -944,6 +1008,7 @@ export class CircularBuffer {
         return s;
     }
 }
+
 
 //--- simple seeded PRNG to support reproducible values for testing (lifted from http://pracrand.sourceforge.net/)
 

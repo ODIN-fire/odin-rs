@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -21,29 +21,38 @@ import * as odinCesium from "../odin_cesium/odin_cesium.js";
 
 const MOD_PATH = "odin_goesr::goesr_service::GoesrHotspotService";
 
-ws.addWsHandler( MOD_PATH, handleWsMessages);
+ws.addWsHandler(MOD_PATH, handleWsMessages);
 
 const maskDesc = new Map();
 maskDesc
-    .set( 10, "good_fire_pixel")
-    .set( 11, "saturated_fire_pixel")
-    .set( 12, "cloud_contaminated_fire_pixel")
-    .set( 13, "high_probability_fire_pixel")
-    .set( 14, "medium_probability_fire_pixel")
-    .set( 15, "low_probability_fire_pixel")
-    .set( 30, "temporally_filtered_good_fire_pixel")
-    .set( 31, "temporally_filtered_saturated_fire_pixel")
-    .set( 32, "temporally_filtered_cloud_contaminated_fire_pixel")
-    .set( 33, "temporally_filtered_high_probability_fire_pixel")
-    .set( 34, "temporally_filtered_medium_probability_fire_pixel")
-    .set( 35, "temporally_filtered_low_probability_fire_pixel");
+    .set(10, "good_fire_pixel")
+    .set(11, "saturated_fire_pixel")
+    .set(12, "cloud_contaminated_fire_pixel")
+    .set(13, "high_probability_fire_pixel")
+    .set(14, "medium_probability_fire_pixel")
+    .set(15, "low_probability_fire_pixel")
+    .set(30, "temporally_filtered_good_fire_pixel")
+    .set(31, "temporally_filtered_saturated_fire_pixel")
+    .set(32, "temporally_filtered_cloud_contaminated_fire_pixel")
+    .set(33, "temporally_filtered_high_probability_fire_pixel")
+    .set(34, "temporally_filtered_medium_probability_fire_pixel")
+    .set(35, "temporally_filtered_low_probability_fire_pixel");
 
-
-function isGoodPixel(mask) { return (mask == 10 || mask == 30); }
-function isSaturatedPixel(mask) { return (mask == 11 || mask == 31); }
-function isCloudPixel(mask) { return (mask == 12 || mask == 32); }
-function isHighPixel(mask) { return (mask == 13 || mask == 33); }
-function isProbablePixel(mask) { return (mask == 13 || mask == 14 || mask == 33 || mask == 34); }
+function isGoodPixel(mask) {
+    return mask == 10 || mask == 30;
+}
+function isSaturatedPixel(mask) {
+    return mask == 11 || mask == 31;
+}
+function isCloudPixel(mask) {
+    return mask == 12 || mask == 32;
+}
+function isHighPixel(mask) {
+    return mask == 13 || mask == 33;
+}
+function isProbablePixel(mask) {
+    return mask == 13 || mask == 14 || mask == 33 || mask == 34;
+}
 
 var satellites = [];
 var satNames = new Map();
@@ -59,7 +68,7 @@ var lastSelDs = undefined;
 var lastSelHs = undefined;
 var lastSelPeerDs = undefined;
 
-var pixelLevel = "all";  // high, probable, all
+var pixelLevel = "all"; // high, probable, all
 var latestOnly = true; // do we just show pixels reported in the last batch
 var followLatest = config.followLatest;
 var lockStep = config.lockStep;
@@ -79,61 +88,128 @@ var maskText = ui.getVarText("goesr.mask");
 
 ui.setCheckBox("goesr.followLatest", followLatest);
 ui.setCheckBox("goesr.lockStep", lockStep);
-ui.selectRadio( "goesr.level.all");
+ui.selectRadio("goesr.level.all");
 initSliders();
 
 odinCesium.setEntitySelectionHandler(goesrSelection);
 odinCesium.initLayerPanel("goesr", config, showGoesr);
-console.log("ui_cesium_goesr initialized");
+console.log("odin_goesr initialized");
 
 function createIcon() {
-    return ui.Icon("./asset/odin_goesr/geo-sat-icon.svg", (e)=> ui.toggleWindow(e,'goesr'), "GOES-R hotspots");
+    return ui.Icon(
+        "./asset/odin_goesr/geo-sat-icon.svg",
+        (e) => ui.toggleWindow(e, "goesr"),
+        "GOES-R hotspots",
+    );
 }
 
 function createWindow() {
-    return ui.Window("GOES-R Satellites", "goesr", "./asset/odin_goesr/geo-sat-icon.svg")(
+    return ui.Window(
+        "GOES-R Satellites",
+        "goesr",
+        "./asset/odin_goesr/geo-sat-icon.svg",
+    )(
         ui.LayerPanel("goesr", toggleShowGoesr),
         ui.Panel("data sets", true)(
             ui.RowContainer()(
                 ui.CheckBox("lock step", toggleGoesrLockStep, "goesr.lockStep"),
-                ui.CheckBox("follow latest", toggleFollowLatestGoesr, "goesr.followLatest"),
+                ui.CheckBox(
+                    "follow latest",
+                    toggleFollowLatestGoesr,
+                    "goesr.followLatest",
+                ),
                 ui.HorizontalSpacer(2),
                 ui.CheckBox("G18", toggleShowGoesrSatellite, "goesr.G18"),
                 ui.CheckBox("G19", toggleShowGoesrSatellite, "goesr.G19"),
             ),
             ui.List("goesr.dataSets", 6, selectGoesrDataSet),
-            ui.ListControls("goesr.dataSets")
+            ui.ListControls("goesr.dataSets"),
         ),
         ui.Panel("hotspots", true)(
-            ui.List("goesr.hotspots", 8, selectGoesrHotspot, null,null, zoomToGoesrHotspot),
+            ui.List(
+                "goesr.hotspots",
+                8,
+                selectGoesrHotspot,
+                null,
+                null,
+                zoomToGoesrHotspot,
+            ),
             ui.RowContainer()(
                 ui.Radio("high", setGoesrPixelLevel, "goesr.level.high"),
-                ui.Radio("probable", setGoesrPixelLevel, "goesr.level.probable"),
-                ui.Radio( "all", setGoesrPixelLevel, "goesr.level.all"),
-            )
+                ui.Radio(
+                    "probable",
+                    setGoesrPixelLevel,
+                    "goesr.level.probable",
+                ),
+                ui.Radio("all", setGoesrPixelLevel, "goesr.level.all"),
+            ),
         ),
         ui.Panel("hotspot history", true)(
             ui.List("goesr.history", 8, selectGoesrHistory),
-            ui.VarText(null,"goesr.mask", 0, 0, {isFixed:true})
+            ui.VarText(null, "goesr.mask", 0, 0, { isFixed: true }),
         ),
         ui.Panel("layer parameters", false)(
-            ui.Slider("max missing [min]", "goesr.maxMissing", setGoesrMaxMissing),
-            ui.Slider("size [pix]", "goesr.pointSize", setGoesrPointSize)
-        )
+            ui.Slider(
+                "max missing [min]",
+                "goesr.maxMissing",
+                setGoesrMaxMissing,
+            ),
+            ui.Slider("size [pix]", "goesr.pointSize", setGoesrPointSize),
+        ),
     );
 }
 
 function initDataSetView() {
     let view = ui.getList("goesr.dataSets");
     if (view) {
-        ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "sat", tip: "name of satellite", width: "3rem", attrs: [], map: e => e.sat.name },
-            { name: "good", tip: "number of good pixels", width: "3rem", attrs: ["fixed", "alignRight"], map: e => e.nGood },
-            { name: "high", tip: "number of high probability fire pixels", width: "3rem", attrs: ["fixed", "alignRight"], map: e => e.nHigh },
-            { name: "med", tip: "number of medium probability fire pixels", width: "3rem", attrs: ["fixed", "alignRight"], map: e => e.nMedium },
-            { name: "low", tip: "number of low probability fire pixels", width: "3rem", attrs: ["fixed", "alignRight"], map: e => e.nLow },
-            { name: "date", tip: "last report", width: "8rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMString(e.date) }
-        ]);
+        ui.setListItemDisplayColumns(
+            view,
+            ["fit", "header"],
+            [
+                {
+                    name: "sat",
+                    tip: "name of satellite",
+                    width: "3rem",
+                    attrs: [],
+                    map: (e) => e.sat.name,
+                },
+                {
+                    name: "good",
+                    tip: "number of good pixels",
+                    width: "3rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) => e.nGood,
+                },
+                {
+                    name: "high",
+                    tip: "number of high probability fire pixels",
+                    width: "3rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) => e.nHigh,
+                },
+                {
+                    name: "med",
+                    tip: "number of medium probability fire pixels",
+                    width: "3rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) => e.nMedium,
+                },
+                {
+                    name: "low",
+                    tip: "number of low probability fire pixels",
+                    width: "3rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) => e.nLow,
+                },
+                {
+                    name: "date",
+                    tip: "last report",
+                    width: "8rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) => util.toLocalMDHMString(e.date),
+                },
+            ],
+        );
     }
     return view;
 }
@@ -141,52 +217,82 @@ function initDataSetView() {
 function initHotspotView() {
     let view = ui.getList("goesr.hotspots");
     if (view) {
-        ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "class", tip: "classification of fire pixel", width: "3rem", attrs: ["fixed", "alignRight"], map: e => hotspotClass(e) },
-            ui.listItemSpacerColumn(),
-            { name: "sat", tip: "name of satellite", width: "4rem", attrs: [], map: e => satNames[e.satId] },
-            { name: "lat", width: "6rem", attrs: ["fixed", "alignRight"], map: e => util.f_4.format(e.position.lat) },
-            { name: "lon", width: "6.5rem", attrs: ["fixed", "alignRight"], map: e => util.f_4.format(e.position.lon) },
-        ]);
+        ui.setListItemDisplayColumns(
+            view,
+            ["fit", "header"],
+            [
+                {
+                    name: "class",
+                    tip: "classification of fire pixel",
+                    width: "3rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) => hotspotClass(e),
+                },
+                ui.listItemSpacerColumn(),
+                {
+                    name: "sat",
+                    tip: "name of satellite",
+                    width: "4rem",
+                    attrs: [],
+                    map: (e) => satNames[e.satId],
+                },
+                {
+                    name: "lat",
+                    width: "6rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) => util.f_4.format(e.position.lat),
+                },
+                {
+                    name: "lon",
+                    width: "6.5rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) => util.f_4.format(e.position.lon),
+                },
+            ],
+        );
     }
     return view;
 }
 
 function initSliders() {
-    let e = ui.getSlider('goesr.maxMissing');
+    let e = ui.getSlider("goesr.maxMissing");
     ui.setSliderRange(e, 0, 120, 10, util.f_0);
     ui.setSliderValue(e, maxMissingMin);
 
-    e = ui.getSlider('goesr.pointSize');
+    e = ui.getSlider("goesr.pointSize");
     ui.setSliderRange(e, 0, 8, 1, util.f_0);
     ui.setSliderValue(e, pointSize);
 }
 
-function getSatelliteWithName (satName) {
-    return satellites.find( sat=> sat.name == satName);
+function getSatelliteWithName(satName) {
+    return satellites.find((sat) => sat.name == satName);
 }
 
-function getSatelliteWithId (satId) {
-    return satellites.find( sat=> sat.satId == satId);
+function getSatelliteWithId(satId) {
+    return satellites.find((sat) => sat.satId == satId);
 }
 
-function getSatelliteIndex (satId) {
-    for (let i=0; i<satellites.length; i++) {
+function getSatelliteIndex(satId) {
+    for (let i = 0; i < satellites.length; i++) {
         if (satellites[i].satId == satId) return i;
     }
     return -1;
 }
 
-function hotspotClass (hs) {
+function hotspotClass(hs) {
     let missingMin = getMissingMin(hs);
     if (missingMin) {
         return `-${missingMin}m`;
     } else {
         switch (hs.probability) {
-            case "high": return ui.createImage("goesr-asset/fire");
-            case "medium": return "med";
-            case "low": return "low";
-            default: return "";
+            case "high":
+                return ui.createImage("goesr-asset/fire");
+            case "medium":
+                return "med";
+            case "low":
+                return "low";
+            default:
+                return "";
         }
     }
 }
@@ -194,14 +300,56 @@ function hotspotClass (hs) {
 function initHistoryView() {
     let view = ui.getList("goesr.history");
     if (view) {
-        ui.setListItemDisplayColumns(view, ["fit", "header"], [
-            { name: "dqf", tip: "pixel quality flag []", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.dqf },
-            { name: "mask", tip: "fire pixel classification code", width: "3rem", attrs: ["fixed", "alignRight"], map: e => e.mask },
-            { name: "bright", tip: "pixel brightness [K]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => isNaN(e.temp) ? "-" : Math.round(e.temp) },
-            { name: "frp", tip: "fire radiative power [MW]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => isNaN(e.frp) ? "-" : Math.round(e.frp) },
-            { name: "area", tip: "surface area [ac]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => isNaN(e.area) ? "-" : Math.round(util.squareMetersToAcres(e.area)) },
-            { name: "time", width: "5rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalHMTimeString(e.date) },
-        ]);
+        ui.setListItemDisplayColumns(
+            view,
+            ["fit", "header"],
+            [
+                {
+                    name: "dqf",
+                    tip: "pixel quality flag []",
+                    width: "2rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) => e.dqf,
+                },
+                {
+                    name: "mask",
+                    tip: "fire pixel classification code",
+                    width: "3rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) => e.mask,
+                },
+                {
+                    name: "bright",
+                    tip: "pixel brightness [K]",
+                    width: "4rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) => (isNaN(e.temp) ? "-" : Math.round(e.temp)),
+                },
+                {
+                    name: "frp",
+                    tip: "fire radiative power [MW]",
+                    width: "4rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) => (isNaN(e.frp) ? "-" : Math.round(e.frp)),
+                },
+                {
+                    name: "area",
+                    tip: "surface area [ac]",
+                    width: "4rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) =>
+                        isNaN(e.area)
+                            ? "-"
+                            : Math.round(util.squareMetersToAcres(e.area)),
+                },
+                {
+                    name: "time",
+                    width: "5rem",
+                    attrs: ["fixed", "alignRight"],
+                    map: (e) => util.toLocalHMTimeString(e.date),
+                },
+            ],
+        );
     }
     return view;
 }
@@ -227,7 +375,7 @@ function selectGoesrDataSet(event) {
     updateHotspots();
 }
 
-function getPeerDataSet (ds) {
+function getPeerDataSet(ds) {
     if (hasShowingPeer(ds.sat)) {
         let idx = dataSets.indexOf(ds);
         let ds1 = getPreceedingPeer(ds.satId, idx);
@@ -241,28 +389,27 @@ function getPeerDataSet (ds) {
     }
 }
 
-function hasShowingPeer (sat) {
-    return satellites.find( s=> (s.satId != sat.satId) && s.show );
+function hasShowingPeer(sat) {
+    return satellites.find((s) => s.satId != sat.satId && s.show);
 }
 
-function getPreceedingPeer (satId, idx) {
-    for (var i=idx-1; i>=0; i--) {
-        if (dataSets[i].satId  != satId) return dataSets[i];
+function getPreceedingPeer(satId, idx) {
+    for (var i = idx - 1; i >= 0; i--) {
+        if (dataSets[i].satId != satId) return dataSets[i];
     }
 }
 
-function getFollowingPeer (satId, idx) {
-    for (var i=idx+1; i<dataSets.length; i++) {
-        if (dataSets[i].satId  != satId) return dataSets[i];
+function getFollowingPeer(satId, idx) {
+    for (var i = idx + 1; i < dataSets.length; i++) {
+        if (dataSets[i].satId != satId) return dataSets[i];
     }
 }
 
 function updateHotspots() {
-    if (selectedDataSet){
+    if (selectedDataSet) {
         let hotspots = getHotspots();
-        setEntities( hotspots);
-        ui.setListItems( hotspotView, hotspots);
-
+        setEntities(hotspots);
+        ui.setListItems(hotspotView, hotspots);
     } else {
         clearEntities();
         ui.clearList(hotspotView);
@@ -273,58 +420,62 @@ function updateHotspots() {
 function getHotspots() {
     let list = selectedDataSet.hotspots;
     if (selectedPeerDataSet) list = list.concat(selectedPeerDataSet.hotspots);
-    list = list.filter(hs=> filterPixel(hs));
-    list = list.sort( (a,b) => b.center - a.center); // spatial clustering (roughly east to west)
+    list = list.filter((hs) => filterPixel(hs));
+    list = list.sort((a, b) => b.center - a.center); // spatial clustering (roughly east to west)
     return list;
 }
 
-// approximation of a cluster function 
+// approximation of a cluster function
 function sortHotspots(a, b) {
     let x = a.lat + a.lon;
     let y = b.lat + b.lon;
-    return (x < y) ? -1 : 1;
+    return x < y ? -1 : 1;
 }
 
-function setEntities (hotspots) {
+function setEntities(hotspots) {
     //satellites.forEach( sat=> sat.dataSource.entities.removeAll());
     let now = Date.now();
 
-    hotspots.forEach( hs=> {
+    hotspots.forEach((hs) => {
         let satIdx = getSatelliteIndex(hs.satId);
         let dataSource = satellites[satIdx].dataSource;
 
         let e = dataSource.entities.getById(hs.center);
-        if (e) { 
-            updateHotspotEntity( e, hs);
+        if (e) {
+            updateHotspotEntity(e, hs);
             e._timeStamp = now;
         } else {
             let e = createHotspotEntity(hs);
             e._timeStamp = now;
-            dataSource.entities.add( e);
+            dataSource.entities.add(e);
         }
     });
 
     // clean up obsolete entities
-    satellites.forEach( sat=> {
+    satellites.forEach((sat) => {
         let ec = sat.dataSource.entities;
-        util.filterIterator(ec.values, e=> e._timeStamp != now).forEach( e=> {
-            if (e._hotspot) e._hotspot.entity = undefined; // remove backlink
-            ec.remove(e)
-        });
+        util.filterIterator(ec.values, (e) => e._timeStamp != now).forEach(
+            (e) => {
+                if (e._hotspot) e._hotspot.entity = undefined; // remove backlink
+                ec.remove(e);
+            },
+        );
     });
 
     odinCesium.requestRender();
 }
 
 function clearEntities() {
-    satellites.forEach( sat=> {
-        sat.dataSource.entities.values.forEach( e=> e._hotspot.entity = undefined); // remove backlinks
-        sat.dataSource.entities.removeAll()
+    satellites.forEach((sat) => {
+        sat.dataSource.entities.values.forEach(
+            (e) => (e._hotspot.entity = undefined),
+        ); // remove backlinks
+        sat.dataSource.entities.removeAll();
     });
 }
 
 // we only call this on same location entities, no need to update pos or polygon vertices
-function updateHotspotEntity (e, hs) {
+function updateHotspotEntity(e, hs) {
     let clr = color(hs);
 
     let point = e.point;
@@ -342,29 +493,33 @@ function updateHotspotEntity (e, hs) {
     hs.entity = e;
 }
 
-function createHotspotEntity (hs) {
+function createHotspotEntity(hs) {
     let clr = color(hs);
 
     let e = new Cesium.Entity({
-        position: Cesium.Cartesian3.fromDegrees( hs.position.lon, hs.position.lat),
+        position: Cesium.Cartesian3.fromDegrees(
+            hs.position.lon,
+            hs.position.lat,
+            hs.position.alt,
+        ),
         point: {
             pixelSize: pointSize,
             color: clr,
             outlineColor: outlineColor(hs),
             outlineWidth: outlineWidth(hs),
             distanceDisplayCondition: config.pointDC,
-            disableDepthTestDistance: Number.NEGATIVE_INFINITY
+            //disableDepthTestDistance: Number.NEGATIVE_INFINITY,
         },
         polygon: {
             hierarchy: polygon(hs),
             fill: true,
             material: polygonMaterial(hs),
-            outline: true,
+            outline: false,
             outlineColor: clr,
             outlineWidth: outlineWidth(hs),
             distanceDisplayCondition: config.boundsDC,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
             //heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-            height: 0
             //zIndex: 1
         },
     });
@@ -376,14 +531,16 @@ function createHotspotEntity (hs) {
 
 function color(hs) {
     let mask = hs.mask;
-    if (isGoodPixel(mask) || ((isCloudPixel(mask) || isSaturatedPixel(mask)))) return config.goodColor;
+    if (isGoodPixel(mask) || isCloudPixel(mask) || isSaturatedPixel(mask))
+        return config.goodColor;
     else if (isProbablePixel(mask)) return config.probableColor;
     else if (isSaturatedPixel(mask)) return config.saturatedColor;
     else if (isCloudPixel(mask)) return config.cloudColor;
     else return config.otherColor;
 }
 
-function polygonMaterial(hs) { // those should be translucent
+function polygonMaterial(hs) {
+    // those should be translucent
     let mask = hs.mask;
     if (isGoodPixel(mask)) return config.goodFillColor;
     else if (isProbablePixel(mask)) return config.probableFillColor;
@@ -404,34 +561,39 @@ function outlineColor(hs) {
 }
 
 function getMissingMin(hs) {
-    let diffMin = Math.round((refDate - hs.date) / 60000); // diff in minutes since last update 
-    return (diffMin < 5) ? 0 : Math.round(diffMin / 5) * 5; // report in 5min steps (update interval)
+    let diffMin = Math.round((refDate - hs.date) / 60000); // diff in minutes since last update
+    return diffMin < 5 ? 0 : Math.round(diffMin / 5) * 5; // report in 5min steps (update interval)
 }
 
 function outlineWidth(hs) {
-    if (isGoodPixel(hs.mask)) return config.strongOutlineWidth; // make this more prominent
+    if (isGoodPixel(hs.mask))
+        return config.strongOutlineWidth; // make this more prominent
     else return config.outlineWidth;
 }
 
-function polygon (hs) {
+function polygon(hs) {
     let bounds = hs.bounds;
 
     return Cesium.Cartesian3.fromDegreesArray([
-        bounds.ne.lon, bounds.ne.lat,
-        bounds.se.lon, bounds.se.lat,
-        bounds.sw.lon, bounds.sw.lat,
-        bounds.nw.lon, bounds.nw.lat
+        bounds.ne.lon,
+        bounds.ne.lat,
+        bounds.se.lon,
+        bounds.se.lat,
+        bounds.sw.lon,
+        bounds.sw.lat,
+        bounds.nw.lon,
+        bounds.nw.lat,
     ]);
 }
 
-function getHotspotHistory (hs) {
+function getHotspotHistory(hs) {
     let center = hs.center;
     let hist = [];
-    dataSets.forEach( ds=> {
+    dataSets.forEach((ds) => {
         if (ds.sat.satId == hs.satId && ds.date <= hs.date) {
-            ds.hotspots.forEach( h=> {
+            ds.hotspots.forEach((h) => {
                 if (h.center == center) hist.push(h);
-            })
+            });
         }
     });
     return hist;
@@ -459,15 +621,19 @@ function goesrSelection() {
 
 function handleWsMessages(msgType, msg) {
     switch (msgType) {
-        case "satellites": handleGoesrSatellites(msg); break;
-        case "hotspots": handleGoesrDataSet(msg); break;
+        case "satellites":
+            handleGoesrSatellites(msg);
+            break;
+        case "hotspots":
+            handleGoesrDataSet(msg);
+            break;
     }
 }
 
 function handleGoesrSatellites(sats) {
     satellites = sats;
     var idx = 0;
-    sats.forEach( sat=> {
+    sats.forEach((sat) => {
         ui.setCheckBox("goesr." + sat.name, sat.show);
         satNames[sat.satId] = sat.name;
         sat.satIdx = idx++;
@@ -477,17 +643,18 @@ function handleGoesrSatellites(sats) {
     });
 }
 
-function handleGoesrDataSet (hotspots) {
+function handleGoesrDataSet(hotspots) {
     hotspots.sat = getSatelliteWithId(hotspots.satId);
     if (hotspots.sat) {
-        util.sortIn( dataSets, hotspots, (a,b)=> a.date >= b.date ); // sort in order of arrival
+        util.sortIn(dataSets, hotspots, (a, b) => a.date >= b.date); // sort in order of arrival
 
         saveSelections();
         updateDataSets();
 
         let now = ui.getClockEpochMillis("time.utc"); // we don't want to do this during init of history
 
-        if (followLatest && Math.abs(now - hotspots.date) < 300000) { // auto follow if within 5min (filter initial sets)
+        if (followLatest && Math.abs(now - hotspots.date) < 300000) {
+            // auto follow if within 5min (filter initial sets)
             ui.selectFirstListItem(dataSetView);
         } else {
             restoreSelections();
@@ -513,15 +680,16 @@ function withRestoredSelections(cond, f) {
 }
 
 function updateDataSets() {
-    displayDataSets = dataSets.filter( ds=> ds.sat.show).reverse(); // we should really use a list here
-    ui.setListItems( dataSetView, displayDataSets);
+    displayDataSets = dataSets.filter((ds) => ds.sat.show).reverse(); // we should really use a list here
+    ui.setListItems(dataSetView, displayDataSets);
 }
 
-
 function filterPixel(hs) {
-    return (pixelLevel == "all" ||
+    return (
+        pixelLevel == "all" ||
         (pixelLevel == "high" && isHighPixel(hs.mask)) ||
-        (pixelLevel == "probable" && isProbablePixel(hs.mask)));
+        (pixelLevel == "probable" && isProbablePixel(hs.mask))
+    );
 }
 
 function toggleShowGoesrSatellite(event) {
@@ -531,11 +699,13 @@ function toggleShowGoesrSatellite(event) {
         let se = getSatelliteWithName(satName);
         if (se) {
             se.show = !se.show;
-            let restoreSel = selectedDataSet && (selectedDataSet.satId != se.satId);
+            let restoreSel =
+                selectedDataSet && selectedDataSet.satId != se.satId;
             if (restoreSel) saveSelections();
 
             updateDataSets();
-            if (restoreSel && lastSelDs) ui.setSelectedListItem(dataSetView, lastSelDs);
+            if (restoreSel && lastSelDs)
+                ui.setSelectedListItem(dataSetView, lastSelDs);
 
             updateHotspots();
         }
@@ -544,14 +714,14 @@ function toggleShowGoesrSatellite(event) {
 
 function showGoesr(cond) {
     // we don't want to change the hotspotEntry show, just make the assets disappear
-    satellites.forEach( sat=> {
+    satellites.forEach((sat) => {
         sat.dataSource.show = cond;
     });
     odinCesium.requestRender();
 }
 
 function setGoesrPixelLevel(event) {
-    pixelLevel = ui.getRadioLabel(event.target);  // high, probable, all
+    pixelLevel = ui.getRadioLabel(event.target); // high, probable, all
     clearEntities();
     updateHotspots();
 }
@@ -582,22 +752,27 @@ function zoomToGoesrHotspot(event) {
         let hs = ui.getSelectedListItem(lv);
         if (hs) {
             let pos = hs.position;
-            odinCesium.zoomTo(Cesium.Cartesian3.fromDegrees( pos.lon, pos.lat, config.zoomHeight));
+            odinCesium.zoomTo(
+                Cesium.Cartesian3.fromDegrees(
+                    pos.lon,
+                    pos.lat,
+                    config.zoomHeight,
+                ),
+            );
             if (hs.entity) odinCesium.setSelectedEntity(hs.entity);
         }
     }
 }
 
-function setGoesrMaxMissing(event) {
-}
+function setGoesrMaxMissing(event) {}
 
 function setGoesrPointSize(event) {
     pointSize = ui.getSliderValue(event.target);
-    satellites.forEach( sat=>{
+    satellites.forEach((sat) => {
         if (sat.dataSource) {
-            sat.dataSource.entities.values.forEach( e=> {
+            sat.dataSource.entities.values.forEach((e) => {
                 if (e.point) e.point.pixelSize = pointSize;
-            })
+            });
         }
     });
     odinCesium.requestRender();
@@ -618,6 +793,6 @@ function toggleGoesrLockStep(event) {
 function toggleShowGoesr(event) {
     let cb = ui.getCheckBox(event.target);
     if (cb) {
-        showGoesr( ui.isCheckBoxSelected(cb));
+        showGoesr(ui.isCheckBoxSelected(cb));
     }
 }

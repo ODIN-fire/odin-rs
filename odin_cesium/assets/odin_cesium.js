@@ -1,9 +1,9 @@
 /**
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -137,7 +137,7 @@ const centerOrientation = {
 
 // set when constructing elements and initialized through websocket message
 var localClock = undefined;  // do we need a promise for it?
-var utcClock = undefined; 
+var utcClock = undefined;
 
 // a promise other modules can latch on to if they need an initialized utc clock
 export const utcClockPromise = new Promise( (resolve,reject) => {
@@ -189,11 +189,11 @@ var ellipsoidTerrainProvider = new Cesium.EllipsoidTerrainProvider();
 var topoTerrainProvider = undefined;
 var terrainProvider = ellipsoidTerrainProvider;
 
-// use this promise in dependent JS modules that require the viewer to be instantiated. 
+// use this promise in dependent JS modules that require the viewer to be instantiated.
 // Normal use is to do a toplevel await on viewerReadyPromise
 export const viewerReadyPromise = new Promise( async (resolve,reject) => {
 
-    // WATCH OUT - on Safari awaiting Cesium.createWorldTerrainAsync() fails because of CORS rejection when connected to 
+    // WATCH OUT - on Safari awaiting Cesium.createWorldTerrainAsync() fails because of CORS rejection when connected to
     // (at least the NASA) VPN. This is not ODIN specific and also hangs https://sandcastle.cesium.com/?src=Clamp%20Entities%20to%20Ground.html&label=Terrain
     // ultimately we want to fix this - and reduce client-side network traffic - by providing our own Cesium TerrainProvider (possibly from odin_dem)
     if (config.fakeTerrain) {
@@ -209,7 +209,7 @@ export const viewerReadyPromise = new Promise( async (resolve,reject) => {
         terrainProvider: terrainProvider,
         skyBox: false,
         infoBox: false,
-        baseLayerPicker: false,  // if true primitives don't work anymore ?? 
+        baseLayerPicker: false,  // if true primitives don't work anymore ??
         baseLayer: false,        // set during imageryService init
         sceneModePicker: true,
         navigationHelpButton: false,
@@ -254,7 +254,7 @@ export const viewerReadyPromise = new Promise( async (resolve,reject) => {
 
 // make sure we don't postInitialize before this is resolved
 // this seems to fail on Safari (despite claiming that postInitPromises have been resolved)
-main.addPostInitPromise(viewerReadyPromise); 
+main.addPostInitPromise(viewerReadyPromise);
 
 window.addEventListener('resize', setCanvasSize);
 
@@ -268,7 +268,7 @@ console.log("ui_cesium initialized");
 
 // executed *after* all modules have been loaded and initialized (i.e. after any awaits they do during their init)
 export function postInitialize() {
-    initModuleLayerViewData();    
+    initModuleLayerViewData();
 
     checkImagery(); // make sure we have a base layer (normally provided by imglayer.js)
 
@@ -357,7 +357,7 @@ function switchToTopoTerrain() {
         handleTerrainChange();
         requestRender();
     }
-} 
+}
 
 export function isUsingTopoTerrain() {
     return Object.is( terrainProvider, topoTerrainProvider);
@@ -573,10 +573,10 @@ function pickViewPoint() {
             enterGeoPoint( (cp) => {
                 if (cp) {
                     cp.alt = Number.parseFloat( ui.getFieldValue("view.camera.altitude"));
-                    
+
                     ui.setField("view.pointer.latitude", cp.lat);
                     ui.setField("view.pointer.longitude", cp.lon);
-                    
+
                     main.setSharedItem( key, "GeoPoint3", cp, true);
 
                 }
@@ -668,7 +668,7 @@ function setInitialViewPositions() {
         initPosition = queryView;
         vps.push(queryView);
     }
-    
+
     // add all configured views as locally shared items (if they are not overriding existing shared items)
     vps.forEach( p => {
         if (!main.getSharedItem(p.key)) {
@@ -830,8 +830,8 @@ function toggleRequestRenderMode(event) {
 // if there is no pending scene rendering request issue one. Note this still is subject
 // to not exceeding the target framerate of Cesium, i.e. it might not result in rendering
 export function requestRender(force = false) {
-    // TODO - this "double-tap" is a (not fully dependable) workaround for a race-condition in Cesium that might not have a fully 
-    // updated scene when rendering, which can lead to missed updates 
+    // TODO - this "double-tap" is a (not fully dependable) workaround for a race-condition in Cesium that might not have a fully
+    // updated scene when rendering, which can lead to missed updates
 
     if (viewer) { // might be called from other modules before viewer is initialized. No need to sync in this case
         viewer.scene.requestRender();
@@ -1075,9 +1075,9 @@ function withMetersPerPixel (f) {
     // FIXME - this returns 0 if we get close (no tile level?). It also won't cover terrain height, which would cause
     // problems as we zoom in (where we need distances most)
     //let dPixel = viewer.scene.camera.getPixelSize( WGS84BoundingSphere, w, h);  // distance [m] per pixel
-    //if (dPixel) return dPixel; 
+    //if (dPixel) return dPixel;
 
-    // the hard way to work around this - compute two rays close to the center of the canvas and deduce distance from 
+    // the hard way to work around this - compute two rays close to the center of the canvas and deduce distance from
     // respective ellipsoid points. Note this does not account yet for elevation at the center
     let dx = 2;
     let camera = viewer.scene.camera;
@@ -1096,9 +1096,9 @@ function withMetersPerPixel (f) {
         cameraHeight -= geo.height; // subtract the terrain elevation from the camera height
     }
 
-    let p1 = Cesium.Cartesian3.add( ray1.origin, 
+    let p1 = Cesium.Cartesian3.add( ray1.origin,
         Cesium.Cartesian3.multiplyByScalar( ray1.direction, cameraHeight,new Cesium.Cartesian3()), new Cesium.Cartesian3());
-    let p2 = Cesium.Cartesian3.add( ray2.origin, 
+    let p2 = Cesium.Cartesian3.add( ray2.origin,
                 Cesium.Cartesian3.multiplyByScalar( ray2.direction, cameraHeight, new Cesium.Cartesian3()), new Cesium.Cartesian3());
     let dist = Cesium.Cartesian3.distance( p1, p2, new Cesium.Cartesian3());
     let dPixel = dist / dx;
@@ -1106,7 +1106,7 @@ function withMetersPerPixel (f) {
     f( dPixel)
 }
 
-function getMetricScale (dPixel) { 
+function getMetricScale (dPixel) {
     let unit, nUnits, unitPx, label, tickBase;
     let maxWidth = config.scale.width;
 
@@ -1128,7 +1128,7 @@ function getMetricScale (dPixel) {
         tickBase = unit;
         label = `${tickBase * nUnits} m`;
     }
-    
+
     return { unit, nUnits, unitPx, tickBase, label }
 }
 
@@ -1149,7 +1149,7 @@ function getUsScale (dPixel) {
             }
         }
     }
- 
+
     //--- switch to yards
     for ( let i=0; i < usYardScaleUnits.length; i++) {
         unit = usYardScaleUnits[i];
@@ -1310,8 +1310,16 @@ function handleKeyDown(e) {
 
 // global hotkeys - make sure these don't collide with module specific handlers
 function globalKeyDownHandler (event) {
-    if (Object.is( event.target, document.body)) { // otherwise this wasn't for us
-        if (event.shiftKey) {
+    //if (Object.is( event.target, document.body)) { // otherwise this wasn't for us
+
+    if (event.shiftKey) {
+        if (event.key == "Home") {
+            setHomeView( event.altKey);
+        } else if (event.key == "PageDown") {
+            setDownView( event.altKey);
+        } else if (event.key == "Escape") {
+            clearSelectedEntity();
+        } else {
             if (event.keyCode >= 49 && event.keyCode <= 57) {
                 let i = Math.min(event.keyCode - 49, config.zoomLevels.length-1);
                 zoomToHeight( config.zoomLevels[i], event.altKey);
@@ -1319,17 +1327,7 @@ function globalKeyDownHandler (event) {
         }
     }
 
-    if (event.shiftKey) {
-        //console.log("@@ ", event);
-        if (event.key == "Home") {
-            setHomeView( event.altKey);
-        } else if (event.key == "PageDown") {
-            setDownView( event.altKey);
-        } else if (event.key == "Escape") {
-            clearSelectedEntity();
-        }
-    }
-
+    //}
 }
 
 function globalMouseClickHandler (event) {
@@ -1349,8 +1347,8 @@ export function getCartographicMousePosition(e, result=null) {
     cp2.y = e.clientY;
 
     let ellipsoid = viewer.scene.globe.ellipsoid;
-    
-    //let cartesian = viewer.camera.pickEllipsoid( cp2, ellipsoid, cp3); // mouse might be outside globe    
+
+    //let cartesian = viewer.camera.pickEllipsoid( cp2, ellipsoid, cp3); // mouse might be outside globe
     let cartesian = viewer.scene.pickPosition( cp2, result);
     return cartesian ? ellipsoid.cartesianToCartographic( cartesian, result) : undefined;
 }
@@ -1384,10 +1382,10 @@ function updateMouseLocation(e) {
 
             let longitudeString = lonDeg.toFixed(4);
             let latitudeString = latDeg.toFixed(4);
-    
+
             ui.setField(pointerLat, latitudeString);
             ui.setField(pointerLon, longitudeString);
-    
+
             let a = [pos];
             if (!Object.is(topoTerrainProvider, ellipsoidTerrainProvider)) { // might be faked (Safari CORS workaround HACK)
                 Cesium.sampleTerrainMostDetailed(topoTerrainProvider, a).then( (a) => {
@@ -1403,7 +1401,7 @@ function updateMouseLocation(e) {
     }, 300);
 }
 
-//--- user control 
+//--- user control
 
 function setViewFromFields() {
     let lat = ui.getFieldValue(cameraLat);
@@ -1520,7 +1518,7 @@ function setCameraName(event) {
     if (node) {
         let path = node.collectNamesUp('/');
         ui.setField( cameraName, path);
-    } 
+    }
 }
 
 var minCameraHeight = 50000;
@@ -1660,56 +1658,56 @@ export function enterPolyline (points, maxPoints, callbacks) {
     let dblClickAction = getInputAction( Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 
     points.push( new Cesium.Cartesian3()); // add the mover point
-  
-    function onMouseMove(event) { // update the last point position (will redraw polyline using points)    
+
+    function onMouseMove(event) { // update the last point position (will redraw polyline using points)
         let idx = points.length-1;
         let p = points[idx];
-    
+
         getCartesian3MousePosition(event, cp);
         p.x = cp.x;   p.y = cp.y;   p.z = cp.z;
-    
+
         if (callbacks.onMouseMove) { callbacks.onMouseMove( points, idx); }
     }
-  
+
     function onClick(event) {
         if (event.detail == 2) { // double click -> done entering
             clearSelectedEntity(); // Cesium likes to zoom in on double clicks
-            event.preventDefault(); 
+            event.preventDefault();
             resetEnterPolyline();
-    
+
             if (points.length >= 1) {
                 if (points.length > 1) points.pop();  // remove the mover
                 if (callbacks.onEnter) callbacks.onEnter();
             }
-  
+
         } else if (event.detail == 1) { // single click (but also before double click)
             getCartesian3MousePosition(event, cp);
-    
+
             let p = points[points.length-1];
             p.x = cp.x;   p.y = cp.y;   p.z = cp.z;
-    
+
             if (callbacks.onAddPoint) { callbacks.onAddPoint(p); }
-    
+
             if (maxPoints && points.length >= maxPoints) {
                 resetEnterPolyline();
                 if (callbacks.onEnter) callbacks.onEnter();
             } else {
                 let pMover = { ...p };
-                points.push( pMover); 
+                points.push( pMover);
             }
         }
     }
-  
+
     function resetEnterPolyline() {
         setDefaultCursor();
         releaseMouseClickHandler( onClick);
         releaseMouseMoveHandler( onMouseMove);
         releaseKeyDownHandler( onKeyDown);
 
-        // we have to defer this or an ending double click still selects the handle entity 
+        // we have to defer this or an ending double click still selects the handle entity
         setTimeout( ()=> setInputAction( dblClickAction, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK), 200);
     }
-  
+
     function onKeyDown(event) {
         if (event.target === document.body) { // otherwise this wasn't for us
             if (event.code == "Delete" || event.code == "Backspace") {
@@ -1724,7 +1722,7 @@ export function enterPolyline (points, maxPoints, callbacks) {
             }
         }
     }
-  
+
     setCursor( "copy");
     registerMouseClickHandler( onClick);
     registerMouseMoveHandler( onMouseMove);
@@ -1905,13 +1903,13 @@ export function enterRect (rect, points, callbacks) {
             setRectFromCornerPoints( rect, p0, p);
             cartesian3ArrayFromRadiansRect(rect, points);
         }
-        
+
         if (callbacks.onMouseMove) callbacks.onMouseMove( p);
     }
 
     function onClick(event) {
         let p = getCartographicMousePosition(event);
-        if (p) { 
+        if (p) {
             if (event.detail == 1) { // ignore double click
                 if (p0 === undefined) { // first corner
                     p0 = p;
@@ -2072,7 +2070,7 @@ export function getEnuRotFromQuaternion (qx, qy, qz, w) {
     return Cesium.Matrix3.fromQuaternion( qRot);
 }
 
-// center is Cartesian3 
+// center is Cartesian3
 export function circleOutline (center,radius) {
     //let axis = Cesium.Caresian3.normalize( center, new Cartesian3()); // the rotation axis unit vec
 
@@ -2090,7 +2088,7 @@ export function circleOutline (center,radius) {
     let sin_a = Math.sin(a);
     let cos_a = Math.cos(a);
 
-    let v = new Cesium.Cartesian3( 
+    let v = new Cesium.Cartesian3(
         center.x * cos_a - center.y * sin_a,
         center.x * sin_a + center.y * cos_a,
         center.z
@@ -2169,7 +2167,7 @@ function handleShareMessage (msg) {
                 if (sharedVal.type == "GeoPoint3") {
                     let p = sharedVal.data;
                     let newPos = new CameraPosition( sharedItem.key, p.lon, p.lat, p.alt, sharedItem.isLocal);
-                    
+
                     positions.set( sharedItem.key, newPos);
                     ui.sortInTreeItem( positionsView, newPos, sharedItem.key);
                     //updatePositionsView();
@@ -2194,5 +2192,3 @@ function handleSyncMessage (msg) {
 }
 
 /* #endregion share interface */
-
-

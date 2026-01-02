@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -15,13 +15,6 @@
 
 use std::{net::SocketAddr,any::type_name,fs};
 use async_trait::async_trait;
-use axum::{
-    http::{Uri,StatusCode},
-    body::Body,
-    routing::{Router,get},
-    extract::{Path as AxumPath},
-    response::{Response,IntoResponse},
-};
 use serde::{Serialize,Deserialize};
 
 use odin_build::prelude::*;
@@ -79,7 +72,7 @@ impl SpaService for GoesrHotspotService {
 
     async fn data_available (&mut self, hself: &ActorHandle<SpaServerMsg>, has_connections: bool, sender_id: &str, data_type: &str) -> OdinServerResult<bool> {
         let mut is_our_data = false;
-        
+
         if let Some(hupdater) = self.satellites.iter().find( |s| *s.hupdater.id == sender_id).map( |s| &s.hupdater) {
             if data_type == type_name::<GoesrHotspotStore>() {
                 if has_connections {
@@ -107,9 +100,9 @@ impl SpaService for GoesrHotspotService {
         if is_data_available {
             let remote_addr = conn.remote_addr;
             for sat in &self.satellites {
-                let action = dyn_dataref_action!{ 
-                    let hself: ActorHandle<SpaServerMsg> = hself.clone(), 
-                    let remote_addr: SocketAddr = remote_addr => 
+                let action = dyn_dataref_action!{
+                    let hself: ActorHandle<SpaServerMsg> = hself.clone(),
+                    let remote_addr: SocketAddr = remote_addr =>
                     |store: &GoesrHotspotStore| {
                         for hotspots in store.iter_old_to_new(){
                             let remote_addr = remote_addr.clone();

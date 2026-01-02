@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -146,6 +146,10 @@ pub fn get_modified_timestamp <P: AsRef<Path>> (path: P) -> Option<SystemTime> {
     } else {
         None
     }
+}
+
+pub fn get_modified_datetime <P: AsRef<Path>> (path: P) -> Option<DateTime<Utc>> {
+    get_modified_timestamp(path).map( |t| t.into() )
 }
 
 pub fn set_modified_timestamp <P: AsRef<Path>> (path: P, t: SystemTime) -> Result<()> {
@@ -303,7 +307,7 @@ pub fn odin_data_filename (name: &str, date: Option<DateTime<Utc>>, attrs: &[&st
 
 pub fn get_filename_extension<'a> (path: &'a str) -> Option<&'a str> {
     if let Some(idx) = path.rfind('.') {
-        if idx < path.len()-1 { 
+        if idx < path.len()-1 {
             return Some( path[idx+1..].as_ref() )
         }
     }
@@ -316,8 +320,8 @@ pub fn get_filename_extension<'a> (path: &'a str) -> Option<&'a str> {
 /// this is the non-extension part of a filename. Input can be a path - everything up to the last
 /// path separator is discarded (on Windows we accept both '\\' and '/' as separator)
 pub fn get_file_basename<'a> (path: &'a str) -> Option<&'a str> {
-    let i0 = if let Some(idx) = path.rfind( std::path::MAIN_SEPARATOR) { 
-        idx + 1 
+    let i0 = if let Some(idx) = path.rfind( std::path::MAIN_SEPARATOR) {
+        idx + 1
     } else {
         if std::path::MAIN_SEPARATOR != '/' {
             if let Some(idx) = path.rfind('/') { idx + 1 } else { 0 }
@@ -510,7 +514,7 @@ pub fn replace_env_var_path (path: impl AsRef<Path>)->Result<PathBuf> {
     for c in path.as_ref().iter() {
         let e = c.to_str().ok_or( IOError::new(ErrorKind::Other, format!("invalid path: {:?}", path.as_ref())))?;
 
-        if e == "~/" && n == 0 { 
+        if e == "~/" && n == 0 {
             p.push( env::var("HOME").map_err( |err| IOError::new(ErrorKind::Other, "HOME not set"))?)
         } else if e.starts_with('$') {
             if e.len() > 1 {
@@ -547,7 +551,7 @@ pub fn add_extension<P> (path: P, ext: &str)->Result<PathBuf> where P: AsRef<Pat
 
     let mut ext_path = path.as_ref().to_path_buf().clone();
     ext_path.set_file_name( &fname);
-    
+
     Ok(ext_path)
 }
 
@@ -580,7 +584,7 @@ pub fn gzip_path<P> (path: P)->Result<PathBuf> where P: AsRef<Path> {
             reader.consume( len);
         } else { break }
     }
-  
+
     enc.finish()?;
     Ok(gzip_path)
 }

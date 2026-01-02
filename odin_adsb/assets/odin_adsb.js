@@ -36,7 +36,7 @@ const WALL_PATH = "≈";
 class TrackAssets {
     constructor(point, symbol, info = null) {
         this.point = point;
-        this.symbol = symbol; 
+        this.symbol = symbol;
         this.info = info; // additional text label
         this.trajectory = null; // on-demand polyline or wall
     }
@@ -97,7 +97,7 @@ class TrackSource {
             (a, b) => a.label == b.label // identity function
         );
 
-        // we keep those in different data sources so that we can control Z-order and 
+        // we keep those in different data sources so that we can control Z-order and
         // bulk enable/disable display more efficiently
         this.symbolDataSource = odinCesium.createDataSource( id, config.layer.show); // display list for Cesium track entities
         this.trackInfoDataSource = odinCesium.createDataSource(id + '-trackInfo', config.layer.show);
@@ -188,8 +188,8 @@ class TrackSource {
         let entityOpts = {
             id: (track.callsign ? track.callsign : track.icao24),
             position: track.position,
-            orientation: attitude,
-            label: trackEntityLabelOpts( te, trackColor, heightRef)
+            orientation: attitude
+            //label: trackEntityLabelOpts( te, trackColor, heightRef)
         };
 
         let model = this.modelPrototypes.get( track.type);
@@ -211,7 +211,7 @@ class TrackSource {
         let entity = new Cesium.Entity( entityOpts);
         entity._uiTrackEntry = te; // for entity selection
 
-        if (model) { 
+        if (model) {
             entity.model = model;
         } else { // cache it
             this.modelPrototypes.set( track.type, entity.model);
@@ -339,7 +339,7 @@ function defined_value (v) {
 }
 
 // our local show/hide
-function toggleShowAdsb (event) { 
+function toggleShowAdsb (event) {
     showAdsb( !isAdsbShowing)
 }
 
@@ -433,12 +433,12 @@ function handleWsUpdate (msg) {
 
 function getOrAddSource (id) {
     let ts = trackSources.get(id);
-    if (!ts) { 
+    if (!ts) {
         ts = new TrackSource(id);
         trackSources.set( id, ts);
         setSourceViewItems();
     }
-    return ts; 
+    return ts;
 }
 
 function setSourceViewItems () {
@@ -451,7 +451,7 @@ function setSourceViewItems () {
 }
 
 function getTrackAttitude (track) {
-    let pos = track.position ? track.position : track.trace.last(); 
+    let pos = track.position ? track.position : track.trace.last();
 
     let hdg = track.hdg ? track.hdg : 0.0;
     let pitch = track.pitch ? track.pitch : 0.0;
@@ -503,7 +503,7 @@ function updateTrack( ts, te, labelChanged) {
     } else { // update
         if (assets.symbol) updateTrackSymbolAsset(te);
         if (assets.info) updateTrackInfoAsset(te);
-        if (assets.point) updateTrackPointAsset(te);
+        if (assets.point) updateTrackPointAsset(te, labelChanged);
         if (assets.trajectory) updateTrajectoryAsset(te);
 
         if (trackEntryFilter(te)) {
@@ -653,9 +653,13 @@ function updateTrackSymbolAsset (te) {
     sym.orientation = getTrackAttitude( te.track);
 }
 
-function updateTrackPointAsset (te) {
+function updateTrackPointAsset (te, labelChanged) {
     let pt = te.assets.point;
     pt.position = te.track.position;
+
+    if (labelChanged) {
+        pt.label.text = te.label; // TODO - old label text is not erased
+    }
 }
 
 function updateTrackInfoAsset (te) {

@@ -1,0 +1,42 @@
+[package]
+name = "odin_himawari"
+version = "0.1.0"
+edition = "2024"
+
+build = "../build_resources.rs"
+
+[dependencies]
+# our ODIN crates
+odin_build = { workspace = true }
+odin_action = { workspace = true }
+odin_actor = { workspace = true }
+odin_common = { workspace = true }
+odin_macro = { workspace = true }
+odin_gdal = { workspace = true }
+odin_server = { workspace = true }
+odin_cesium = { workspace = true }
+odin_dem = { workspace = true }
+
+axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ron = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+csv = { workspace = true }
+uom = { workspace = true }
+serde_repr = { workspace = true }
+lazy_static = { workspace = true }
+regex = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+suppaftp = { version = "7.0", features = ["tokio"]}
+
+[build-dependencies]
+odin_build = { workspace = true }
+
+[features]
+embedded_resources = []

@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -48,7 +48,7 @@ impl<T> RefVec<T> for VecDeque<T> {
 
 pub trait SortedCollection<T> {
     fn sort_in<F> (&mut self, t: T, is_before: F) where F: Fn(&T,&T)->bool;
-} 
+}
 
 impl <T> SortedCollection<T> for Vec<T> {
     fn sort_in<F> (&mut self, t: T, is_before: F) where F: Fn(&T,&T)->bool {
@@ -56,7 +56,7 @@ impl <T> SortedCollection<T> for Vec<T> {
             if is_before( self.last().unwrap(), &t) { // shortcut for sorted entry - can't panic since collection not empty
                 self.push(t);
                 return;
-            } 
+            }
 
             for (i,c) in self.iter().enumerate() {
                 if is_before( &t, &self[i]) {
@@ -70,23 +70,29 @@ impl <T> SortedCollection<T> for Vec<T> {
             self.push( t);
         }
     }
-} 
+}
 
 /* #region deque (ring buffer) *****************************************************************************************/
 
-/// VecDeque extension trait to use a VecDeque as a ringbuffer (i.e. constant space) 
+/// VecDeque extension trait to use a VecDeque as a ringbuffer (i.e. constant space)
 pub trait RingDeque<T> {
     fn new (capacity: usize)->Self;
+    fn to_vec (self)->Vec<T>;
     fn is_full (&self)->bool;
+    fn foreach<F> (&self, f: F) where F: Fn(&T);
     fn push_to_ringbuffer (&mut self, t: T);
     fn insert_into_ringbuffer (&mut self, idx: usize, t: T);
-
-    fn sort_into_ringbuffer<F> (&mut self, t: T, is_before: F) where F: Fn(&T,&T)->bool;
+    fn sort_into_ringbuffer<F> (&mut self, t: T, is_before: F)->Option<usize> where F: Fn(&T,&T)->bool;
 }
 
 impl <T> RingDeque<T> for VecDeque<T> {
     fn new (capacity: usize)->Self {
         VecDeque::with_capacity( capacity)
+    }
+
+    fn to_vec (self)->Vec<T> {
+        let v: Vec<T> = self.into();
+        v
     }
 
     #[inline]
@@ -99,28 +105,61 @@ impl <T> RingDeque<T> for VecDeque<T> {
         self.push_back(t)
     }
 
+    /// insert item at given index. If buffer is full remove first element before inserting
     fn insert_into_ringbuffer (&mut self, idx: usize, t: T) {
-        if self.len() == self.capacity() { self.pop_front(); }
+        if self.len() == self.capacity() {
+            self.pop_front();
+        }
+
         self.insert( idx, t)
     }
 
-    fn sort_into_ringbuffer<F> (&mut self, t: T, is_before: F) where F: Fn(&T,&T)->bool {
+    /// sort in item based on given `is_before(&t, &old_elem)` func. If buffer is full and `t` would sort in
+    /// before first element ignore request, otherwise remove first element from full buffer before inserting
+    /// Return index at which `t` was sorted in (if not ignored)
+    fn sort_into_ringbuffer<F> (&mut self, t: T, is_before: F)->Option<usize> where F: Fn(&T,&T)->bool {
         if !self.is_empty() {
-            if is_before( self.back().unwrap(), &t) { // shortcut for sorted entry - can't panic since collection not empty
+            if is_before( self.back().unwrap(), &t) { // larger than last - always push as new back
                 self.push_to_ringbuffer(t);
-                return;
-            } 
+                return Some(self.len()-1)
+            }
 
-            for (i,c) in self.iter().enumerate() {
-                if is_before( &t, &self[i]) {
-                    self.insert_into_ringbuffer( i, t);
-                    return;
+            if is_before( &t, &self[0]) { // smaller than first push only if there is still space
+                if self.is_full() {
+                    return None
+                } else {
+                    self.push_front(t);
+                    return Some(0)
                 }
             }
-            unreachable!(); // see shortcut above
+
+            for i in 0..self.len() {
+                if is_before( &t, &self[i]) {
+                    if self.is_full() {
+                        self.pop_front();
+                        self.insert_into_ringbuffer(i-1, t);
+                        return Some(i-1)
+                    } else {
+                        self.insert_into_ringbuffer( i, t);
+                        return Some(i)
+                    }
+                }
+            }
+
+            unreachable!()
 
         } else { // first item
             self.push_back(t);
+            Some(0)
+        }
+    }
+
+    /// this iterates back-to-front
+    fn foreach<F> (&self, f: F) where F: Fn(&T) {
+        let mut i = self.len();
+        while i > 0 {
+            i -= 1;
+            f( &self[i])
         }
     }
 }
@@ -142,7 +181,7 @@ pub fn find_closest_from_sorted_iter<'a,T,I,F> (mut it: I, f: F)->Option<&'a T> 
         last_item = Some(item);
         if last_diff < 0.0 { return last_item; }  // first item is to the right so it is closest
     }
-    
+
     while let Some(item) = it.next() {
         let d = f(item);
         if d < 0.0 {
@@ -162,8 +201,8 @@ pub trait SortedIterable<T> {
 impl <T> SortedIterable<T> for Vec<T> {
     fn find_closest<'a,F> (&'a self, f: F)->Option<&'a T> where T: 'a, F: Fn(&T)->f64 {
         if let Some(last) = self.last() {
-            if f(last) > 0.0 { 
-                return Some(last); 
+            if f(last) > 0.0 {
+                return Some(last);
             } else {
                 find_closest_from_sorted_iter(self.iter(), f)
             }
@@ -176,8 +215,8 @@ impl <T> SortedIterable<T> for Vec<T> {
 impl <T> SortedIterable<T> for VecDeque<T> {
     fn find_closest<'a,F> (&'a self, f: F)->Option<&'a T> where T: 'a, F: Fn(&T)->f64 {
         if let Some(last) = self.back() {
-            if f(last) > 0.0 { 
-                return Some(last); 
+            if f(last) > 0.0 {
+                return Some(last);
             } else {
                 find_closest_from_sorted_iter(self.iter(), f)
             }
@@ -197,12 +236,12 @@ impl <T> SortedIterable<T> for VecDeque<T> {
 pub trait SingleLookupHashMap<K,V> {
 
     /// check if we already have an item for the provided key. If not, use the provided closure to
-    /// enter a new key/value pair. Since the value constructor is infallible this always returns a value reference 
-    fn get_or_insert<'a,F> (&'a mut self,  key: &'a K, f: F) -> &'a V 
+    /// enter a new key/value pair. Since the value constructor is infallible this always returns a value reference
+    fn get_or_insert<'a,F> (&'a mut self,  key: &'a K, f: F) -> &'a V
         where K: Eq + Hash + Clone, F: FnOnce()->V;
 
     /// version for fallible value constructors
-    fn get_or_try_insert<'a,F> (&'a mut self,  key: &'a K, f: F) -> Option<&'a V> 
+    fn get_or_try_insert<'a,F> (&'a mut self,  key: &'a K, f: F) -> Option<&'a V>
         where K: Eq + Hash + Clone, F: FnOnce()->Option<V>;
 }
 
@@ -210,13 +249,13 @@ pub trait SingleLookupHashMap<K,V> {
 /// hashbrown HashMap implementation that avoid double hashing when adding a non-existent entry
 impl<K,V> SingleLookupHashMap<K,V> for HbHashMap<K,V> where K: Eq+Hash+Clone {
 
-    fn get_or_insert<'a,F> (&'a mut self,  key: &'a K, f: F) -> &'a V 
+    fn get_or_insert<'a,F> (&'a mut self,  key: &'a K, f: F) -> &'a V
         where F: FnOnce()->V
     {
         self.raw_entry_mut().from_key(key).or_insert(key.clone(), f()).1
     }
 
-    fn get_or_try_insert<'a,F> (&'a mut self,  key: &'a K, f: F) -> Option<&'a V> 
+    fn get_or_try_insert<'a,F> (&'a mut self,  key: &'a K, f: F) -> Option<&'a V>
         where F: FnOnce()->Option<V>
     {
         if let Some(value) = f() {
@@ -232,16 +271,16 @@ impl<K,V> SingleLookupHashMap<K,V> for HbHashMap<K,V> where K: Eq+Hash+Clone {
 /// which means this will incur at least 2 lookups per call
 impl<K,V> SingleLookupHashMap<K,V> for HashMap<K,V> where K: Eq+Hash+Clone {
 
-    fn get_or_insert<'a,F> (&'a mut self,  key: &'a K, f: F) -> &'a V 
+    fn get_or_insert<'a,F> (&'a mut self,  key: &'a K, f: F) -> &'a V
         where F: FnOnce()->V
     {
         if !self.contains_key(key) {
             self.insert( key.clone(), f());
-        } 
+        }
         self.get(key).unwrap()
     }
 
-    fn get_or_try_insert<'a,F> (&'a mut self,  key: &'a K, f: F) -> Option<&'a V> 
+    fn get_or_try_insert<'a,F> (&'a mut self,  key: &'a K, f: F) -> Option<&'a V>
         where F: FnOnce()->Option<V>
     {
         if !self.contains_key(key) {
@@ -250,7 +289,7 @@ impl<K,V> SingleLookupHashMap<K,V> for HashMap<K,V> where K: Eq+Hash+Clone {
             } else {
                 return None;
             }
-        } 
+        }
         self.get(key)
     }
 }
@@ -274,8 +313,8 @@ pub trait Snapshot<E> {
 impl<K,V> Snapshot<(K,V)> for HashMap<K,V> where K:Clone, V:Clone {
     fn snapshot(&self)->Vec<(K,V)> {
         self.iter().fold( Vec::with_capacity(self.len()), |mut acc,e| {
-            acc.push( (e.0.clone(), e.1.clone())); 
-            acc 
+            acc.push( (e.0.clone(), e.1.clone()));
+            acc
         })
     }
 }
@@ -284,8 +323,8 @@ impl<K,V> Snapshot<(K,V)> for HashMap<K,V> where K:Clone, V:Clone {
 impl<K,V> Snapshot<(K,V)> for HbHashMap<K,V> where K:Clone, V:Clone {
     fn snapshot(&self)->Vec<(K,V)> {
         self.iter().fold( Vec::with_capacity(self.len()), |mut acc,e| {
-            acc.push( (e.0.clone(), e.1.clone())); 
-            acc 
+            acc.push( (e.0.clone(), e.1.clone()));
+            acc
         })
     }
 }

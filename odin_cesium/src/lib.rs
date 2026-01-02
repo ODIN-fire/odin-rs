@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -31,7 +31,7 @@ use odin_server::prelude::*;
 define_load_config!{}
 define_load_asset!{}
 
-pub const CESIUM_VERSION: &'static str = "1.135";
+pub const CESIUM_VERSION: &'static str = "1.136";
 
 /* #region CesiumService *************************************************************************************/
 
@@ -71,13 +71,13 @@ impl SpaService for CesiumService {
         #[cfg(feature="cesium_asset")]
         {
             // download *.zip from https://cesium.com/downloads/ and put it into ODIN_ROOT/assets/odin_cesium/
-            // rename Cesium/Cesium.js into Cesium/Cesium.min.js - it is already minified 
+            // rename Cesium/Cesium.js into Cesium/Cesium.min.js - it is already minified
             spa.add_script( asset_uri!("cesium_base_url.js")); // required since we renamed Cesium.js
             spa.add_script( asset_uri!("cesiumjs/Cesium.min.js"));
             spa.add_css( asset_uri!("cesiumjs/Widgets/widgets.css"));
         }
         #[cfg(feature="cesium_external")]
-        { 
+        {
             spa.add_script( format!("https://cesium.com/downloads/cesiumjs/releases/{CESIUM_VERSION}/Build/Cesium/Cesium.js"));
             spa.add_css( format!("https://cesium.com/downloads/cesiumjs/releases/{CESIUM_VERSION}/Build/Cesium/Widgets/widgets.css"));
         }
@@ -96,7 +96,7 @@ impl SpaService for CesiumService {
 
         spa.add_module( asset_uri!("editor_config.js"));
         spa.add_module( asset_uri!("editor.js"));
-        
+
         //--- add body fragments
         spa.add_body_fragment( r#"<div id="cesiumContainer" class="ui_full_window"></div>"#);
 
@@ -153,7 +153,7 @@ impl ImgLayerService {
         Self::from( load_config("imglayer.ron").unwrap()) // Ok to panic - this is called from a toplevel ctor
     }
 
-    pub fn from (config: ImgLayerConfig)->Self { 
+    pub fn from (config: ImgLayerConfig)->Self {
         let tms_map = Arc::new( config.expand_tms_map());
         ImgLayerService{config, tms_map}
     }
@@ -174,7 +174,7 @@ impl ImgLayerService {
 
 // headers to copy from the proxied request for OpenStreetMap tiles - see https://operations.osmfoundation.org/policies/tiles/
 // note that requests will fail if we copy all headers
-const OSM_HDR: &[&str] = &["user-agent","referer","accept","accept-encoding"]; 
+const OSM_HDR: &[&str] = &["user-agent","referer","accept","accept-encoding"];
 
 impl SpaService for ImgLayerService {
     fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
@@ -196,7 +196,7 @@ impl SpaService for ImgLayerService {
             let tms_map = self.tms_map.clone();
             spa.add_route( |router, spa_server_state| {
                 router.route( &format!("/{}/tms/{{tms_root}}/{{*unmatched}}", spa_server_state.name.as_str()), get({
-                    move |path_elems| Self::tms_handler( path_elems, tms_map.clone()) 
+                    move |path_elems| Self::tms_handler( path_elems, tms_map.clone())
                 }))
             });
         }

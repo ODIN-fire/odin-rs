@@ -1,0 +1,17 @@
+// example config for Himawari hotspot import
+
+HimawariConfig(
+    sat_id: 41836, // Himawari 9
+
+    // get free account from https://www.eorc.jaxa.jp/ptree/registration_top.html
+    user: "<your-JAXA-uid-here>",
+    pw: "<your-JAXA-pw-here>",
+    uri: "ftp.ptree.jaxa.jp:21",
+
+    dem: Some(File("$ODIN_ROOT/data/3dep13-conus-i16/3dep13-conus-i16.vrt")),
+
+    init_hours: 6, // initially retrieve 6h of data
+    update_interval: Duration( secs: 300, nanos: 0), // check for new files every 5min
+    cleanup_interval: Duration( secs: 3600, nanos: 0),
+    max_age: Duration(secs:43200,nanos:0),         // keep entries/files for 12hr
+)

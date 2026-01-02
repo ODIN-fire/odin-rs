@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -51,7 +51,7 @@ export function registerPostLoadFunction(func) {
 //registerLoadFunction(function initialize() {
 //    initializeIcons();
 //    initializeWindows();
- 
+
 //    _initializeMenus(); /* has to be last in case widgets add menus */
 //});
 
@@ -116,7 +116,7 @@ export function MoveableCanvas (extraCls, opts) {
 
     document.body.appendChild(e);
     return e;
-} 
+}
 
 export function showMoveableCanvas (o) {
     let e = getMoveableCanvas(o);
@@ -200,9 +200,9 @@ var spotlightZ = _rootVarInt('--spotlight-z');
 var windows = [];
 
 export function Window (title, eid, icon) {
-    return function (...children) { 
+    return function (...children) {
         let e = createElement("DIV", "ui_window");
-        
+
         e.setAttribute("data-title", title);
         if (eid) e.setAttribute("id", eid);
         if (icon) e.setAttribute("data-icon", icon);
@@ -282,7 +282,7 @@ function createWindowComponents(e, title, isPermanent, icon) {
         tb.appendChild(img);
     }
 
-    let cb = createElement("BUTTON", "ui_close_button", "⛌"); 
+    let cb = createElement("BUTTON", "ui_close_button", "⛌");
     cb.onclick = (event) => {
         let w = event.target.closest('.ui_window');
         if (w) {
@@ -309,8 +309,8 @@ export function getWindowContent (o) {
 
 function setWindowEventHandlers(e) {
     makeWindowDraggable(e);
-    e.onmousedown = function (event) { 
-        raiseWindowToTop(e); 
+    e.onmousedown = function (event) {
+        raiseWindowToTop(e);
     };
 }
 
@@ -357,7 +357,7 @@ function updateWindowZorder() {
 
     for (let i = windows.length - 1; i >= 0; i--) {
         let w = windows[i];
-        if (!_containsClass(w, "spotlight")){ 
+        if (!_containsClass(w, "spotlight")){
             w.style.zIndex = z;
             z--;
         } else {
@@ -703,7 +703,7 @@ export function Panel (title, isExpanded=false, eid=null) {
         let e = createElement("DIV", "ui_panel");
 
         e.classList.add(isExpanded ? "expanded" : "collapsed");
-        
+
         e.setAttribute("data-title", title);
         if (eid) e.setAttribute("id", eid);
 
@@ -925,7 +925,7 @@ function setLineHeight (e){
     }
 }
 
-// non-interactive variable text element that can be set progrmmatically and has zero height if empty 
+// non-interactive variable text element that can be set progrmmatically and has zero height if empty
 export function VarText (text=null, eid=null, minWidth=0, maxWidth=0, opts={}) {
     let e = createElement("DIV", "ui_text");
 
@@ -938,7 +938,7 @@ export function VarText (text=null, eid=null, minWidth=0, maxWidth=0, opts={}) {
 
     if (text) e.innerText = text;
     setLineHeight(e);
-    
+
     return e;
 }
 
@@ -964,7 +964,7 @@ export function setVarText(o, text) {
 //--- text area
 
 
-//--- fields 
+//--- fields
 
 function genField (inputType, extraCls, label, eid, changeAction) {
     let e = createElement("DIV", "ui_field");
@@ -1138,7 +1138,7 @@ export function TextArea (eid, width, height, opts) {
     if (opts.changeAction) {
         e.addEventListener("change", opts.changeAction);
     }
-    
+
     e.style.minWidth = width;
     e.style.minHeight = height;
 
@@ -1439,13 +1439,13 @@ export function isClockSet(o) {
 export function setClock(o, dateSpec, timeScale, notifyClockMonitors=false) {
     let e = getClock(o);
     if (e) {
-        if (typeof dateSpec === "number" && !isNaN(dateSpec) &&dateSpec > 0) { 
+        if (typeof dateSpec === "number" && !isNaN(dateSpec) &&dateSpec > 0) {
             let date = new Date(dateSpec);
             if (date) {
                 if (date.valueOf() == dateSpec) {
                     e._isSet = true;
                     e._uiDate = date;
-                    e._uiS0 = date.valueOf(); 
+                    e._uiS0 = date.valueOf();
                     e._uiSday = e._uiS0 / MILLIS_IN_DAY;
 
                     e.children[0].innerText = e._uiDateFmt.format(date);
@@ -1516,7 +1516,7 @@ export function Slider (label, eid, changeAction, trackWidth=undefined) {
     if (label) e.setAttribute("data-label", label);
     if (trackWidth) e.setAttribute("data-width", trackWidth);
     if (changeAction instanceof Function) {
-        e.addEventListener("change", changeAction); 
+        e.addEventListener("change", changeAction);
     } else {
         e.onchange = changeAction;
     }
@@ -1852,7 +1852,7 @@ export function clearChoiceItems(o) {
         e._uiItems = [];
         e._uiSelIndex = -1;
         e.innerText = null;
-        
+
         e.parentElement.removeChild( e.nextSibling); // this removes the popup menu
     }
 }
@@ -1951,7 +1951,7 @@ export function createCheckBox(initState, clickHandler, labelText = "") {
     if (clickHandler)  {
         e.addEventListener("click", clickHandler); // watch out - these don't get cloned
     }
-    
+
     return e;
 }
 
@@ -2206,7 +2206,7 @@ function initializeKvTable (e) {
     if (!e.style.maxHeight) {
         let itemHeight = getRootVar("--list-item-height");
         let itemPadding = getRootVar("--list-item-padding");
-    
+
         let nRows = _intDataAttrValue(e, "rows", 8);
         e.style.maxHeight = `calc(${nRows} * (${itemHeight} + ${itemPadding}))`; // does not include padding, borders or margin
     }
@@ -2299,7 +2299,7 @@ function initializeList (e) {
     if (!e._uiItemMap) {
         let itemHeight = getRootVar("--list-item-height");
         let itemPadding = getRootVar("--list-item-padding");
-        
+
         let nRows = _intDataAttrValue(e, "rows", 8);
 
         e.style.maxHeight = `calc(${nRows} * (${itemHeight} + ${itemPadding}))`; // does not include padding, borders or margin
@@ -2327,9 +2327,9 @@ function initializeList (e) {
 
 function listKeyDownHandler(event) {
     let list = getList(event.target);
-    if (event.key === 'Escape') { 
+    if (event.key === 'Escape') {
         clearSelectedListItem(list);
-        stopAllOtherProcessing(event);
+        //stopAllOtherProcessing(event);
     } else if (event.key === 'ArrowDown') {
         if (list._uiSelectedItemElement) selectNextListItem(list); else selectFirstListItem(list);
         stopAllOtherProcessing(event);
@@ -2599,7 +2599,7 @@ export function removeTreeItemPath(o,pathName) {
     if (e && e._uiRoot) {
         let removedNodes = e._uiRoot.removePathName(pathName);
         for (let node of removedNodes) {
-            let ce = getNodeElement(e, node); 
+            let ce = getNodeElement(e, node);
             if (ce) { // it was visible
                 if (e._uiSelectedNodeElement && Object.is( e._uiSelectedNodeElement._uiNode, node)) {
                     _setSelectedItemElement(e, null);
@@ -2667,7 +2667,7 @@ function selectNode (event) {
         if (ne._uiNode.data) {
             let ie = ne.firstChild.nextElementSibling;
             if (ie && _containsClass(ie, "ui_list_item")) selElem = ie;
-        } 
+        }
          _setSelectedItemElement(list,selElem);
     }
 }
@@ -2725,7 +2725,7 @@ function clickNodePrefix(event) {
     if (ne) {
         let node = ne._uiNode;
         if (node.hasChildren()){
-            if (node.isExpanded) { 
+            if (node.isExpanded) {
                 if (event.shiftKey) { // expand all children
                     for (let cnode = node.firstChild; cnode; cnode = cnode.nextSibling) {
                         if (!cnode.isExpanded) {
@@ -2790,7 +2790,7 @@ export function selectNodePath (o,path) {
                         pn.isExpanded = true;
                         while (!Object.is( itemElements[j]._uiNode, pn)) j++;
 
-                        let nextElem = j < itemElements.length-1 ? itemElements[j+1] : null; 
+                        let nextElem = j < itemElements.length-1 ? itemElements[j+1] : null;
                         for (let cn=pn.firstChild; cn; cn = cn.nextSibling) {
                             let ie = _createNodeElement(e, cn);
                             if (nextElem) { e.insertBefore( ie, nextElem) } else { e.appendChild( ie) }
@@ -3290,7 +3290,7 @@ function createMenuItem (text, action=null, eid=null, isChecked=false, isDisable
 
     if (action) e.setAttribute("onclick", action);
     if (eid) e.setAttribute("id", eid);
-    e.appendChild( document.createTextNode(text)); 
+    e.appendChild( document.createTextNode(text));
 
     return e;
 }
@@ -3434,7 +3434,7 @@ export function toggleMenuItemCheck(event) {
     }
 }
 
-//--- color 
+//--- color
 
 export function createColorBox(clrSpec) {
     let e = createElement("DIV", "ui_color_box");
@@ -3849,7 +3849,7 @@ export function createElement(tagName, clsList = undefined, txtContent = undefin
 function _moveChildElements(oldParent, newParent) {
     while (oldParent.firstElementChild){
         newParent.appendChild(oldParent.firstElementChild);
-    } 
+    }
 }
 
 function _hoistChildElement(e) {

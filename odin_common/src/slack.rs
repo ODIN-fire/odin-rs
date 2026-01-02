@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -15,7 +15,7 @@
  //! slack web api abstraction
 
 use std::{fs,path::{Path,PathBuf},result::Result,error::Error,io::{Error as IOError,ErrorKind}};
-use reqwest::{Client,blocking};
+use reqwest::{Client,blocking,RequestBuilder};
 use serde::{Serialize,Deserialize};
 use serde_json;
 use crate::fs::filename_of_path;
@@ -57,7 +57,7 @@ pub fn blocking_send_msg (token: &str, channel_id: &str, msg: &str, icon: Option
         .query( &params)
         .send()?;
 
-    Ok(())   
+    Ok(())
 }
 
 pub struct FileAttachment {
@@ -85,7 +85,7 @@ struct UploadFile {
 pub async fn send_msg_with_files (token: &str, channel_id: &str, msg: &str, files: &Vec<FileAttachment>) -> SlackResult<()> {
     let client = Client::new();
     let uploads = upload_files( &client, token, files).await?;
-    
+
     let resp = client.get("https://slack.com/api/files.completeUploadExternal")
         .bearer_auth( token)
         .query( &[

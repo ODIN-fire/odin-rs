@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -17,7 +17,7 @@
 /// macro to flatten deeply nested "if let .." trees into a construct akin to Scala for-comprehensions
 /// (or Haskell do-notation) with the extension that we can (optionally) specify side effects and/or
 /// return values for failed matches.
-/// 
+///
 /// Constraints:
 ///   - if there is an `else` clause both the match expression and the else clause have to be blocks
 ///     (this is a declarative macro constraint)
@@ -54,7 +54,7 @@
 ///     }
 /// }
 /// ```
-/// 
+///
 /// Here is an example for pure side effects that uses fail closures (e.g. for error reporting)
 /// ```
 /// # use odin_common::if_let;
@@ -84,7 +84,7 @@
 ///         }
 ///         x => { (|other| {println!("no b: {other:?}")})(x) }
 ///     }
-/// } 
+/// }
 /// ```
 /// This is finally an example that uses the `if_let` value and fail closures (providing failure values)
 /// ```
@@ -94,14 +94,14 @@
 /// # fn foo (n:i64, m:i64)->Result<&'static str,&'static str> { Ok("42") }
 /// let res = if_let! {
 ///     Some(a) = { p } else { println!("no a"); -1 },
-///     Ok(b)   = { q } else |e| { println!("no b: {e:?}"); -2 }, 
+///     Ok(b)   = { q } else |e| { println!("no b: {e:?}"); -2 },
 ///     Ok(c)   = { foo(a,b) } else |e| { println!("no c: {e:?}"); -3 } => {
 ///         println!("a={}, b={}, c={}", a,b,c);
 ///         0
 ///     }
 /// };
 /// println!("res = {res}");
-/// ``` 
+/// ```
 /// which is expanded into:
 /// ```
 /// # let p: Option<i64> = None;
@@ -133,9 +133,9 @@ macro_rules! if_let {
         }
     };
     { $p:pat = $x:expr => $r:expr } => {
-        if let $p = $x { $r } 
+        if let $p = $x { $r }
     };
-    
+
     //--- the recursive tt munchers
     { $p:pat = $x:block else $e:block , $($ts:tt)+ } => {
         if let $p = $x { if_let! { $($ts)+ } } else $e
@@ -199,12 +199,12 @@ macro_rules! map_to_opaque_error {
 /// ```no_run
 /// use odin_common::define_cli;
 ///
-/// define_cli! { ARGS [about="my silly prog"] = 
+/// define_cli! { ARGS [about="my silly prog"] =
 ///   verbose: bool        [help="run verbose", short],
 ///   date: String         [help="start date"],
 ///   config: String       [help="pathname of config", long, default_value="blah"]
 /// }
-/// 
+///
 /// fn main () {
 ///    let config = &ARGS.config;
 ///    // rest of code
@@ -214,20 +214,20 @@ macro_rules! map_to_opaque_error {
 /// ```no_run
 /// use clap::Parser;
 /// use lazy_static::lazy_static;
-/// 
+///
 /// #[derive(Parser)]
 /// #[command(about = "my silly prog")]
 /// struct CliOpts {
 ///     #[arg(help = "run verbose", short)]
 ///     verbose: bool,
-/// 
+///
 ///     #[arg(help = "start date")]
 ///     date: String,
-/// 
+///
 ///     #[arg(help = "pathname of config", long, default_value = "blah")]
 ///     config: String,
 /// }
-/// 
+///
 /// lazy_static! {
 ///     static ref ARGS: CliOpts = CliOpts::parse();
 /// }
@@ -254,7 +254,7 @@ macro_rules! define_cli {
 /// syntactic sugar macro to define thiserror Error enums:
 /// ```
 /// use odin_common::define_error;
-/// define_error!{ pub OdinNetError = 
+/// define_error!{ pub OdinNetError =
 ///   IOError( #[from] std::io::Error ) : "IO error: {0}",
 ///   OpFailed(String) : "operation failed: {0}"
 /// }
@@ -266,7 +266,7 @@ macro_rules! define_cli {
 /// pub enum OdinNetError {
 ///     #[error("IO error: {0}")]
 ///     IOError(#[from] std::io::Error),
-/// 
+///
 ///     #[error("operation failed: {0}")]
 ///     OpFailed(String),
 /// }
@@ -277,7 +277,7 @@ macro_rules! define_error {
         use thiserror;
         #[derive(thiserror::Error,Debug)]
         $vis enum $name {
-            $( 
+            $(
                 #[error($msg_lit)]
                 $err_variant ( $( $(#[$meta])? $field_type ),*  )
             ),*
@@ -288,16 +288,16 @@ macro_rules! define_error {
 /* #endregion define_cli */
 
 /// syntactic sugar macro to define serde enabled structs without cluttering sources with attribute macros
-/// this expands something like 
-/// ```no_run
-/// define_serde_struct! { 
+/// this expands something like
+/// ```ignore
+/// define_serde_struct! {
 ///     pub Foo: Debug [rename_all="camelCase"] =
 ///         name: String,
 ///         date: DateTime<Utc> [serialize_with="ser_short_rfc3339"]
 /// }
 /// ```
-/// into: 
-/// ```no_run
+/// into:
+/// ```ignore
 /// #[derive(Serialize,Deserialize,Debug)]
 /// #[serde(rename_all="camelCase")]
 /// pub struct Foo {
@@ -325,11 +325,11 @@ macro_rules! define_serde_struct {
 /* #region impl_virt_deserialize *********************************************************************************/
 
 /// implement serde Deserialize trait not backed by structure fields
-/// This macro uses arguments to define structure name, a constructor fn name and virtual deserialization field names to 
+/// This macro uses arguments to define structure name, a constructor fn name and virtual deserialization field names to
 /// generate a Deserializer impl. It also suppors optional aliases for each field name.
 /// The constructor has to accept the deserialized values in the order specified. The constructor argument types define
 /// the respective argument deserialization
-/// 
+///
 /// Use like so:
 /// ```
 /// use odin_common::impl_deserialize_struct;
@@ -340,7 +340,7 @@ macro_rules! define_serde_struct {
 /// impl GeoPoint {
 ///   fn from_lon_lat_degrees (lon: i32, lat: i32)->Self { Self{x:lon, y:lat} }
 /// }
-/// 
+///
 /// impl_deserialize_struct!{ GeoPoint::from_lon_lat_degrees(lon | longitude | x, lat | latitude | y) }
 /// ```
 #[macro_export]
@@ -403,9 +403,9 @@ macro_rules! impl_deserialize_struct {
                             }
                         }
 
-                        $( 
+                        $(
                             $( let $field_name = $field_name.or( Some($def_val) ); )?
-                            let $field_name = $field_name .ok_or_else(|| de::Error::missing_field(stringify!($field_name)))?; 
+                            let $field_name = $field_name .ok_or_else(|| de::Error::missing_field(stringify!($field_name)))?;
                         )+
                         Ok( $type_name::$ctor_name( $( $field_name ),+ ) )
                     }

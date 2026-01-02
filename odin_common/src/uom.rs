@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -14,10 +14,11 @@
 
 use std::fmt::Debug;
 use uom::si::{
-    f64::{ThermodynamicTemperature,Length,Power}, 
+    f64::{ThermodynamicTemperature,Length,Power,Area},
     length::{kilometer, meter, mile, nautical_mile},
     thermodynamic_temperature::{kelvin},
-    power::{megawatt}
+    power::{megawatt},
+    area::{acre,hectare,square_kilometer,square_mile}
 };
 use serde::{Serialize,Deserialize,ser::{Serializer,Error},de::Deserializer};
 
@@ -57,6 +58,26 @@ pub fn ser_length_as_rounded_meters<S: Serializer> (length: &Length, s: S) -> Re
 pub fn de_length_from_meters <'a,D>(deserializer: D) -> Result<Length,D::Error> where D: Deserializer<'a> {
     let v: f64 = f64::deserialize(deserializer)?;
     Ok( Length::new::<meter>(v) )
+}
+
+pub fn ser_area_as_acres<S: Serializer> (area: &Area, s: S) -> Result<S::Ok, S::Error>  {
+    let a: f64 = area.get::<acre>();
+    s.serialize_f64(a)
+}
+
+pub fn ser_area_as_hectares<S: Serializer> (area: &Area, s: S) -> Result<S::Ok, S::Error>  {
+    let a: f64 = area.get::<hectare>();
+    s.serialize_f64(a)
+}
+
+pub fn ser_area_as_square_kilometers<S: Serializer> (area: &Area, s: S) -> Result<S::Ok, S::Error>  {
+    let a: f64 = area.get::<square_kilometer>();
+    s.serialize_f64(a)
+}
+
+pub fn ser_area_as_square_miles<S: Serializer> (area: &Area, s: S) -> Result<S::Ok, S::Error>  {
+    let a: f64 = area.get::<square_mile>();
+    s.serialize_f64(a)
 }
 
 pub fn ser_temp_as_kelvin<S: Serializer> (temp: &ThermodynamicTemperature, s: S) -> Result<S::Ok, S::Error>  {
