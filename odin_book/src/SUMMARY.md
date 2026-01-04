@@ -51,6 +51,7 @@
     - [odin-fires](odin_fires/odin_fires.md)
     - [odin_geolayer](odin_geolayer/odin_geolayer.md)
     - [odin_goesr](odin_goesr/odin_goesr.md)
+    - [odin_himawari](odin_himawari/odin_himawari.md)
     - [odin_hrrr](odin_hrrr/odin_hrrr.md)
     - [odin_n5](odin_n5/odin_n5.md)
     - [odin_orbital](odin_orbital/odin_orbital.md)

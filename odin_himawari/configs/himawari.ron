@@ -8,7 +8,7 @@ HimawariConfig(
     pw: "<your-JAXA-pw-here>",
     uri: "ftp.ptree.jaxa.jp:21",
 
-    dem: Some(File("$ODIN_ROOT/data/3dep13-conus-i16/3dep13-conus-i16.vrt")),
+    //dem: Some(File("$ODIN_ROOT/data/3dep13-conus-i16/3dep13-conus-i16.vrt")),
 
     init_hours: 6, // initially retrieve 6h of data
     update_interval: Duration( secs: 300, nanos: 0), // check for new files every 5min

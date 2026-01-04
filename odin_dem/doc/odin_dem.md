@@ -5,7 +5,7 @@ This crate is basically just a wrapper around the virtual [GDAL VRT](https://gda
 used to extract elevation data sets for given rectangular bounding boxes from a large mosaic.
 
 
-## 1. Obtaining and Building the DEM VRT
+## Obtaining and Building the DEM VRT
 
 Prior to using this crate you have to obtain respective source DEM image tiles, e.g. from
 https://apps.nationalmap.gov/downloader. Be aware that such data sets can be large ([3dep](https://www.usgs.gov/3d-elevation-program) 1/3 arc
@@ -40,7 +40,7 @@ $> gdalbuildvrt <region-name>.vrt *.tif
 ```
 
 
-## 2. DEM extraction
+## DEM extraction
 
 The basic function of `odin_dem` is the synchronous
 
@@ -58,7 +58,7 @@ DEM to retrieve - it can take up to several seconds to execute.
 The `get_dem` command line tool is a simple wrapper around this function.
 
 
-## 3. Serving a DEM
+## Serving a DEM
 
 Since the underlying DEM data for this crate does require large amounts of disk space we provide a simple stand alone
 [edge server](../intro.md#edge_servers) to run on dedicated machinery. This edge server needs to be configured

@@ -86,36 +86,37 @@ function createWindow() {
     )(
         ui.LayerPanel("himawari", toggleShowHimawari),
         ui.Panel("data sets", true)(
+            (dataSetView = ui.List("himawari.dataSets", 6, selectDataSet)),
             ui.RowContainer()(
                 ui.CheckBox( "follow latest", toggleFollowLatest, "himawari.followLatest", config.followLatest),
-            ),
-            (dataSetView = ui.List("himawari.dataSets", 6, selectDataSet)),
-            ui.ListControls("himawari.dataSets"),
+                ui.ListControls("himawari.dataSets"),
+            )
         ),
         ui.Panel("hotspots", true)(
             (hotspotView = ui.List( "himawari.hotspots", 6, selectHotspot, null, null, zoomToHotspot)),
         ),
         ui.Panel("filter", false)(
             ui.RowContainer()(
+                ui.Button( "all", showAllHotspots),
                 ui.ColumnContainer("start", null, "level", true)(
-                    ui.CheckBox("flame", updateHotspotView, "himawari.filter.level_flaming", true),
-                    ui.CheckBox("smolder", updateHotspotView, "himawari.filter.level_smoldering", true),
-                    ui.CheckBox("cold", updateHotspotView, "himawari.filter.level_cold", true)
+                    ui.CheckBox("flame 🔥", updateHotspotView, "himawari.filter.level_flaming", true, "7rem", "1rem"),
+                    ui.CheckBox("smolder ♨️", updateHotspotView, "himawari.filter.level_smoldering", true, "7rem", "1rem"),
+                    ui.CheckBox("cold", updateHotspotView, "himawari.filter.level_cold", true, "7rem", "1rem")
                 ),
                 ui.ColumnContainer("start", null, "reliability", true)(
-                    ui.CheckBox("high", updateHotspotView, "himawari.filter.rel_high", true),
-                    ui.CheckBox("normal", updateHotspotView, "himawari.filter.rel_normal", true),
-                    ui.CheckBox("low", updateHotspotView, "himawari.filter.rel_low", true)
+                    ui.CheckBox("high ☆", updateHotspotView, "himawari.filter.rel_high", true, "7rem", "1rem"),
+                    ui.CheckBox("normal ✓", updateHotspotView, "himawari.filter.rel_normal", true, "7rem", "1rem"),
+                    ui.CheckBox("low", updateHotspotView, "himawari.filter.rel_low", true, "7rem", "1rem")
                 ),
                 ui.ColumnContainer("start", null, "quality", true)(
-                    ui.CheckBox("norm", updateHotspotView, "himawari.filter.qf_normal", true),
-                    ui.CheckBox("sat", updateHotspotView, "himawari.filter.qf_saturated", true),
-                    ui.CheckBox("low", updateHotspotView, "himawari.filter.qf_low", true)
+                    ui.CheckBox("norm ✓", updateHotspotView, "himawari.filter.qf_normal", true, "7rem", "1rem"),
+                    ui.CheckBox("saturated ✸", updateHotspotView, "himawari.filter.qf_saturated", true, "7rem", "1rem"),
+                    ui.CheckBox("low", updateHotspotView, "himawari.filter.qf_low", true, "7rem", "1rem")
                 )
             )
         ),
         ui.Panel("history", true)(
-            (historyView = ui.List( "himawari.history", 10, null, null, null, null)),
+            (historyView = ui.List( "himawari.history", 8, null, null, null, null)),
         ),
         ui.Panel("layer parameters", false)(
             ui.Slider("point size [pix]", "himawari.pointSize", setPointSize),
@@ -130,9 +131,9 @@ function initDataSetView() {
             ["fit", "header"],
             [
                 { name: "total", tip: "total number of hotspots", width: "3rem", attrs: ["fixed", "alignRight"], map: (e) => e.hotspots.length },
-                { name: "flam", tip: "number of flaming hotspots", width: "3rem", attrs: ["fixed", "alignRight"], map: (e) => e.nFlaming },
-                { name: "rel", tip: "number of high reliability hotspots", width: "3rem", attrs: ["fixed", "alignRight"], map: (e) => e.nHigh },
-                { name: "qual", tip: "number of normal quality hotspots", width: "3rem", attrs: ["fixed", "alignRight"], map: (e) => e.nNormal },
+                { name: "lvl^", tip: "number of flaming hotspots", width: "3rem", attrs: ["fixed", "alignRight"], map: (e) => e.nFlaming },
+                { name: "rel^", tip: "number of high reliability hotspots", width: "3rem", attrs: ["fixed", "alignRight"], map: (e) => e.nHigh },
+                { name: "qf^", tip: "number of normal quality hotspots", width: "3rem", attrs: ["fixed", "alignRight"], map: (e) => e.nNormal },
                 { name: "date", tip: "acquisition date", width: "8rem", attrs: ["fixed", "alignRight"], map: (e) => util.toLocalMDHMString(e.date) },
                 { name: "recv", tip: "acquisition date", width: "4rem", attrs: ["fixed", "alignRight"], map: (e) => util.toLocalHMTimeString(e.received) },
             ],
@@ -147,8 +148,8 @@ function initHotspotView() {
             ["fit", "header"],
             [
                 { name: "lvl", tip: "fire pixel level (flame,smold,cold)", width: "2rem", attrs: [], map: (e) => pixelLevel(e) },
-                { name: "rel", tip: "reliability (high,norm,low)", width: "2rem", attrs: [], map: (e) => pixelReliability(e) },
-                { name: "qf", tip: "quality (norm,sat,low)", width: "2rem", attrs: [], map: (e) => pixelQuality(e) },
+                { name: "rel", tip: "reliability (high ☆,norm ✓,low)", width: "2rem", attrs: [], map: (e) => pixelReliability(e) },
+                { name: "qf", tip: "quality (norm ✓,saturated ✸,low)", width: "2rem", attrs: [], map: (e) => pixelQuality(e) },
                 { name: "frp", tip: "fire radiative power [MW]", width: "4rem", attrs: ["fixed", "alignRight"], map: (e) => util.f_2.format(e.frp) },
                 { name: "area", tip: "area [km²]", width: "4rem", attrs: ["fixed", "alignRight"], map: (e) => util.f_2.format(e.area) },
                 { name: "vlc", tip: "number of volcanoes", width: "2rem", attrs: ["fixed", "alignRight"], map: (e) => e.volcano },
@@ -166,8 +167,8 @@ function initHistoryView() {
             ["fit", "header"],
             [
                 { name: "lvl", tip: "fire pixel level (flame,smold,cold)", width: "2rem", attrs: [], map: (e) => pixelLevel(e.hotspot) },
-                { name: "rel", tip: "reliability (high,norm,low)", width: "2rem", attrs: [], map: (e) => pixelReliability(e.hotspot) },
-                { name: "qf", tip: "quality (norm,sat,low)", width: "2rem", attrs: [], map: (e) => pixelQuality(e.hotspot) },
+                { name: "rel", tip: "reliability (high ☆,norm ✓,low)", width: "2rem", attrs: [], map: (e) => pixelReliability(e.hotspot) },
+                { name: "qf", tip: "quality (norm ✓,saturated ✸,low)", width: "2rem", attrs: [], map: (e) => pixelQuality(e.hotspot) },
                 { name: "frp", tip: "fire radiative power [MW]", width: "4rem", attrs: ["fixed", "alignRight"], map: (e) => util.f_2.format(e.hotspot.frp) },
                 { name: "area", tip: "area [km²]", width: "4rem", attrs: ["fixed", "alignRight"], map: (e) => util.f_2.format(e.hotspot.area) },
                 { name: "date", tip: "acquisition date", width: "8rem", attrs: ["fixed", "alignRight"], map: (e) => util.toLocalMDHMString(e.date) },
@@ -184,19 +185,19 @@ function initSliders() {
 
 function pixelLevel (e) {
     if (e.level == "Flaming") return '🔥';
-    if (e.level == "Smoldering") return '♨︎';
+    if (e.level == "Smoldering") return '♨️';
     return '';
 }
 
 function pixelReliability (e) {
-    if (e.reliability == "High") return '‼︎';
+    if (e.reliability == "High") return '☆';
     if (e.reliability == "Normal") return '✓';
     return '';
 }
 
 function pixelQuality (e) {
-    if (e.qf == "Normal") return '○';
-    if (e.qf == "Saturated") return '☀︎';
+    if (e.qf == "Normal") return '✓';
+    if (e.qf == "Saturated") return '✸';
     return '';
 }
 
@@ -316,6 +317,22 @@ function getFilteredHotspots (ds) {
     }
 
     return hotspots;
+}
+
+function showAllHotspots () {
+    ui.setCheckBox("himawari.filter.level_flaming");
+    ui.setCheckBox("himawari.filter.level_smoldering");
+    ui.setCheckBox("himawari.filter.level_cold");
+
+    ui.setCheckBox("himawari.filter.rel_high");
+    ui.setCheckBox("himawari.filter.rel_normal");
+    ui.setCheckBox("himawari.filter.rel_low");
+
+    ui.setCheckBox("himawari.filter.qf_normal");
+    ui.setCheckBox("himawari.filter.qf_saturated");
+    ui.setCheckBox("himawari.filter.qf_low");
+
+    updateHotspotView();
 }
 
 function setPointSize(event) {

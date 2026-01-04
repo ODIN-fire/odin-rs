@@ -157,5 +157,4 @@ run_actor_system!( actor_system => {
 The AlertCalifornia URLs in use are
 
 - https://cameras.alertcalifornia.org/public-camera-data/all_cameras-v3.json - for retrieving all camera states
-- https://cameras.alertcalifornia.org/public-camera-data/<camera-name>/latest-frame.jpg - for the last image of the specified camera
-
+- https://cameras.alertcalifornia.org/public-camera-data/⟨camera-name⟩/latest-frame.jpg - for the last image of the specified camera

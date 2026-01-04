@@ -26,3 +26,15 @@ rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 fails to link tokio_unstable (which is unfortunately still required for tracing and giving tasks names)
 This means on macOS the standard Xcode (default) linker has to be used
 (mold does not support the Apple -dynamic option)
+
+
+### odin_book mono image rendering on Safari
+
+The image filter to invert monochrome images in documentation pages does not work on Safari. This will need
+a specific `img` CSS definition in `odin_book/src/odin.css`.
+
+
+### odin_book page template is brittle
+
+Using our own `odin_book/theme/index.hbs` is prone to break [`mdbook`](https://rust-lang.github.io/mdBook/index.html)
+compatibility. As of this writing (01/2026) `odin_book` is compatible with `mdbook` v0.5.2

@@ -24,7 +24,7 @@
     img.mono[src*=".svg"] {
       filter: none;
     }
-    
+
     h1.menu-title {
       color: #ffff00;
       font-weight: bold;
@@ -37,16 +37,16 @@
 }
 
 img.left {
-  /*float: left;*/
-  display: inline-block;
+  float: left;
+  /*display: inline-block;*/
   vertical-align: middle;
   /*padding: 1rem 2rem 0 1rem; */
   margin: 15px 30px 15px 15px;
 }
 
 img.right {
-  /*float: right;*/
-  display: inline-block;
+  float: right;
+  /*display: inline-block;*/
   vertical-align: middle;
   /* padding: 1rem 1rem 0 2rem; */
   margin: 15px 15px 15px 30px;

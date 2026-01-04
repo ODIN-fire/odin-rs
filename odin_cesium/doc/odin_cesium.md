@@ -17,9 +17,9 @@ This crate provides two main services:
 
 Since CesiumJS is a large 3rd party library we do support options for how it is accessed by the client. This can be either by
 
-- directly downloading it from https://cesium.com/downloads/cesiumjs/releases/<version>/Build/Cesium,
+- directly downloading it from https://cesium.com/downloads/cesiumjs/releases/⟨version⟩/Build/Cesium,
 - proxying this URL with the `odin-rs` server - this is the default
-- providing it as a static asset from <ODIN-ROOT>/assets/odin_cesium/cesiumjs
+- providing it as a static asset from $ODIN_ROOT/assets/odin_cesium/cesiumjs
 
 Those alternatives are controlled by the Cargo features `cesium_external`, `cesium_proxy` and `cesium_asset`.
 Please note that crates depending on `odin_cesium` should support "pass-through" features in their respective `Cargo.toml` like so:

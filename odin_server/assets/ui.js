@@ -1907,7 +1907,7 @@ export function getChoice(o) { // TODO - do we really want the ui_choice_value?
 
 //--- checkboxes
 
-export function CheckBox (label, action, eid=null, isSelected=false) {
+export function CheckBox (label, action, eid=null, isSelected=false, width=null, height=null) {
     let e = createElement("DIV", "ui_checkbox");
 
     if (isSelected) _addClass(e, "checked");
@@ -1919,6 +1919,9 @@ export function CheckBox (label, action, eid=null, isSelected=false) {
     } else {
         e.onclick = action;
     }
+
+    if (width) setWidthStyle(e, width, width);
+    if (height) setHeightStyle(e, height, height);
 
     return e;
 }
@@ -3644,9 +3647,21 @@ function _numStyleValue (v, suffix) {
 }
 
 function setWidthStyle (e, minWidth=null, maxWidth=null) {
-    let style = "";
+    let style = e.getAttribute("style");
+    if (!style) style = "";
+
     if (maxWidth) style += `max-width:${maxWidth};`;
     if (minWidth) style += `min-width:${minWidth};`;
+
+    if (style.length > 0) e.setAttribute("style", style);
+}
+
+function setHeightStyle (e, minHeight=null, maxHeight=null) {
+    let style = e.getAttribute("style");
+    if (!style) style = "";
+
+    if (maxHeight) style += `max-height:${maxHeight};`;
+    if (minHeight) style += `min-height:${minHeight};`;
     if (style.length > 0) e.setAttribute("style", style);
 }
 

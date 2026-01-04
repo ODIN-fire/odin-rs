@@ -74,12 +74,10 @@ async fn main() ->Result<()> {
 
 This breaks down into the following four parts:
 
-### ① define actor message set
+① define actor message set
 
+② define actor state 
 
+③ define the actor tuple (incl. behavior) 
 
-### ② define actor state 
-
-### ③ define the actor tuple (incl. behavior) 
-
-### ④ instantiate and run the actor system 
+④ instantiate and run the actor system
