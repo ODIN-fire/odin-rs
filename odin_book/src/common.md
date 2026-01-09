@@ -10,3 +10,4 @@ This includes the following topics:
 - [overall structure](structure.md)
 - [design principles](design_principles.md)
 - [common conventions](conventions.md)
+- [application domain crate anatomy](crate_anatomy.md)

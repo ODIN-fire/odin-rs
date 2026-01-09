@@ -1,8 +1,8 @@
 import * as util from "./ui_util.js";
 import * as ui from "./ui.js";
 
-export function ImageWindow (title, id, closeAction, imgUri, caption, 
-                             viewerWidth=600, viewerHeight=500, x=undefined, y=undefined, 
+export function ImageWindow (title, id, closeAction, imgUri, caption,
+                             viewerWidth=600, viewerHeight=500, x=undefined, y=undefined,
                              minScale=0, maxScale=2.0, scaleStep=0.05) {
     let isFullScale = false;
     let fullScaleActivated = false;
@@ -26,7 +26,7 @@ export function ImageWindow (title, id, closeAction, imgUri, caption,
     let label = ui.Label( caption, id+".caption");
 
     let scaleSlider = ui.Slider("scale", null, setImgScale, "18rem");
-    let cbFullSize = ui.CheckBox("full", toggleFullScale);
+    let cbFullSize = ui.CheckBox("fit", toggleFullScale);
 
     let imageViewer = ui.Window( title, id, "./asset/odin_server/img.svg")(
         cc,
@@ -35,6 +35,7 @@ export function ImageWindow (title, id, closeAction, imgUri, caption,
             ui.HorizontalSpacer(1),
             scaleSlider,
             cbFullSize,
+            ui.Button("1x", nativeScale),
             ui.Button("reset", resetSize),
             ui.Button("\u2b07", downloadImage)
         )
@@ -126,6 +127,10 @@ export function ImageWindow (title, id, closeAction, imgUri, caption,
         imageViewer.style.width = viewerWidth + "px";
         imageViewer.style.height = viewerHeight + "px";
         ui.setSliderValue( scaleSlider, initScale);
+    }
+
+    function nativeScale (event) {
+        ui.setSliderValue(scaleSlider, 1.0);
     }
 
     function scaleToFullSize() {

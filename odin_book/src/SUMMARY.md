@@ -10,6 +10,7 @@
     - [Project Structure](structure.md)
     - [Design Principles](design_principles.md)
     - [Conventions](conventions.md)
+    - [Crate Anatomy](crate_anatomy.md)
     - [Documentation](documentation.md)
 
 - [4. System Crates](sys_crates.md)
