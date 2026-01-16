@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -19,8 +19,8 @@ use dashmap::DashMap; // papaya or whirlwind can be an async alternatives (once 
 use chrono::{DateTime,Utc};
 use odin_build::{define_load_config,define_load_asset};
 use odin_common::{
-    angle::Angle360, cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque, 
-    datetime::{self,EpochMillis}, geo::GeoPoint4, 
+    angle::Angle360, cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque,
+    datetime::{self,EpochMillis}, geo::GeoPoint4,
     json_writer::{JsonWritable,JsonWriter, NumFormat}
 };
 use odin_server::{ws_service::ws_msg_from_json, spa::SpaService, errors::OdinServerResult};
@@ -57,11 +57,11 @@ pub struct AircraftStore {
 
 impl AircraftStore {
     pub fn new (source: String)->Self {
-        AircraftStore { 
-            source, 
-            last_update: EpochMillis::new(0), 
+        AircraftStore {
+            source,
+            last_update: EpochMillis::new(0),
             timestamp: Arc::new( AtomicI64::new(0)), // updated by connector
-            aircraft: Arc::new( DashMap::new()), // updated by connector 
+            aircraft: Arc::new( DashMap::new()), // updated by connector
             dropped_list: Vec::new(),
         }
     }
@@ -77,7 +77,7 @@ impl AircraftStore {
     pub fn set_dropped (&mut self, drop_after: Duration)->usize {
         let now = datetime::utc_now().timestamp_millis();
         let max_age = drop_after.as_millis() as i64;
-        
+
         self.dropped_list.clear();
         for e in self.aircraft.iter() {
             let ac = e.value();
@@ -243,7 +243,7 @@ impl Aircraft {
         self.positions.push_to_ringbuffer(p4);
     }
 
-    /// this serializes an Aircraft object into the JSON format processed by the odin_adsb.js JS module 
+    /// this serializes an Aircraft object into the JSON format processed by the odin_adsb.js JS module
     fn write_to (&self, w: &mut JsonWriter, is_update: bool) {
         w.write_object( |w| {
             w.write_field("icao24", self.icao24.as_str());
@@ -253,7 +253,7 @@ impl Aircraft {
                 w.write_field("date", p.epoch_millis().millis()); // if there are positions use the last position timestamp
 
                 if is_update {
-                    w.write_object_field( "position", |w| { write_ecef_fields_to( w, p); }); // should we add lon/lat/height ? 
+                    w.write_object_field( "position", |w| { write_ecef_fields_to( w, p); }); // should we add lon/lat/height ?
                 } else {
                     w.write_array_field( "trace", |w| {
                         for i in 0..self.positions.len() {

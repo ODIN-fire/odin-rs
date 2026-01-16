@@ -1,9 +1,9 @@
 /**
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -149,7 +149,7 @@ class SentinelEntry {
                 util.sortIn( alarms, rec, (a,b)=> a.timeRecorded > b.timeRecorded);
             }
         });
-        
+
         this.alarmList = alarms;
     }
 
@@ -316,7 +316,7 @@ function initSentinelThermoView() {
         { name: "temp", tip: "temperature [°C]", width: "6rem", attrs: ["fixed", "alignRight"], map: e => util.f_1.format(e.thermometer.temperature) },
         ui.listItemSpacerColumn(),
         { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.timeRecorded) }
-    ]);   
+    ]);
 }
 
 function initSentinelAnemoView() {
@@ -326,7 +326,7 @@ function initSentinelAnemoView() {
         { name: "spd", tip: "wind speed [m/s]", width: "6rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.anemometer.speed) },
         ui.listItemSpacerColumn(),
         { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.timeRecorded) }
-    ]);  
+    ]);
 }
 
 function initSentinelVocView() {
@@ -336,7 +336,7 @@ function initSentinelVocView() {
         { name: "eCO2", tip: "estimated CO₂ concentration [ppm]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_0.format(e.voc.eCO2) },
         ui.listItemSpacerColumn(),
         { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.timeRecorded) }
-    ]);   
+    ]);
 }
 
 function initSentinelAccelView() {
@@ -347,7 +347,7 @@ function initSentinelAccelView() {
         { name: "az", tip: "z-acceleration [m/s²]",width: "5rem", attrs: ["fixed", "alignRight"], map: e => util.f_3.format(e.accelerometer.az) },
         ui.listItemSpacerColumn(),
         { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.timeRecorded) }
-    ]); 
+    ]);
 }
 
 function initSentinelGpsView() {
@@ -362,7 +362,7 @@ function initSentinelGpsView() {
         //{ name: "n", tip: "number of satellites", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.gps.numberOfSatellites },
         ui.listItemSpacerColumn(),
         { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.timeRecorded) }
-    ]);  
+    ]);
 }
 
 function initSentinelOrientationView() {
@@ -370,10 +370,10 @@ function initSentinelOrientationView() {
         { name: "sen", tip: "sensor number", width: "3rem", attrs: [], map: e => e.sensorNo },
         { name: "hdg", tip: "view direction [°]", width: "3rem", attrs: ["fixed", "alignRight"], map: e => util.degString(e.orientation.hpr.heading) },
         { name: "pitch", tip: "view tilt [°]", width: "3rem", attrs: ["fixed", "alignRight"], map: e => util.degString(e.orientation.hpr.pitch) },
-        { name: "roll", tip: "view rotation [°]", width: "3rem", attrs: ["fixed", "alignRight"], map: e => util.degString(e.orientation.hpr.roll) }, 
+        { name: "roll", tip: "view rotation [°]", width: "3rem", attrs: ["fixed", "alignRight"], map: e => util.degString(e.orientation.hpr.roll) },
         ui.listItemSpacerColumn(),
         { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.timeRecorded) }
-    ]);  
+    ]);
 }
 
 function initSentinelCloudCoverView() {
@@ -382,7 +382,7 @@ function initSentinelCloudCoverView() {
         { name: "cc", tip: "cloud coverage [%]", width: "3rem", attrs: ["fixed", "alignRight"], map: e => util.f_0.format(0.0) },
         ui.listItemSpacerColumn(),
         { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.timeRecorded) }
-    ]);  
+    ]);
 }
 
 function initSentinelPowerView() {
@@ -395,7 +395,7 @@ function initSentinelPowerView() {
         { name: "loadA", tip: "load current [mA]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_2.format(e.power.loadCurrent/1000) },
         ui.listItemSpacerColumn(),
         { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.timeRecorded) }
-    ]); 
+    ]);
 }
 
 function initSentinelImagesView() {
@@ -405,7 +405,7 @@ function initSentinelImagesView() {
 
         { name: "sen", tip: "sensor number", width: "2rem", attrs: [], map: e => e.sensorNo },
         { name: "type", tip: "ir: infrared, vis: visible", width: "2rem", attrs: [], map: e => e.image.isInfrared ? "ir" : "vis" },
-        { name: "hdg", tip: "heading [°]", width: "3rem", attrs: ["fixed", "alignRight"], map: e => imageHeading(e.image) }, 
+        { name: "hdg", tip: "heading [°]", width: "3rem", attrs: ["fixed", "alignRight"], map: e => imageHeading(e.image) },
         ui.listItemSpacerColumn(),
         { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.timeRecorded) }
     ]);
@@ -432,10 +432,10 @@ function toggleShowImage(event) {
             } else {
                 setTimeout(() => { // otherwise the mouseUp will put the focus back on sentinelsView
                     let uri = "./sentinel-image/" + e.image.localFilename;
-                    let w = wnd.ImageWindow( 
+                    let w = wnd.ImageWindow(
                         imageTitle(e), null,
                         () => { ui.setCheckBox(cb, false) },
-                        uri, "", 
+                        uri, "",
                         config.imageWidth, config.imageHeight,
                         event.clientX + 10, event.clientY + 10
                     );
@@ -512,7 +512,7 @@ function handleSentinelsMessage(sentinels) {
     sentinelEntries.clear();
     sentinels.forEach(sentinel => addSentinelEntry(sentinel));
     odinCesium.requestRender();
-    
+
     if (sentinelInactiveMillis) {
         checkInactiveStatus(); // check immediately
         setInterval( checkInactiveStatus, 60000); // then run check every minute
@@ -598,7 +598,7 @@ function setOrientationHpr(orientation) {
     let o = orientation;
     let q = new Cesium.Quaternion( o.qx, o.qy, o.qz, o.w);
     let hpr = Cesium.HeadingPitchRoll.fromQuaternion(q);
-    hpr.heading = -hpr.heading; // TODO quat not enu ? 
+    hpr.heading = -hpr.heading; // TODO quat not enu ?
     if (hpr.heading < 0) hpr.heading += Math.PI*2;
     orientation.hpr = hpr;
 }
@@ -619,11 +619,11 @@ function setImageHpr (sentinel, image) {
             let o = oRec.orientation;
             let q = new Cesium.Quaternion( o.qx, o.qy, o.qz, o.w);
             let hpr = Cesium.HeadingPitchRoll.fromQuaternion(q);
-            hpr.heading = -hpr.heading; // TODO quat not enu ? 
+            hpr.heading = -hpr.heading; // TODO quat not enu ?
             if (hpr.heading < 0) hpr.heading += Math.PI*2;
             image.hpr = hpr;
 
-            let qRot = Cesium.Quaternion.inverse(q, new Cesium.Quaternion());    
+            let qRot = Cesium.Quaternion.inverse(q, new Cesium.Quaternion());
             image.bodyToEnu = Cesium.Matrix3.fromQuaternion( qRot);
         }
     }
@@ -664,7 +664,7 @@ function getRecordWithId( records, id) {
 
 function updateAlarmList (sentinelEntry, update) {
     let prob = update.fire ? update.fire.fireProb : update.smoke.smokeProb;
-    if (prob) { 
+    if (prob) {
         let alarms = sentinelEntry.alarmList;
         alarms.unshift(update);
         if (alarms.length >= maxHistory) alarms.pop();
@@ -746,7 +746,7 @@ function createSymbolAsset(sentinelEntry) {
             verticalOrigin: Cesium.VerticalOrigin.TOP,
             font: config.labelFont,
             fillColor: config.color,
-            showBackground: true,
+            showBackground: false,
             backgroundColor: config.labelBackground,
             pixelOffset: config.labelOffset,
             distanceDisplayCondition: config.labelDC,
@@ -758,7 +758,7 @@ function createSymbolAsset(sentinelEntry) {
             color: config.color,
             outlineColor: config.pointOutlineColor,
             outlineWidth: config.pointOutlineWidth,
-            distanceDisplayCondition: config.pointDC, 
+            distanceDisplayCondition: config.pointDC,
         }
     });
     entity._uiSentinelEntry = sentinelEntry; // backlink
@@ -876,10 +876,10 @@ function selectSentinel(event) {
 function setSelectedSentinelName() {
     if (selectedSentinelEntry) {
         let sentinelInfo = sentinelInfos[selectedSentinelEntry.id];
-        if (sentinelInfo) { 
-            ui.setTextContent( sentinelNameLabel, selectedSentinelEntry.id + " : " + sentinelInfo.name); 
+        if (sentinelInfo) {
+            ui.setTextContent( sentinelNameLabel, selectedSentinelEntry.id + " : " + sentinelInfo.name);
             return;
-        } 
+        }
     }
 
     ui.clearTextContent(sentinelNameLabel);

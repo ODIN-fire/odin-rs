@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -24,18 +24,17 @@ use ron::{self, to_string};
 use async_trait::async_trait;
 use uom::si::f64::{Angle, ElectricCurrent, ElectricPotential, Length, Pressure, ThermodynamicTemperature, Velocity};
 use uom::si::{
-    thermodynamic_temperature::{degree_celsius,degree_fahrenheit}, 
-    pressure::{pascal,inch_of_mercury}, 
+    thermodynamic_temperature::{degree_celsius,degree_fahrenheit},
+    pressure::{pascal,inch_of_mercury},
     velocity::{mile_per_hour,meter_per_second}
 };
 use odin_build::{define_load_asset, define_load_config, pkg_cache_dir};
 use odin_server::{spa::SpaService,ws_service::ws_msg_from_json};
 use odin_common::{
-    collections::RingDeque, datetime::{self, EpochMillis, utc_now}, geo::GeoPoint, 
-    json_writer::{JsonWritable,JsonWriter, NumFormat}, net::from_json, Percent,
-    angle::Angle360,
+    Percent, angle::Angle360, cartographic::{Cartographic, earth_radius_at_geodetic_latitude}, collections::RingDeque, datetime::{self, EpochMillis, utc_now}, geo::{GeoPoint, GeoPoint3}, json_writer::{JsonWritable,JsonWriter, NumFormat}, net::from_json
 };
 use odin_actor::ActorHandle;
+use odin_dem::DemSource;
 
 pub mod errors;
 use errors::{Result,OdinN5Error};
@@ -116,7 +115,7 @@ pub struct HeatMapResponse {
 pub struct HeatMap {
     pub create_date: DateTime<Utc>,
     pub ir_reading: Vec<i32>,
-    pub ic_score: f64 
+    pub ic_score: f64
 }
 
 #[derive(Deserialize, Debug)]
@@ -180,7 +179,7 @@ pub enum AlertType {
 #[derive(Debug)]
 pub struct N5Device {
     pub id: u32,
-    pub position: GeoPoint,
+    pub position: GeoPoint3,
 
     pub name: String,
     pub device_type: String,
@@ -196,16 +195,16 @@ impl N5Device {
     pub fn from(device: Device, config: &N5Config)->Self {
         let status = &device.latest_status;
 
-        N5Device { 
-            id:device.id, 
-            position: GeoPoint::from_lon_lat_degrees( status.location.static_loc.longitude, status.location.static_loc.latitude), 
-            name: device.station_id, 
-            device_type: device.device_type, 
-            online: status.online, 
-            active: status.active, 
+        N5Device {
+            id:device.id,
+            position: GeoPoint3::from_lon_lat_degrees_alt_meters( status.location.static_loc.longitude, status.location.static_loc.latitude, 0.0),
+            name: device.station_id,
+            device_type: device.device_type,
+            online: status.online,
+            active: status.active,
 
-            data: VecDeque::with_capacity( config.max_history_len), 
-            alerts: VecDeque::with_capacity( config.max_history_len), 
+            data: VecDeque::with_capacity( config.max_history_len),
+            alerts: VecDeque::with_capacity( config.max_history_len),
         }
     }
 
@@ -219,10 +218,11 @@ impl JsonWritable for N5Device {
         w.write_object( |w| {
             w.write_field( "id", self.id);
             w.write_field( "name", &self.name);
-           
+
             w.write_object_field( "position", |w|{
                 w.write_f64_field("lon", self.position.longitude_degrees(), NumFormat::Fp5);
-                w.write_f64_field("lat", self.position.latitude_degrees(), NumFormat::Fp5)
+                w.write_f64_field("lat", self.position.latitude_degrees(), NumFormat::Fp5);
+                w.write_f64_field("alt", self.position.altitude_meters(), NumFormat::Fp0);
             });
 
             w.write_field( "device_type", &self.device_type);
@@ -256,7 +256,7 @@ pub struct N5Data {
 
     pub ic_score: f64,   // IR reading
     pub smoke_index: f64,
-    pub air_quality: f64, // PM 2.5 ? units? AQI ? 
+    pub air_quality: f64, // PM 2.5 ? units? AQI ?
 }
 
 impl JsonWritable for N5Data {
@@ -324,8 +324,8 @@ pub fn get_json_update_msg (updates: &[N5DataUpdate])->String {
 pub struct N5DeviceStore(IntMap<u32,N5Device>);
 
 impl N5DeviceStore {
-    pub fn new()->Self { 
-        N5DeviceStore( IntMap::new()) 
+    pub fn new()->Self {
+        N5DeviceStore( IntMap::new())
     }
 
     pub fn add (&mut self, n5_device: N5Device) {
@@ -380,6 +380,8 @@ pub struct N5Config {
     pub data_cycles: usize,
     pub retrieve_interval: Duration,
     pub aggregate_interval: Duration,
+
+    pub dem: Option<DemSource>,
 }
 
 #[async_trait]
@@ -454,7 +456,7 @@ async fn get_response (client: &Client, conf: &N5Config, uri: &str)->Result<Resp
     Ok(response)
 }
 
-/// the high level data retrieval - this transforms 
+/// the high level data retrieval - this transforms
 pub async fn get_current_device_data (client: &Client, conf: &N5Config, device_id: u32)->Result<N5Data> {
     let data = get_data( client, conf, device_id).await?; // this gets the current snapshot
 
@@ -492,6 +494,8 @@ pub async fn get_n5_devices (client: &Client, conf: &N5Config, init: bool)->Resu
     let devices = get_devices(client, conf).await?;
     let mut n5_devices: Vec<N5Device> = devices.into_iter().map( |d| N5Device::from(d, conf)).collect();
 
+    add_n5_device_heights(conf, &mut n5_devices).await;
+
     if init {
         for d in n5_devices.iter_mut() {
             if d.active && d.online {
@@ -503,6 +507,23 @@ pub async fn get_n5_devices (client: &Client, conf: &N5Config, init: bool)->Resu
     }
 
     Ok(n5_devices)
+}
+
+async fn add_n5_device_heights (conf: &N5Config, n5_devices: &mut Vec<N5Device>)->Result<()> {
+    if let Some(dem_src) = &conf.dem {
+        let locations: Vec<(f64,f64)> = n5_devices.iter().map( |d| {
+            let p = &d.position;
+            (p.longitude_degrees(), p.latitude_degrees())
+        }).collect();
+
+        if let Ok(heights) = dem_src.get_heights(Some(0.0), locations.as_ref()).await {
+            for i in 0..heights.len() {
+                let d: &mut N5Device = &mut n5_devices[i];
+                d.position.set_altitude_meters(heights[i]);
+            }
+        }
+    }
+    Ok(())
 }
 
 pub async fn get_n5_data (client: &Client, conf: &N5Config, device_ids: &[u32])->Result<Vec<N5DataUpdate>> {

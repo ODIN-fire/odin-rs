@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -28,7 +28,7 @@ pub struct SbsConnector {
     config: Arc<AdsbConfig>,
     timestamp: Arc<AtomicI64>,
     aircraft: Arc<DashMap<String,Aircraft>>,
-    task: Option<JoinHandle<()>>,  // close to useless for blocking (native thread) tasks as we can't abort 
+    task: Option<JoinHandle<()>>,  // close to useless for blocking (native thread) tasks as we can't abort
     keep_alive: Arc<AtomicBool> // used to signal input thread to terminate
 }
 
@@ -103,7 +103,7 @@ fn process_next_line<'a, T: CsvFieldExtractor> (csv: &'a mut T, timestamp: &Arc<
 
             // note that not all updates count towards a new timestamp
             if let Some(update_timestamp) = update_timestamp {
-                timestamp.store( update_timestamp.millis(), Ordering::Relaxed); 
+                timestamp.store( update_timestamp.millis(), Ordering::Relaxed);
             }
         }
         Err(e) => eprintln!("PARSE ERROR for {}: {}", csv.line(), e)
@@ -117,7 +117,7 @@ fn process_next_line<'a, T: CsvFieldExtractor> (csv: &'a mut T, timestamp: &Arc<
 ///  MSG,1,111,11111,AA2BC2,111111,2016/03/11,13:07:16.663,2016/03/11,13:07:16.626,UAL814  ,,,,,,,,,,,0
 ///  MSG,3,111,11111,A04424,111111,2016/03/11,13:07:05.343,2016/03/11,13:07:05.288,,11025,,,37.17274,-122.03935,,,,,,0
 ///  MSG,4,111,11111,AC1FCC,111111,2016/03/11,13:07:07.777,2016/03/11,13:07:07.713,,,316,106,,,1536,,,,,0
-/// 
+///
 /// fields:
 ///   0: message type (MSG, SEL, ID, AIR, STA, CLK)
 ///   1: transmission type (MSG only: 1-8, 3: ES Airborne Position Message)
@@ -141,7 +141,7 @@ fn process_next_line<'a, T: CsvFieldExtractor> (csv: &'a mut T, timestamp: &Arc<
 ///  19: emergency (flag)
 ///  20: spi (flag, transponder ident activated)
 ///  21: on ground (flag)
-/// 
+///
 /// see also <http://mode-s.org/decode/>
 pub fn parse_msg<'a,T> (csv: &'a mut T, source_tz: &Tz)->Result<AdsbUpdate<'a>> where T: CsvFieldExtractor {
     extract_fields!{ csv ?
@@ -150,7 +150,17 @@ pub fn parse_msg<'a,T> (csv: &'a mut T, source_tz: &Tz)->Result<AdsbUpdate<'a>> 
         let icao24: CsvStr = [4],
         let date: CsvStr = [6],
         let time: CsvStr = [7] => {
-            let timestamp = EpochMillis::from( get_utc_datetime( date.as_str(), time.as_str(), source_tz)?);
+            let mut timestamp = EpochMillis::from( get_utc_datetime( date.as_str(), time.as_str(), source_tz)?);
+            let now = EpochMillis::now();
+            if timestamp > now {
+                if timestamp.millis() - now.millis() > 100 {
+                    eprintln!("WARNING! - future timestamp (check configured time zone of SBS server). Falling back to current UTC time");
+                } else {
+                    // otherwise we just assume the clocks are slightly off
+                    // but we still set it to our time to preserve happens-before relation to other local events
+                }
+                timestamp = now;
+            }
 
             match msg_type {
                 1 => parse_aircraft_identification( csv, timestamp, *icao24),
@@ -161,7 +171,7 @@ pub fn parse_msg<'a,T> (csv: &'a mut T, source_tz: &Tz)->Result<AdsbUpdate<'a>> 
                 6 => parse_surveillance_id( csv, timestamp, *icao24),
                 7 => parse_air_to_air( csv, timestamp, *icao24),
                 8 => parse_all_call_reply( csv, timestamp, *icao24),
-                _ => Ok( ignored(timestamp) ) 
+                _ => Ok( ignored(timestamp) )
             }
         } else {
             Err( parse_error!( "missing common fields in SBS message: {}", csv.line()) )
@@ -173,7 +183,7 @@ pub fn parse_msg<'a,T> (csv: &'a mut T, source_tz: &Tz)->Result<AdsbUpdate<'a>> 
 fn get_utc_datetime (date: &str, time: &str, tz: &Tz)->Result<DateTime<Utc>> {
     let date = NaiveDate::parse_from_str( date, "%Y/%m/%d")?;
     let time = NaiveTime::parse_from_str( time, "%H:%M:%S%.3f")?;
-    
+
     let dt = match tz.from_local_datetime( &date.and_time(time)) {
         chrono::offset::LocalResult::Single(dt) => dt,
         chrono::offset::LocalResult::Ambiguous(dt1, dt2) => dt2, // we don't care about that precision
@@ -190,7 +200,7 @@ fn parse_aircraft_identification<'a,T> (csv: &'a T, timestamp: EpochMillis, icao
 
         let data = AdsbData::AircraftIdentification{callsign};
         Ok( AdsbUpdate{ timestamp, icao24, data } )
-    } else { 
+    } else {
         Err( parse_error!( "missing callsign in AircraftIdentification message: {}", csv.line()) )
     }
 }
@@ -254,7 +264,7 @@ fn parse_surveillance_alt<'a,T> (csv: &'a T, timestamp: EpochMillis, icao24: &'a
     if let Some(altitude) = csv.field::<i64>(11) {
         let data = AdsbData::SurveillanceAltitudeReply{altitude};
         Ok( AdsbUpdate{ timestamp, icao24, data } )
-    } else { 
+    } else {
         Ok( ignored(timestamp) )
         //Err( parse_error!( "missing altitude in SurveillanceAltitudeReply message: {}", csv.line()) )
     }
@@ -267,7 +277,7 @@ fn parse_surveillance_id<'a,T> (csv: &'a T, timestamp: EpochMillis, icao24: &'a 
         let callsign: &'a str = *cs;
         let data = AdsbData::SurveillanceId{callsign};
         Ok( AdsbUpdate{ timestamp, icao24, data } )
-    } else { 
+    } else {
         Ok( ignored(timestamp) ) // dump1090 only reports groundspeed, which is not very helpful
     }
 }
@@ -278,7 +288,7 @@ fn parse_air_to_air<'a,T> (csv: &'a T, timestamp: EpochMillis, icao24: &'a str)-
     if let Some(altitude) = csv.field::<i64>(11) {
         let data = AdsbData::AirToAir{altitude};
         Ok( AdsbUpdate{ timestamp, icao24, data } )
-    } else { 
+    } else {
         Ok( ignored(timestamp) )
         //Err( parse_error!( "missing altitude in AirToAir message: {}", csv.line()) )
     }

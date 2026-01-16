@@ -1,0 +1,28 @@
+[package]
+name = "odin_live_aus"
+version = "0.1.0"
+edition = "2024"
+
+build = "../build_resources.rs"
+
+[dependencies]
+# our ODIN crates
+odin_build = { workspace = true }
+odin_common = { workspace = true }
+odin_action = { workspace = true }
+odin_actor = { workspace = true }
+odin_macro = { workspace = true }
+odin_server = { workspace = true }
+odin_himawari = { workspace = true }
+odin_geolayer = { workspace = true }
+odin_orbital = { workspace = true }
+odin_share = { workspace = true }
+
+tokio = { workspace = true }
+anyhow = { workspace = true }
+
+[build-dependencies]
+odin_build = { workspace = true }
+
+[features]
+# features that require private api keys

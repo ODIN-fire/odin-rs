@@ -15,6 +15,7 @@ odin_cesium = { workspace = true }
 odin_job = { workspace = true }
 odin_common = { workspace = true }
 odin_macro = { workspace = true }
+odin_dem = { workspace = true }
 
 futures = { workspace = true }
 tokio = { workspace = true }

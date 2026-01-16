@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -96,6 +96,7 @@ impl BinContext {
             bin_crate: bin_crate.to_string(),
             bin_suffix, proc_id,
             build: build.to_string() } ).expect("Context set twice");
+        //println!("running bin '{}' from crate '{}'", bin_name, bin_crate);
     }
 }
 
@@ -123,8 +124,8 @@ macro_rules! build_mode {
         {
             use std::fmt::Write;
             let mut build = String::new();
-            if let Some(v) = option_env!("ODIN_EMBED_RESOURCES") { 
-                write!( build, "embed={}", v).unwrap(); 
+            if let Some(v) = option_env!("ODIN_EMBED_RESOURCES") {
+                write!( build, "embed={}", v).unwrap();
             }
             //... and more to follow
             build
@@ -148,14 +149,14 @@ pub fn get_env_bin_context()->Option<BinContext> {
         let proc_id = None;
         let build = build_mode!();
         Some( BinContext { bin_name, bin_crate, bin_suffix, proc_id, build } )  // this is build-time - we don't have a proc_id yet
-    } else { 
+    } else {
         None
     }
 }
 
 pub fn is_relevant_resource (rsc: &Resource, maybe_ctx: &Option<BinContext>)->bool {
-    if rsc.bins.is_empty() { 
-        true 
+    if rsc.bins.is_empty() {
+        true
     } else {
         if let Some(ctx) = maybe_ctx {
             rsc.bins.contains(&ctx.bin_name)
@@ -248,8 +249,8 @@ macro_rules! pkg_data_dir {
 
 /// Note - this panics if the directory does not exist and can't be created
 pub fn ensure_dir (dir: PathBuf)->PathBuf {
-    if !&dir.is_dir() { 
-        std::fs::create_dir_all(&dir).unwrap(); 
+    if !&dir.is_dir() {
+        std::fs::create_dir_all(&dir).unwrap();
     }
     dir
 }
@@ -259,7 +260,7 @@ pub fn ensure_dir (dir: PathBuf)->PathBuf {
 
 /* #region resource lookup ***************************************************************/
 
-/// locate a config file and return its PathBuf 
+/// locate a config file and return its PathBuf
 /// note this is called both from build.rs from load_config (at runtime) so we have to explicitly pass in BinContext
 fn find_resource_file (resource_dir: &str, ctx: &Option<&BinContext>, resource_crate: &str, filename: &str) -> Option<PathBuf> {
     // check an explicit ODIN_HOME first
@@ -299,7 +300,7 @@ fn find_external_resource (path: &mut PathBuf, resource_dir: &str, bin_ctx: &Opt
 
     // now check resource crate global
     if path_cond!( is_file, path, resource_dir, resource_crate, filename) { return true }
-    
+
     false
 }
 
@@ -311,7 +312,7 @@ fn find_internal_resource (path: &mut PathBuf, resource_dir: &str, bin_ctx: &Opt
     }
 
     if path_cond!( is_file, path, resource_crate, resource_dir, filename) { return true }
-    
+
     false
 }
 

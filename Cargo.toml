@@ -20,13 +20,15 @@ members = [
   "odin_goesr",
   "odin_orbital",
   "odin_adsb",
-  "odin_live",
   "odin_n5",
   "odin_alertca",
   "odin_onnx",
   "odin_fires",
   "odin_himawari",
   "odin_image",
+
+  "odin_live",
+  "odin_live_aus",
 
   "gpshub",
   "mkslides",
@@ -66,16 +68,17 @@ axum = { version = "0.8.8", features = [ "http2", "ws", "macros"] }
 axum-login = { version = "0.18" }
 password-auth = { version = "1.0.0" }
 passwords = { version = "3.1" }
-#reqwest = { version = "0.13.1", features = ["json", "stream", "query"] }
-reqwest = { version = "0.12", features = ["json", "stream"] } # reqwest-middleware 0.4.2 still depends on 0.12
+#reqwest = { version = "0.13", features = ["json", "stream", "query"] }
+#reqwest-middleware = { version = "0.5" }
+reqwest = { version = "0.12", features = ["json", "stream"] } # http-cache-reqwest still depends on 0.12
 reqwest-middleware = { version = "0.4.2" }
+http-cache-reqwest = { version = "0.16.0" }
 tower = { version = "0.5.2", features = ["full"] }
 tower-http = { version = "0.6.6", features = ["full"] }
 tower-sessions = { version = "0.14.0", default-features = false, features = ["signed"] }
 tower-sessions-sqlx-store = { version = "0.15.0", features = ["sqlite"] }
 sqlx = { version = "0.8.6", features = ["sqlite", "time", "runtime-tokio"] }
 http = { version = "1.4.0" }
-http-cache-reqwest = { version = "0.16.0" }
 cacache = { version = "13.1" }
 headers = { version = "0.4.1" }
 url = { version = "2.5.4" }

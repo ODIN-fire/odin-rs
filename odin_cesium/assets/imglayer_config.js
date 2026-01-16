@@ -25,9 +25,9 @@ export const config = {
         description: "static imagery",
         show: true,
     },
-    
+
     sources: [
-        { 
+        {
             pathName:'globe/natgeo',
             info:'ArcGIS NatGeo Terrain',
             provider: Cesium.ArcGisMapServerImageryProvider.fromUrl( './proxy/globe-natgeo'),
@@ -35,7 +35,7 @@ export const config = {
             show:true,
             render:{ brightness:0.6 }
         },
-        { 
+        {
             pathName:'globe/openstreetmap',
             info:'OpenStreetMap',
             provider: new Cesium.OpenStreetMapImageryProvider({ url : './proxy/globe-osm' }),
@@ -43,7 +43,7 @@ export const config = {
             exclusive:['globe'],
             render:{ brightness:0.6 }
         },
-        { 
+        {
             pathName:'globe/opentopomap',
             info:'OpenTopoMap',
             provider: new Cesium.OpenStreetMapImageryProvider({ url : './proxy/globe-otm' }),
@@ -51,15 +51,15 @@ export const config = {
             exclusive:['globe'],
             render:{ brightness:0.6 }
         },
-        { 
+        {
             pathName:'globe/bing-aerial',
             info:'Bing aerial default',
-            style: Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS,
+            provider: Cesium.ImageryLayer.fromWorldImagery( {style: Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS}),
             exclusive:['globe'],
             render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         },
 
-        //{ 
+        //{
         //    pathName: 'weather/amsr2',
         //    info: 'NASA AMSR2 snow water equivalent',
         //    provider: new Cesium.WebMapTileServiceImageryProvider({
@@ -76,7 +76,7 @@ export const config = {
         //    exclusive: [],
         //    render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         //},
-        { 
+        {
             pathName: "fuel/landfire/cover",
             info: "landfire fuel vegetation cover (FVC 230)",
             provider: new Cesium.WebMapServiceImageryProvider({
@@ -177,7 +177,7 @@ export const config = {
                 layers: "76"
             }),
             render: { hue: 218, saturation: 1.5, alphaColor: "white", alphaColorThreshold: 0.1 }
-        },        
+        },
         {
             pathName: "mtbs/fire_boundaries/2019",
             info: "fire boundaries 2019 from MTBS",
@@ -195,7 +195,7 @@ export const config = {
                 layers: "78"
             }),
             render: { hue: 218, saturation: 1.5, alphaColor: "white", alphaColorThreshold: 0.1 }
-        },        
+        },
         {
             pathName: "mtbs/fire_boundaries/2021",
             info: "fire boundaries 2021 from MTBS",
@@ -213,7 +213,7 @@ export const config = {
                 layers: "80"
             }),
             render: { hue: 218, saturation: 1.5, alphaColor: "white", alphaColorThreshold: 0.1 }
-        },        
+        },
         {
             pathName: "mtbs/fire_boundaries/2023",
             info: "fire boundaries 2023 from MTBS",

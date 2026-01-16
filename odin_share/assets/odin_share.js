@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -14,7 +14,7 @@
 
 // this module is a common service for others that want to share data and sync views
 
-// TODO - still needs store/restore support for local shared items 
+// TODO - still needs store/restore support for local shared items
 
 import { config } from "./odin_share_config.js";
 import { schema } from "./odin_share_schema.js";
@@ -189,7 +189,7 @@ function createRoleWindow() {
                 (ownRoleList = ui.List("share.role.own.list", 3)),
                 ui.RowContainer()(
                     (addRoleEntry = ui.TextInput(null, "share.role.own.entry", "8.5rem", {placeHolder: "enter new role", changeAction: addOwnRole})),
-                    ui.Button("+", addOwnRole), 
+                    ui.Button("+", addOwnRole),
                     ui.Button("−", deleteRole),
                     ui.Button("∅", clearRoleSelection)
                 )
@@ -198,7 +198,7 @@ function createRoleWindow() {
             ui.ColumnContainer()(
                 (extRoleList = ui.List("share.role.ext.list", 8)),
                 ui.RowContainer()(
-                    ui.Button("sub all", subscribeAll), 
+                    ui.Button("sub all", subscribeAll),
                     ui.Button("clear sub", unsubscribeAll)
                 )
             )
@@ -208,7 +208,7 @@ function createRoleWindow() {
             ui.RowContainer()(
                 ui.Button("clear all", clearMsgList),
                 ui.HorizontalSpacer(1),
-                ui.Button("send", sendMsg), 
+                ui.Button("send", sendMsg),
                 (msgEntry = ui.TextInput(null, "share.role.msg.entry", "23rem", {placeHolder: "enter message text", changeAction: sendMsg}))
             )
         )
@@ -222,7 +222,7 @@ function initOwnRoleList() {
             let cb = ui.getCheckBox(event.target);
             if (cb) {
                 let e = ui.getListItemOfElement(cb);
-                if (e)  share.publishRole( e.role,  ui.isCheckBoxSelected(cb));              
+                if (e)  share.publishRole( e.role,  ui.isCheckBoxSelected(cb));
             }
         }
 
@@ -522,7 +522,7 @@ function selectShareEntry(event) {
             updateTypeCandidates(key,e);
             return;
         }
-    } 
+    }
 
     selItem = null;
 
@@ -550,7 +550,7 @@ function updateKeyCompletions(key) {
         for (var e of schema.keyCompletions) {
             if (e.glob && key.match(e.glob)) {
                 e.completion.forEach( c=> choices.push(c));
-            } 
+            }
         }
         if (choices.length > 0) {
             ui.setChoiceItems( complChoice, choices, 0);
@@ -601,7 +601,7 @@ function completeKey (event) {
 
         updateKeyCompletions(key);
         updateTypeCandidates(key);
-    } 
+    }
 }
 
 function selectType (event){
@@ -842,7 +842,7 @@ function getItemEntity (e) {
             case "GeoCircle": return createCircleEntity(e);
             default: return null;
         }
-    }  
+    }
 }
 
 function createPointEntity(e) {
@@ -858,7 +858,7 @@ function createPointEntity(e) {
             outlineColor: new Cesium.CallbackProperty( ()=>renderOpts.color, false),
             outlineWidth: 1,
             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-            //distanceDisplayCondition: config.pointDC, 
+            //distanceDisplayCondition: config.pointDC,
         }
     });
 }
@@ -974,7 +974,7 @@ function createCircleEntity(e) {
             outlineColor: new Cesium.CallbackProperty( ()=>renderOpts.color, false),
             outlineWidth: 1,
             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-            //distanceDisplayCondition: config.pointDC, 
+            //distanceDisplayCondition: config.pointDC,
         },
         polyline: {
             positions: outline,
@@ -1002,7 +1002,7 @@ function createCircleEntity(e) {
 function createPolygonEntity(e){
     let d = e.value.data;
     let exterior = d.exterior.map( p=> Cesium.Cartesian3.fromDegrees( p.lon, p.lat));
-    exterior.push( exterior[0]); // close the polygon 
+    exterior.push( exterior[0]); // close the polygon
 
     let cp = util.centerLonLat(d.exterior);
     let center = Cesium.Cartesian3.fromDegrees( cp.lon, cp.lat);
@@ -1043,10 +1043,11 @@ function entityLabel (key) {
         verticalOrigin: Cesium.VerticalOrigin.TOP,
         font: renderOpts.labelFont,
         fillColor: renderOpts.color,
-        showBackground: true,
+        showBackground: false,
         backgroundColor: renderOpts.labelBackground,
         pixelOffset: renderOpts.labelOffset,
         distanceDisplayCondition: renderOpts.labelDC,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY
     };
 }
 
@@ -1082,7 +1083,7 @@ function handleWsMessages(msgType, msg) {
     }
 }
 
-function handleInitSharedItems(sharedItems) { 
+function handleInitSharedItems(sharedItems) {
     let items = schema.keyCategories.slice(); // add the category entries // FIXME - this has to map objects
 
     // we get this as a map (JS object with keys as properties)
@@ -1115,7 +1116,7 @@ function handleSetShared (msg, isLocal) {
     let updatedItem = share.getSharedItem(key); // this is the old item (if any)
 
     if (value.type == main.JSON) { value.data = JSON.parse( value.data) }
-    
+
     let sharedItem = new main.SharedItem(key,isLocal,value);
     share._set( sharedItem.key, sharedItem);
     let isPending = pendingSavedKeys.has(key);
@@ -1183,7 +1184,7 @@ function handleUpdateRole (roleEntry) {
     if (res.ownRolesChanged){
         let e = share._getOwnRole(roleEntry.role);
         ui.updateListItem( ownRoleList, e);
-    } 
+    }
     if (res.extRolesChanged) {
         let e = share._getExtRole(roleEntry.role);
         ui.updateListItem( extRoleList, e);
@@ -1192,8 +1193,8 @@ function handleUpdateRole (roleEntry) {
 
 function handleRolesDropped (droppedRoles) {
     let res = share._dropRoles(droppedRoles);
-    
-    if (res.ownRolesChanged){ 
+
+    if (res.ownRolesChanged){
         ui.setListItems( ownRoleList, share._ownRolesList());
     }
     if (res.extRolesChanged) {
@@ -1227,4 +1228,3 @@ function handlePublishMsg (publishedMsg){
 }
 
 /* #endregion sebsocket messages */
-

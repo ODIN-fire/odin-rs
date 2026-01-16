@@ -1,9 +1,9 @@
 /**
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -19,12 +19,12 @@ import { config } from "./odin_n5_config.js";              // associated static 
 import * as main from "../odin_server/main.js";               // global functions (e.g. for data sharing)
 import * as util from "../odin_server/ui_util.js";            // common, cross-module support functions
 import * as data from "../odin_server/ui_data.js";
-import * as ui from "../odin_server/ui.js";                   // ODIN specific user interface library 
+import * as ui from "../odin_server/ui.js";                   // ODIN specific user interface library
 import * as ws from "../odin_server/ws.js";                   // websocket processing
 import * as odinCesium from "../odin_cesium/odin_cesium.js";  // virtual globe rendering interface from odin_cesium
 
 
-const MOD_PATH = "odin_n5::n5_service::N5Service";   // the name of the associated odin-rs SpaService 
+const MOD_PATH = "odin_n5::n5_service::N5Service";   // the name of the associated odin-rs SpaService
 
 
 //--- 4. registering JS message handlers
@@ -54,7 +54,7 @@ class N5Entry {
         this.id = device.id;
         this.device = device;
 
-        this.pos = Cesium.Cartesian3.fromDegrees( device.position.lon, device.position.lat);
+        this.pos = Cesium.Cartesian3.fromDegrees(device.position.lon, device.position.lat, device.position.alt);
         this.assets = this.createAssets();
     }
 
@@ -71,7 +71,7 @@ class N5Entry {
 
         let data = this.latestData();
         if (data && (Date.now() - data.date) > config.inactiveDuration) return true;
-        
+
         return false;
     }
 
@@ -88,7 +88,7 @@ class N5Entry {
     createAssets () {
         let symEntity = this.createSymbolEntity();
         let windEntity = this.creatwWindEntity();
-        let infoEntity = this.createInfoEntity(); 
+        let infoEntity = this.createInfoEntity();
         return new N5Assets(symEntity,windEntity,infoEntity);
     }
 
@@ -106,7 +106,7 @@ class N5Entry {
                 image: src,
                 distanceDisplayCondition: config.billboardDC,
                 color: clr,
-                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                //heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
                 disableDepthTestDistance: Number.MAX_SAFE_INTEGER,  // otherwise symbol might get clipped by terrain
             },
             label: {
@@ -116,19 +116,20 @@ class N5Entry {
                 verticalOrigin: Cesium.VerticalOrigin.TOP,
                 font: config.labelFont,
                 fillColor: clr,
-                showBackground: true,
+                showBackground: false,
                 backgroundColor: config.labelBackground,
                 pixelOffset: config.labelOffset,
                 distanceDisplayCondition: config.labelDC,
-                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-                disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                //heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                disableDepthTestDistance: Number.POSITIVE_INFINITY
             },
             point: {
                 pixelSize: config.pointSize,
                 color: clr,
                 outlineColor: config.pointOutlineColor,
                 outlineWidth: config.pointOutlineWidth,
-                distanceDisplayCondition: config.pointDC, 
+                distanceDisplayCondition: config.pointDC,
+                //heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
             }
         });
         entity._uiDeviceEntry = this; // backlink for selection
@@ -207,7 +208,7 @@ class N5Entry {
                     disableDepthTestDistance: Number.POSITIVE_INFINITY,
                 }
             });
-        
+
             n5DataSource.entities.add(entity);
             return entity;
 
@@ -233,13 +234,13 @@ var dataView = undefined;
 var alertView = undefined;
 
 createIcon();
-createWindow();                        
+createWindow();
 
 //await odinCesium.viewerReadyPromise;
 var n5DataSource = odinCesium.createDataSource("n5", config.layer.show);
 
 initDeviceView();
-initDataView();                                           
+initDataView();
 initAlertsView();
 
 odinCesium.setEntitySelectionHandler(n5DeviceSelection);
@@ -247,14 +248,14 @@ odinCesium.initLayerPanel("n5", config, showN5);
 console.log("odin_n5 initialized");
 
 //--- 7. function definitions
-function createIcon() {                                     
+function createIcon() {
     return ui.Icon("./asset/odin_n5/n5.svg", (e)=> ui.toggleWindow(e,'n5'), "N5 Shield sensors");
 }
 
-function createWindow() {                                 
+function createWindow() {
     return ui.Window("N5 Shield Sensors", "n5", "./asset/odin_n5/n5.svg")(
-        ui.LayerPanel("n5", toggleShowN5),    
-        
+        ui.LayerPanel("n5", toggleShowN5),
+
         ui.Panel("devices", true) (
             (deviceView = ui.List("n5.devices", 10, selectDeviceEntry,null,null,zoomToDevice)),
         ),
@@ -267,10 +268,10 @@ function createWindow() {
     );
 }
 
-function initDeviceView() {                               
+function initDeviceView() {
     let view = ui.getList("n5.devices");
     if (view) {
-        ui.setListItemDisplayColumns(view, ["fit", "header"], [    
+        ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "", width: "2.2rem", attrs: [], map: e => e.hasRecentAlerts() ?  "⚠️" : ""},
             { name: "id", width: "3rem", attrs: ["alignLeft"], map: e => e.id },
             { name: "type", width: "8rem", attrs:[], map: e => e.device.device_type.toLowerCase() },
@@ -283,10 +284,10 @@ function initDeviceView() {
     }
 }
 
-function initDataView() {                               
+function initDataView() {
     let view = ui.getList("n5.data");
     if (view) {
-        ui.setListItemDisplayColumns(view, ["fit", "header"], [ 
+        ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "temp", tip: "temperature [F]", width: "3rem", attrs: ["fixed", "alignRight"], map: e => e.temperature },
             { name: "hum", tip: "humidity [%]", width: "2.5rem", attrs: ["fixed", "alignRight"], map: e => e.humidity },
 
@@ -305,10 +306,10 @@ function initDataView() {
     }
 }
 
-function initAlertsView() {                
+function initAlertsView() {
     let view = ui.getList("n5.alerts");
     if (view) {
-        ui.setListItemDisplayColumns(view, ["fit", "header"], [  
+        ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "alert", width: "15rem", attrs:[], map: e => alertType(e) },
 
             ui.listItemSpacerColumn(),
@@ -333,11 +334,11 @@ function alertType (alert) {
 }
 
 // list -> entity
-function selectDeviceEntry(event) {        
+function selectDeviceEntry(event) {
     let de = event.detail.curSelection;
     if (de) {
-        selectedDeviceEntry = de; 
-        
+        selectedDeviceEntry = de;
+
         ui.setListItems( dataView, de.device.data.toReversed());
         ui.setListItems( alertView, de.device.alerts.toReversed());
     }
@@ -394,7 +395,7 @@ function handleSnapshotMsg (msg) {
         deviceEntries.set( de.id, de);
     });
     let deviceList = [...deviceEntries.values()].sort( compareDevices);
-    ui.setListItems( deviceView, deviceList); 
+    ui.setListItems( deviceView, deviceList);
 }
 
 function compareDevices (a,b) {
