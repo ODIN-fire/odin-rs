@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -20,30 +20,45 @@
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_share::prelude::*;
-use odin_hrrr::{self,HrrrActor,HrrrConfig,HrrrFileAvailable,schedule::{HrrrSchedules,get_hrrr_schedules}};
-use odin_wind::{ 
-    actor::{WindActor,WindActorMsg, server_subscribe_action, server_update_action}, 
-    ForecastStore, Forecast, 
+use odin_common::vec_boxed;
+use odin_wx::{WxServiceList,WxFileAvailable};
+use odin_openmeteo::{actor::OpenMeteoActor,OpenMeteoConfig,OpenMeteoService};
+use odin_hrrr::{self, HrrrActor, HrrrConfig, HrrrService, schedule::{HrrrSchedules,get_hrrr_schedules}};
+use odin_wind::{
+    actor::{WindActor,WindActorMsg, server_subscribe_action, server_update_action},
+    ForecastStore, Forecast,
     wind_service::WindService
 };
 
 run_actor_system!( actor_system => {
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
-    let pre_hrrr = PreActorHandle::new( &actor_system, "hrrr", 8);
+    let pre_wx = PreActorHandle::new( &actor_system, "wx", 8);
 
     // spawn a shared store actor - the JS module only allows forecast region requests for shared GeoRects
     let hshare = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
 
+    let wxs: WxServiceList = vec_boxed![ HrrrService::new_basic( pre_wx.to_actor_handle()) ];
+    //let wxs: WxServiceList = vec_boxed![ OpenMeteoService::new_basic_ifs( pre_wx.to_actor_handle()) ];
+
     let hwind = spawn_actor!( actor_system, "wind", WindActor::new(
         odin_wind::load_config("wind.ron")?,
-        pre_hrrr.to_actor_handle(),
+        wxs,
         server_subscribe_action( pre_server.to_actor_handle()),
-        server_update_action( pre_server.to_actor_handle()) 
+        server_update_action( pre_server.to_actor_handle())
     ))?;
 
-    let hrrr = spawn_pre_actor!( actor_system, pre_hrrr, HrrrActor::with_statistic_schedules(
+    /*
+    let hwx = spawn_pre_actor!( actor_system, pre_wx, OpenMeteoActor::new(
+        odin_openmeteo::load_config( "openmeteo.ron")?,
+        data_action!( let hwind: ActorHandle<WindActorMsg> = hwind.clone() => |data: WxFileAvailable| {
+            Ok( hwind.try_send_msg( data)? )
+        })
+    ))?;
+    */
+
+    let hwx = spawn_pre_actor!( actor_system, pre_wx, HrrrActor::with_statistic_schedules(
         odin_hrrr::load_config( "hrrr_conus-8.ron")?,
-        data_action!( let hwind: ActorHandle<WindActorMsg> = hwind.clone() => |data: HrrrFileAvailable| {
+        data_action!( let hwind: ActorHandle<WindActorMsg> = hwind.clone() => |data: WxFileAvailable| {
             Ok( hwind.try_send_msg( data)? )
         })
     ).await? )?;
@@ -56,5 +71,5 @@ run_actor_system!( actor_system => {
             .add( build_service!( => WindService::new( hwind) ))
     ))?;
 
-    Ok(())   
+    Ok(())
 });

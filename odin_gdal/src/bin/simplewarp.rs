@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -15,7 +15,7 @@
 use std::path::Path;
 use gdal::{Dataset, spatial_ref::SpatialRef};
 use odin_common::define_cli;
-use odin_gdal::{get_driver_name_from_filename, to_csl_string_list, warp::{ResampleAlg, SimpleWarpBuilder}, GdalDataType};
+use odin_gdal::{GdalDataType, get_driver_name_from_filename, to_csl_string_list, warp::{MetaEntry, ResampleAlg, SimpleWarpBuilder}};
 use anyhow::{Result, anyhow};
 
 define_cli! { ARGS [about="simple GDAL warper"] =
@@ -26,10 +26,12 @@ define_cli! { ARGS [about="simple GDAL warper"] =
     t_res: Option<Vec<f64>> [help="optional target pixel resolution", long, allow_hyphen_values=true, num_args=2],
     s_nodata: Vec<f64> [help="source NO_DATA value", long, allow_hyphen_values=true],
     t_nodata: Vec<f64> [help="target NO_DATA_VALUE", long, allow_hyphen_values=true],
-    s_band: Option<Vec<u32>> [help="source bands to process (1-based)", short, long],
-    t_band: Option<Vec<u32>> [help="target bands to store (1-based)", short, long],
+    s_band: Vec<u32> [help="source bands to process (1-based)", short, long, value_delimiter=','],
+    t_band: Vec<u32> [help="target bands to store (1-based)", short, long],
     resample_alg: Option<String> [help="resample algorithm to use (see GDAL doc)", short, long],
     co: Vec<String> [help="optional target create options", long, num_args=1],
+    copy_meta: bool [help="copy meta information for dataset and bands from source", long],
+    meta: Vec<String> [help="optional meta information to store", short, long, value_delimiter=','],
     err_threshold: Option<f64> [help="optional max output error threshold (default 0.0)", long],
 
     src_filename: String [help="input filename"],
@@ -66,12 +68,15 @@ fn main () -> Result<()> {
     if let Some(t_res) = &ARGS.t_res { warper.set_tgt_resolution( t_res[0], t_res[1]); }
     if let Some(max_error) = ARGS.err_threshold { warper.set_max_error(max_error); }
     if let Some(alg_name) = &ARGS.resample_alg { warper.set_resample_alg( get_resample_alg(alg_name.as_str())? ); }
-    if let Some(s_bands) = &ARGS.s_band { warper.set_src_bands(s_bands.clone()); }
-    if let Some(t_bands) = &ARGS.t_band { warper.set_tgt_bands(t_bands.clone()); }
+    if !ARGS.s_band.is_empty() { warper.set_src_bands(ARGS.s_band.clone()); }
+    if !ARGS.t_band.is_empty() { warper.set_tgt_bands(ARGS.t_band.clone()); }
     if let Some(data_type) = &ARGS.t_type {  warper.set_data_type( get_data_type(&data_type)?); }
 
     if !ARGS.s_nodata.is_empty() { warper.set_src_nodatas( ARGS.s_nodata.clone()); }
     if !ARGS.t_nodata.is_empty() { warper.set_tgt_nodatas( ARGS.t_nodata.clone()); }
+
+    warper.set_copy_meta( ARGS.copy_meta);
+    if !ARGS.meta.is_empty() { warper.set_meta( ARGS.meta.iter().flat_map( |s| MetaEntry::parse(s.as_str())).collect()); }
 
     warper.set_tgt_format(tgt_format)?;
 

@@ -34,6 +34,8 @@ clap = { workspace = true }
 bit-set = { workspace = true }
 ndarray = { workspace = true }
 trait-set = { workspace = true }
+regex = { workspace = true }
+num = { workspace = true }
 
 static_init = "1.0.4"
 libc = "0.2.175"

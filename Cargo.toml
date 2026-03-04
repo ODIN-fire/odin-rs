@@ -26,6 +26,9 @@ members = [
   "odin_fires",
   "odin_himawari",
   "odin_image",
+  "odin_openmeteo",
+  "odin_wx",
+  "odin_bushfire",
 
   "odin_live",
   "odin_live_aus",
@@ -62,6 +65,9 @@ odin_onnx = { version = "*", path = "odin_onnx" }
 odin_fires = { version = "*", path = "odin_fires" }
 odin_himawari = { version = "*", path = "odin_himawari" }
 odin_image =  { version = "*", path = "odin_image" }
+odin_openmeteo = { version = "*", path = "odin_openmeteo" }
+odin_wx = { version = "*", path = "odin_wx" }
+odin_bushfire = { version = "*", path = "odin_bushfire" }
 
 # external crates for which we have to ensure the same version
 axum = { version = "0.8.8", features = [ "http2", "ws", "macros"] }
@@ -72,7 +78,7 @@ passwords = { version = "3.1" }
 #reqwest-middleware = { version = "0.5" }
 reqwest = { version = "0.12", features = ["json", "stream"] } # http-cache-reqwest still depends on 0.12
 reqwest-middleware = { version = "0.4.2" }
-http-cache-reqwest = { version = "0.16.0" }
+http-cache-reqwest = { version = "0.16.0" } # this still depends on reqwest 12.2
 tower = { version = "0.5.2", features = ["full"] }
 tower-http = { version = "0.6.6", features = ["full"] }
 tower-sessions = { version = "0.14.0", default-features = false, features = ["signed"] }
@@ -85,12 +91,12 @@ url = { version = "2.5.4" }
 bytes = { version = "1.10.1" }
 futures = { version = "0.3.31" }
 futures-util = { version = "0.3.31", features = ["sink"] }
-async-trait = { version = "0.1.88" }
-tokio = { version = "1.48", features = ["full", "tracing"] }
+async-trait = { version = "0.1.89" }
+tokio = { version = "1.49", features = ["full", "tracing"] }
 tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 #tokio-tungstenite = { version = "0.28.0", features = ["rustls"] } # this requires to explicitly handle certificates
-tokio-util = { version = "0.7.16", features = ["full"] }
-kanal = { version = "0.1.1", features = ["async"] } # TODO - do we want to promote this to workspace? What about flume?
+tokio-util = { version = "0.7", features = ["full"] }
+kanal = { version = "0.1", features = ["async"] } # TODO - do we want to promote this to workspace? What about flume?
 rustls = { version = "0.23.35" }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = { version = "1.0.148" }
@@ -110,9 +116,9 @@ gdal-sys = { version = "0.12", features = ["bindgen"]}        # <<< reinstate wh
 #gdal = { git = "https://github.com/georust/gdal.git", features = ["array", "bindgen"] } # required as of 11/20/25 for GDAL 3.12.0  (gdal v0.18.0 does not compile)
 #gdal-sys = { git = "https://github.com/georust/gdal.git", features = ["bindgen"] }
 
-geo = { version = "0.31.0" }
-geo-types = { version = "0.7.17" }
-geojson = { version = "0.24.2" }
+geo = { version = "0.32.0" }
+geo-types = { version = "0.7.18" }
+geojson = { version = "0.24.2", features = ["geo-types"] }
 nalgebra = { version = "0.34.1"}
 lazy_static = { version = "1.5.0" }
 paste = { version ="1.0.15" }
@@ -124,6 +130,7 @@ flate2 = { version = "1.1.5" }
 miniz_oxide = { version = "0.8.9" }
 memchr = { version = "2.7.5" }
 clap = { version = "4.5.53", features = ["derive"]}
+strum = { version = "0.27", features = ["derive"] }
 
 dashmap = { version = "6.1.0" }
 trait-set = { version = "0.3.0" } # remove when trait aliases become stabilized

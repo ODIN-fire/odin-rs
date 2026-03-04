@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -41,7 +41,7 @@ async fn main()->Result<()> {
     let cache_dir = odin_build::cache_dir().join("goesr");
     ensure_writable_dir(&cache_dir)?;
 
-    let client = create_s3_client( config.s3_region.clone()).await?;
+    let client = create_s3_client( &config.s3_region).await?;
     let bucket = &config.bucket;
     let sat_id = config.sat_id;
     let source = Arc::new(config.source.clone());

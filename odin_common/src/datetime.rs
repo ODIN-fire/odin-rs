@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -30,7 +30,7 @@ impl EpochMillis {
     pub fn new(millis:i64)->Self { EpochMillis(millis) }
 
     pub fn from_secs(secs: i64)->Self { EpochMillis(secs*1000) }
-    
+
     pub fn millis(&self)->i64 { self.0 }
 }
 
@@ -104,6 +104,14 @@ pub fn full_hour<Tz:TimeZone> ( dt: &DateTime<Tz>)->DateTime<Tz> {
     dt.with_minute(0).unwrap().with_second(0).unwrap().with_nanosecond(0).unwrap()
 }
 
+pub fn day_start<Tz:TimeZone> ( dt: &DateTime<Tz>)->DateTime<Tz> {
+    dt.with_hour(0).unwrap().with_minute(0).unwrap().with_second(0).unwrap().with_nanosecond(0).unwrap()
+}
+
+pub fn with_hms<Tz:TimeZone> (dt: &DateTime<Tz>, hour: u32, min: u32, sec: u32)->DateTime<Tz> {
+     dt.with_hour(hour).unwrap().with_minute(min).unwrap().with_second(sec).unwrap().with_nanosecond(0).unwrap()
+}
+
 /// return minutes since given given `DateTime<Utc>` (negative if in future)
 pub fn elapsed_minutes_since (dt: &DateTime<Utc>) -> i64 {
     let now = chrono::offset::Utc::now();
@@ -113,9 +121,21 @@ pub fn elapsed_minutes_since (dt: &DateTime<Utc>) -> i64 {
 pub fn duration_since (dt_later: &DateTime<Utc>, dt_earlier: &DateTime<Utc>)->Duration {
     if dt_later >= dt_earlier {
         (*dt_later - *dt_earlier).to_std().unwrap()
-    } else { 
+    } else {
         Duration::ZERO
     }
+}
+
+pub fn as_minutes (d: Duration)->f64 {
+    d.as_secs_f64() / 60.0
+}
+
+pub fn as_hours (d: Duration)->f64 {
+    d.as_secs_f64() / 3600.0
+}
+
+pub fn as_days (d: Duration)->f64 {
+    d.as_secs_f64() / 86400.0
 }
 
 pub fn is_between_inclusive (dt: &DateTime<Utc>, dt_start: &DateTime<Utc>, dt_end: &DateTime<Utc>) -> bool {
@@ -185,7 +205,7 @@ pub fn deserialize_duration <'a,D>(deserializer: D) -> Result<Duration,D::Error>
     })
 }
 
-pub fn deserialize_optional_duration <'a,D>(deserializer: D) -> Result<Option<Duration>,D::Error> 
+pub fn deserialize_optional_duration <'a,D>(deserializer: D) -> Result<Option<Duration>,D::Error>
     where D: Deserializer<'a>
 {
     let s: Option<String> = Option::deserialize(deserializer)?;
@@ -239,8 +259,8 @@ pub fn parse_datetime (s: &str)->Option<DateTime<Utc>> {
 }
 
 pub fn parse_optional_datetime_or<F> (spec: &Option<String>, f: F)->DateTime<Utc> where F: FnOnce()->DateTime<Utc> {
-    if let Some(date) = spec.as_ref().and_then(|s| parse_datetime(s)) { 
-        return date 
+    if let Some(date) = spec.as_ref().and_then(|s| parse_datetime(s)) {
+        return date
     }
     f()
 }

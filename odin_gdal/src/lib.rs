@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -16,6 +16,7 @@
 pub mod errors;
 pub mod warp;
 pub mod contour;
+pub mod grid;
 
 use gdal::{errors::CplErrType, raster::RasterCreationOptions, DatasetOptions, GdalOpenFlags};
 use lazy_static::lazy_static;
@@ -36,8 +37,8 @@ use geo::{Coord, Rect};
 
 use odin_common::{
     BoundingBox,
-    geo::{GeoRect,GeoPoint}, 
-    utm::{UtmZone,naive_utm_zone, geo_to_utm_zone, utm_zone}, 
+    geo::{GeoRect,GeoPoint},
+    utm::{UtmZone,naive_utm_zone, geo_to_utm_zone, utm_zone},
     fs::{existing_non_empty_file_from_path,get_filename_extension},
     macros::if_let,
     ranges::LinearRange
@@ -71,6 +72,13 @@ lazy_static! {
 
         //... and many more to follow (see http://gdal.org/drivers
     ]);
+
+    pub static ref DCAP_CREATECOPY: CString = CString::new("DCAP_CREATECOPY").unwrap();
+    pub static ref DCAP_CREATE: CString = CString::new("DCAP_CREATE").unwrap();
+
+    pub static ref MEM: CString = CString::new("MEM").unwrap();
+    pub static ref GTIFF: CString = CString::new("GTiff").unwrap();
+    pub static ref EMPTY: CString = CString::new("").unwrap();
 }
 
 /// use this to protect non-threadsafe GDAL operations
@@ -94,11 +102,33 @@ pub fn get_driver_name_for_extension (ext: &str) -> Option<&'static str> {
     EXT_MAP.get( ext).map(|v| &**v)
 }
 
+// the reverse lookup
+pub fn get_extension_for_driver_name( driver_name: &str)->Option<&'static str> {
+    for (k,v) in EXT_MAP.iter() {
+        if *v == driver_name { return Some(*k) }
+    }
+    None
+}
+
 /// Note that filename extension has to be lowercase
 pub fn get_driver_from_filename (filename: &str) -> Option<gdal::Driver> {
     get_filename_extension(filename)
         .and_then( |ext| EXT_MAP.get( ext))
         .and_then( |n| DriverManager::get_driver_by_name(&**n).ok())
+}
+
+pub fn get_driver_by_name (driver_name: &str)->Option<gdal::Driver> {
+    DriverManager::get_driver_by_name( driver_name).ok()
+}
+
+pub fn driver_supports_create (driver: &gdal::Driver)->bool {
+    let res = driver.metadata_item( "DCAP_CREATE", "");
+    res.is_some()
+}
+
+pub fn driver_supports_create_copy (driver: &gdal::Driver)->bool {
+    let res = driver.metadata_item( "DCAP_CREATECOPY", "");
+    res.is_some()
 }
 
 pub fn pc_char_to_string (pc_char: *const c_char) -> String {
@@ -232,11 +262,11 @@ pub fn geo_bbox_to_utm (bbox: &BoundingBox<f64>, interior:  bool) -> (BoundingBo
     let ul_geo = GeoPoint::from_lon_lat_degrees( bbox.west, bbox.north);
     let ur_geo = GeoPoint::from_lon_lat_degrees( bbox.east, bbox.north);
 
-    let center_geo = GeoPoint::from_lon_lat( 
-        (ll_geo.longitude() + lr_geo.longitude()) / 2.0, 
+    let center_geo = GeoPoint::from_lon_lat(
+        (ll_geo.longitude() + lr_geo.longitude()) / 2.0,
         (ll_geo.latitude() + ul_geo.latitude()) / 2.0
     );
-    
+
     let zone = naive_utm_zone( &center_geo);
 
     let ll_utm = geo_to_utm_zone(&ll_geo, zone).unwrap();
@@ -397,8 +427,8 @@ impl <T> GridPoint<T> where T: GdalValueType {
 
 /// get vec of GridPoint2D elements that match the provided predicate
 /// note that the RasterBand::read_* functions swap axis order
-pub fn find_grid_points<T,P> (ds: &Dataset, band_index: usize, predicate: P)->Result<Vec<GridPoint<T>>> 
-    where T: GdalValueType, P: Fn(T)->bool 
+pub fn find_grid_points<T,P> (ds: &Dataset, band_index: usize, predicate: P)->Result<Vec<GridPoint<T>>>
+    where T: GdalValueType, P: Fn(T)->bool
 {
     let band = ds.rasterband(band_index)?;
     let x_size = band.x_size();
@@ -423,7 +453,7 @@ pub fn find_grid_points<T,P> (ds: &Dataset, band_index: usize, predicate: P)->Re
 
 // a version that uses a caller provided closure to iterate over a whole data row, thus allowing optimizations
 // such as inlining or simd to speed up
-pub fn find_grid_points_in_slice<T,F> (ds: &Dataset, band_index: usize, accumulator: F)->Result<Vec<GridPoint<T>>> 
+pub fn find_grid_points_in_slice<T,F> (ds: &Dataset, band_index: usize, accumulator: F)->Result<Vec<GridPoint<T>>>
     where T: GdalValueType, F: Fn(usize,&[T],&mut Vec<GridPoint<T>>)
 {
     let band = ds.rasterband(band_index)?;
@@ -447,7 +477,7 @@ pub fn get_values_for_positions (ds: &Dataset, band_index: usize, sub_no_data: O
     let mut data = [0.0f64;1];
     let no_data = band.no_data_value();
     let mut result: Vec<f64> = Vec::with_capacity(pts.len());
-    
+
     if no_data.is_some() && sub_no_data.is_some() {
         let no_data = no_data.unwrap();
         let sub_no_data = sub_no_data.unwrap();
@@ -460,7 +490,7 @@ pub fn get_values_for_positions (ds: &Dataset, band_index: usize, sub_no_data: O
         }
     } else {
         let no_data = sub_no_data.unwrap_or( band.no_data_value().unwrap_or(0.0));
-        
+
         for mut p in pts {
             let xy = geo_to_pixel.apply( p.0, p.1);
             let xy = (xy.0.round() as isize, xy.1.round() as isize);
@@ -473,7 +503,7 @@ pub fn get_values_for_positions (ds: &Dataset, band_index: usize, sub_no_data: O
 }
 
 /// get Vec of values for given `Vec<GridPoint2D>` reference
-pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: usize, sub_no_data: T, pts: &Vec<GridPoint<U>> )->Result<Vec<T>> 
+pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: usize, sub_no_data: T, pts: &Vec<GridPoint<U>> )->Result<Vec<T>>
     where T: GdalValueType + Into<f64>, U: GdalValueType
 {
     let band = ds.rasterband(band_index)?;
@@ -496,7 +526,7 @@ pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: usize, sub_no_data:
 }
 
 
-pub fn get_vec_f64<T> (ds: &Dataset, band_index: usize)->Result<Vec<f64>> 
+pub fn get_vec_f64<T> (ds: &Dataset, band_index: usize)->Result<Vec<f64>>
     where T: GdalValueType + Into<f64>
 {
     let band = ds.rasterband(band_index)?;
@@ -508,7 +538,7 @@ pub fn get_vec_f64<T> (ds: &Dataset, band_index: usize)->Result<Vec<f64>>
     let mut values: Vec<f64> = Vec::with_capacity(len);
     values.resize( len, 0.0);
 
-    for i in 0..len { 
+    for i in 0..len {
         values[i] = (data[i].into()) * scale + offset;
     }
 
@@ -523,7 +553,7 @@ pub fn get_linear_range<T> (ds: &Dataset, band_index: usize)->Result<LinearRange
     let n = band.x_size();
     let scale = if let Some(v) = band.scale() { v } else { 1.0 };
     let offset = if let Some(v) = band.offset() { v } else { 0.0 };
-    let mut data = [T::from(0u8);1]; 
+    let mut data = [T::from(0u8);1];
 
     // this is slightly more expensive because of two reads but base this on the whole range to minimize truncation errors
 
@@ -533,7 +563,7 @@ pub fn get_linear_range<T> (ds: &Dataset, band_index: usize)->Result<LinearRange
     band.read_into_slice( ((n-1) as isize, 0isize), (1,1), (1,1), &mut data, None)?;
     let last = data[0].into() * scale + offset;
 
-    let inc = (last - first) / (n as f64); 
+    let inc = (last - first) / (n as f64);
 
     Ok( LinearRange::new( first, inc, n) )
 }
@@ -559,7 +589,7 @@ pub fn create_wh_image_from_vrt (bbox: &BoundingBox<f64>, tgt_epsg: u32, width: 
     if let Some(ref opts) = *opts {
         warp.set_create_options( opts);
     }
-        
+
     warp.exec()?;
     Ok(())
 }
@@ -580,12 +610,12 @@ pub fn create_res_image_from_vrt (bbox: &BoundingBox<f64>, tgt_epsg: u32, res_x:
     if let Some(ref opts) = *opts {
         warp.set_create_options( opts);
     }
-        
+
     warp.exec()?;
     Ok(())
 }
 
-pub fn get_values_for_vrt_positions (vrt_path: impl AsRef<Path>, band_index: usize, sub_no_data: Option<f64>, pts: &[(f64,f64)]) -> Result<Vec<f64>> 
+pub fn get_values_for_vrt_positions (vrt_path: impl AsRef<Path>, band_index: usize, sub_no_data: Option<f64>, pts: &[(f64,f64)]) -> Result<Vec<f64>>
 {
     let ds =  Dataset::open(vrt_path)?;
     get_values_for_positions( &ds, band_index, sub_no_data, pts)
@@ -601,7 +631,7 @@ pub fn compress_create_opts ()->RasterCreationOptions {
 /// crop the provided dataset by cutting top/bottom lines that contain more nodata values than the given threshold and
 /// skip leading/trailing columns with nodata from the rest.
 /// This function is mainly useful when warping a dataset between different SRS that do not preserve bounds (e.g. from UTM to WGS84)
-pub fn crop_no_data<P> (ds: &Dataset, path: P, create_opts: Option<RasterCreationOptions>) -> Result<Dataset> 
+pub fn crop_no_data<P> (ds: &Dataset, path: P, create_opts: Option<RasterCreationOptions>) -> Result<Dataset>
     where P: AsRef<Path>
 {
     let n_bands = ds.raster_count();
@@ -634,7 +664,7 @@ pub fn crop_no_data<P> (ds: &Dataset, path: P, create_opts: Option<RasterCreatio
 pub fn is_homogenous (ds: &Dataset)->bool {
     let (n_cols, n_rows) = ds.raster_size();
     let n_bands = ds.raster_count();
-    if n_bands == 0 { return false } 
+    if n_bands == 0 { return false }
 
     let band = ds.rasterband(1).unwrap(); // we checked if there is at least one
     let band_type = band.band_type();
@@ -651,7 +681,7 @@ pub fn is_homogenous (ds: &Dataset)->bool {
     true
 }
 
-pub fn create_dataset<P> (driver: &Driver, path: P, width: usize, height: usize, n_bands: usize, data_type: GdalDataType, co: Option<RasterCreationOptions>)->Result<Dataset> 
+pub fn create_dataset<P> (driver: &Driver, path: P, width: usize, height: usize, n_bands: usize, data_type: GdalDataType, co: Option<RasterCreationOptions>)->Result<Dataset>
     where P: AsRef<Path>
 {
     use GdalDataType::*;
@@ -740,7 +770,7 @@ fn copy_scanline<T: Copy> (src: &[T], tgt: &mut[T], min_x: usize, max_x: usize)-
 pub fn copy_dataset_rasterbands (src_ds: &Dataset, src_band: usize, tgt_ds: &mut Dataset, tgt_band: usize)->Result<()> {
     let (sw, sh) = src_ds.raster_size();
     let (tw, th) = tgt_ds.raster_size();
-    if (sw != tw) || (sh != th) { return Err( OdinGdalError::MiscError("different raster sizes".into())) } 
+    if (sw != tw) || (sh != th) { return Err( OdinGdalError::MiscError("different raster sizes".into())) }
 
     let src = src_ds.rasterband(src_band)?;
     let mut tgt = tgt_ds.rasterband(tgt_band)?;
@@ -750,7 +780,7 @@ pub fn copy_dataset_rasterbands (src_ds: &Dataset, src_band: usize, tgt_ds: &mut
 
 /// compute the values of a RasterBand line-by-line from provided input bands
 /// note that input and output bands have to have the same size and compatible types
-pub fn compute_rasterband_lines<T,F> (input_bands: &[&RasterBand], output_band: &mut RasterBand, init_val: T, mut f: F)->Result<()> 
+pub fn compute_rasterband_lines<T,F> (input_bands: &[&RasterBand], output_band: &mut RasterBand, init_val: T, mut f: F)->Result<()>
     where T: Copy + GdalType, F: FnMut(&Vec<Vec<T>>,&mut [T])
 {
     let (w,h) = output_band.size();
@@ -874,10 +904,10 @@ fn count_nodata (scanline: &[f64], nodata_value: f64)->(usize,usize,usize) {
     for i in 0..scanline.len() {
         if scanline[i] == nodata_value { n_leading += 1 } else { break }
     }
-    let mut n_total = n_leading; 
+    let mut n_total = n_leading;
 
     if n_leading < scanline.len() {
-        //--- count trailing nodata 
+        //--- count trailing nodata
         for i in (0..scanline.len()).rev() {
             if scanline[i] == nodata_value { n_trailing += 1 } else { break }
         }
@@ -885,8 +915,8 @@ fn count_nodata (scanline: &[f64], nodata_value: f64)->(usize,usize,usize) {
         //--- count nodata in-between leading and trailing
         n_total += n_trailing;
         for i in n_leading..scanline.len()-n_trailing {
-            if scanline[i] == nodata_value { 
-                n_total += 1 
+            if scanline[i] == nodata_value {
+                n_total += 1
             }
         }
 
@@ -920,6 +950,19 @@ pub fn has_meta_info_item<M> (meta: &M, domain: &str, key: &str, expected_val: O
     } else {
         false
     }
+}
+
+pub fn set_band_meta (ds: &mut Dataset, band_no: usize, kvs: &[(&str,&str,&str)])->Result<()> {
+    let mut band = ds.rasterband( band_no)?;
+
+    for (k,v,d) in kvs {
+        if *k == "Description" { band.set_description( v)? }
+        else {
+            band.set_metadata_item( *k, *v, *d)?;
+        }
+    }
+
+    Ok(())
 }
 
 /// find the index of the rasterband that has all the specified (domain,key,val) meta infos
@@ -976,7 +1019,7 @@ pub fn get_raster_info (ds: &Dataset)->Result<RasterInfo> {
 
     let left = a[0];
     let dx = a[1];
-    let right = left + (dx * cols as f64); 
+    let right = left + (dx * cols as f64);
 
     let top = a[3];
     let dy = a[5];
@@ -990,7 +1033,7 @@ pub fn get_raster_info (ds: &Dataset)->Result<RasterInfo> {
 #[macro_export]
 macro_rules! csl_string_list {
     ( $( $v:expr ),* ) => {
-        { 
+        {
             use odin_gdal::CslStringList;
             let mut co_list = CslStringList::new();
             $( co_list.add_string( $v).unwrap(); )*

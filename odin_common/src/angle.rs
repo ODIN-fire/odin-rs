@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -13,7 +13,7 @@
  */
 #![allow(unused)]
 
-use std::{fmt,marker::PhantomData, ops, cmp};
+use std::{fmt,marker::PhantomData, ops, cmp, hash::{Hash,DefaultHasher,Hasher}};
 
 #[inline]
 pub fn normalize_90 (d:f64) -> f64 {
@@ -27,7 +27,7 @@ pub fn normalize_90 (d:f64) -> f64 {
 #[inline]
 pub fn normalize_180 (d: f64) -> f64 {
     let mut x = d % 360.0;
-    
+
     if x < -180.0 { 360.0 + x }
     else if x > 180.0 { x - 360.0 }
     else { x }
@@ -160,6 +160,14 @@ impl<K> cmp::PartialEq for NormalizedAngle<K> where K: AngleKind {
     fn eq(&self, other: &Self) -> bool { self.value == other.value }
 }
 
+/// note that Rust does not provide a Hash impl for floating points because NAN != NAN
+/// since we handle undefined angles ourselves we can provide an impl
+impl<K> Hash for NormalizedAngle<K> where K: AngleKind {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.value.to_bits().hash( state)
+    }
+}
+
 //--- allowed num ops
 
 // addition and subtraction is only allowed with same kind of angle
@@ -199,15 +207,15 @@ macro_rules! define_angle_deserializer {
         impl<'de> DeserializeTrait<'de> for $angle_type {
             fn deserialize<D>(deserializer: D) -> Result<$angle_type, D::Error> where D: Deserializer<'de> {
                 struct AngleVisitor;
-        
+
                 impl<'de> Visitor<'de> for AngleVisitor {
                     type Value = $angle_type;
-        
+
                     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                         let msg = format!("expecting floating point degrees between [{}..{}]", $min,  $max);
                         formatter.write_str(&msg)
                     }
-        
+
                     fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E> where E: de::Error {
                         use std::f64;
                         if value >= $min && value <= $max {
@@ -217,7 +225,7 @@ macro_rules! define_angle_deserializer {
                         }
                     }
                 }
-        
+
                 deserializer.deserialize_f64( AngleVisitor)
             }
         }

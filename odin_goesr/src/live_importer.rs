@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -35,9 +35,9 @@ pub struct LiveGoesrHotspotImporterConfig {
 }
 
 /// the structure representing objects to collect and announce availability of live GoesR FDCC fire product data (hotspots)
-/// 
+///
 /// (REQ) instance should check availability of new data sets on a guaranteed time interval
-/// (REQ) instance should not miss any available data set once initialized 
+/// (REQ) instance should not miss any available data set once initialized
 #[derive(Debug)]
 pub struct LiveGoesrHotspotImporter {
     config: LiveGoesrHotspotImporterConfig,
@@ -54,17 +54,17 @@ impl LiveGoesrHotspotImporter {
         LiveGoesrHotspotImporter{ config, cache_dir, import_task:None, file_cleanup_task:None }
     }
 
-    async fn initialize  (&mut self, hself: ActorHandle<GoesrHotspotImportActorMsg>) -> Result<()> { 
+    async fn initialize  (&mut self, hself: ActorHandle<GoesrHotspotImportActorMsg>) -> Result<()> {
         let config = &self.config;
         let init_files = config.init_files;
-        let s3_client = create_s3_client( config.s3_region.clone()).await?;
+        let s3_client = create_s3_client( &config.s3_region).await?;
 
         self.import_task = Some( self.spawn_import_task( s3_client, hself)? );
         self.file_cleanup_task = Some( self.spawn_file_cleanup_task()? );
         Ok(())
     }
 
-    fn spawn_import_task(&mut self, client: S3Client, hself: ActorHandle<GoesrHotspotImportActorMsg>) -> Result<AbortHandle> { 
+    fn spawn_import_task(&mut self, client: S3Client, hself: ActorHandle<GoesrHotspotImportActorMsg>) -> Result<AbortHandle> {
         let data_dir = self.cache_dir.clone();
         let config = self.config.clone();
 
@@ -98,7 +98,7 @@ impl GoesrHotspotImporter for LiveGoesrHotspotImporter {
     }
 }
 
-pub async fn run_data_acquisition (hself: ActorHandle<GoesrHotspotImportActorMsg>, config: LiveGoesrHotspotImporterConfig, cache_dir: Arc<PathBuf>, client: S3Client)->Result<()> 
+pub async fn run_data_acquisition (hself: ActorHandle<GoesrHotspotImportActorMsg>, config: LiveGoesrHotspotImporterConfig, cache_dir: Arc<PathBuf>, client: S3Client)->Result<()>
 {
     let source = Arc::new( config.source); // no need to keep gazillions of copies
     let bucket = &config.bucket;

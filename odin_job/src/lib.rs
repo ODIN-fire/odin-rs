@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -14,7 +14,7 @@
 #![allow(unused)]
 
 //! odin_job is a basic scheduler crate for sendable `FnMut` actions. Jobs can be scheduled
-//! as oneshot or repeat, with a millisecond schedule resolution (which is more than most 
+//! as oneshot or repeat, with a millisecond schedule resolution (which is more than most
 //! operating systems provide anyways).
 //! The only exposed types are [`JobScheduler`] and [`JobHandle`]. Both are opaque.
 //!
@@ -82,7 +82,7 @@ struct Job {
 impl Job {
     fn deadline (&self)->Sleep {
         let now_millis = now_epoch_millis();
-        let wait_millis = if now_millis >= self.epoch_millis { 0 } else { self.epoch_millis - now_millis }; 
+        let wait_millis = if now_millis >= self.epoch_millis { 0 } else { self.epoch_millis - now_millis };
         sleep( Duration::from_millis( wait_millis))
     }
 
@@ -97,7 +97,7 @@ impl Debug for Job {
     }
 }
 
-#[derive(Debug)] 
+#[derive(Debug)]
 pub struct JobHandle(u64);
 
 
@@ -113,22 +113,22 @@ struct WakeUp{}
 
 impl JobScheduler {
     pub fn new ()->Self {
-        JobScheduler{ 
+        JobScheduler{
             next_id: 1, // note we start at id 1 (0 means no job)
             queue: Arc::new(Mutex::new(VecDeque::with_capacity(32))),
             max_pending: usize::MAX,
-            tx: None, 
-            task: None 
+            tx: None,
+            task: None
         }
     }
 
     pub fn with_max_pending (max_pending: usize)->Self {
-        JobScheduler{ 
+        JobScheduler{
             next_id: 1, // note we start at id 1 (0 means no job)
             queue: Arc::new(Mutex::new(VecDeque::with_capacity(32))),
             max_pending,
-            tx: None, 
-            task: None 
+            tx: None,
+            task: None
         }
     }
 
@@ -138,7 +138,7 @@ impl JobScheduler {
             self.tx = Some(tx);
 
             let mut queue = self.queue.clone();
-            self.task = Some( 
+            self.task = Some(
                 Builder::new()
                     .name( "job-scheduler")
                     .spawn( async move {
@@ -228,7 +228,7 @@ impl JobScheduler {
                 let job = Job { id, epoch_millis, interval_millis, action: Box::new(action) };
                 // log job creation here
 
-                if sort_in( job, &mut queue) == 0 { 
+                if sort_in( job, &mut queue) == 0 {
                     tx.try_send( WakeUp{});
                 }
 
@@ -248,7 +248,7 @@ impl JobScheduler {
 
         if id > 0 && id < self.next_id {
             for job in queue.iter() {
-                if job.id == id { 
+                if job.id == id {
                     return true;
                 }
             }
@@ -262,7 +262,7 @@ impl JobScheduler {
 
         if id > 0 && id < self.next_id {
             for (idx,job) in queue.iter().enumerate() {
-                if job.id == id { 
+                if job.id == id {
                     queue.remove(idx);
                     return true;
                 }
@@ -307,7 +307,7 @@ fn sort_in (job: Job, queue: &mut VecDeque<Job>)->usize {
             }
             queue.len()-1 // can't happen
 
-        } else { // new front 
+        } else { // new front
             queue.push_front(job);
             0
         }
@@ -317,4 +317,4 @@ fn sort_in (job: Job, queue: &mut VecDeque<Job>)->usize {
 #[inline]
 fn now_epoch_millis()->u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as u64
-} 
+}

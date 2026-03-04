@@ -371,7 +371,7 @@ function createHotspotEntity(hs) {
             outlineColor: outlineColor(hs),
             outlineWidth: outlineWidth(hs),
             distanceDisplayCondition: config.pointDC,
-            disableDepthTestDistance: 6378000, // earth radius (don't show on other side of the globe)
+            //disableDepthTestDistance: 6378000, // earth radius (don't show on other side of the globe)
         },
         ellipse: {
             semiMinorAxis: 1000,

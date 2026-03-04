@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -27,7 +27,7 @@ pub mod angle;
 pub mod geo_constants;
 pub mod geo;
 pub mod cartesian3;
-pub mod cartographic; 
+pub mod cartographic;
 pub mod utm;
 pub mod sim_clock;
 pub mod ranges;
@@ -40,6 +40,7 @@ pub mod uom;
 pub mod json_writer;
 pub mod u8extractor;
 pub mod ron;
+pub mod num_type;
 
 #[cfg(feature="s3")]
 pub mod s3;
@@ -124,7 +125,7 @@ pub struct MinMaxAvg {
 
 impl MinMaxAvg {
     pub fn new()->Self { MinMaxAvg { n: 0, min: f64::MAX, max: f64::MIN, avg: f64::NAN } }
-    
+
     /// add a new observation
     pub fn add (&mut self, x: f64) {
         self.n += 1;
@@ -143,7 +144,7 @@ impl MinMaxAvg {
 
 #[inline]
 pub fn is_same_ref<T> (r1: &T, r2: &T) -> bool {
-    (r1 as *const _) == (r2 as *const _) 
+    (r1 as *const _) == (r2 as *const _)
 }
 
 pub const PI: f64 = STD_PI;
@@ -182,11 +183,11 @@ impl <T> From<T> for Percent where T: Into<f64> + Copy {
 
 /// get the basic typename (without crate/module path and type params) of a type
 pub fn type_base_name<T> ()->&'static str {
-    let mut te = std::any::type_name::<T>(); 
-    
+    let mut te = std::any::type_name::<T>();
+
     if let Some(i) = te.find('<') { // path part does not contain generic type params
         te = &te[0..i];
-    } 
+    }
     if let Some(i) = te.rfind(':') { // with generic type params cut off find the last path sep
         te = &te[i+1..];
     }

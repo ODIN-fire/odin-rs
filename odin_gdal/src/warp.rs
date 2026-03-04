@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -17,15 +17,19 @@ use std::fs;
 use std::ptr::{null,null_mut};
 use std::error::Error;
 use gdal::raster::GdalDataType;
-use gdal::{DriverManager,Dataset,DatasetOptions, GeoTransform};
+use gdal::{Dataset, DatasetOptions, Driver, DriverManager, GeoTransform, Metadata, MetadataEntry};
 use gdal::cpl::CslStringList;
 use gdal::spatial_ref::SpatialRef;
 use gdal_sys::{GDALDatasetH, GDALProgressFunc, GDALWarpOptions, CPLErr::CE_None, CPLErr, GDALResampleAlg};
 use libc::{c_void,c_char,c_int, c_double, c_uint};
 use bit_set::BitSet;
-use odin_common::{abs,BoundingBox,geo::GeoRect};
-use crate::{ok_non_null, ok_mut_non_null, ok_not_zero, ok_ce_none, RasterInfo};
-use crate::errors::{Result,last_gdal_error, misc_error, OdinGdalError, reset_last_gdal_error};
+use regex::Regex;
+use lazy_static::lazy_static;
+use odin_common::{abs,BoundingBox,geo::GeoRect, fs::get_file_basename};
+use crate::{
+    DCAP_CREATE, DCAP_CREATECOPY, EMPTY, GTIFF, MEM, RasterInfo, driver_supports_create, driver_supports_create_copy, get_driver_by_name, get_driver_from_filename, get_extension_for_driver_name, ok_ce_none, ok_mut_non_null, ok_non_null, ok_not_zero
+};
+use crate::errors::{OdinGdalError, Result, last_gdal_err_description, last_gdal_error, misc_error, reset_last_gdal_error};
 
 #[derive(Clone)]
 pub enum ResampleAlg {
@@ -46,7 +50,51 @@ pub enum ResampleAlg {
     //LastValue        = GDALResampleAlg::GRA_LAST_VALUE as isize  // NOTE - LastValue is the same as RMS
 }
 
+lazy_static! {
+    static ref RE_META: Regex = Regex::new( r#"(?:(\d+):)?(?:(?:([a-zA-Z_]+)@)?([a-zA-Z_]+)=)?([a-zA-Z_ \%\[\]\(\)\-\=\"\d]+)"#).unwrap();
+}
 
+#[derive(Debug)]
+pub struct MetaEntry {
+    pub band_no: Option<usize>,  // if None this is a meta entry for the dataset
+    pub domain: Option<String>,
+    pub key: Option<String>,     // if None this is
+    pub value: String,
+}
+
+impl MetaEntry {
+    pub fn dataset_description( v: &str)->Self {
+        MetaEntry { band_no: None, domain: None, key: None, value: v.to_string() }
+    }
+
+    pub fn dataset_item( d: Option<&str>, k: &str, v: &str)->Self {
+        MetaEntry { band_no: None, domain: d.map(|s| s.to_string()), key: Some(k.to_string()), value: v.to_string() }
+    }
+
+    pub fn band_description( n: usize, v: &str)->Self {
+        // we should check the band number > 0 here
+        MetaEntry { band_no: Some(n), domain: None, key: None, value: v.to_string() }
+    }
+
+    pub fn band_item( n: usize, d: Option<&str>, k: &str, v: &str)->Self {
+        // we should check the band number > 0 here
+        MetaEntry { band_no: Some(n), domain: d.map(|s| s.to_string()), key: Some(k.to_string()), value: v.to_string() }
+    }
+
+    pub fn parse (s: &str) -> Option<Self> {
+        // safe to unwrap as we alrady ensured syntax with Regex
+        if let Some(cap) = RE_META.captures(s) {
+            let band_no = cap.get(1).map(|m| m.as_str().parse::<usize>().unwrap());
+            let domain = cap.get(2).map(|m| m.as_str().to_string());
+            let key = cap.get(3).map(|m| m.as_str().to_string());
+            let value = cap.get(4).unwrap().as_str().to_string();
+
+            Some( MetaEntry{ band_no, domain, key, value })
+        } else {
+            None
+        }
+    }
+}
 
 pub struct SimpleWarpBuilder <'a> {
     src_ds: &'a Dataset,
@@ -80,6 +128,12 @@ pub struct SimpleWarpBuilder <'a> {
     axis_order: c_int,
     max_error: c_double,
     resample_alg: ResampleAlg,
+
+    copy_meta: bool,
+    meta: Option<Vec<MetaEntry>>,
+
+    //--- internal transients
+    driver_supports_create: bool
 }
 
 impl <'a> SimpleWarpBuilder<'a> {
@@ -87,6 +141,12 @@ impl <'a> SimpleWarpBuilder<'a> {
         let path = tgt.as_ref();
         let tgt_str = path.to_str().ok_or(OdinGdalError::InvalidFileName(path.display().to_string()))?;
         let tgt_filename = CString::new(tgt_str)?;
+
+        let driver_supports_create = if let Some(driver) = get_driver_from_filename( tgt_str) {
+            driver_supports_create(&driver)
+        } else {
+            false
+        };
 
         Ok(SimpleWarpBuilder {
             src_ds,
@@ -114,7 +174,22 @@ impl <'a> SimpleWarpBuilder<'a> {
             axis_order: 0,
             max_error: 0.0,
             resample_alg: ResampleAlg::NearestNeighbour,
+
+            copy_meta: false,
+            meta: None,
+
+            driver_supports_create
         })
+    }
+
+    pub fn get_tgt_driver (&self)->Result<Driver> {
+        if let Some(tgt_format) = &self.tgt_format {
+            let tgt_format = tgt_format.to_str()?;
+            get_driver_by_name( tgt_format).ok_or( misc_error(format!("unknown target format {}", tgt_format)))
+        } else {
+            let filename = self.tgt_filename.to_str()?;
+            get_driver_from_filename(filename).ok_or( misc_error(format!("unknown format for filename {}", filename)))
+        }
     }
 
     pub fn set_tgt_extent (&mut self, min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> &mut SimpleWarpBuilder<'a> {
@@ -186,7 +261,13 @@ impl <'a> SimpleWarpBuilder<'a> {
 
     pub fn set_tgt_format (&mut self, tgt_format: &str) -> Result<&mut SimpleWarpBuilder<'a>> {
         self.tgt_format = Some(CString::new(tgt_format)?);
-        Ok(self)
+
+        if let Some(driver) = get_driver_by_name(tgt_format) {
+            self.driver_supports_create = driver_supports_create(&driver);
+            Ok(self)
+        } else {
+            Err( misc_error(format!("unsupported target format: {}", tgt_format)))
+        }
     }
 
     pub fn set_data_type (&mut self, data_type: GdalDataType) -> &mut SimpleWarpBuilder<'a> {
@@ -197,12 +278,12 @@ impl <'a> SimpleWarpBuilder<'a> {
     pub fn set_src_nodatas (&mut self, no_data_values: Vec<c_double>) -> &mut SimpleWarpBuilder<'a> {
         self.src_nodatas = Some(no_data_values);
         self
-    } 
+    }
 
     pub fn set_tgt_nodatas (&mut self, no_data_values: Vec<c_double>) -> &mut SimpleWarpBuilder<'a> {
         self.tgt_nodatas = Some(no_data_values);
         self
-    } 
+    }
 
     /// this has to be used to set compression, e.g. with "--co COMPRESS=DEFLATE --co PREDICTOR=2"
     pub fn set_create_options (&mut self, create_options: &'a CslStringList) -> &mut SimpleWarpBuilder<'a> {
@@ -220,17 +301,45 @@ impl <'a> SimpleWarpBuilder<'a> {
         self
     }
 
+    pub fn set_copy_meta (&mut self, copy_meta: bool) -> &mut SimpleWarpBuilder<'a> {
+        self.copy_meta = copy_meta;
+        self
+    }
+
+    pub fn set_meta (&mut self, me: Vec<MetaEntry>) -> &mut SimpleWarpBuilder<'a> {
+        self.meta = Some(me);
+        self
+    }
+
     // version without C shim functions
 
     pub fn exec(&self) -> Result<Dataset> {
-        let mut tgt_ds = self.create_tgt_ds()?;
-        self.chunk_and_warp( &mut tgt_ds).map(|_| tgt_ds)
+        let mut tgt_ds = self.create_tgt_ds()?; // note this might not yet be the final DS
+        self.chunk_and_warp( &mut tgt_ds)?;
+
+        if self.copy_meta {
+            self.copy_metainfo( &mut tgt_ds)?; // copy band metainfo from src
+        }
+        self.set_metainfo( &mut tgt_ds)?; // overwrite with explicitly set metainfo
+
+        if self.driver_supports_create {
+            Ok( tgt_ds )
+        } else {
+            unsafe {
+                tgt_ds.flush_cache()?;
+                let c_tgt_driver = self.get_tgt_driver()?.c_driver();
+                let c_create_opts = if let Some(sl) = self.create_options { sl.as_ptr() } else { null_mut() };
+                let c_tgt_ds = gdal_sys::GDALCreateCopy( c_tgt_driver, self.tgt_filename.as_ptr(), tgt_ds.c_dataset(), 0, c_create_opts, GDALProgressFunc::None, null_mut());
+                let mut tgt_ds = Dataset::from_c_dataset(c_tgt_ds);
+                self.set_metainfo( &mut tgt_ds)?;
+                Ok( tgt_ds )
+            }
+        }
     }
 
     fn create_tgt_ds (&self) -> Result<Dataset> {
         unsafe {
             reset_last_gdal_error();
-
             let c_src_ds = self.src_ds.c_dataset();
             let src_ds_srs = self.src_ds.spatial_ref().ok().or_else(|| self.src_ds.gcp_spatial_ref());
             let src_srs = self.src_srs.or_else(|| src_ds_srs.as_ref()).ok_or(OdinGdalError::NoSpatialReferenceSystem)?;
@@ -240,14 +349,34 @@ impl <'a> SimpleWarpBuilder<'a> {
             let tgt_wkt = CString::new(tgt_srs.to_wkt()?)?;
 
             let tgt_format = if let Some(format) = &self.tgt_format { format.as_ptr() } else { null() };
-            let c_create_options = if let Some(sl) = self.create_options { sl.as_ptr() } else { null_mut() };
+            let mut c_create_options = null_mut();
+
+            if self.driver_supports_create { // only set those if this is the final tgt DS
+                if let Some(sl) = self.create_options {
+                    c_create_options = sl.as_ptr();
+                }
+            }
 
             // check if output file exists and if so delete it
             let path = Path::new(self.tgt_filename.to_str().unwrap()); // already checked during new()
             if path.is_file() { fs::remove_file(path)? }
 
-            let c_driver = gdal_sys::GDALGetDriverByName(tgt_format);
+            let mut tgt_filename = self.tgt_filename.clone();
+            let c_driver = if self.driver_supports_create {
+                gdal_sys::GDALGetDriverByName(tgt_format)
+            } else {
+                // replace the requested extension with the temp driver extension
+                tgt_filename = CString::new( format!("{}.{}",
+                    get_file_basename( tgt_filename.to_str()?).ok_or( misc_error(format!("invalid filename: {:?}",tgt_filename)))?,
+                    get_extension_for_driver_name( GTIFF.to_str()?).ok_or( misc_error("unknown file extension for default driver".into()))?
+                ))?;
+                println!("@@@ temp DS: {:?}", tgt_filename);
+                gdal_sys::GDALGetDriverByName( GTIFF.as_ptr()) // this is always supported (we don't use MEM so that we could cache on disk)
+            };
+
+            // at this point c_driver has to be a valid driver that supports GDALCreate
             if c_driver == null_mut() {
+                eprintln!("{}", format!("unknown output format {:?}", self.tgt_format));
                 return Err(misc_error(format!("unknown output format {:?}", self.tgt_format)))
             }
 
@@ -318,7 +447,7 @@ impl <'a> SimpleWarpBuilder<'a> {
 
                 n_pixels = self.force_n_pixels;
                 n_lines = self.force_n_lines;
-                
+
             } else if min_x != 0.0 || min_y != 0.0 || max_x != 0.0 || max_y != 0.0 { // explicitly given min/max values
                 res_x = geo_transform[1];
                 res_y = geo_transform[5];
@@ -337,9 +466,14 @@ impl <'a> SimpleWarpBuilder<'a> {
                 gdal_sys::GDALGetRasterDataType(gdal_sys::GDALGetRasterBand(c_src_ds, 1))
             };
 
-            let c_tgt_ds = gdal_sys::GDALCreate(c_driver, self.tgt_filename.as_ptr(), n_pixels, n_lines, n_bands, data_type, c_create_options);
+            let mut c_tgt_ds: gdal_sys::GDALDatasetH = null_mut();
+
+            // note this is not the final (returned) Dataset in case driver_supports_create is false
+            let c_tgt_ds = gdal_sys::GDALCreate(c_driver, tgt_filename.as_ptr(), n_pixels, n_lines, n_bands, data_type, c_create_options);
+
             if c_tgt_ds == null_mut() {
                 let last_error = last_gdal_error();
+                eprintln!("failed to create target dataset: {:?}", last_error);
                 gdal_sys::GDALDestroyGenImgProjTransformer(c_transform_arg);
                 return Err(last_error)
             }
@@ -386,7 +520,7 @@ impl <'a> SimpleWarpBuilder<'a> {
                 Ok(src_ds.raster_count() as c_int)
             }
         }
-    } 
+    }
 
     fn chunk_and_warp (&self, tgt_ds: &mut Dataset) -> Result<()> {
         unsafe {
@@ -547,19 +681,75 @@ impl <'a> SimpleWarpBuilder<'a> {
         let n_bands = no_datas.len();
         unsafe {
             let c_no_datas = gdal_sys::CPLMalloc(std::mem::size_of::<c_double>() * n_bands) as *mut c_double;
-            for i in 0..n_bands { 
+            for i in 0..n_bands {
                 *(c_no_datas.offset(i as isize)) = no_datas[i] // FIXME - doesn't work
             }
             Ok(c_no_datas)
         }
+    }
+
+    fn copy_metainfo (&self, ds: &mut Dataset)->Result<()> {
+        let src_ds = self.src_ds;
+        let src_indices = if let Some(src_bands) = &self.src_bands { src_bands.clone() } else { (1..=src_ds.raster_count() as u32).collect() };
+        let mut j = 1;
+
+        if let Ok(descr) = src_ds.description() {
+            ds.set_description( &descr);
+        }
+
+        for MetadataEntry { domain, key, value } in src_ds.metadata() {
+            ds.set_metadata_item( &key, &value, &domain)?;
+        }
+
+        for i in src_indices {
+            let src_band = src_ds.rasterband(i as usize)?;
+            let mut tgt_band = ds.rasterband(j)?;
+
+            if let Ok(descr) = src_band.description() {
+                tgt_band.set_description( &descr);
+            }
+
+            for MetadataEntry { domain, key, value } in src_band.metadata() {
+                tgt_band.set_metadata_item( &key, &value, &domain)?;
+            }
+
+            j += 1;
+        }
+
+        Ok(())
+    }
+
+    fn set_metainfo (&self, ds: &mut Dataset)->Result<()> {
+        if let Some(meta) = &self.meta {
+            for me in meta.iter() {
+                let domain = if let Some(domain) = &me.domain { domain.as_str() } else { "" };
+
+                if let Some(band_no) = me.band_no {
+                    let mut band = ds.rasterband(band_no)?;
+                    if let Some(key) = &me.key {
+                        band.set_metadata_item( key.as_str(), me.value.as_str(), domain);
+                    } else {
+                        band.set_description( me.value.as_str());
+                    }
+                } else {
+                    if let Some(key) = &me.key {
+                        ds.set_metadata_item( key.as_str(), me.value.as_str(), domain);
+                    } else {
+                        ds.set_description( me.value.as_str());
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
 
 //--- high level warpers
 
-pub fn warp_to_raster_info<P> (src_ds: &Dataset, tgt_path: P, epsg: u32, tgt_ri: &RasterInfo, alg: ResampleAlg, 
-                               src_bands: Option<Vec<u32>>, extra_tgt_bands: Option<usize>, data_type: Option<GdalDataType>) -> Result<Dataset> 
+pub fn warp_to_raster_info<P> (src_ds: &Dataset, tgt_path: P, epsg: u32, tgt_ri: &RasterInfo, alg: ResampleAlg,
+                               src_bands: Option<Vec<u32>>, extra_tgt_bands: Option<usize>, data_type: Option<GdalDataType>) -> Result<Dataset>
     where P: AsRef<Path>
 {
     let tgt_srs = SpatialRef::from_epsg(epsg)?;
@@ -587,7 +777,7 @@ pub fn warp_to_raster_info<P> (src_ds: &Dataset, tgt_path: P, epsg: u32, tgt_ri:
     warper.exec()
 }
 
-pub fn warp_to_rect<P,Q> (src_path: P, tgt_path: Q, epsg: u32, bbox: &GeoRect, tgt_res: Option<f64>) -> Result<Dataset> 
+pub fn warp_to_rect<P,Q> (src_path: P, tgt_path: Q, epsg: u32, bbox: &GeoRect, tgt_res: Option<f64>) -> Result<Dataset>
     where P: AsRef<Path>, Q: AsRef<Path>
 {
     let src_ds = Dataset::open(src_path)?;
@@ -606,9 +796,9 @@ pub fn warp_to_rect<P,Q> (src_path: P, tgt_path: Q, epsg: u32, bbox: &GeoRect, t
     warper.exec()
 }
 
-/// warp to WGS84. Note this requires nodata values since the src bbox might not map to a lon/lat bbox (e.g. for a UTM input SRS) 
-pub fn warp_to_wgs84<P,Q> (src_path: P, tgt_path: Q, nodatas: Vec<f64>) -> Result<Dataset> 
-    where P: AsRef<Path>, Q: AsRef<Path> 
+/// warp to WGS84. Note this requires nodata values since the src bbox might not map to a lon/lat bbox (e.g. for a UTM input SRS)
+pub fn warp_to_wgs84<P,Q> (src_path: P, tgt_path: Q, nodatas: Vec<f64>) -> Result<Dataset>
+    where P: AsRef<Path>, Q: AsRef<Path>
 {
     let src_ds = Dataset::open(src_path)?;
     let tgt_srs = SpatialRef::from_epsg(4326)?;
@@ -621,4 +811,3 @@ pub fn warp_to_wgs84<P,Q> (src_path: P, tgt_path: Q, nodatas: Vec<f64>) -> Resul
 
     warper.exec()
 }
-

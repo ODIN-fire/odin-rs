@@ -17,6 +17,10 @@ odin_himawari = { workspace = true }
 odin_geolayer = { workspace = true }
 odin_orbital = { workspace = true }
 odin_share = { workspace = true }
+odin_wx = { workspace = true }
+odin_openmeteo = { workspace = true }
+odin_wind = { workspace = true }
+odin_bushfire = { workspace = true }
 
 tokio = { workspace = true }
 anyhow = { workspace = true }

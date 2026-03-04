@@ -96,7 +96,7 @@ impl BinContext {
             bin_crate: bin_crate.to_string(),
             bin_suffix, proc_id,
             build: build.to_string() } ).expect("Context set twice");
-        //println!("running bin '{}' from crate '{}'", bin_name, bin_crate);
+        println!("running bin '{}' from crate '{}'", bin_name, bin_crate);
     }
 }
 
@@ -109,11 +109,13 @@ macro_rules! set_bin_context {
         {
             // Note that env! looks up the value at compile time, while env::var
             // looks it up at runtime.
-            odin_build::BinContext::set(env!("CARGO_PKG_NAME"),
+            odin_build::BinContext::set(
                  env!("CARGO_BIN_NAME"),
+                 env!("CARGO_PKG_NAME"),
                  std::env::var("ODIN_BIN_SUFFIX").ok(),
                  Some(std::process::id()),
-                 odin_build::build_mode!().as_str());
+                 odin_build::build_mode!().as_str()
+            );
         }
     }
 }
@@ -263,9 +265,9 @@ pub fn ensure_dir (dir: PathBuf)->PathBuf {
 /// locate a config file and return its PathBuf
 /// note this is called both from build.rs from load_config (at runtime) so we have to explicitly pass in BinContext
 fn find_resource_file (resource_dir: &str, ctx: &Option<&BinContext>, resource_crate: &str, filename: &str) -> Option<PathBuf> {
-    // check an explicit ODIN_HOME first
-    if let Ok(odin_home) = env::var("ODIN_HOME") {
-        let mut path = Path::new( odin_home.as_str()).to_path_buf();
+    // check an explicit ODIN_ROOT first
+    if let Ok(odin_root) = env::var("ODIN_ROOT") {
+        let mut path = Path::new( odin_root.as_str()).to_path_buf();
         if find_external_resource( &mut path, resource_dir, ctx, resource_crate, filename) { return Some(path) }
     }
 

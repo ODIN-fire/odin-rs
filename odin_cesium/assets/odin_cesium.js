@@ -1670,6 +1670,7 @@ export function enterPolyline (points, maxPoints, callbacks) {
     }
 
     function onClick(event) {
+        clearSelectedEntity();
         if (event.detail == 2) { // double click -> done entering
             clearSelectedEntity(); // Cesium likes to zoom in on double clicks
             event.preventDefault();
@@ -1908,6 +1909,7 @@ export function enterRect (rect, points, callbacks) {
     }
 
     function onClick(event) {
+        clearSelectedEntity();
         let p = getCartographicMousePosition(event);
         if (p) {
             if (event.detail == 1) { // ignore double click

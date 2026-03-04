@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -14,20 +14,20 @@
 #![allow(unused)]
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque}, 
-    fs::File, io::{BufWriter,Write}, net::SocketAddr, 
+    collections::{HashMap, HashSet, VecDeque},
+    fs::File, io::{BufWriter,Write}, net::SocketAddr,
     path::{Path,PathBuf}, sync::Arc, time::Duration
 };
 use axum::Json;
-use odin_hrrr::HrrrDataSetRequest;
+use odin_wx::WxDataSetRequest;
 use serde::{Serialize,Deserialize};
 use chrono::{DateTime,Utc, Datelike, Timelike};
 use odin_build::{define_load_asset, define_load_config, pkg_cache_dir};
 use odin_common::{
-    cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque, datetime, 
-    fs::{path_str_to_fname, replace_env_var_path, replace_filename}, geo::GeoRect, 
-    json_writer::{JsonWritable,JsonWriter}, push_all_str, 
-    ron::{TypedCompactRon, from_typed_compact_ron, to_typed_compact_ron}, 
+    cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque, datetime,
+    fs::{path_str_to_fname, replace_env_var_path, replace_filename}, geo::GeoRect,
+    json_writer::{JsonWritable,JsonWriter}, push_all_str,
+    ron::{TypedCompactRon, from_typed_compact_ron, to_typed_compact_ron},
     sin, cos, atan, atan2, sqrt, strings::extract_json_payload_object, utm::UtmRect, BoundingBox
 };
 use odin_action::DynDataRefAction;
@@ -37,11 +37,14 @@ use odin_gdal::{{gdal::{Dataset,raster::RasterBand}}, contour::ContourBuilder, r
 
 //mod fetchdem;
 pub mod actor;
+pub use actor::{WindActor,WindActorMsg,server_subscribe_action, server_update_action};
+
 pub mod errors;
 use errors::Result;
 
 use crate::errors::op_failed;
 pub mod wind_service;
+pub use wind_service::WindService;
 
 pub mod server;
 pub mod server_client;
@@ -56,6 +59,7 @@ define_load_asset!{}
 
 #[derive(Serialize,Deserialize,Debug)]
 pub struct WindConfig {
+    fc_duration: Duration, // the duration for which we want to compute forecasts
     max_age: Duration, // how long to keep cached data files
     max_forecasts: usize, // max number of forecasts to keep for each region (in ringbuffer)
     windninja_cmd: String, // pathname for windninja executable
@@ -64,13 +68,9 @@ pub struct WindConfig {
 
     dem: DemSource, // where to get the DEM grid from
     dem_res: f64, // dem pixel sizes in meters
-
-    // the fields and levels we need from HRRR
-    hrrr_fields: Vec<String>,
-    hrrr_levels: Vec<String>,
 }
 
-#[derive(Debug,Clone,Serialize,Deserialize)] 
+#[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct WindRegion {
     pub name: String,
     pub bbox: GeoRect,
@@ -88,7 +88,7 @@ pub struct AddWindClient {
     pub remote_addr: SocketAddr
 }
 
-impl TypedCompactRon<'_> for AddWindClient {} 
+impl TypedCompactRon<'_> for AddWindClient {}
 
 #[derive(Debug)]
 pub enum SubscribeResponse {
@@ -109,7 +109,7 @@ pub struct AddWindClientResponse {
 
 impl TypedCompactRon<'_> for AddWindClientResponse {}
 
-#[derive(Debug,Serialize,Deserialize)] 
+#[derive(Debug,Serialize,Deserialize)]
 pub struct RemoveWindClient {
     pub region: Option<String>, // of region
     pub remote_addr: SocketAddr
@@ -124,7 +124,7 @@ pub struct RemoveWindClientResponse {
 
 /// the internal data structure that represents the input data for a single WindNinja run
 /// this is an aggregate of all the data we need to feed into WindNinja. It currently has a lot of overlap with Forecast (which is
-/// supposed to capture the *result* of a WindNinja run) but that might change. Since we turn WnJobs into Forecasts the overlap is acceptable 
+/// supposed to capture the *result* of a WindNinja run) but that might change. Since we turn WnJobs into Forecasts the overlap is acceptable
 #[derive(Debug)]
 struct WnJob {
     region: Arc<String>, // our region name
@@ -142,7 +142,7 @@ impl WnJob {
     // WindNinja has a different naming convention: BigSur_07-10-2025_1900_150m_huvw.tif
     pub fn get_wn_filename (&self)->String {
         let d = &self.date;
-        format!("{}_{:02}-{:02}-{:4}_{:2}{:2}_{:.0}m_huvw.tif", 
+        format!("{}_{:02}-{:02}-{:4}_{:2}{:2}_{:.0}m_huvw.tif",
             path_str_to_fname( self.region.as_str()), d.month(), d.day(), d.year(), d.hour(), d.minute(), self.mesh_res)
     }
 
@@ -150,7 +150,7 @@ impl WnJob {
         let mut filename = self.wn_out_basename.as_ref().clone();
         filename.push_str(suffix);
         pkg_cache_dir!().join( filename)
-    } 
+    }
 
     pub fn output_files_exist (&self)->bool {
         let mut filename = self.wn_out_basename.as_ref().clone();
@@ -158,17 +158,17 @@ impl WnJob {
 
         push_all_str!( filename, huvw_grid_suffix(), ".gz");
         let mut path = pkg_cache_dir!().join( &filename);
-        if !path.is_file() { return false } 
+        if !path.is_file() { return false }
 
         filename.truncate(l);
         push_all_str!( filename, huvw_vector_suffix(),".gz");
         replace_filename( &mut path, &filename);
-        if !path.is_file() { return false } 
+        if !path.is_file() { return false }
 
         filename.truncate(l);
         push_all_str!( filename, huvw_contour_suffix(),".gz");
         replace_filename( &mut path, &filename);
-        if !path.is_file() { return false }   
+        if !path.is_file() { return false }
 
         true
     }
@@ -183,7 +183,7 @@ impl From<WnJob> for Forecast {
             step: wn_job.step,
             mesh_res: wn_job.mesh_res,
             wind_height: wn_job.wind_height,
-            wx_src: wn_job.wx_src,
+            wx_model: wn_job.wx_src,
             wx_path: wn_job.wx_path,
             dem_path: wn_job.dem_path,
             wn_out_base_name: wn_job.wn_out_basename,
@@ -200,12 +200,12 @@ pub struct Forecast {
 
     pub date: DateTime<Utc>,    // for which this simulation was computed
     pub step: usize,            // hours from forecast (HRRR) base date (0 means latest HRRR data set - indicator for confidence)
-    
+
     pub mesh_res: f64,          // WindNinja mesh resolution in meters
     pub wind_height: f64,       // of WindNinja computed values - above ground in meters
-    pub wx_src: Arc<String>,    // e.g. "HRRR"
+    pub wx_model: Arc<String>,    // this is the request model_name() (e.g. "hrrr", "ecmwf-ifs", ..)
 
-    pub wx_path: Arc<PathBuf>,  // the HRRR data this forecast is based on
+    pub wx_path: Arc<PathBuf>,  // the wx data this forecast is based on
     pub dem_path: Arc<PathBuf>, // the DEM data this forecast is based on
 
     // the primary WindNinja output file basename (huvw UTM grid). All other filenames (WGS84 grid/vec and contour) derived from here
@@ -224,16 +224,17 @@ pub fn huvw_grid_suffix ()->&'static str { "__grid.csv" }
 pub fn huvw_vector_suffix ()->&'static str { "__vector.csv" }
 pub fn huvw_contour_suffix ()->&'static str { "__contour.json" }
 
-// the HRRR based product suffixes
-pub fn hrrr_wgs84_suffix ()->&'static str { "__hrrr__wgs84.tif" }
+// the wx based product suffixes
+// TODO shift __hrrr__* prefix into caller (it's the model_name())
+pub fn wx_wgs84_suffix ()->&'static str { "__wgs84.tif" }
 
-pub fn hrrr_10_grid_suffix ()->&'static str { "__hrrr__10__grid.csv" }
-pub fn hrrr_10_vector_suffix ()->&'static str { "__hrrr__10__vector.csv" }
-pub fn hrrr_10_contour_suffix ()->&'static str { "__hrrr__10__contour.json" }
+pub fn wx_10_grid_suffix ()->&'static str { "__10__grid.csv" }
+pub fn wx_10_vector_suffix ()->&'static str { "__10__vector.csv" }
+pub fn wx_10_contour_suffix ()->&'static str { "__10__contour.json" }
 
-pub fn hrrr_80_grid_suffix ()->&'static str { "__hrrr__80__grid.csv" }
-pub fn hrrr_80_vector_suffix ()->&'static str { "__hrrr__80__vector.csv" }
-pub fn hrrr_80_contour_suffix ()->&'static str { "__hrrr__80__contour.json" }
+pub fn wx_80_grid_suffix ()->&'static str { "__80__grid.csv" }
+pub fn wx_80_vector_suffix ()->&'static str { "__80__vector.csv" }
+pub fn wx_80_contour_suffix ()->&'static str { "__80__contour.json" }
 
 impl Forecast {
 
@@ -242,16 +243,16 @@ impl Forecast {
     /// (it does not capture the forecast step, i.e. we could overwrite a more actual forecast)
     pub fn get_wn_output_path (&self) -> PathBuf {
         let d = &self.date;
-        let fname = format!("{}_{:02}-{:02}-{:4}_{:02}{:02}_{:.0}m_huvw.tif", 
-            path_str_to_fname( self.region.as_str()), d.month(), d.day(), d.year(), d.hour(), d.minute(), self.mesh_res);
+        let fname = format!("{}_{:02}-{:02}-{:4}_{:02}{:02}_{:.0}m_{}_huvw.tif",
+            path_str_to_fname( self.region.as_str()), d.month(), d.day(), d.year(), d.hour(), d.minute(), self.mesh_res, self.wx_model.as_str());
         pkg_cache_dir!().join( fname)
     }
 
+    // TODO is the wx_src part of the base name or do we have to mix it in explicitly?
     pub fn get_wn_path (&self, suffix: &str) -> PathBuf {
-        let mut filename = self.wn_out_base_name.as_ref().clone();
-        filename.push_str(suffix);
+        let filename = format!("{}{}", self.wn_out_base_name.as_ref(), suffix);
         pkg_cache_dir!().join( filename)
-    } 
+    }
 
     // TODO - add grid/contour for HRRR (3km resolution)
 
@@ -262,7 +263,7 @@ impl Forecast {
             w.write_field("date", datetime::to_epoch_millis(self.date));
             w.write_field("step", self.step as u64);
             w.write_field("mesh", self.mesh_res);
-            w.write_field("wxSrc", self.wx_src.as_ref());
+            w.write_field("wxSrc", self.wx_model.as_ref());
             w.write_field("urlBase", self.wn_out_base_name.as_str());
         });
         w.to_string()
@@ -273,7 +274,7 @@ impl Forecast {
             w.write_field("date", datetime::to_epoch_millis(self.date));
             w.write_field("step", self.step as u64);
             w.write_field("mesh", self.mesh_res);
-            w.write_field("wxSrc", self.wx_src.as_ref());
+            w.write_field("wxSrc", self.wx_model.as_ref());
             w.write_field("urlBase", self.wn_out_base_name.as_str());
         })
     }
@@ -282,10 +283,9 @@ impl Forecast {
 
 /// data we need before we can create WnJobs. This is only kept in the WindActor
 pub struct WnJobRegion {
-    pub region: Arc<String>,
     pub utm_rect: UtmRect,           // the (approximated) region bbox in UTM
     pub dem_path: Arc<PathBuf>,      // pathname to respective DEM file
-    pub hrrr_ds_request: Arc<HrrrDataSetRequest>,
+    pub requests: Vec<Arc<WxDataSetRequest>>,
 }
 
 /// all available forecasts for a region, plus the respective clients for that region. This is where we store Forecast results
@@ -318,7 +318,7 @@ impl ForecastRegion {
         let mut fcs = &mut self.forecasts;
         for i in 0..fcs.len() {
             let f = &fcs[i];
-            if f.date == forecast.date  { 
+            if f.date == forecast.date  {
                 if forecast.step < f.step {  // this replaces an older, now obsolete forecast for the same hour
                     fcs[i] = forecast;
                     return Some( &fcs[i])
@@ -327,7 +327,7 @@ impl ForecastRegion {
                     println!("ignoring dead-on-arrival forecast {:?}", forecast);
                     return None
                 }
-            } else if f.date > forecast.date { 
+            } else if f.date > forecast.date {
                 println!("inserting previously missing forecast {:?}", forecast);
                 fcs.insert_into_ringbuffer(i, forecast);
                 return Some(&fcs[i])
@@ -371,7 +371,7 @@ impl JsonWritable for ForecastRegion {
 pub type ForecastStore = HashMap<Arc<String>,ForecastRegion>;
 
 /// message to request action execution with the current ForecastStore
-#[derive(Debug)] 
+#[derive(Debug)]
 pub struct ExecSnapshotAction(pub DynDataRefAction<ForecastStore>);
 
 pub fn purge_old_forecasts (fcs: &mut ForecastStore, cut_off: DateTime<Utc>) {
@@ -498,8 +498,8 @@ pub fn write_huvw_csv_cell_vectors<P> (ds: &Dataset, path: P, mesh_res: f64, ban
         read_row( &u_band, j as isize, u_line.as_mut_slice())?;
         read_row( &v_band, j as isize, v_line.as_mut_slice())?;
 
-        if let Some(w_band) = &w_band { 
-            read_row( w_band, j as isize, w_line.as_mut_slice())?; 
+        if let Some(w_band) = &w_band {
+            read_row( w_band, j as isize, w_line.as_mut_slice())?;
         }
 
         for i in 0..cols {

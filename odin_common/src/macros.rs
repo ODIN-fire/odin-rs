@@ -234,7 +234,7 @@ macro_rules! map_to_opaque_error {
 /// ```
 #[macro_export]
 macro_rules! define_cli {
-    ($name:ident [ $( $sopt:ident $(= $sx:expr)? ),* ] = $( $( #[$meta:meta] )? $fname:ident : $ftype:ty [ $( $fopt:ident $(= $fx:expr)?),* ] ),* ) => {
+    ($name:ident [ $( $sopt:ident $(= $sx:expr)? ),* ] = $( $( #[$meta:meta] )? $fname:ident : $ftype:ty [ $( $fopt:ident $(= $fx:expr)?),* ] ),* $(,)?) => {
         use clap::Parser;
         use lazy_static::lazy_static;
 
@@ -425,4 +425,18 @@ macro_rules! arc {
     ($s:expr) => {
         Arc::new( $s.to_string() )
     }
+}
+
+#[macro_export]
+macro_rules! sliced {
+    ( $( $s:expr ),* ) => {
+        &[ $( $s.as_slice() ),* ]
+    };
+}
+
+#[macro_export]
+macro_rules! vec_boxed {
+    ( $( $e:expr ),* ) => {
+        vec![ $( Box::new($e) ),* ]
+    };
 }

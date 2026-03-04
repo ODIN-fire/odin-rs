@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -22,7 +22,7 @@
 /// We employ the Rust [new type](https://doc.rust-lang.org/rust-by-example/generics/new_types.html) pattern
 /// to add those and still retain the capability to use algorithms of the 3rd party foundation crates with minimal cpoying overhead.
 
-use std::fmt::{self,Debug,Display};
+use std::{fmt::{self,Debug,Display}, hash::{Hash,DefaultHasher,Hasher}};
 use serde::{Serialize,Deserialize};
 
 use serde::ser::{Serialize as SerializeTrait, SerializeSeq, Serializer, SerializeStruct};
@@ -121,7 +121,7 @@ impl JsonWritable for GeoPoint {
     }
 }
 
-// we don't provide a From<Point<f64>> since that would allow to create a GeoPoint from arbitrary Points 
+// we don't provide a From<Point<f64>> since that would allow to create a GeoPoint from arbitrary Points
 
 /// Conversion to x, y, and z in meters.
 /// Note we can't implement `From<ECEF>` since GeoPoints are 2 dimensional (altitude = 0)
@@ -225,11 +225,15 @@ impl GeoRect {
         GeoRect( Rect::new( Point::new( west, south), Point::new( east, north) ) )
     }
 
+    pub fn from_wsen_degree_array ( a: &[f64;4]) -> Self {
+        GeoRect( Rect::new( Point::new( a[0], a[1]), Point::new( a[2], a[3]) ) )
+    }
+
     pub fn area (&self) -> Area {
         let a = self.0.geodesic_area_unsigned();
         Area::new::<square_meter>(a)
     }
-    
+
     pub fn points (&self) -> Vec<GeoPoint> {
         vec![GeoPoint::from_lon_lat(self.west(), self.north()),
             GeoPoint::from_lon_lat(self.west(), self.south()),
@@ -250,8 +254,8 @@ impl GeoRect {
     }
 
     pub fn add_degrees (&self, dw: f64, ds: f64, de: f64, dn: f64)->GeoRect {
-        GeoRect( Rect::new( 
-            Point::new( self.west().degrees()+dw, self.south().degrees()+ds), 
+        GeoRect( Rect::new(
+            Point::new( self.west().degrees()+dw, self.south().degrees()+ds),
             Point::new( self.east().degrees()+de, self.north().degrees()+dn)
         ))
     }
@@ -260,6 +264,10 @@ impl GeoRect {
     #[inline] pub fn east(&self)->Longitude { Longitude::from_degrees( self.0.max().x )}
     #[inline] pub fn south(&self)->Latitude { Latitude::from_degrees( self.0.min().y )}
     #[inline] pub fn north(&self)->Latitude { Latitude::from_degrees( self.0.max().y )}
+
+    pub fn to_wsen_degrees (&self)->[f64;4] {
+        [self.west().degrees(), self.south().degrees(), self.east().degrees(), self.north().degrees()]
+    }
 }
 
 impl SerializeTrait for GeoRect {
@@ -281,10 +289,22 @@ impl JsonWritable for GeoRect {
             w.write_field("west", self.west().degrees());
             w.write_field("south", self.south().degrees());
             w.write_field("east", self.east().degrees());
-            w.write_field("north", self.north().degrees());      
+            w.write_field("north", self.north().degrees());
         });
     }
 }
+
+impl Hash for GeoRect {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.west().hash( state);
+        self.south().hash( state);
+        self.east().hash( state);
+        self.north().hash( state);
+    }
+}
+
+// note we cannot derive this because f64 is not Eq
+impl Eq for GeoRect {}
 
 /* #endregion GeoRect */
 
@@ -406,10 +426,10 @@ impl GeoPolygon {
             if p.0.y > north { north = p.0.y }
         }
 
-        GeoRect::from_wsen( 
-            Longitude::from_degrees(west), 
-            Latitude::from_degrees(south), 
-            Longitude::from_degrees(east), 
+        GeoRect::from_wsen(
+            Longitude::from_degrees(west),
+            Latitude::from_degrees(south),
+            Longitude::from_degrees(east),
             Latitude::from_degrees(north)
         )
     }
@@ -425,7 +445,7 @@ impl GeoPolygon {
 
         let mut b = Coord { x: f64::MIN, y: f64::MAX };
         let mut j = 0;  // index of point on hull
-        
+
         //--- find point on convex hull (e.g. lowest y with largest x)
         for i in 0..=imax {
             if ps[i].y < b.y {
@@ -437,14 +457,14 @@ impl GeoPolygon {
         }
 
         //--- get neighboring vertices (don't need to be on hull)
-        let a = if j == 0 { ps[imax] } else { ps[j-1].clone() }; // prev        
+        let a = if j == 0 { ps[imax] } else { ps[j-1].clone() }; // prev
         let c = if j == imax { ps[0].clone() } else { ps[j+1].clone() }; // next
 
         (b.x - a.x)*(c.y - a.y) - (c.x - a.x)*(b.y - a.y) < 0.0
     }
 
     /// ensure our vertices are ordered clockwise
-    /// TODO = also check/reverse interiors 
+    /// TODO = also check/reverse interiors
     pub fn make_clockwise (&mut self) {
         if !self.is_clockwise() {
             let pts: Vec<Coord<f64>> = self.0.exterior().points().rev().map(|p| p.0.clone()).collect();
@@ -504,6 +524,10 @@ impl GeoPoint3 {
         }
     }
 
+    pub fn from_point_alt_meters (point: Point, alt: f64) -> Self {
+        GeoPoint3 { point, alt }
+    }
+
     #[inline] pub fn longitude(&self) -> Longitude { Longitude::from_degrees( self.point.x()) }
     #[inline] pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.point.y()) }
     #[inline] pub fn altitude(&self) -> Length { Length::new::<meter>(self.alt) }
@@ -520,7 +544,7 @@ impl GeoPoint3 {
     }
 
     #[inline] pub fn to_cartesian3 (&self)->Cartesian3 { Cartesian3::from( self.to_cartographic()) }
-    
+
     pub fn bearing_from (&self, prev: &GeoPoint3)->Angle360 {
         let cp1 = prev.to_cartographic();
         let cp2 = self.to_cartographic();
@@ -551,8 +575,8 @@ impl JsonWritable for GeoPoint3 {
 // nav_types conversions
 
 impl From<ECEF<f64>> for GeoPoint3 {
-    fn from (ecef: ECEF<f64>) -> Self { 
-        let wgs84: WGS84<f64> = ecef.into(); 
+    fn from (ecef: ECEF<f64>) -> Self {
+        let wgs84: WGS84<f64> = ecef.into();
         GeoPoint3 {
             point: Point::new( wgs84.longitude_degrees(), wgs84.latitude_degrees()),
             alt: wgs84.altitude()
@@ -607,7 +631,7 @@ impl GeoPoint4 {
 
     pub fn from_lon_lat_degrees_alt_meters_epoch_millis (lon_deg: f64, lat_deg: f64, alt_m: f64, epoch_millis: i64) -> Self {
         GeoPoint4{ location: GeoPoint3::from_lon_lat_degrees_alt_meters( lon_deg, lat_deg, alt_m), date: EpochMillis::new(epoch_millis) }
-    } 
+    }
 
     #[inline] pub fn longitude(&self) -> Longitude { Longitude::from_degrees( self.location.longitude_degrees()) }
     #[inline] pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.location.latitude_degrees()) }

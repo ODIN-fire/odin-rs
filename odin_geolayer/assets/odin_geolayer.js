@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -64,13 +64,13 @@ function createWindow() {
     return ui.Window("Geo Layers", "geolayer", "./asset/odin_geolayer/geomarker-icon.svg")(
         ui.LayerPanel("geolayer", toggleShowGeoLayer),
         ui.Panel("geo layer sources", true)(
-            ui.TreeList("geolayer.source.list", 15, 25, selectGeoLayerSource),
+            ui.TreeList("geolayer.source.list", 15, "27rem", selectGeoLayerSource),
             ui.RowContainer()(
-                ui.Button("clear", clearAll)
+                ui.Button("∅", clearAll)
             )
         ),
         ui.Panel("object data", false)(
-            ui.KvTable("geolayer.object", 15, 25,25)
+            ui.KvTable("geolayer.object", 15, "27rem", "27rem")
         ),
         ui.Panel("display parameters", false)()
     );
@@ -107,7 +107,7 @@ async function loadRenderModule (modPath,sourceEntry=null) {
         }
     }
 
-    if (renderFunc) { 
+    if (renderFunc) {
         if (sourceEntry) sourceEntry.renderFunc = renderFunc;
         else defaultRenderFunc = renderFunc;
     }
@@ -124,7 +124,7 @@ function geoLayerSelection() {
             let kvList = e.properties.propertyNames.map( key=> [key, e.properties[key]._value]);
             ui.setKvList(objectView,kvList);
         } else {
-            ui.setKvList(objectView,null);
+            ui.clearKvList(objectView);
         }
     }
 }
@@ -139,6 +139,7 @@ function toggleShowSource(event) {
                 loadSource(se);
             } else {
                 unloadSource(se);
+                ui.clearKvList(objectView);
             }
         }
     }
@@ -149,7 +150,8 @@ function clearAll (event) {
         if (se.show) {
             unloadSource(se);
             se.show = false;
-            ui.updateListItem( sourceView, se);
+            ui.updateListItem(sourceView, se);
+            ui.clearKvList(objectView);
         }
     }
 }
@@ -206,7 +208,7 @@ async function loadSource(sourceEntry) {
                     postProcessDataSource(sourceEntry, renderOpts);
                     sourceEntry.nEntities = ds.entities.values.length;
                     ui.updateListItem(sourceView, sourceEntry);
-            
+
                     odinCesium.addDataSource(ds);
 
                     console.log("loaded ", url);

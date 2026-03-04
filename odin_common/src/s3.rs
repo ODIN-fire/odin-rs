@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -45,7 +45,7 @@ pub enum OdinS3Error {
     NoObjectKeyError(),
 
     #[error("No object date error")]
-    NoObjectDateError(),    
+    NoObjectDateError(),
 }
 
 
@@ -89,17 +89,17 @@ impl Dated for S3Object {
 }
 
 /// create S3 Client for given region
-pub async fn create_s3_client (region: String) -> Result<Client> {
-    let region_provider = RegionProviderChain::first_try( Region::new( region));
+pub async fn create_s3_client (region: &str) -> Result<Client> {
+    let region_provider = RegionProviderChain::first_try( Region::new( region.to_string()));
     let aws_config = aws_config::from_env().no_credentials().region(region_provider).load().await; // add anonymous creditials
-    Ok( Client::new(&aws_config) ) 
+    Ok( Client::new(&aws_config) )
 }
 
 /// retrieve all objects (from optional marker) for given bucket/prefix. If there is no error this always returns a `Vec<S3Object>`
 /// but it might be empty (if there were no matching objects)
 pub async fn get_s3_objects (client: &Client, bucket: &str, prefix: &str, prev_key: Option<&str>) -> Result<Vec<S3Object>> {
     let mut builder = client.list_objects().bucket(bucket).prefix(prefix);
-    if let Some(key) = prev_key { 
+    if let Some(key) = prev_key {
         builder = builder.marker(key);
     }
     let result = builder.send().await?;
@@ -111,7 +111,7 @@ pub async fn get_s3_objects (client: &Client, bucket: &str, prefix: &str, prev_k
 /// query was without error but there is no matching object
 pub async fn get_last_s3_object (client: &Client, dt: DateTime<Utc>, bucket: &str, prefix: &str, prev_key: Option<&String>) -> Result<Option<S3Object>> {
     let mut builder = client.list_objects().bucket(bucket).prefix(prefix);
-    if let Some(key) = prev_key { 
+    if let Some(key) = prev_key {
         builder = builder.marker(key);
     }
     let result = builder.send().await?;
@@ -132,7 +132,7 @@ pub async fn download_s3_object (client: &Client, bucket: &str, object: &S3Objec
             .bucket(bucket)
             .key(key)
             .send()
-            .await?; 
+            .await?;
 
         while let Some(bytes) = object.body.try_next().await? {
             file.write_all(&bytes)?;

@@ -87,13 +87,13 @@ class OdinShare extends main.Share {
         super();
     }
 
-    setSharedItem (key, type, data, isLocal=false, comment=null) {
+    setSharedItem(key, type, data, isLocal = false, comment = null) {
         if (type == main.JSON) data = JSON.stringify(data); // we store JSON as a generic string
         let value = new main.SharedValue( type, comment, data);
         let sharedItem = new main.SharedItem( key, isLocal, value);
 
         if (isLocal) { // notify shareHandlers right away
-            handleSetShared( {key,value}, true);
+            handleSetShared({ key, value }, true);
         } else {
             ws.sendWsMessage( MOD_PATH, "setShared", sharedItem);
             // sharedItems will be updated when server responds in handleWsMessages()
@@ -700,8 +700,8 @@ function saveItem(event) {
                 return;
             }
 
-            pendingSavedKeys.add( key);
-            share.setSharedItem( key, dataType, data, isLocal, comment);
+            pendingSavedKeys.add(key);
+            share.setSharedItem(key, dataType, data, isLocal, comment);
 
         } catch (error) {
             window.alert("invalid JSON: " + error);
@@ -757,7 +757,7 @@ function runSelectedEditor(event) {
             shareDataSource.entities.removeById(key); // don't keep the entity while we are editing
             // TODO - we have to update the dir entry show status here
 
-            ui.selectChoiceItem( typeChoice, e.type); // if we run the editor we select a type
+            ui.selectChoiceItem(typeChoice, e.type); // if we run the editor we select a type
             e.editor( selItem ? selItem.value.data : null, valueCallback);
         } else {
             window.alert("no editor selected");
@@ -1110,12 +1110,14 @@ function handleInitSharedItems(sharedItems) {
     main.notifyShareHandlers( main.SHARE_INITIALIZED);
 }
 
-function handleSetShared (msg, isLocal) {
+function handleSetShared(msg, isLocal) {
     let key = msg.key;
     let value = msg.value;
     let updatedItem = share.getSharedItem(key); // this is the old item (if any)
 
-    if (value.type == main.JSON) { value.data = JSON.parse( value.data) }
+    if (value.type == main.JSON) {
+        value.data = JSON.parse(value.data);
+    }
 
     let sharedItem = new main.SharedItem(key,isLocal,value);
     share._set( sharedItem.key, sharedItem);
@@ -1139,7 +1141,7 @@ function handleSetShared (msg, isLocal) {
         ui.selectNodePath(dirView, key);
     }
 
-    main.notifyShareHandlers( {setShared: sharedItem} );
+    main.notifyShareHandlers({ setShared: sharedItem });
 
     if (selItem && selItem.key == sharedItem.key) {
         selItem = sharedItem;

@@ -25,7 +25,7 @@ use ort::{
 
 use odin_common::{define_cli, ron};
 use odin_onnx::{
-    fit, print_session_info, img_to_array4, ImageClassifierConfig
+    fit, print_session_info, img_to_array4, ImageClassifierConfig, run_inference
 };
 
 define_cli! { ARGS [about="run image classifier model for given configuration and input image"] =
@@ -46,22 +46,24 @@ fn main() -> Result<()> {
     let imgs = fit( &img, &config)?;
     if !ARGS.dry_run {
         for img in &imgs {
-            let input: Array4<f32> = img_to_array4(img);
+            let (model_w, model_h) = img.dimensions();
+            let img_data: Array4<f32> = img_to_array4(img);
+            let inputs = ort::inputs![ "images" => Tensor::from_array(img_data)? ];
 
-            match session.run( ort::inputs![ "images" => Tensor::from_array(input)? ]) {
-                Ok(outputs) => {
-                    println!("inference output");
-                    for (key,value_ref) in outputs.iter() {
-                        // TODO - output is model specific. How do we generically display it
-                        println!("  {} : {} = {:?}", key, value_ref.dtype(), value_ref.try_extract_array::<f32>());
-                        //println!("{}: {:#?}", key, value_ref);
+            run_inference( &mut session, inputs, |outputs| {
+                println!("inference output");
+                let output0 = outputs["output0"].try_extract_array::<f32>()?.t().into_owned();
+                for row in output0.axis_iter( Axis(0)) {
+                    let row: Vec<_> = row.iter().copied().collect();
+                    let probability = row[4];
+
+                    if probability > 0.1 {
+                        println!("{:?}", row);
                     }
-
                 }
-                Err(e) => println!("inference error: {e}")
-            }
 
-            //img.save_with_format("test-image.jpg", image::ImageFormat::Jpeg)?;
+                Ok(())
+            })?;
         }
     }
 

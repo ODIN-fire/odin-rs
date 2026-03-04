@@ -9,18 +9,19 @@ build = "../build_resources.rs"
 doctest = false
 
 [dependencies]
-axum-server = { version = "0.7", features = ["tls-rustls"] }
+axum-server = { version = "0.8", features = ["tls-rustls"] }
 bytes = { workspace = true }
 anyhow = { workspace = true }
 headers = { workspace = true }
 futures-util = { workspace = true }
-minify-html = "0.16.4"
+minify-html = "0.18"
 http = { workspace = true }
 http-body = "1.0.1"
 http-body-util = "0.1.3"
 tower = { workspace = true}
 tower-http = { workspace = true }
 tracing-subscriber = "0.3.19"
+reqwest = {workspace = true }
 reqwest-middleware = { workspace = true }
 http-cache-reqwest = { workspace = true }
 #cacache = { workspace = true }
@@ -35,7 +36,6 @@ clap = { workspace = true }
 lazy_static = { workspace = true }
 
 axum = { workspace = true }
-reqwest = {workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ron = { workspace = true }

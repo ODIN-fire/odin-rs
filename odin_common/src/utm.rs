@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -70,6 +70,11 @@ impl UtmRect {
     }
 }
 
+impl Deref for UtmRect {
+    type Target = BoundingBox<f64>;
+    fn deref (&self)->&Self::Target { &self.bbox }
+}
+
 // we can't impl From<GeoRect> since UTM is only defined between [-80,84] deg latitude, i.e. the conversion can fail
 
 #[derive(Debug,Copy,Clone,Serialize,Deserialize,PartialEq)]
@@ -115,18 +120,18 @@ pub fn naive_utm_zone (geo: &GeoPoint) -> UtmZone {
 
 pub fn latitude_band (lon_deg: f64, lat_deg: f64)->char {
     // the polar regions are special cases in MGRS
-    if lat_deg < -80.0 { 
-       return if lon_deg < 0.0 { 'A' } else { 'B' } 
+    if lat_deg < -80.0 {
+       return if lon_deg < 0.0 { 'A' } else { 'B' }
     }
     if lat_deg >= 72.0 {
-        if lat_deg >= 84.0 { 
-            return if lon_deg < 0.0 { 'Y' } else { 'Z' } 
+        if lat_deg >= 84.0 {
+            return if lon_deg < 0.0 { 'Y' } else { 'Z' }
         } else {
             return 'X'
         }
     }
 
-    let i = ((lat_deg + 80.0) / 8.0) as usize;    
+    let i = ((lat_deg + 80.0) / 8.0) as usize;
     let band = [ 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W']; // no 'I', 'O'
 
     band[i]
@@ -237,17 +242,17 @@ pub fn geo_to_utm_rect (r: &GeoRect)->Option<UtmRect> {
     let ll = r.sw_point();
     let ur = r.ne_point();
 
-    if_let! {
-        Some(utm_ll) = { geo_to_utm( &ll) } else { None },
-        Some(utm_ur) = { geo_to_utm( &ur) } else { None } => {
-            let zone_ll = utm_ll.utm_zone;
-            let zone_ur = utm_ur.utm_zone;
+    if let Some(utm_ll) = geo_to_utm( &ll)
+    && let Some(utm_ur) = geo_to_utm( &ur) {
+        let zone_ll = utm_ll.utm_zone;
+        let zone_ur = utm_ur.utm_zone;
 
-            if zone_ll == zone_ur {
-                Some( UtmRect::from_wsen_meters( utm_ll.easting, utm_ll.northing, utm_ur.easting, utm_ur.northing, zone_ll) )
-            } else {
-                Some( UtmRect::from_wsen_meters( utm_ll.easting, utm_ll.northing, utm_ur.easting + 500_000.0, utm_ur.northing, zone_ll) )
-            }
+        if zone_ll == zone_ur {
+            Some( UtmRect::from_wsen_meters( utm_ll.easting, utm_ll.northing, utm_ur.easting, utm_ur.northing, zone_ll) )
+        } else {
+            Some( UtmRect::from_wsen_meters( utm_ll.easting, utm_ll.northing, utm_ur.easting + 500_000.0, utm_ur.northing, zone_ll) )
         }
+    } else {
+        None
     }
 }

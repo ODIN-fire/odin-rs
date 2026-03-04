@@ -19,7 +19,9 @@ odin_orbital = { workspace = true }
 odin_sentinel = { workspace = true }
 odin_share = { workspace = true }
 odin_wind = { workspace = true }
+odin_wx = { workspace = true }
 odin_hrrr = { workspace = true }
+odin_openmeteo = { workspace = true }
 odin_adsb = { workspace = true }
 odin_n5 = { workspace = true }
 odin_alertca = { workspace = true }

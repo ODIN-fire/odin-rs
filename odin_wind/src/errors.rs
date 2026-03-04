@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -45,6 +45,9 @@ pub enum OdinWindError {
 
     #[error("Odin GDAL error {0}")]
     OdinGdalError( #[from] odin_gdal::errors::OdinGdalError),
+
+    #[error("Odin wx error {0}")]
+    OdinWxError( #[from] odin_wx::errors::OdinWxError),
 
     #[error("gdal error {0}")]
     GdalError( #[from] GdalError),

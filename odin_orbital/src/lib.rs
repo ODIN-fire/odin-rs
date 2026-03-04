@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -22,25 +22,25 @@ use static_init::constructor;
 use serde::{Deserialize,Serialize};
 use async_trait::async_trait;
 use uom::si::{
-    f64::{Length,ThermodynamicTemperature,Power},thermodynamic_temperature::kelvin, length::meter, power::megawatt, 
+    f64::{Length,ThermodynamicTemperature,Power},thermodynamic_temperature::kelvin, length::meter, power::megawatt,
 };
 use bit_set::BitSet;
 use lazy_static::lazy_static;
 
 use odin_build::{define_load_config,define_load_asset, pkg_cache_dir};
 use odin_common::{
-    angle::{ser_rounded5_angle, ser_rounded_angle, Angle180, Angle90, Latitude, Longitude}, 
-    cartesian3::{ser_rounded_cartesian3, Cartesian3}, 
-    cartographic::Cartographic, collections::empty_vec, 
-    datetime::{self, de_from_epoch_millis, ser_epoch_millis, days}, 
-    fs::{ensure_writable_dir, get_modified_timestamp, set_modified_timestamp, set_filepath_contents}, 
-    geo::{GeoPoint,GeoPolygon}, 
-    json_writer::{JsonWritable, JsonWriter}, 
+    angle::{ser_rounded5_angle, ser_rounded_angle, Angle180, Angle90, Latitude, Longitude},
+    cartesian3::{ser_rounded_cartesian3, Cartesian3},
+    cartographic::Cartographic, collections::empty_vec,
+    datetime::{self, de_from_epoch_millis, ser_epoch_millis, days},
+    fs::{ensure_writable_dir, get_modified_timestamp, set_modified_timestamp, set_filepath_contents},
+    geo::{GeoPoint,GeoPolygon},
+    json_writer::{JsonWritable, JsonWriter},
 };
 use odin_macro::public_struct;
 
 lazy_static! {
-    pub static ref PKG_CACHE_DIR: PathBuf = pkg_cache_dir!(); 
+    pub static ref PKG_CACHE_DIR: PathBuf = pkg_cache_dir!();
 }
 
 pub mod errors;
@@ -64,6 +64,7 @@ pub use actor::OrbitalHotspotActor;
 pub mod hotspot_service;
 pub use hotspot_service::OrbitalHotspotService;
 
+pub mod copernicus;
 
 define_load_config!{}
 define_load_asset!{}
@@ -77,10 +78,10 @@ pub struct OrbitalSatelliteInfo {
     name: String,
 
     instrument: String,
-    max_scan_angle: Angle90,  
+    max_scan_angle: Angle90,
 
     /// average orbital height - used to determine z-bounds for given regions
-    avg_height: Length, 
+    avg_height: Length,
 
     /// average swath width (single side)
     avg_swath_width: Length,
@@ -94,11 +95,11 @@ pub struct OrbitalSatelliteInfo {
     /// this is also used as the basis for the max file age (after which we drop cache entries)
     back_days: usize,
 
-    // number of upcoming days we compute overpasses for 
+    // number of upcoming days we compute overpasses for
     forward_days: usize,
 
     /// max number of completed overpasses to keep
-    max_completed: usize,  
+    max_completed: usize,
 
     /// max number of future overpasses to compute
     max_upcoming: usize,
@@ -146,11 +147,11 @@ impl HotspotConfidence {
 }
 
 /// abstraction of hotspots measured by different instruments/satellites
-/// we need this so that we don't have to use generic hotspot types (or associated item types in containers), which would 
+/// we need this so that we don't have to use generic hotspot types (or associated item types in containers), which would
 /// either restrict us to homogenous instruments (with redundant JS modules) or to using lots of trait objects
 /// - which would still impose an abstraction unless we resort to the use of Any and downcasting
 /// Preserving the raw input type should best be left to the specific importers
-/// Note that we keep some redundant information here in order to save re-computation on the client side 
+/// Note that we keep some redundant information here in order to save re-computation on the client side
 #[derive(Debug,Serialize,Deserialize)]
 #[public_struct]
 struct Hotspot {
@@ -162,9 +163,9 @@ struct Hotspot {
     scan: Length,    // cross-scan length of pixel footprint in meters
     track: Length,   // along-track length of pixel footprint in meters
     rot: Angle180,   // rotation angle of pixel rect counting clockwise from north (bearing from pos to nearest overpass ground point)
-    dist: Length,    // great-circle dist of hotspot from closest ground point 
+    dist: Length,    // great-circle dist of hotspot from closest ground point
 
-    date: DateTime<Utc>,    
+    date: DateTime<Utc>,
     conf: Option<HotspotConfidence>,
 
     //--- optionals (depending on instrument)
@@ -183,7 +184,7 @@ impl JsonWritable for Hotspot {
                 self.area[0].write_json_to(w);
                 self.area[1].write_json_to(w);
                 self.area[2].write_json_to(w);
-                self.area[3].write_json_to(w);            
+                self.area[3].write_json_to(w);
             });
 
             w.write_field("scan", self.scan.get::<meter>().round() as i64);
@@ -204,7 +205,7 @@ impl fmt::Display for Hotspot {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let d = &self.date;
         write!( f, "{{ lon: {:.5}, lat: {:.5}", self.lon.degrees(), self.lat.degrees())?;
-        write!( f, ", scan: {:.0} m, track: {:.0} m, rot: {:.0}, dist: {:.0}", 
+        write!( f, ", scan: {:.0} m, track: {:.0} m, rot: {:.0}, dist: {:.0}",
                  self.scan.get::<meter>(), self.track.get::<meter>(), self.rot.degrees(), self.dist.get::<meter>())?;
         write!( f, ", date: {:04}-{:02}-{:02}T{:02}:{:02}", d.year(), d.month(), d.day(), d.hour(), d.minute())?;
         if let Some(conf) = self.conf {
@@ -221,7 +222,7 @@ impl fmt::Display for Hotspot {
 }
 
 
-/// overpass data containing hotspots 
+/// overpass data containing hotspots
 /// note this structure can be used as a trampoline - if hotspots are empty the full data can be obtained from fname
 #[derive(Debug,Serialize,Deserialize)]
 #[public_struct]
@@ -241,7 +242,7 @@ pub struct HotspotList {
 impl HotspotList {
     pub fn new (op: &Overpass, hotspots: Vec<Hotspot>)->Self {
         let start = &op.start;
-        let fname = format!("{}_{:4}-{:02}-{:02}_{:02}{:02}_{}_hotspots.json", 
+        let fname = format!("{}_{:4}-{:02}-{:02}_{:02}{:02}_{}_hotspots.json",
                             op.sat_id, start.year(), start.month(), start.day(), start.hour(), start.minute(), (op.end-start).num_minutes());
 
         let mut high = 0;
@@ -256,15 +257,15 @@ impl HotspotList {
             }
         }
 
-        HotspotList { 
-            sat_id: op.sat_id, 
+        HotspotList {
+            sat_id: op.sat_id,
             start: op.start,
             end: op.end,
             high, nominal, low,
             fname,
             hotspots
         }
-    } 
+    }
 
     pub fn save_to (&self, dir: impl AsRef<Path>)->Result<()> {
         set_filepath_contents( dir, &self.fname, self.to_full_json().as_bytes())?;
@@ -336,7 +337,7 @@ pub fn save_retrieved_hotspots_to (dir: impl AsRef<Path>, retrieved: &BitSet, co
 pub trait HotspotImporter {
     /// import latest hotspots from current date with up to n_days of history and store in respective CompletedOverpasses
     async fn import_hotspots (&mut self, n_days: usize, cops: &mut VecDeque<CompletedOverpass<HotspotList>>) -> Result<BitSet>;
-    
+
     /// what is the last date for which we got any hotspot data (might not be for our overpasses)
     fn last_reported (&self)->DateTime<Utc>;
 
@@ -366,7 +367,7 @@ impl HotspotImporter for NoHotspotImporter {
 /// aggregation of orbit segment and resulting instrument data (to be filled in once such data becomes available)
 #[public_struct]
 pub struct CompletedOverpass<T> {
-    overpass: Overpass, // the time & trajectory 
+    overpass: Overpass, // the time & trajectory
     data: Option<T>     // e.g. hotspots received for this overpass - optional since we might not have received data yet
 }
 
@@ -413,6 +414,9 @@ pub type ColumnVec<'a> = Matrix<f64, Const<3>, Const<1>, ViewStorage<'a, f64, Co
 
 #[constructor(0)]
 pub extern "C" fn init_orbital_data () {
+    if let Ok(skip) = std::env::var("ODIN_SKIP_SATKIT_INIT") {
+        if skip == "1" || skip == "true" { return } // bail out
+    }
     let dir = pkg_cache_dir!().join("satkit");
     println!("using emphemeris from {:?}", dir);
     ensure_writable_dir(&dir).expect("failed to create satkit data dir");

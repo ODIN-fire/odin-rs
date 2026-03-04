@@ -47,7 +47,11 @@ impl AdsbConnector for SbsConnector {
         let keep_alive = self.keep_alive.clone();
         let tz = self.config.timezone.clone();
 
-        let join_handle =  spawn_blocking( "sbs-task", move || { process_msgs(url, max_trace, timestamp, aircraft, keep_alive, tz); })?;
+        let join_handle =  spawn_blocking( "sbs-task", move || {
+            if let Err(e) = process_msgs(url, max_trace, timestamp, aircraft, keep_alive, tz) {
+                eprintln!("failed to connect to ADS-B SBS receiver: {e}");
+            }
+        })?;
         self.task = Some(join_handle);
 
         Ok(())
@@ -64,6 +68,7 @@ impl AdsbConnector for SbsConnector {
 
 pub fn process_msgs (url: String, max_trace: usize, timestamp: Arc<AtomicI64>, aircraft: Arc<DashMap<String,Aircraft>>, keep_alive: Arc<AtomicBool>, source_tz: Tz)->Result<()> {
     let stream = std::net::TcpStream::connect( url)?;
+
     let mut reader = std::io::BufReader::with_capacity( 8192, stream);
     let mut csv = CsvExtractor::new(reader);
 

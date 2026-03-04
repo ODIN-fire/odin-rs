@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -16,6 +16,7 @@
 
 use std::fmt::{Write,Display,Debug};
 use std::borrow::Borrow;
+use chrono::{DateTime,Utc};
 
 pub enum NumFormat {
     Fp0, Fp1, Fp2, Fp3, Fp4, Fp5
@@ -28,7 +29,7 @@ pub enum NumFormat {
 ///     use odin_common::json_writer::JsonWriter;
 ///     let x = 42.0;
 ///     let y = 43;
-///     
+///
 ///     let mut w = JsonWriter::new();
 ///     w.write_object( |w|{
 ///         w.write_fmt_field( "foo", &format!("{:.3}", x));
@@ -36,9 +37,9 @@ pub enum NumFormat {
 ///         w.write_array_field( "baz", |w|{
 ///             w.write_value("boo");
 ///             w.write_value("faz");
-///         }) 
+///         })
 ///     });
-///     
+///
 ///     println!("{}", w.to_string());
 /// ```
 pub struct JsonWriter {
@@ -46,26 +47,32 @@ pub struct JsonWriter {
 }
 
 impl JsonWriter {
-    pub fn new()->Self { 
-        JsonWriter { buf: String::new() } 
+    pub fn new()->Self {
+        JsonWriter { buf: String::new() }
     }
 
-    pub fn with_capacity (len: usize)->Self { 
-        JsonWriter { buf: String::with_capacity(len) } 
+    pub fn with_capacity (len: usize)->Self {
+        JsonWriter { buf: String::with_capacity(len) }
     }
-    
+
     pub fn clear (&mut self) {
         self.buf.clear();
     }
 
-    pub fn write_object (&mut self, f: impl FnOnce(&mut JsonWriter)) { 
+    pub fn write_date_field (&mut self, prop_name: &str, value: DateTime<Utc>) {
+        self.check_separator();
+        write!( self.buf, "\"{prop_name}\":");
+        write!( self.buf, "{}", value.timestamp_millis());
+    }
+
+    pub fn write_object (&mut self, f: impl FnOnce(&mut JsonWriter)) {
         self.check_separator();
         self.buf.write_char('{');
         f (self);
         self.buf.write_char('}');
     }
-    
-    pub fn write_object_field (&mut self, prop_name: &str, f: impl FnOnce(&mut JsonWriter)) { 
+
+    pub fn write_object_field (&mut self, prop_name: &str, f: impl FnOnce(&mut JsonWriter)) {
         self.check_separator();
         write!( self.buf, "\"{prop_name}\":");
         self.buf.write_char('{');
@@ -79,15 +86,15 @@ impl JsonWriter {
         f (self);
         self.buf.write_char(']');
     }
-    
-    pub fn write_array_field (&mut self, prop_name: &str, f: impl FnOnce(&mut JsonWriter)) { 
+
+    pub fn write_array_field (&mut self, prop_name: &str, f: impl FnOnce(&mut JsonWriter)) {
         self.check_separator();
         write!( self.buf, "\"{prop_name}\":");
         self.buf.write_char('[');
         f (self);
         self.buf.write_char(']');
     }
-    
+
     pub fn write_fmt_field (&mut self, prop_name: &str, value: &str) {
         self.check_separator();
         write!( self.buf, "\"{prop_name}\":");
@@ -106,7 +113,7 @@ impl JsonWriter {
         write!( self.buf, "\"{prop_name}\":");
         f(self)
     }
-    
+
     /// this is a catch-all for proper string/number formatting
     pub fn write_field<T:Debug> (&mut self, prop_name: &str, value: T) {
         self.check_separator();
@@ -133,14 +140,14 @@ impl JsonWriter {
         write!( self.buf, "\"{prop_name}\":");
         value.write_json_to(self);
     }
-    
+
     pub fn write_value<T:Debug> (&mut self, value: T) {
         self.check_separator();
         write!( self.buf, "{value:?}");
     }
-    
+
     pub fn to_string(self)->String { self.buf }
-    
+
     pub fn as_str (&self)->&str { self.buf.as_str() }
 
     pub fn to_owned (&self)->String { self.buf.clone() }
@@ -207,10 +214,10 @@ impl <T: JsonWritable> JsonWritable for &[T] {
             }
         });
     }
-} 
+}
 
 impl <T: JsonWritable> JsonWritable for Vec<T> {
     fn write_json_to (&self, w: &mut JsonWriter) {
         self.as_slice().write_json_to(w);
     }
-} 
+}

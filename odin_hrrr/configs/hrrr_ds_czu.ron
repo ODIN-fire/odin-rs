@@ -1,13 +1,17 @@
-// example HrrrDataSetSpec for Santa Cruz Mountains 
+// example HrrrDataSetSpec for Santa Cruz Mountains
 
-HrrrDataSetConfig(
-    name: "CZU",
+WxDataSetRequest (
+    region: "CZU",
     bbox: GeoRect(
         west: -122.6799806,
         south: 36.9947389,
         east: -121.8616750,
         north: 37.4842722
     ),
-    fields: ["TCDC", "TMP", "UGRD", "VGRD"],
-    levels: ["lev_2_m_above_ground", "lev_10_m_above_ground", "lev_entire_atmosphere"],
+    wx_name: "odin_hrrr::HrrrService",
+    set_name: "basic",
+    fc_duration: Duration( secs: 2160, nanos: 0), // 6h
+
+    // the invariant field and level part of the query
+    query: "var_TCDC=on&var_TMP=on&var_UGRD=on&var_VGRD=on&lev_2_m_above_ground=on&lev_10_m_above_ground=on&lev_80_m_above_ground=on&lev_surface=on&lev_entire_atmosphere=on"
 )

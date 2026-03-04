@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -165,7 +165,7 @@ pub fn dem_cache_dir()->PathBuf {
 const DEM_OPTS: &[&'static str] = &[ "COMPRESS=DEFLATE", "PREDICTOR=2"];
 
 pub fn get_local_res_file_path<P> ( vrt_file: &P, bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64,
-                                    img_type: DemImgType, cache_dir: &PathBuf) -> Result<PathBuf> 
+                                    img_type: DemImgType, cache_dir: &PathBuf) -> Result<PathBuf>
     where P: AsRef<Path>
 {
     let data_src = fs::basename( vrt_file).ok_or(invalid_filename( format!("{:?}", vrt_file.as_ref())))?;
@@ -173,7 +173,7 @@ pub fn get_local_res_file_path<P> ( vrt_file: &P, bbox: &BoundingBox<f64>, srs: 
     Ok( cache_dir.join( fname.as_str()) )
 }
 
-pub fn get_local_wh_file_path<P> ( vrt_file: &P, bbox: &BoundingBox<f64>, srs: DemSRS, width: u32, height: u32, 
+pub fn get_local_wh_file_path<P> ( vrt_file: &P, bbox: &BoundingBox<f64>, srs: DemSRS, width: u32, height: u32,
                                    img_type: DemImgType, cache_dir: &PathBuf) -> Result<PathBuf>
     where P: AsRef<Path>
 {
@@ -185,7 +185,7 @@ pub fn get_local_wh_file_path<P> ( vrt_file: &P, bbox: &BoundingBox<f64>, srs: D
 /// for a given bounding box 'bbox' look for a matching file in 'cache_dir'.
 /// If none found yet create a file with the given 'img_type' from the virtual GDAL tileset specified by 'vrt_file'
 /// note that `bbox` has to be in `srs` units (degree for GEO, meters for UTM)
-pub fn get_wh_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, width: u32, height: u32, img_type: DemImgType, vrt_file: &P, file_path: &PathBuf) -> Result<()> 
+pub fn get_wh_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, width: u32, height: u32, img_type: DemImgType, vrt_file: &P, file_path: &PathBuf) -> Result<()>
     where P: AsRef<Path>
 {
     let vrt_path = vrt_file.as_ref();
@@ -202,7 +202,7 @@ pub fn get_wh_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, width: u32, height: 
 }
 
 
-pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, img_type: DemImgType, vrt_file: &P, file_path: &PathBuf) -> Result<()> 
+pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, img_type: DemImgType, vrt_file: &P, file_path: &PathBuf) -> Result<()>
     where P: AsRef<Path>
 {
     let vrt_path = vrt_file.as_ref();
@@ -226,7 +226,7 @@ pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: 
         // note that the nodata value might get used subsequently in SRS conversion / cropping
         warp.set_tgt_nodatas(vec![0.01234]);
 
-        if let Some(opts) = &create_opts { warp.set_create_options( opts); }        
+        if let Some(opts) = &create_opts { warp.set_create_options( opts); }
         warp.exec()?;
 
     } else {
@@ -239,8 +239,8 @@ pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: 
 
 pub async fn query_res_dem (base_url: &str, bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, img_type: DemImgType, file_path: &PathBuf) -> Result<()>  {
     if !file_path.exists() {
-        let url = format!("{}/GetResDem?crs=EPSG:{}&bbox={:.0},{:.0},{:.0},{:.0}&res_x={}&res_y={}&format=image/tif", 
-            base_url, srs.epsg(), 
+        let url = format!("{}/GetResDem?crs=EPSG:{}&bbox={:.0},{:.0},{:.0},{:.0}&res_x={}&res_y={}&format=image/tif",
+            base_url, srs.epsg(),
             bbox.west, bbox.south, bbox.east, bbox.north,
             res_x, res_y
         );
@@ -306,4 +306,4 @@ impl DemSource {
             }
         }
     }
-} 
+}

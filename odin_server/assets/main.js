@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 
-/** 
+/**
  * JS module for global functions and objects - this is an intrinsic module and always included
  * it is not allowed to depend on any other imports/modules
  */
@@ -73,7 +73,7 @@ export function postInitialize() {
     console.log("main.js postInitialize complete.");
 }
 
-//--- default data sharing interface 
+//--- default data sharing interface
 
 // we keep those outside of the share object since we don't want to impose the constraint that
 // handlers can only be set from a module's postInitialize()
@@ -90,12 +90,16 @@ export function addShareHandler (newHandler) {
 }
 
 export function notifyShareHandlers (msg) {
-    if (msg.SHARE_INITIALIZED) { 
+    if (msg.SHARE_INITIALIZED) {
         shareInitialized = true;
     }
 
     for (let h of shareHandlers) {
-        h(msg);
+        try { // make sure one bad handler does not break all updates
+            h(msg);
+        } catch (error) {
+            console.error("share handler exception: ",error);
+        }
     }
 }
 
@@ -104,10 +108,10 @@ export function isShareInitialized() { return shareInitialized; }
 /// shareEditors are functions that take two arguments: `edit( selValue, processEditResult(value))`
 /// - `selValue` is the (optional) value that is used to initialize the editor
 /// - the `processEditResult(value)` callback function is only called if the edit is not canceled
-///   and takes a single edit result value argument. 
+///   and takes a single edit result value argument.
 export function addShareEditor (dataType, label, editorFunc) {
     let editorEntry = {type: dataType, label, editor: editorFunc};
-    
+
     let editors = shareEditors.get(dataType);
     if (editors) {
         editors.push( editorEntry);
@@ -169,7 +173,7 @@ export class GeoPoint {
 
     static checkType (o) {
         return (
-            (o.lon != undefined && typeof o.lon == "number") && 
+            (o.lon != undefined && typeof o.lon == "number") &&
             (o.lat != undefined && typeof o.lat == "number")
         )
     }
@@ -194,7 +198,7 @@ export class GeoPoint3 {
 
     static checkType (o) {
         return (
-            (o.lon != undefined && typeof o.lon == "number") && 
+            (o.lon != undefined && typeof o.lon == "number") &&
             (o.lat != undefined && typeof o.lat == "number") &&
             (o.alt != undefined && typeof o.alt == "number")
         )
@@ -215,7 +219,7 @@ export class GeoLine {
 
     static checkType (o) {
         return (
-            (o.start != undefined && GeoPoint.checkType(o.start)) && 
+            (o.start != undefined && GeoPoint.checkType(o.start)) &&
             (o.end != undefined && GeoPoint.checkType(o.end))
         )
     }
@@ -277,7 +281,7 @@ export class GeoPolygon {
     static checkType (o) {
         return (
             (Array.isArray(o.exterior) && o.exterior.every( p=> GeoPoint.checkType(p))) &&
-            (o.interiors == undefined || 
+            (o.interiors == undefined ||
                 (Array.isArray(o.interiors) && o.interiors.every( a=> {
                     Array.isArray(a) && a.every( p=> GeoPoint.checkType(p))
                 }))
@@ -300,7 +304,7 @@ export class GeoRect {
     static fromPoints (p1, p2) {
         let rect = new GeoRect(0,0,0,0);
         rect.setFromPoints( p1, p2);
-        return rect; 
+        return rect;
     }
 
     toRounded() {
@@ -322,7 +326,7 @@ export class GeoRect {
             this.east = p2.lon;
         } else {
             this.west = p2.lon;
-            this.east = p1.lon;      
+            this.east = p1.lon;
         }
 
         if (p1.lat < p2.lat) {
@@ -340,9 +344,9 @@ export class GeoRect {
 
     static checkType (o) {
         return (
-            (o.west != undefined && typeof o.west == 'number') && 
-            (o.south != undefined && typeof o.south == 'number') && 
-            (o.east != undefined && typeof o.east == 'number') && 
+            (o.west != undefined && typeof o.west == 'number') &&
+            (o.south != undefined && typeof o.south == 'number') &&
+            (o.east != undefined && typeof o.east == 'number') &&
             (o.north != undefined && typeof o.north == 'number')
         )
     }
@@ -371,16 +375,16 @@ export class GeoCircle {
     }
 
     toCircle () {
-        return { 
-            lon: toRadians(this.lon), 
-            lat: toRadians(this.lat), 
-            radius: this.radius 
+        return {
+            lon: toRadians(this.lon),
+            lat: toRadians(this.lat),
+            radius: this.radius
         };
     }
 
     static checkType (o) {
         return (
-            (o.lon != undefined && typeof o.lon == "number") && 
+            (o.lon != undefined && typeof o.lon == "number") &&
             (o.lat != undefined && typeof o.lat == "number") &&
             (o.radius != undefined && typeof o.radius == "number")
         )
@@ -421,13 +425,13 @@ export function checkType (typeName, data, template=null) {
         case F64: return typeof data == "number";
         case I64: return typeof data == "number";
 
-        default: 
+        default:
             if (template) {
                 let keys = Object.keys(template);
                 return keys.every( k=> (data[k] != undefined) && typeof data[k] == typeof template[k]);
-            } else { 
+            } else {
                 return true;
-            }        
+            }
     }
 }
 
@@ -468,7 +472,7 @@ export class SharedItem {
 
     name () {
         let idx = this.key.lastIndexOf('/');
-        return (idx >= 0) ? this.key.substring(idx+1) : this.key; 
+        return (idx >= 0) ? this.key.substring(idx+1) : this.key;
     }
 }
 
@@ -586,7 +590,7 @@ export class Share {
 
     _isSubscribedToExtRole (role) {
         let e = this._extRoles.get(role);
-        return (e && e.isSubscribed); 
+        return (e && e.isSubscribed);
     }
 
     //--- the public getters (can be called from any module using shared items)
@@ -598,23 +602,23 @@ export class Share {
     hasSharedItem (key) {
         return this._sharedItems.get( key) != undefined;
     }
-    
+
     // this returns a list of SharedItem objects
     getAllMatchingSharedItems (regex) {
         let matching = [];
         for (let sharedItem of this._sharedItems.values()) {
             if (sharedItem.key.match(regex)) matching.push(sharedItem);
         }
-        matching.sort( (a,b) => a.key.localeCompare(b.key)); 
+        matching.sort( (a,b) => a.key.localeCompare(b.key));
         return matching;
     }
-    
+
     findAllSharedItems (pred) {
         let matching = [];
         for (let sharedItem of this._sharedItems.values()) {
             if (pred(sharedItem)) matching.push(sharedItem);
         }
-        matching.sort( (a,b) => a.key.localeCompare(b.key)); 
+        matching.sort( (a,b) => a.key.localeCompare(b.key));
         return matching;
     }
 

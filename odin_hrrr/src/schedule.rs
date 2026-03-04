@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -40,23 +40,26 @@ impl HrrrSchedules {
 }
 
 pub async fn get_hrrr_schedules (conf: &HrrrConfig, statistic_schedules: bool)->Result<HrrrSchedules> {
-    if statistic_schedules { 
-        get_statistic_hrrr_schedules( &conf).await 
-    } else { 
+    if statistic_schedules {
+        get_statistic_hrrr_schedules( &conf).await
+    } else {
         get_estimated_hrrr_schedules( &conf)
     }
 }
 
 /// compute forecast schedules from configured estimates
 pub fn get_estimated_hrrr_schedules (conf: &HrrrConfig) -> Result<HrrrSchedules> {
-
     fn estimate_sched (first: u32, last: u32, len: u32, delay_secs: u32)->Result<Vec<u32>> {
         if last <= first { return Err( schedule_error("invalid configured  schedule estimates")) }
 
         let mut sched: Vec<u32> = Vec::with_capacity(len as usize);
-        let dsec = (last - first) *60 / (len-1) as u32; // schedule step vals are minutes since base hour - compute avg secs
-        for i in 0..len {
-            sched.push( first + ((i * dsec) + delay_secs + 30) / 60);
+        if len > 1 {
+            let dsec = (last - first) *60 / (len-1) as u32; // schedule step vals are minutes since base hour - compute avg secs
+            for i in 0..len {
+                sched.push( first + ((i * dsec) + delay_secs + 30) / 60);
+            }
+        } else {
+            sched.push( first);
         }
         Ok(sched)
     }
@@ -79,7 +82,7 @@ pub async fn get_statistic_hrrr_schedules (conf: &HrrrConfig) -> Result<HrrrSche
     let date_spec = format!("{:04}{:02}{:02}", dt.year(), dt.month(), dt.day());
     let url = url_template.replace( "${yyyyMMdd}", date_spec.as_str());
 
-    let response = reqwest::get(&url).await?;    
+    let response = reqwest::get(&url).await?;
     match response.status() {
         reqwest::StatusCode::OK => {
             let txt = response.text().await?;
@@ -92,7 +95,7 @@ pub async fn get_statistic_hrrr_schedules (conf: &HrrrConfig) -> Result<HrrrSche
 // get schedules for both regular (18h) and extended (48h) forecast cycles
 fn parse_schedules (txt: &String, delay_minutes: u32, reg_len: usize, ext_len: usize) -> Result<HrrrSchedules> {
     // WATCH OUT - the HTML format for HRRR dir listings might change. This will cause the "unexpected directory contents.." error below
-    // current line format (as of 10/21/2024): 
+    // current line format (as of 10/21/2024):
     // <tr><td><a href="hrrr.t00z.wrfsfcf06.grib2">hrrr.t00z.wrfsfcf06.grib2</a></td><td align="right">21-Oct-2024 00:53  </td><td align="right">137M</td></tr>
     let re = Regex::new(r#"\.grib2">hrrr\.t(\d{2})z.wrfsfcf(\d{2}).grib2[^\d]*(\d+)-(.+)-(\d{4})\s+(\d{2}):(\d{2})"#).unwrap();
 
@@ -122,10 +125,10 @@ fn parse_schedules (txt: &String, delay_minutes: u32, reg_len: usize, ext_len: u
             } else {
                 update_schedule(&mut avg_reg_schedule, &mut max_reg_schedule, &mut reg_data_points, bh, fch, h, m, diff_minutes);
             }
-        }  
+        }
     }
 
-    if avg_reg_schedule.is_empty() || avg_ext_schedule.is_empty() { 
+    if avg_reg_schedule.is_empty() || avg_ext_schedule.is_empty() {
         Err( schedule_error("unexpected directory content - at least one schedule is empty"))
 
     } else {
@@ -138,7 +141,7 @@ fn parse_schedules (txt: &String, delay_minutes: u32, reg_len: usize, ext_len: u
         if delay_minutes > 0 {
             for i in 0..avg_reg_schedule.len() { avg_reg_schedule[i] += delay_minutes; }
             for i in 0..avg_ext_schedule.len() { avg_ext_schedule[i] += delay_minutes; }
-        }      
+        }
 
         Ok( HrrrSchedules { reg: avg_reg_schedule, ext: avg_ext_schedule } )
     }
@@ -175,7 +178,7 @@ fn check_schedule(sched: &Vec<u32>) -> Result<()> {
 
         let len = sched.len();
         for i in 1..len {  // continuous forecasts for each hour (all schedules have to fit into 60min)
-            if sched[i] < sched[i-1] { 
+            if sched[i] < sched[i-1] {
                 return Err( schedule_error( format!("schedule not monotonic [{}] = {}", i, sched[i])));
             }
         }

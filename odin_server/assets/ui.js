@@ -760,12 +760,9 @@ export function togglePanelExpansion(event) {
         }
 
     } else { // expand
-        //let expandHeight = panel._uiCurrentHeight ? panel._uiCurrentHeight : panel.scrollHeight;
-        let expandHeight = panel.scrollHeight;
-
         _swapClass(panelHeader, "collapsed", "expanded");
         _swapClass(panel, "collapsed", "expanded");
-        panel.style.maxHeight = expandHeight + "px";
+        panel.style.maxHeight = "";
         panel.style.visibility = "visible";
     }
 
@@ -2571,25 +2568,27 @@ function getNodeElement (e, node) {
     return null;
 }
 
+// TODO - this does not handle node item replacement for keys we already have. This currently has to be checked by the caller
 export function sortInTreeItem (o, item, pathName, isSticky=false) {
     let e = getTreeList(o);
     if (e && e._uiRoot) {
         let root = e._uiRoot;
-        let addedNodes = root.sortInPathName( pathName, item, isSticky);
-        let firstNode = addedNodes[0];
+        let addedNodes = root.sortInPathName(pathName, item, isSticky);
+        if (addedNodes.length > 0) {
+            let firstNode = addedNodes[0];
+            if (firstNode.parent.isExpanded) { // first added node is showing -> insert
+                let i = firstNode.visibleIndex();
+                let ne = e.firstElementChild;
+                while (i--) ne = ne.nextElementSibling;
 
-        if (firstNode.parent.isExpanded) { // first added node is showing -> insert
-            let i = firstNode.visibleIndex();
-            let ne = e.firstElementChild;
-            while (i--)  ne = ne.nextElementSibling;
-
-            let newElement = _createNodeElement(e, firstNode); // the element to insert
-            if (ne) {
-                e.insertBefore( newElement, ne);
-            } else {
-                e.appendChild( newElement);
+                let newElement = _createNodeElement(e, firstNode); // the element to insert
+                if (ne) {
+                    e.insertBefore(newElement, ne);
+                } else {
+                    e.appendChild(newElement);
+                }
+                _resetPanelMaxHeight(e);
             }
-            _resetPanelMaxHeight(e);
         }
 
         return addedNodes;
@@ -2597,7 +2596,7 @@ export function sortInTreeItem (o, item, pathName, isSticky=false) {
     return null;
 }
 
-export function removeTreeItemPath(o,pathName) {
+export function removeTreeItemPath(o, pathName) {
     let e = getTreeList(o);
     if (e && e._uiRoot) {
         let removedNodes = e._uiRoot.removePathName(pathName);

@@ -1,0 +1,14 @@
+[package]
+name = "odin_wx"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+
+odin_common = { workspace = true }
+odin_actor = { workspace = true }

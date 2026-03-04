@@ -14,23 +14,23 @@
 #![allow(unused)]
 
 use satkit::{sgp4::sgp4,Duration,Instant,TLE,frametransform::qteme2itrf};
-use odin_common::{angle::normalize_360, cartesian3::Cartesian3, cartographic::{geodetic_latitude, Cartographic}, 
+use odin_common::{angle::normalize_360, cartesian3::Cartesian3, cartographic::{geodetic_latitude, Cartographic},
     atan, cos, pow2, sin, asin, sqrt, abs, MinMaxAvg, HALF_PI
 };
 use crate::{get_time_vec,ColumnVec};
 
 
 /// time and ECEF longitude (degrees) of ascending or descending orbital node
-/// this uses simple linear interpolation  
+/// this uses simple linear interpolation
 #[derive(Debug)]
-pub struct OrbitNode { 
+pub struct OrbitNode {
     pub t: f64, // unix epoch in secs
     pub longitude_deg: f64
 }
 
 /// note this is not really a pole but a z-extremum, i.e. the point farthest north or south
 #[derive(Debug)]
-pub struct OrbitPole { 
+pub struct OrbitPole {
     pub t: f64, // unix epoch in secs
     pub latitude_deg: f64
 }
@@ -44,13 +44,13 @@ pub struct OrbitInfo {
 
     incl: f64, // inclination in radians
     apparent_incl: f64, // apparent inclination in radians
-    max_latitude: f64, // 
+    max_latitude: f64, //
 
     //--- those are all computed from flying out one orbit for the given TLE
     pub dist_stats: MinMaxAvg, // min,max and avg distance
 
     // those are computed from the reference orbit
-    pub rev_per_day: f64, 
+    pub rev_per_day: f64,
     pub rev_sec: f64, // actual orbit seconds for this TLE ref orbit
     pub nodal_displacement: f64, // actual longitude gain for this TLE ref orbit
 
@@ -65,20 +65,25 @@ impl OrbitInfo {
 
     pub fn new (sat_id: u32, step_dur: Duration, tle: TLE)->Self {
         let mut dist_stats = MinMaxAvg::new();
-        let mut rev_sec: f64 = 0.0;
         let mut asc_node  = OrbitNode{ t: f64::NAN, longitude_deg: 0.0};
         let mut desc_node = OrbitNode{ t: f64::NAN, longitude_deg: 0.0};
         let mut s_pole = OrbitPole{ t: f64::NAN, latitude_deg: 0.0};
         let mut n_pole = OrbitPole{ t: f64::NAN, latitude_deg: 0.0};
-        
+
         let mean_rev_sec = (24.0 * 3600.0) / tle.mean_motion;
+        let mut rev_sec: f64 = f64::NAN;
+
         let t0 = tle.epoch;
-    
+
         let incl = tle.inclination.to_radians();
         let apparent_incl = atan( sin(incl)/(cos(incl) - 1.0/tle.mean_motion) );
         let max_latitude = geodetic_latitude(HALF_PI - abs(tle.inclination.to_radians() - HALF_PI)).to_degrees();
 
-        let orbit_dur: Duration = Duration::from_seconds( mean_rev_sec * 1.25); // make sure we get at least one node/pole twice 
+        // make sure we get at least one node/pole twice
+        // there was at least one case with a Sentinel-2a TLE for which a factor of 1.2 was not enough because tle.mean_motion diffs
+        // (this was most likely an erronous TLE but we have to be prepared for it)
+        let orbit_dur: Duration = Duration::from_seconds( mean_rev_sec * 1.5);
+
         let tvec = get_time_vec( orbit_dur, step_dur, t0);
         let n_steps = tvec.len();
 
@@ -94,29 +99,29 @@ impl OrbitInfo {
             let vz = vteme[(2,i)];
 
             dist_stats.add( dist);
-    
+
             if i > 0 {
                 // check for nodes (z changing signum)
-                if p_last.z.signum() != p.z.signum() { 
+                if p_last.z.signum() != p.z.signum() {
                     let c = get_cartographic( &tvec[i], &v);
                     let c_last = get_cartographic(&tvec[i-1], &pteme.column(i-1));
 
                     let new_node = interpolate_node( tvec[i-1].as_unixtime(), &c_last, tvec[i].as_unixtime(), &c);
-                    let mut node = if vz > 0.0 { &mut asc_node } else { &mut desc_node }; 
-                    if !node.t.is_nan() { // we already had one - compute rev_sec from it
+                    let mut node = if vz > 0.0 { &mut asc_node } else { &mut desc_node };
+                    if !node.t.is_nan() { // we already had seen this node type - done
                         rev_sec = new_node.t - node.t;
                         break; // done - one full revolution
                     } else {
                         *node = new_node;
                     }
                 }
-    
+
                 // check for poles (vz changing signum)
                 let vz_last = vteme[(2,i-1)];
-                if vz_last.signum() != vz.signum() {                
+                if vz_last.signum() != vz.signum() {
                     let new_pole = interpolate_pole(tvec[i-1].as_unixtime(), &p_last, vz_last, tvec[i].as_unixtime(), &p, vz);
                     let mut pole = if p.z > 0.0 { &mut n_pole } else { &mut s_pole };
-                    if !pole.t.is_nan() {
+                    if !pole.t.is_nan() { // we already have seen this pole type - done
                         rev_sec = new_pole.t - pole.t;
                         break; // done - one full revolution
                     } else {
@@ -126,7 +131,7 @@ impl OrbitInfo {
 
             } else if p.z == 0.0 { // very unlikely case first point is node
                 let c = get_cartographic( &tvec[0], &v);
-                let mut node = if vz > 0.0 { &mut asc_node } else { &mut desc_node }; 
+                let mut node = if vz > 0.0 { &mut asc_node } else { &mut desc_node };
                 node.t = tvec[0].as_unixtime();
                 node.longitude_deg = c.longitude_deg();
 
@@ -138,6 +143,11 @@ impl OrbitInfo {
             }
 
             p_last = p;
+        }
+
+        if rev_sec.is_nan() {
+            eprintln!("erroneous TLE - using mean rev_sec");
+            rev_sec = mean_rev_sec;
         }
 
         let rev_per_day = (24.0 * 3600.0) / rev_sec;
@@ -208,7 +218,7 @@ impl OrbitInfo {
 }
 
 
-/// compute orbit nodes (unix epoch secs and longitude degrees) using linear interpolation. 
+/// compute orbit nodes (unix epoch secs and longitude degrees) using linear interpolation.
 /// We assume time steps are small enough to allow for linear interpolation of the trajectory over one step
 fn interpolate_node (t1: f64, p1: &Cartographic, t2: f64, p2: &Cartographic)->OrbitNode {
     let lon1 = p1.longitude_deg();

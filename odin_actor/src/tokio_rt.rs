@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -13,7 +13,7 @@
  */
 
 //! the Tokio runtime specific parts of odin_actor
-//! Note this is further parameterized by the respective MPSC channel implementation to use 
+//! Note this is further parameterized by the respective MPSC channel implementation to use
 //! (currently [`kanal`](https://docs.rs/kanal/latest/kanal/) or [`flume`](https://docs.rs/flume/latest/flume/))
 //! as specified by the `tokio_kanal` or `tokio_flume` features, which are mutually exclusive.
 
@@ -29,8 +29,8 @@ use tokio::{
     runtime::Handle
 };
 use std::{
-    any::type_name, boxed::Box, cell::Cell, fmt::Debug, future::Future, marker::{PhantomData, Sync}, 
-    ops::{Deref,DerefMut}, pin::Pin, 
+    any::type_name, boxed::Box, cell::Cell, fmt::Debug, future::Future, marker::{PhantomData, Sync},
+    ops::{Deref,DerefMut}, pin::Pin,
     collections::VecDeque,
     sync::{atomic::{AtomicU64, Ordering}, Arc, LockResult, Mutex, MutexGuard}, time::{Duration, Instant}
 };
@@ -39,11 +39,11 @@ use odin_common::{process,datetime::{secs,millis}};
 use odin_job::{JobHandle, JobScheduler};
 use odin_macro::fn_mut;
 use crate::{
-    create_sfc, debug, error, 
-    errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result}, 
-    info, trace, unpack_ping_response, warn, ActorReceiver, ActorSystemRequest, DefaultReceiveAction, 
-    DynMsgReceiver, DynMsgReceiverTrait, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints, 
-    MsgSendFuture, MsgTypeConstraints, ObjSafeFuture, ReceiveAction, SendableFutureCreator, SysMsgReceiver, 
+    create_sfc, debug, error,
+    errors::{iter_op_result, op_failed, poisoned_lock, OdinActorError, Result},
+    info, trace, unpack_ping_response, warn, ActorReceiver, ActorSystemRequest, DefaultReceiveAction,
+    DynMsgReceiver, DynMsgReceiverTrait, FromSysMsg, Identifiable, MsgReceiver, MsgReceiverConstraints,
+    MsgSendFuture, MsgTypeConstraints, ObjSafeFuture, ReceiveAction, SendableFutureCreator, SysMsgReceiver,
     TryMsgReceiver, _Exec_, _Pause_, _Ping_, _Resume_, _Start_, _Terminate_, _Timer_
 };
 
@@ -70,7 +70,7 @@ include!("flume_channel.rs");
 /*
  * This section is (mostly) for type and function aliases that allow us to program our own structs/traits/impls
  * without having to explicitly use runtime or channel crate specifics. While this means we still have
- * runtime/channel specific Actors, ActorHandles etc. their source code is (mostly) similar. 
+ * runtime/channel specific Actors, ActorHandles etc. their source code is (mostly) similar.
  * Trying to hoist our actor constructs to crate level would require generic types that make code less readable
  * and still result in more runtime overhead (boxing/unboxing trait objects etc.). Moreover, it is not even
  * desirable to hoist some constructs since they are not compatible between runtime/channel implementations.
@@ -167,8 +167,8 @@ pub fn block_on_timeout_send_msg<Msg> (tgt: impl MsgReceiver<Msg>, msg: Msg, to:
 /*
  * We could hoist Actor and ActorHandle if we put MpscSender and Abortable behind traits and add them as
  * generic type params but that would (a) obfuscate the code and (b) loose the capability to store hself and hsys.
- *  
- * The real optimization we would like is to avoid MsgReceiver trait objects but those seem necessary for dynamic (msg based) subscription 
+ *
+ * The real optimization we would like is to avoid MsgReceiver trait objects but those seem necessary for dynamic (msg based) subscription
  */
 
 /// S represents the actor state type, M the message type (enum)
@@ -367,7 +367,7 @@ impl <M> ActorHandle <M> where M: MsgTypeConstraints {
             }
             closed => {
                 warn!("receiver closed");
-                Err(OdinActorError::ReceiverClosed) // ?? what about SendError::Closed 
+                Err(OdinActorError::ReceiverClosed) // ?? what about SendError::Closed
             }
         }
     }
@@ -433,19 +433,18 @@ fn oneshot_timer_for<M> (ah: ActorHandle<M>, id: i64, delay: Duration)->Result<A
 fn repeat_timer_for<M> (ah: ActorHandle<M>, id: i64, timer_interval: Duration, instantly: bool)->Result<AbortHandle> where M: MsgTypeConstraints {
     let timer_name = format!("{}-timer-{}", ah.id(), id);
     let mut interval = interval(timer_interval);
-    let mut tick_count: i64 = if instantly { 1 } else { -1 };
+
+    if instantly {
+        ah.try_send_actor_msg( _Timer_{id}.into() );
+    }
 
     let th = spawn( &timer_name, async move {
         while ah.is_running() {
-            if tick_count > 0 {
-                ah.try_send_actor_msg( _Timer_{id}.into() );
-            }
-
-            interval.tick().await; // the first tick is always immediately. If we don't want to fire instantly we have to filter
-            tick_count += 1;
+            interval.tick().await;
+            ah.try_send_actor_msg( _Timer_{id}.into() );
         }
     })?;
-    
+
     Ok(th.abort_handle())
 }
 
@@ -491,7 +490,7 @@ impl <T,M> MsgReceiver <T> for ActorHandle <M>
     }
 }
 
-/// blanket impl of object safe trait that can send anything that can be turned into a MsgType 
+/// blanket impl of object safe trait that can send anything that can be turned into a MsgType
 /// Note - this has to pin-box futures upon every send and hence is less efficient than [`MsgReceiver`]
 /// hence this should only be used where we need sendable MsgReceivers
 impl <T,M> DynMsgReceiverTrait <T> for ActorHandle <M>
@@ -506,7 +505,7 @@ impl <T,M> DynMsgReceiverTrait <T> for ActorHandle <M>
     }
 }
 
-impl <T,M> From<ActorHandle<M>> for DynMsgReceiver<T> 
+impl <T,M> From<ActorHandle<M>> for DynMsgReceiver<T>
     where T: Send + Debug + 'static,  M: From<T> + MsgTypeConstraints
 {
     fn from (a:ActorHandle<M>)->DynMsgReceiver<T> {
@@ -522,25 +521,25 @@ impl <T,M> TryMsgReceiver <T> for ActorHandle <M>
     }
 }
 
-impl <M> SysMsgReceiver for ActorHandle<M> where M: MsgTypeConstraints 
+impl <M> SysMsgReceiver for ActorHandle<M> where M: MsgTypeConstraints
 {
     fn send_start (&self,msg: _Start_, to: Duration)->MsgSendFuture<'_> {
-        Box::pin(self.timeout_send_actor_msg(msg.into(),to)) 
+        Box::pin(self.timeout_send_actor_msg(msg.into(),to))
     }
     fn send_pause (&self, msg: _Pause_, to: Duration)->MsgSendFuture<'_> {
-        Box::pin(self.timeout_send_actor_msg(msg.into(),to)) 
+        Box::pin(self.timeout_send_actor_msg(msg.into(),to))
     }
     fn send_resume (&self, msg: _Resume_, to: Duration)->MsgSendFuture<'_> {
-        Box::pin(self.timeout_send_actor_msg(msg.into(),to)) 
+        Box::pin(self.timeout_send_actor_msg(msg.into(),to))
     }
     fn send_terminate (&self, msg: _Terminate_, to: Duration)->MsgSendFuture<'_> {
-        Box::pin(self.timeout_send_actor_msg(msg.into(),to)) 
+        Box::pin(self.timeout_send_actor_msg(msg.into(),to))
     }
     fn send_ping (&self, msg: _Ping_)->Result<()> {
-        self.try_send_actor_msg(msg.into()) 
+        self.try_send_actor_msg(msg.into())
     }
     fn send_timer (&self, msg: _Timer_)->Result<()> {
-        self.try_send_actor_msg(msg.into()) 
+        self.try_send_actor_msg(msg.into())
     }
 }
 
@@ -551,7 +550,7 @@ impl <M> SysMsgReceiver for ActorHandle<M> where M: MsgTypeConstraints
 
 /// abstraction layer for ActorSystem user interfaces. The methods are called by the actor system to transmit/update
 /// display relevant information. This trait has to be object-safe.
-/// 
+///
 /// Note the ActorSystemUITrait impl might be async and therefore we should (a) minimize the amount of data passed
 /// in arguments, and (b) all the arguments have to be Send
 pub trait ActorSystemUITrait where Self: Send + 'static {
@@ -559,12 +558,12 @@ pub trait ActorSystemUITrait where Self: Send + 'static {
     fn add_actor (&mut self, id: Arc<String>, type_name: &'static str); // to let the UI populate an actor display list (names/types don't change)
     fn remove_actor (&mut self, idx: usize);
     fn no_start_actor (&mut self, idx: usize);
-    fn heartbeats_started (&mut self); // just a notification about an actor system state change 
+    fn heartbeats_started (&mut self); // just a notification about an actor system state change
     fn heartbeat_cycle_started (&mut self, cycle: u32); // when we start a new heartbeat cycle
     fn actor_heartbeat (&mut self, idx: usize, cycle: u32, last_ns: u64); // latest heartbeat response of actor
     fn unresponsive_actor (&mut self, idx: usize); // we report that separately if we detect there was no response from an actor within cycle
     fn no_terminate_actor (&mut self, idx: usize);
-    fn actors_terminated (&mut self); // just a notification about an actor system state change 
+    fn actors_terminated (&mut self); // just a notification about an actor system state change
     //... more to follow
 }
 
@@ -593,8 +592,8 @@ impl ActorSystemHandle {
 
     pub fn try_send_msg (&self, msg: ActorSystemRequest)->Result<()> {
         match_try_send!{ self.sender, msg,
-            ok => { 
-                Ok(()) 
+            ok => {
+                Ok(())
             }
             full => {
                 warn!("actor system request queue full");
@@ -602,12 +601,12 @@ impl ActorSystemHandle {
             }
             closed => {
                 warn!("actor system request queue closed");
-                Err(OdinActorError::ReceiverClosed) // ?? what about SendError::Closed 
+                Err(OdinActorError::ReceiverClosed) // ?? what about SendError::Closed
             }
         }
     }
 
-    pub async fn spawn_actor<M,R> (&self, act: (R, ActorHandle<M>, MpscReceiver<M>))->Result<ActorHandle<M>> 
+    pub async fn spawn_actor<M,R> (&self, act: (R, ActorHandle<M>, MpscReceiver<M>))->Result<ActorHandle<M>>
     where
         M: MsgTypeConstraints,
         R: ActorReceiver<M> + Send + Sync + 'static
@@ -639,8 +638,8 @@ pub struct ActorSystem {
     ping_cycle: u32,
     request_sender: MpscSender<ActorSystemRequest>,
     request_receiver: MpscReceiver<ActorSystemRequest>,
-    job_scheduler: Arc<Mutex<JobScheduler>>, 
-    join_set: task::JoinSet<()>, 
+    job_scheduler: Arc<Mutex<JobScheduler>>,
+    join_set: task::JoinSet<()>,
     actor_entries: Vec<ActorEntry>,
     heartbeat_job: Option<JobHandle>,
     hsys: Arc<ActorSystemHandle>,
@@ -656,8 +655,8 @@ impl ActorSystem {
 
         debug!("actor system '{}' created", id.to_string());
 
-        ActorSystem { 
-            id: id.to_string(), 
+        ActorSystem {
+            id: id.to_string(),
             ping_cycle: 0,
             request_sender: tx,
             request_receiver: rx,
@@ -692,7 +691,7 @@ impl ActorSystem {
     // and the spawn_(..) expects a Receiver<M> and hence fails if there is none in scope. The ugliness comes in form
     // of all the ActorSystem internal data we create in new_(..) but need in spawn_(..) and unfortunately we can't even use
     // the Actor hself field since spawn_(..) doesn't even see that it's an Actor (it consumes the Receiver).
-    // We can't bypass Receiver by providing receive() through a fn()->impl Future<..> since impl-in-return-pos is not 
+    // We can't bypass Receiver by providing receive() through a fn()->impl Future<..> since impl-in-return-pos is not
     // supported for fn pointers.
     // We also can't use a default blanket Receive impl for Actor and min_specialization - apart from that it isn't stable yet
     // it does not support async traits
@@ -768,8 +767,8 @@ impl ActorSystem {
         while let Some(_res) = join_set.join_next().await {
             closed += 1;
         }
-        
-        iter_op_result("start_all", len, len-closed)   
+
+        iter_op_result("start_all", len, len-closed)
     }
 
     pub async fn abort_all (&mut self) {
@@ -824,9 +823,9 @@ impl ActorSystem {
         self.start_scheduler();
 
         for (idx,actor_entry) in actor_entries.iter().enumerate() {
-            if actor_entry.receiver.send_start(_Start_{}, to).await.is_err() { 
+            if actor_entry.receiver.send_start(_Start_{}, to).await.is_err() {
                 if let Some(ui) = &mut self.ui { ui.no_start_actor(idx) }
-                failed += 1 
+                failed += 1
             }
         }
         // TODO - do we need to wait until everybody has processed _Start_ ?
@@ -841,9 +840,9 @@ impl ActorSystem {
 
         //for actor_entry in self.actors.iter().rev() { // send terminations in reverse ?
         for (idx,actor_entry) in self.actor_entries.iter().enumerate() {
-            if actor_entry.receiver.send_terminate(_Terminate_{}, to).await.is_err() { 
+            if actor_entry.receiver.send_terminate(_Terminate_{}, to).await.is_err() {
                 if let Some(ui) = &mut self.ui { ui.no_terminate_actor(idx) }
-                failed += 1 
+                failed += 1
             };
         }
 
@@ -858,7 +857,7 @@ impl ActorSystem {
         if (res.is_err()) {
             self.abort_all().await
         }
-    
+
         res
     }
 
@@ -930,7 +929,7 @@ impl ActorSystem {
     pub async fn process_requests_for (&mut self, dur: Duration)->Result<()> {
         let hsys = self.hsys.clone();
         if let Ok(mut scheduler) = self.job_scheduler.lock() {
-            scheduler.schedule_once( dur, move |_| { 
+            scheduler.schedule_once( dur, move |_| {
                 hsys.try_send_msg(ActorSystemRequest::RequestTermination{});
             })?;
         }
@@ -966,9 +965,9 @@ fn pre_actor_tuple<S,M> (hsys: Arc<ActorSystemHandle>, state: S, mut pre_h: PreA
 {
     let actor_id = pre_h.id.clone();
 
-    if pre_h.rx.is_none() { 
+    if pre_h.rx.is_none() {
         error!("pre actor already spawned: {}", actor_id);
-    }    
+    }
 
     let rx = pre_h.rx.take().unwrap(); // there should always be just one receiver or we compromise actor integrity
     let tx = pre_h.tx.clone();
@@ -994,7 +993,7 @@ async fn run_actor<M,R> (mut rx: MpscReceiver<M>, mut receiver: R)
                 match receiver.receive(msg).await {
                     ReceiveAction::Continue => {
                         debug!("msg processed");
-                    } 
+                    }
                     ReceiveAction::Stop => {
                         debug!("actor '{}' closed", receiver.id());
                         close_rx( &rx);
@@ -1046,14 +1045,14 @@ impl<Q,A> Debug for Query<Q,A>  where Q: Send + Debug, A: Send + Debug {
     }
 }
 
-pub async fn query<Q,A,R> (responder: R, topic: Q)->Result<A> 
+pub async fn query<Q,A,R> (responder: R, topic: Q)->Result<A>
     where Q: Send + Debug, A: Send + Debug, R: MsgReceiver<Query<Q,A>>
 {
     let qb = QueryBuilder::<A>::new();
     qb.query( responder, topic).await
 }
 
-pub async fn query_ref<Q,A,R> (responder: &R, topic: Q)->Result<A> 
+pub async fn query_ref<Q,A,R> (responder: &R, topic: Q)->Result<A>
     where Q: Send + Debug, A: Send + Debug, R: MsgReceiver<Query<Q,A>> + Sync
 {
     let qb = QueryBuilder::<A>::new();
@@ -1061,14 +1060,14 @@ pub async fn query_ref<Q,A,R> (responder: &R, topic: Q)->Result<A>
 }
 
 /// oneshot timeout query
-pub async fn timeout_query<Q,A,R> (responder: R, topic: Q, to: Duration)->Result<A> 
+pub async fn timeout_query<Q,A,R> (responder: R, topic: Q, to: Duration)->Result<A>
     where Q: Send + Debug, A: Send + Debug, R: MsgReceiver<Query<Q,A>>
 {
     let qb = QueryBuilder::<A>::new();
     qb.timeout_query( responder, topic, to).await
 }
 
-pub async fn timeout_query_ref<Q,A,R> (responder: &R, topic: Q, to: Duration)->Result<A> 
+pub async fn timeout_query_ref<Q,A,R> (responder: &R, topic: Q, to: Duration)->Result<A>
     where Q: Send + Debug, A: Send + Debug, R: MsgReceiver<Query<Q,A>> + Sync
 {
     let qb = QueryBuilder::<A>::new();
@@ -1076,7 +1075,7 @@ pub async fn timeout_query_ref<Q,A,R> (responder: &R, topic: Q, to: Duration)->R
 }
 
 
-/// builder for Query instances that avoids the extra cost of a per-request channel allocation for repeated queries 
+/// builder for Query instances that avoids the extra cost of a per-request channel allocation for repeated queries
 /// of the same answer type and is therefore slightly faster compared to a per-query Oneshot channel
 pub struct QueryBuilder<A>  where A: Send + Debug {
     tx: MpscSender<A>,
@@ -1089,7 +1088,7 @@ impl <A> QueryBuilder<A> where A: Send + Debug {
         QueryBuilder { tx, rx }
     }
 
-    pub async fn query <Q,R> (&self, responder: R, topic: Q)->Result<A> 
+    pub async fn query <Q,R> (&self, responder: R, topic: Q)->Result<A>
         where Q: Send + Debug, R: MsgReceiver<Query<Q,A>>
     {
         let msg = Query { question: topic, tx: self.tx.clone() };
@@ -1098,7 +1097,7 @@ impl <A> QueryBuilder<A> where A: Send + Debug {
     }
 
     /// if we use this version `M` has to be `Send` + `Sync` but we save the cost of cloning the responder on each query
-    pub async fn query_ref <Q,R> (&self, responder: &R, topic: Q)->Result<A> 
+    pub async fn query_ref <Q,R> (&self, responder: &R, topic: Q)->Result<A>
         where Q: Send + Debug, R: MsgReceiver<Query<Q,A>> + Sync
     {
         let msg = Query { question: topic, tx: self.tx.clone() };
@@ -1106,14 +1105,14 @@ impl <A> QueryBuilder<A> where A: Send + Debug {
         recv(&self.rx).await.map_err(|_| OdinActorError::SendersDropped)
     }
 
-    pub async fn timeout_query <Q,R> (&self, responder: R, topic: Q, to: Duration)->Result<A> 
+    pub async fn timeout_query <Q,R> (&self, responder: R, topic: Q, to: Duration)->Result<A>
         where Q: Send + Debug, R: MsgReceiver<Query<Q,A>>
     {
         timeout( to, self.query( responder, topic)).await
     }
 
     /// if we use this version `M` has to be `Send` + `Sync` but we save the cost of cloning the responder on each query
-    pub async fn timeout_query_ref <Q,R> (&self, responder: &R, topic: Q, to: Duration)->Result<A> 
+    pub async fn timeout_query_ref <Q,R> (&self, responder: &R, topic: Q, to: Duration)->Result<A>
         where Q: Send + Debug, R: MsgReceiver<Query<Q,A>> + Sync
     {
         timeout( to, self.query_ref( responder, topic)).await
@@ -1128,7 +1127,7 @@ impl <A> QueryBuilder<A> where A: Send + Debug {
 /// The use case is to support long running queries that should be resolved sequentially, e.g. to avoid
 /// external server overload or high computational loads.
 /// This might cause several queries for the same subject to arrive (also from different requesters) while the
-/// answer is still computed, which in turn requires to keep track of all requesters we have to respond to 
+/// answer is still computed, which in turn requires to keep track of all requesters we have to respond to
 /// once the answer is available.
 /// This means we have to be able to check if two queries are about the same subject (hence `is_same_request()`) and
 /// we have to be able to duplicate the answer (hence A: Clone).
@@ -1139,7 +1138,7 @@ impl <A> QueryBuilder<A> where A: Send + Debug {
 ///                                                 responder
 ///      task-1    task-2     task-3                  task
 ///        :         :          :                      :
-///        []--Q1--- : -------- : ------------(queue)->[]... 
+///        []--Q1--- : -------- : ------------(queue)->[]...
 ///        []        []---Q1--- : ------------(queue)->[] Q1
 ///        []        []         []---Q2-------(queue)->[]
 ///        []<------ []<------- [] --------------A1----[]...
@@ -1150,7 +1149,7 @@ impl <A> QueryBuilder<A> where A: Send + Debug {
 ///        :         []<------- : ---------------A3----[]...
 ///        :         :          :                      :
 ///
-pub trait RequestProcessor<R,T> 
+pub trait RequestProcessor<R,T>
     where Self: Sized + Send + 'static,
           R: Send + Sync + Debug + 'static, // request type
           T: Clone + Send + Debug + 'static // result type
@@ -1159,7 +1158,7 @@ pub trait RequestProcessor<R,T>
     fn get_response_future (&self, request: Option<R>) -> impl Future<Output=Option<(R,T)>> + Send;
     fn process_response (&self, request: &R, answer: T) -> impl Future<Output=Result<()>> + Send;
     fn is_same_request (&self, request1: &R, request2: &R)->bool; // we could also turn this into a PartialEq constraint on R
-    
+
     /// provided method to loop over pending requests
     fn spawn (self, task_name: &str, bounds: usize)->Result<(AbortHandle,MpscSender<R>)> {
         let (tx,rx) = create_mpsc_sender_receiver::<R>(bounds);
@@ -1170,7 +1169,7 @@ pub trait RequestProcessor<R,T>
     }
 }
 
-async fn process_requests<P,R,T> (proc: P, rx: MpscReceiver<R>) -> Result<()> 
+async fn process_requests<P,R,T> (proc: P, rx: MpscReceiver<R>) -> Result<()>
     where R: Send + Sync + Debug + 'static, // request type
           T: Clone + Send + Debug + 'static, // result type
           P: RequestProcessor<R,T> + Sized + 'static
@@ -1185,7 +1184,7 @@ async fn process_requests<P,R,T> (proc: P, rx: MpscReceiver<R>) -> Result<()>
             // note that we use a reference to resolve_fut so that we can keep it if pending.
             // note also that we have to use a guard to ensure we don't double poll a ready initial future
             res = &mut response_fut, if response_pending => {
-                if let Some((request,response)) = res { // future did resolve to a Result<A>                    
+                if let Some((request,response)) = res { // future did resolve to a Result<A>
                     let mut i = 0;
                     while i < pending_requests.len() {
                         let req = &pending_requests[i];

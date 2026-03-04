@@ -24,7 +24,9 @@ http = { workspace = true }
 futures-util = { workspace = true }
 
 odin_common = { workspace = true }
+odin_wx = { workspace = true }
 odin_hrrr = { workspace = true }
+odin_openmeteo = { workspace = true }
 odin_actor = { workspace = true }
 odin_build = { workspace = true }
 odin_action = { workspace = true }

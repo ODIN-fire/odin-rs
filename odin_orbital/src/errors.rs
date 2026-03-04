@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -16,7 +16,7 @@ use odin_actor::OdinActionFailure;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, OdinOrbitalError>;
- 
+
 #[derive(Error,Debug)]
 pub enum OdinOrbitalError {
 
@@ -31,12 +31,15 @@ pub enum OdinOrbitalError {
 
     #[error("http error {0}")]
     HttpError( #[from] odin_common::net::OdinNetError),
-   
+
     #[error("Propagation error {0}")]
     Sgp4Error( String ),
 
     #[error("csv error {0}")]
     CsvError( #[from] csv::Error),
+
+    #[error("rkyv error {0}")]
+    RkyvError( #[from] rkyv::rancor::Error),
 
     #[error("scheduling error {0}")]
     ScheduleError( #[from] odin_job::OdinJobError),

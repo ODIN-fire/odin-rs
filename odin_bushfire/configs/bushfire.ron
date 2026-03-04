@@ -1,0 +1,8 @@
+BushFireConfig (
+    url: "https://services-ap1.arcgis.com/ypkPEy1AmwPKGNNv/ArcGIS/rest/services/Near_Real_Time_Bushfire_Boundaries_view/FeatureServer/3/query?where=area_ha+%3E+0.001&outFields=*&f=pgeojson",
+    dem: None, // Some(File("$ODIN_ROOT/data/odin_dem/srtm-1sec-aus-i16.tif"))
+    check_interval: Duration( secs: 1800, nanos: 0),  // check every 30min for updates
+    max_history: 10, // number of records per fire we keep (in a ringbuffer)
+    max_age: Duration( secs: 604800, nanos: 0), // ignore fires that were reported before (older than 1 week)
+    max_file_age: Duration( secs: 86400, nanos: 0) // keep files for one day
+)

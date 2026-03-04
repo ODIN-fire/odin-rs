@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -16,8 +16,8 @@
 #[doc = include_str!("../doc/odin_hrrr.md")]
 
 use std::{
-    str::FromStr, path::{Path,PathBuf}, fmt::Write as FmtWrite, io::Write as IoWrite, fmt::Display, time::SystemTime, 
-    sync::Arc, hash::{Hash,DefaultHasher,Hasher}
+    str::FromStr, path::{Path,PathBuf}, fmt::Write as FmtWrite, io::Write as IoWrite, fmt::Display, time::SystemTime,
+    sync::Arc, hash::{Hash,DefaultHasher,Hasher}, any::type_name
 };
 use schedule::HrrrSchedules;
 use serde::{Deserialize,Serialize};
@@ -26,28 +26,34 @@ use reqwest;
 use regex::Regex;
 use tempfile;
 use tokio::{time::{Duration,Sleep}};
+use async_trait::async_trait;
 
 use odin_common::{
-    angle::{Latitude, Longitude}, 
-    datetime::{self, elapsed_minutes_since, full_hour, secs}, 
-    fs::{ensure_writable_dir, odin_data_filename, path_str_to_fname, remove_old_files}, 
-    geo::GeoRect, 
+    angle::{Latitude, Longitude},
+    datetime::{self, elapsed_minutes_since, full_hour, secs},
+    fs::{ensure_writable_dir, odin_data_filename, path_str_to_fname, remove_old_files},
+    geo::GeoRect,
     strings::{mk_string,to_sorted_string_vec}
 };
 use odin_actor::prelude::*;
 use odin_actor::AbortHandle;
 use odin_action::DataAction;
+use odin_wx::{WxService, WxDataSetRequest, AddDataSet, RemoveDataSet, WxFileAvailable};
 use odin_build::define_load_config;
 
 mod actor;
 pub use actor::*;
 
 pub mod schedule;
+pub mod meta;
 
 mod errors;
 pub use errors::*;
 
-const ONE_HOUR: Duration = Duration::from_secs(60*60);
+pub mod fields;
+use fields::{FieldId,LevelId};
+
+const ONE_HOUR: Duration = Duration::from_secs(3600);
 
 define_load_config!{}
 
@@ -74,7 +80,7 @@ pub struct HrrrConfig {
     pub ext_last: u32,
     pub ext_len: u32,
 
-    /// delay between computed availability (schedule) of files and first download attempt 
+    /// delay between computed availability (schedule) of files and first download attempt
     pub delay: Duration,
 
     /// interval in which we check next forecast step availability
@@ -92,99 +98,109 @@ pub struct HrrrConfig {
 
 impl Default for HrrrConfig {
     fn default() -> Self {
-        Self { 
+        Self {
             region: "conus".to_string(),
-            url: "https://nomads.ncep.noaa.gov/cgi-bin/filter_hrrr_2d.pl".to_string(), 
-            dir_url_pattern: "https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod/hrrr.${yyyyMMdd}/conus".to_string(), 
+            url: "https://nomads.ncep.noaa.gov/cgi-bin/filter_hrrr_2d.pl".to_string(),
+            dir_url_pattern: "https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod/hrrr.${yyyyMMdd}/conus".to_string(),
 
             // those are just estimates (first dmin, last dmin, steps) - it might change
             reg_first: 48,
             reg_last: 84,
             reg_len: 19,
-        
+
             ext_first: 48,
             ext_last: 108,
             ext_len: 49,
 
-            delay: secs(60), 
+            delay: secs(60),
             check_interval: secs(30),
             retry_delay: secs( 30),
-            max_retry: 4, 
-            max_age: datetime::hours(2), 
+            max_retry: 4,
+            max_age: datetime::hours(2),
         }
     }
 }
 
-/// parameters of a HRRR data set to download, which includes the (given) area name, rectangular area
-/// of interest and the fields and levels to include, which are from
-/// <https://nomads.ncep.noaa.gov/gribfilter.php?ds=hrrr_2d>
-#[derive(Clone,Serialize,Deserialize,Debug)]
-pub struct HrrrDataSetConfig {
-    /// this is the name of the region we retrieve datafor
-    pub region: String, 
-    /// the bounding box of the region
-    pub bbox: GeoRect,
-    /// this is a name for the field set/use of the data we retrieve
-    pub set_name: String,
-    /// the HRRR fields to retrieve
-    pub fields: Vec<String>,
-    /// the HRRR levels for which to retrieve the fields
-    pub levels: Vec<String>,
+pub struct HrrrService {
+    wx_name: Arc<String>,
+    model_name: Arc<String>,
+    dataset_name: Arc<String>,
+
+    fields_query: String, // the invariant non-region part of the query (computed from fields and levels)
+    hself: ActorHandle<HrrrActorMsg>
 }
 
-impl HrrrDataSetConfig {
-    pub fn new (region: String, bbox: GeoRect, set_name: String, fields: Vec<String>, levels: Vec<String>)->Self {
-        HrrrDataSetConfig { region, bbox, set_name, fields, levels }
-    }
-}
+impl HrrrService {
+    pub fn new (fields: Vec<FieldId>, levels: Vec<LevelId>, dataset_name: Arc<String>, hself: ActorHandle<HrrrActorMsg>)->Self {
 
-/// a wrapper for a HrrrDataSetSpec that we want to retrieve from the NOAA server
-/// note we consider two requests as equal if they have the same (canonical) query string
-#[derive(Debug)]
-pub struct HrrrDataSetRequest {
-    pub ds: HrrrDataSetConfig,
+        let mut fields_query = String::with_capacity(256);
 
-    /// canonical query string computed from `ds`
-    pub query: String
-}
-
-impl HrrrDataSetRequest {
-    pub fn new (mut ds_cfg: HrrrDataSetConfig)->Self {
-        ds_cfg.fields.sort();
-        ds_cfg.levels.sort();
-
-        let bbox = &ds_cfg.bbox;
-        let mut query = format!("subregion=&toplat={}&leftlon={}&rightlon={}&bottomlat={}", 
-                                bbox.north().degrees(), bbox.west().degrees(), bbox.east().degrees(), bbox.south().degrees());
-        for v in &ds_cfg.fields {
-            query.push('&');
-            query.push_str("var_");
-            query.push_str(v.as_str());
-            query.push_str("=on");
+        for v in &fields {
+            if !fields_query.is_empty() { fields_query.push('&') }
+            fields_query.push_str("var_");
+            fields_query.push_str(v.as_ref());
+            fields_query.push_str("=on");
         }
 
-        for v in &ds_cfg.levels {
-            query.push('&');
-            query.push_str(v.as_str());
-            query.push_str("=on");
+        for v in &levels {
+            fields_query.push('&');
+            fields_query.push_str(v.as_ref());
+            fields_query.push_str("=on");
         }
 
-        HrrrDataSetRequest {ds: ds_cfg, query}
+        let wx_name = Arc::new( type_name::<Self>().to_string());
+        let model_name = Arc::new( "hrrr".to_string()); // we only support one
+
+        HrrrService{fields_query, wx_name, model_name, dataset_name, hself}
+    }
+
+    pub fn new_basic (hself: ActorHandle<HrrrActorMsg>)->Self {
+        use FieldId::*;
+        use LevelId::*;
+        let fields = vec![TMP,PRES,RH,TCDC,UGRD,VGRD];
+        let levels = vec![lev_surface, lev_2_m_above_ground, lev_10_m_above_ground, lev_80_m_above_ground, lev_entire_atmosphere];
+
+        let dataset_name = Arc::new( "basic".to_string());
+
+        Self::new( fields, levels, dataset_name, hself)
     }
 }
 
-impl Hash for HrrrDataSetRequest {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.query.hash(state);
+impl WxService for HrrrService {
+    fn wx_name(&self) -> Arc<String> {
+        self.wx_name.clone()
     }
-}
 
-impl PartialEq for HrrrDataSetRequest {
-    fn eq(&self, other: &Self) -> bool {
-        self.query == other.query
+    fn model_name (&self)->Arc<String> {
+        self.model_name.clone()
+    }
+
+    fn dataset_name(&self)->Arc<String> {
+        self.dataset_name.clone()
+    }
+
+    fn try_send_add_dataset(&self,req: Arc<WxDataSetRequest>) -> odin_actor::Result<()> {
+        self.hself.try_send_msg( AddDataSet(req))
+    }
+
+    fn try_send_remove_dataset(&self,req: Arc<WxDataSetRequest>) -> odin_actor::Result<()> {
+        self.hself.try_send_msg( RemoveDataSet(req))
+    }
+
+    fn create_request (&self, region: Arc<String>, bbox: GeoRect, fc_duration: Duration)->WxDataSetRequest {
+        let query = format!("subregion=&toplat={}&leftlon={}&rightlon={}&bottomlat={}&{}",
+                             bbox.north().degrees(), bbox.west().degrees(), bbox.east().degrees(), bbox.south().degrees(), self.fields_query);
+        let wx_name = self.wx_name.clone();
+        let model_name = self.model_name.clone();
+        let dataset_name = self.dataset_name.clone();
+        WxDataSetRequest { region, bbox, wx_name, model_name, dataset_name, fc_duration, query }
+    }
+
+    fn to_wx_grids (&self, fa: &WxFileAvailable)->odin_wx::Result<Vec<Arc<PathBuf>>> {
+        // nothing to convert - this is HRRR
+        Ok( vec![ fa.path.clone() ] )
     }
 }
-impl Eq for HrrrDataSetRequest {}
 
 fn last_extended_forecast (dt: &DateTime<Utc>) -> DateTime<Utc> {
     let fh = full_hour::<Utc>(dt);
@@ -227,15 +243,15 @@ async fn wait_for (minutes: i64) {
 }
 
 /// generate hrrr filename for given base hour and forecast step (hour from base hour) - this has to adhere to the ODIN data filename convention
-fn get_odin_filename (cfg: &HrrrConfig, ds: &HrrrDataSetConfig, dt: &DateTime<Utc>, step: usize) -> String {
+fn get_odin_filename (cfg: &HrrrConfig, ds: &WxDataSetRequest, dt: &DateTime<Utc>, step: usize) -> String {
     let date = *dt + hours(step as u32);
     let fcs = step.to_string();
     let attrs: &[&str] = &[
         fcs.as_str(),
-        ds.set_name.as_str(),
+        ds.model_name.as_str()
     ];
     odin_data_filename( &ds.region, Some(date), attrs, Some("grib2"))
-} 
+}
 
 /// NOMADS file name (e.g. `hrrr.t15z.wrfsfcf08.grib2`)
 fn get_nomad_filename (dt: &DateTime<Utc>, step: usize) -> String {
@@ -243,12 +259,12 @@ fn get_nomad_filename (dt: &DateTime<Utc>, step: usize) -> String {
 }
 
 /// download a single file for given base date and forecast step
-pub async fn download_file (cfg: &HrrrConfig, ds: &HrrrDataSetRequest, dt: &DateTime<Utc>, step: usize, cache_dir: &PathBuf) -> Result<PathBuf> {
-    let filename = get_odin_filename( cfg, &ds.ds, dt, step);
+pub async fn download_file (cfg: &HrrrConfig, ds: &WxDataSetRequest, dt: &DateTime<Utc>, step: usize, cache_dir: &PathBuf) -> Result<PathBuf> {
+    let filename = get_odin_filename( cfg, ds, dt, step);
     let nomad_filename = get_nomad_filename( dt, step);
 
-    let url = format!("{}?dir=%2Fhrrr.{:04}{:02}{:02}%2F{}&file={}&{}", 
-        cfg.url, 
+    let url = format!("{}?dir=%2Fhrrr.{:04}{:02}{:02}%2F{}&file={}&{}",
+        cfg.url,
         dt.year(), dt.month(), dt.day(),
         cfg.region,
         nomad_filename,
@@ -290,7 +306,7 @@ pub async fn download_file (cfg: &HrrrConfig, ds: &HrrrDataSetRequest, dt: &Date
 }
 
 /// account for slightly varying file schedule and availability
-pub async fn download_file_with_retry (cfg: &HrrrConfig, ds: &HrrrDataSetRequest, dt: &DateTime<Utc>, step: usize, cache_dir: &PathBuf) -> Result<PathBuf> {
+pub async fn download_file_with_retry (cfg: &HrrrConfig, ds: &WxDataSetRequest, dt: &DateTime<Utc>, step: usize, cache_dir: &PathBuf) -> Result<PathBuf> {
     let mut retry = 0;
     loop {
         match download_file( cfg, ds, dt, step, cache_dir).await {
@@ -317,13 +333,13 @@ pub async fn download_file_with_retry (cfg: &HrrrConfig, ds: &HrrrDataSetRequest
 /// internal struct to queue download requests
 #[derive(Debug)]
 pub struct HrrrFileRequest {
-    pub ds: Arc<HrrrDataSetRequest>,
+    pub ds: Arc<WxDataSetRequest>,
     pub base: DateTime<Utc>, // base hour for forecast
     pub step: usize, // forecast hour
 }
 
 impl HrrrFileRequest {
-    pub fn name(&self)->&String { &self.ds.ds.region}
+    pub fn name(&self)->&String { &self.ds.region}
 }
 
 pub enum DownloadCmd {
@@ -331,14 +347,9 @@ pub enum DownloadCmd {
     Terminate
 }
 
-#[derive(Debug)]
-pub struct HrrrFileAvailable {
-    pub request: HrrrFileRequest,
-    pub path: PathBuf,
-}
 
-pub async fn process_download_requests<A> (rx: MpscReceiver<DownloadCmd>, cfg: Arc<HrrrConfig>, cache_dir: PathBuf, action: A) 
-    where A: DataAction<HrrrFileAvailable>
+pub async fn process_download_requests<A> (rx: MpscReceiver<DownloadCmd>, cfg: Arc<HrrrConfig>, cache_dir: PathBuf, action: A)
+    where A: DataAction<WxFileAvailable>
 {
     remove_old_files( &cache_dir, cfg.max_age);
     let mut last_cleanup = SystemTime::now();
@@ -347,7 +358,12 @@ pub async fn process_download_requests<A> (rx: MpscReceiver<DownloadCmd>, cfg: A
         match recv(&rx).await {
             Ok(DownloadCmd::GetFile(request)) => {
                 if let Ok(path) = download_file_with_retry(cfg.as_ref(), request.ds.as_ref(), &request.base, request.step, &cache_dir).await {
-                    let data = HrrrFileAvailable { request, path };
+                    let basedate = request.base;
+                    let forecasts = vec![ basedate + hours( request.step as u32) ];
+                    let path = Arc::new(path);
+                    let request = request.ds;
+
+                    let data = WxFileAvailable { request, basedate, forecasts, path };
                     action.execute(data).await;
                 } else {
                     warn!("step {}+{} permanently failed", request.base, request.step);
@@ -365,10 +381,10 @@ pub async fn process_download_requests<A> (rx: MpscReceiver<DownloadCmd>, cfg: A
             }
         }
     }
-} 
+}
 
 pub fn spawn_download_task<A> (cfg: Arc<HrrrConfig>, cache_dir: PathBuf, action: A)->Result<(JoinHandle<()>,MpscSender<DownloadCmd>)>
-     where A: DataAction<HrrrFileAvailable> + 'static
+     where A: DataAction<WxFileAvailable> + 'static
 {
     let (tx,rx) = create_mpsc_sender_receiver::<DownloadCmd>(128);
     Ok( (spawn("hrrr-download", process_download_requests( rx, cfg, cache_dir, action))?, tx) )
@@ -381,9 +397,9 @@ pub fn spawn_download_task<A> (cfg: Arc<HrrrConfig>, cache_dir: PathBuf, action:
 ///     Bi   : base hour i (cycle base)
 ///     s[j] : forecast step j (0..18 for regular, 0..48 for extended)
 ///     ◻︎    : forecast data set for t = Bi+s[j]
-///     
+///
 ///          Bi              s[0]   Bi+1       s[N]        Bi+2
-///          │0               50    │60         84         │ 
+///          │0               50    │60         84         │
 ///          │                |     │  cycle i  |          │
 ///          │                ◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎          │
 ///          │    dm < s[0]   |s[0]<= dm <=s[N] |   dm > S[N]
@@ -416,21 +432,21 @@ pub fn get_next_base_step (schedules: &HrrrSchedules, dt: &DateTime<Utc>)->(Date
 
 /// get all *most recent* forecasts for a `HrrrDataSetRequests` that are already available.
 /// This can span up to 3 forecast cycles as a forecast hour might only be available from a previous cycle.
-/// This function is used for new `HrrrDataSetRequests`. 
+/// This function is used for new `HrrrDataSetRequests`.
 /// Regular cycles have 18 forecast steps (hours). Extended cycles (at 00,06,12,18h) have 48 forecast steps, i.e.
 /// each computed list contains some data sets of the last extended cycle
-/// 
+///
 /// ```diagram
 ///   ◻︎ : obsolete available forecast step (updated by subsequent cycle)
 ///   ◼︎ : relevant available forecast to retrieve (most up-to-date forecast for base + step)
 ///   ○ : not-yet-available forecast step
-/// 
+///
 ///   ◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎   (3) last ext cycle
-///    ◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎ 
+///    ◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎
 ///     ◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◻︎◼︎◼︎◼︎                                    (2) last cycle:    always completely available
 ///      ◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎◼︎○○○○                                   (1) current cycle: might only be partially available
 /// ```
-pub async fn queue_available_forecasts (tx: &MpscSender<DownloadCmd>, ds: Arc<HrrrDataSetRequest>, schedules: &HrrrSchedules) {
+pub async fn queue_available_forecasts (tx: &MpscSender<DownloadCmd>, ds: Arc<WxDataSetRequest>, schedules: &HrrrSchedules) {
     let now = Utc::now();  // TODO - this should use sim time
 
     let mut dm = now.minute();
@@ -444,7 +460,7 @@ pub async fn queue_available_forecasts (tx: &MpscSender<DownloadCmd>, ds: Arc<Hr
         sched = schedules.schedule_for(&base);
     }
 
-    let max_steps = if is_extended_forecast(&base) {schedules.ext.len()} else {schedules.reg.len()}; 
+    let max_steps = if is_extended_forecast(&base) {schedules.ext.len()} else {schedules.reg.len()};
 
     //--- (1) queue what is available from current cycle
     while (step < max_steps) && (dm >= sched[step]) {
@@ -479,9 +495,9 @@ pub async fn queue_available_forecasts (tx: &MpscSender<DownloadCmd>, ds: Arc<Hr
 
 
 /// non-actor function to spawn download task and periodically send it file requests for a fixed set of HrrrDataSetRequests
-pub async fn run_downloads<A> (conf: HrrrConfig, dsrs: Vec<Arc<HrrrDataSetRequest>>, schedules: HrrrSchedules, 
+pub async fn run_downloads<A> (conf: HrrrConfig, dsrs: Vec<Arc<WxDataSetRequest>>, schedules: HrrrSchedules,
                                is_periodic: bool, file_avail_action: A) -> Result<()>
-    where A: DataAction<HrrrFileAvailable> + 'static
+    where A: DataAction<WxFileAvailable> + 'static
 {
     let check_interval = conf.check_interval;
     let (download_task,tx) = spawn_download_task( Arc::new(conf), hrrr_cache_dir(), file_avail_action)?;
@@ -521,7 +537,7 @@ pub async fn run_downloads<A> (conf: HrrrConfig, dsrs: Vec<Arc<HrrrDataSetReques
         tx.send( DownloadCmd::Terminate).await;
         download_task.await.map_err(|e| op_failed(e))?;
     }
-    
+
     Ok(())
 }
 

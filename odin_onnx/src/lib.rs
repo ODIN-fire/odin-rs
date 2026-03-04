@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -22,7 +22,7 @@ use image::{
 use ndarray::{Array,Array4, ArrayView};
 use ort::{
 	inputs,
-	session::{Session, SessionOutputs, Input, Output},
+	session::{Session, SessionOutputs, input::{SessionInputs}, output},
 	value::TensorRef,
 };
 use serde::{Serialize,Deserialize};
@@ -32,6 +32,8 @@ use odin_common::fs::EnvPathBuf;
 mod errors;
 use errors::Result;
 
+use crate::errors::OdinOnnxError;
+
 /// the policy of how to fit aribtrarily sized input images to (fixed) model size
 #[derive(Deserialize,Debug)]
 pub enum FitPolicy {
@@ -40,7 +42,7 @@ pub enum FitPolicy {
 	Mosaic // break up test image into overlapping sub-images which can be scaled to model size while preserving aspect ratio
 }
 
-/// the configuration data that specifies the model and target dimensions to use 
+/// the configuration data that specifies the model and target dimensions to use
 #[derive(Deserialize,Debug)]
 pub struct ImageClassifierConfig {
     pub name: String, // the model name
@@ -118,30 +120,37 @@ pub fn img_to_array4 (img: &RgbImage)->Array4<f32> {
     input
 }
 
-/*
-pub fn run_inference<'a,F> (session: &'a mut Session, config: &ImageClassifierConfig, img: &'a RgbImage, ) -> Result<SessionOutputs<'a>>  {
-    get_inference_input(img).and_then( |input|{
-        Ok( session.run( inputs![ "images" => TensorRef::from_array_view( &input)?])? )
-    })
-}
-*/
-
 pub fn print_session_info (session: &Session)->Result<()> {
     let meta = session.metadata()?;
 
-    println!("model name:   {}", meta.name()?);
-    println!("model domain: {}", meta.domain()?);
+    println!("model name:   {}", meta.name().unwrap_or("<none>".to_string()));
+    println!("model domain: {}", meta.domain().unwrap_or("<none>".to_string()));
 
     println!("model inputs:");
-    for input in &session.inputs {
-        println!("  input name: {}", input.name);
-        println!("  input type: {:?}", input.input_type);
+    for input in session.inputs() {
+        println!("  input name: {}", input.name());
+        println!("  input type: {:?}", input.dtype());
     }
 
     println!("model outputs:");
-    for output in &session.outputs {
-        println!("  output name: {}", output.name);
-        println!("  output type: {:?}", output.output_type);
+    for output in session.outputs() {
+        println!("  output name: {}", output.name());
+        println!("  output type: {:?}", output.dtype());
+    }
+
+    Ok(())
+}
+
+pub fn run_inference<'r,I,F> (session: &'r mut Session,  inputs: I, f: F)->Result<()>
+    where I: Into<SessionInputs<'r, 'r>>, F: FnOnce(SessionOutputs<'r>)->Result<()>
+{
+    match session.run( inputs ) {
+        Ok(outputs) => {
+            f(outputs)?
+        }
+        Err(e) => {
+            return Err(OdinOnnxError::OrtError(e))
+        }
     }
 
     Ok(())

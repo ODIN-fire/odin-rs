@@ -1,9 +1,9 @@
 /**
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -64,8 +64,8 @@ export function postInitialize() {
 //--- these can all be used to assess connectivity status
 export function isConnected () { return (ws != undefined); }
 
-// to be called from ws handlers to check if data initialization messages are due to a reconntect, i.e. whould 
-// purge old state before processing the incoming message. To do this the caller has to keep track of 
+// to be called from ws handlers to check if data initialization messages are due to a reconntect, i.e. whould
+// purge old state before processing the incoming message. To do this the caller has to keep track of
 // connectDates
 export function getConnectDate() { return connectDate; }
 export function getLastMsgDate() { return lastMsgDate; }
@@ -146,7 +146,7 @@ function connect () {
     if (wsUrl) {
         if ("WebSocket" in window) {
             if (!ws) {
-                console.log("initializing websocket: " + wsUrl);            
+                console.log("initializing websocket: " + wsUrl);
                 ws = new WebSocket(wsUrl);
 
                 ws.onopen = function() {
@@ -166,10 +166,11 @@ function connect () {
 
                     } else { // everything else is supposed to be a structured JSON message with a JS_MODULE receiver spec
                         try {
+                            //console.log("@@ ", data);
                             let msg = JSON.parse(data);
                             handleServerMessage(msg);
                         } catch(error) {
-                            console.error(error);
+                            console.error("websocket handler exception:", error);
                         }
                     }
                 };

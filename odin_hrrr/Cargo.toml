@@ -20,6 +20,7 @@ odin_common = { workspace = true }
 odin_actor = { workspace = true }
 odin_action = { workspace = true }
 odin_build = { workspace = true }
+odin_wx = { workspace = true }
 
 futures = { workspace = true }
 tokio = { workspace = true }
@@ -28,6 +29,8 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 ron = { workspace = true }
 thiserror = { workspace = true }
+strum = { workspace = true }
+async-trait = { workspace = true }
 
 [build-dependencies]
 odin_build = { workspace = true }

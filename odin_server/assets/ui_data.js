@@ -327,7 +327,7 @@ export class ExpandableTreeNode extends TreeNode {
         return null; // not found
     }
 
-    sortInPathName(pathName, newData, expand=false, isSticky=false) {
+    sortInPathName(pathName, newData, expand = false, isSticky = false) {
         let path = pathName.split('/');
         let newNode = new ExpandableTreeNode( path[path.length-1], newData, expand, isSticky);
 

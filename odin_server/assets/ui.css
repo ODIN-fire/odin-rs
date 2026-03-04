@@ -914,7 +914,7 @@ div.ui_node_name.no_data {
 
 /* kv - tables */
 
-table.ui_kvtable {
+div.ui_kvtable {
     display: block;
     color: var(--list-color);
     background: var(--data-background);
@@ -926,21 +926,21 @@ table.ui_kvtable {
     min-width: var(--list-width);
     min-height: calc( 2 * var(--list-item-height));
     box-sizing: border-box;
-    overflow-y: scroll;
+    overflow-y: auto;
     overflow-x: auto;
 }
 
-table.ui_kvtable tr td {
+div.ui_kvtable tr td {
     border: var(--table-border);
     border-top: 0;
     border-left: 0;
 }
 
-table.ui_kvtable tr:last-child td {
+div.ui_kvtable tr:last-child td {
     border-bottom: 0;
 }
 
-table.ui_kvtable tr td:last-child {
+div.ui_kvtable tr td:last-child {
     border-right: 0;
 }
 

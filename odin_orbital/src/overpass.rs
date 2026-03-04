@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -24,22 +24,22 @@ use chrono::{DateTime, Datelike, Timelike, Utc};
 use serde::{Deserialize,Serialize};
 use bit_set::BitSet;
 use odin_common::{
-    asin, atan2, cos, signum, sin, sqrt, tan, is_same_ref, MinMaxAvg, HALF_PI, 
-    angle::{normalize_360, Angle360, Angle90}, 
-    cartesian3::{dist_squared, find_closest_index, scale_to_earth_radius, Cartesian3}, 
-    cartographic::{approximate_surface_centroid, earth_radius_at_geodetic_latitude, get_bbox_rad, mean_distance_rad, parallel_distance_rad, Cartographic}, 
-    collections::{empty_vec, RingDeque, SingleLookupHashMap, SortedIterable}, 
-    datetime::{secs_f64, de_duration_from_fractional_secs, de_from_epoch_millis, from_epoch_millis, ser_duration_as_fractional_secs, ser_epoch_millis}, 
-    fs::set_filepath_contents, 
-    geo::{GeoPoint, GeoPolygon, GeoRect}, 
-    geo_constants::{EQUATORIAL_EARTH_RADIUS_SQUARED, E_EARTH, E_EARTH_SQUARED, MEAN_EARTH_RADIUS, POLAR_EARTH_RADIUS_SQUARED}, 
-    json_writer::{JsonWritable, JsonWriter}, 
+    asin, atan2, cos, signum, sin, sqrt, tan, is_same_ref, MinMaxAvg, HALF_PI,
+    angle::{normalize_360, Angle360, Angle90},
+    cartesian3::{dist_squared, find_closest_index, scale_to_earth_radius, Cartesian3},
+    cartographic::{approximate_surface_centroid, earth_radius_at_geodetic_latitude, get_bbox_rad, mean_distance_rad, parallel_distance_rad, Cartographic},
+    collections::{empty_vec, RingDeque, SingleLookupHashMap, SortedIterable},
+    datetime::{secs_f64, de_duration_from_fractional_secs, de_from_epoch_millis, from_epoch_millis, ser_duration_as_fractional_secs, ser_epoch_millis},
+    fs::set_filepath_contents,
+    geo::{GeoPoint, GeoPolygon, GeoRect},
+    geo_constants::{EQUATORIAL_EARTH_RADIUS_SQUARED, E_EARTH, E_EARTH_SQUARED, MEAN_EARTH_RADIUS, POLAR_EARTH_RADIUS_SQUARED},
+    json_writer::{JsonWritable, JsonWriter},
     uom::{de_length_from_meters, meters, ser_length_as_meters}
 };
 use crate::{
-    get_time_vec, instant_now, ColumnVec, OrbitalSatelliteInfo, Hotspot, 
-    errors::{op_failed,Result,OdinOrbitalError}, 
-    tle_store::TleStore, 
+    get_time_vec, instant_now, ColumnVec, OrbitalSatelliteInfo, Hotspot,
+    errors::{op_failed,Result,OdinOrbitalError},
+    tle_store::TleStore,
     orbitinfo::{OrbitInfo}
 };
 
@@ -60,7 +60,7 @@ const MIN_TRAJECTORY_POINTS: usize = 10;
 pub struct Overpass {
     sat_id: u32,
 
-    max_scan_angle: Angle90, 
+    max_scan_angle: Angle90,
     mean_swath_width: Length, // note that swath width depends on altitude (i.e. varies over track)
     mean_height: Length, // ditto
     mean_orbit_duration: StdDuration,
@@ -89,7 +89,7 @@ impl Overpass {
         let mean_altitude: Length = Length::new::<meter>(0.0); // computed once we have a track
         let mean_gp_dist = Length::new::<meter>(0.0); // computed once we have a track
 
-        let fname = String::with_capacity(0); 
+        let fname = String::with_capacity(0);
 
         Overpass { sat_id, max_scan_angle, mean_swath_width, mean_height: mean_altitude, mean_orbit_duration, mean_gp_dist, start, end, time_step, fname, track }
     }
@@ -132,7 +132,7 @@ impl Overpass {
         self.mean_gp_dist = Length::new::<meter>( ((dist_first + dist_last) / 2.0).round());
 
         let start = &self.start;
-        self.fname = format!("{}_{:4}-{:02}-{:02}_{:02}{:02}_{}.json", 
+        self.fname = format!("{}_{:4}-{:02}-{:02}_{:02}{:02}_{}.json",
                            self.sat_id, start.year(), start.month(), start.day(), start.hour(), start.minute(), (self.end-start).num_minutes());
     }
 
@@ -166,7 +166,7 @@ impl Overpass {
         let p = Cartesian3::from(cp);
         let gp = self.closest_track_point(&p);
         let cgp = Cartographic::from(&gp);
-        
+
         Angle360::from_degrees( cp.bearing_to( &cgp).to_degrees())
     }
 
@@ -221,8 +221,8 @@ impl Overpass {
 }
 
 pub fn save_overpasses_to (dir: impl AsRef<Path>, overpasses: &Vec<Overpass>)->Result<()> {
-    for o in overpasses { 
-        o.save_to( &dir)? 
+    for o in overpasses {
+        o.save_to( &dir)?
     }
     Ok(())
 }
@@ -230,8 +230,8 @@ pub fn save_overpasses_to (dir: impl AsRef<Path>, overpasses: &Vec<Overpass>)->R
 
 impl fmt::Display for Overpass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Overpass( sat_id:{}, start:{}, end: {}, dur:{} min, step:{} s, n_points:{}, mean_alt: {:.0} m, mean_swath: {:.0} m)", 
-            self.sat_id, self.start, self.end, (self.end - self.start).num_minutes(), self.time_step.as_secs(), self.track.len(), 
+        write!(f, "Overpass( sat_id:{}, start:{}, end: {}, dur:{} min, step:{} s, n_points:{}, mean_alt: {:.0} m, mean_swath: {:.0} m)",
+            self.sat_id, self.start, self.end, (self.end - self.start).num_minutes(), self.time_step.as_secs(), self.track.len(),
             self.mean_height.get::<meter>(), self.mean_swath_width.get::<meter>())
     }
 }
@@ -254,11 +254,11 @@ impl <T: TleStore> OverpassCalculator<T> {
         OverpassCalculator { sat_info, tle_store, ois, oc }
     }
 
-    /// this obtains required TLEs and computes reference orbits 
+    /// this obtains required TLEs and computes reference orbits
     pub async fn initialize (&mut self)->Result<()> {
         self.tle_store.pre_fetch().await?;
         self.calculate_orbitinfos();
-        
+
         // TODO - we could re-compute the OverpassConstraints here with the height from the latest TLE but it is
         // not clear we need this precision
 
@@ -275,7 +275,7 @@ impl <T: TleStore> OverpassCalculator<T> {
 
         let i0 = if n_tles > max_tles { n_tles - max_tles } else { 0 };
         for i in i0..n_tles { ois.push_front( OrbitInfo::new( sat_id, time_step, tles.pop().unwrap())) }
-    
+
         self.ois = ois;
     }
 
@@ -299,9 +299,10 @@ impl <T: TleStore> OverpassCalculator<T> {
                             .ok_or(op_failed!("no suitable OrbitInfo for {sat_id} at {t_start}"))?;
         let mut tle = oi.get_tle();
         let t_end = t_start + dur;
-        let mut t = oi.get_orbit_start(t_start); 
+        let mut t = oi.get_orbit_start(t_start);
         let step_secs = self.sat_info.time_step.as_secs_f64();
-        let mut n_steps: usize = (oi.rev_sec / step_secs).floor() as usize;
+
+        let mut n_steps = (oi.rev_sec / step_secs).floor() as usize;
         let mut n_steps1 = n_steps-1;
         let time_step = Duration::from_seconds(step_secs);
         let mut tvec: Vec<Instant> = vec![ Instant::new(0); n_steps + 20];
@@ -318,7 +319,7 @@ impl <T: TleStore> OverpassCalculator<T> {
 
             let q0 = qteme2itrf(&tvec[0]);
             let q1 = qteme2itrf(&tvec[n_steps1]);
-   
+
             let itrf_last = q0 * pteme.column(0);
             let mut p_last = Cartesian3::from_col( &itrf_last);
             let mut is_recording = false;
@@ -337,7 +338,7 @@ impl <T: TleStore> OverpassCalculator<T> {
                     current_overpass.push_track_point(p.to_rounded_decimals(0)); // no point keeping decimals - sgp4 does not have enough accuracy
                     i_last = i;
                 } else {
-                    if is_recording { break  } // done for this revolution 
+                    if is_recording { break  } // done for this revolution
                 }
 
                 p_last = p;
@@ -363,9 +364,9 @@ impl <T: TleStore> OverpassCalculator<T> {
                 tle = oi.get_tle();
                 n_steps = (oi.rev_sec / step_secs).floor() as usize;
                 n_steps1 = n_steps-1;
-            }                    
+            }
 
-            t = oi.get_orbit_start( t); // make sure we start on pole 
+            t = oi.get_orbit_start( t); // make sure we start on pole
         }
 
         Ok(overpasses)
@@ -379,7 +380,7 @@ impl <T: TleStore> OverpassCalculator<T> {
 fn check_z_range (v: &Cartesian3, v_last: &Cartesian3, oc: &OverpassConstraints)->bool {
     let z_min = oc.z_min;
     let z_max = oc.z_max;
-    
+
     if v.z >= z_min &&  v.z <= z_max { return true }  // if middle point is already in range we don't have to check swath
 
     // we need an inexpensive way to update the TEME->ITRF rotation matrix here
@@ -390,10 +391,10 @@ fn check_z_range (v: &Cartesian3, v_last: &Cartesian3, oc: &OverpassConstraints)
         let u = v_last.normal(v);
 
         let p = v + u * oc.avg_scan_dist;
-        if p.z >= z_min &&  p.z <= z_max { return true } 
+        if p.z >= z_min &&  p.z <= z_max { return true }
 
         let p = v - u * oc.avg_scan_dist;
-        if p.z >= z_min &&  p.z <= z_max { return true } 
+        if p.z >= z_min &&  p.z <= z_max { return true }
     }
     */
 
@@ -411,7 +412,7 @@ pub struct OverpassConstraints {
     sin_msa: f64,  // pre-computed
     cos_msa: f64,
     avg_swath: ScanInfo,
-    
+
     region: Vec<Cartographic>,
     vertices: Vec<Cartesian3>,  // the ECEF vertices of the region
     normals: Vec<Cartesian3>,   // the list of unit normals for each of the planes defined by two consecutive vertices (and earth center)
@@ -443,13 +444,13 @@ impl OverpassConstraints {
     fn compute_bounds (avg_height: f64, vertices: &[Cartesian3]) -> (f64,f64) {
         let mut z_min: f64 = f64::MAX;
         let mut z_max: f64 = f64::MIN;
-    
+
         for v in vertices {
             let t = v.extended_by_length( avg_height); // vertices are on the ellipsoid
             if t.z < z_min { z_min = t.z }
             if t.z > z_max { z_max = t.z }
         }
-    
+
         (z_min, z_max)
     }
 
@@ -492,7 +493,7 @@ impl OverpassConstraints {
 pub struct ScanInfo {
     pub swath_width: f64, // arc distance [meter] from satellite ground point to scan horizon point
     pub sat_dist: f64,    // dist [meter] satellite to scan horizon point in meters
-    pub norm_dist: f64,   // orbit plane-orthogonal distance [meter] between satellite and line through earth center and scan horizon point 
+    pub norm_dist: f64,   // orbit plane-orthogonal distance [meter] between satellite and line through earth center and scan horizon point
 }
 
 // internal version to save trig function calls that can be pre-computed

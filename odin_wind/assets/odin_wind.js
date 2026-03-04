@@ -45,8 +45,8 @@ var selDisplay = undefined;
 
 // the supported wind sources
 const WindNinjaSource = "windNinja";
-const Hrrr10Source = "hrrr_10m";
-const Hrrr80Source = "hrrr_80m";
+const Wx10Source = "wx_10m";
+const Wx80Source = "wx_80m";
 var selSource = undefined;
 
 //--- render parameters
@@ -71,7 +71,7 @@ class ForecastRegion {
     isRectShowing() { return (this.asset != null); }
 
     addForecast (newForecast) {
-        let isRegionSelected = Object.is( this, selectedRegion); 
+        let isRegionSelected = Object.is( this, selectedRegion);
         this.purgeOldForecasts();
 
         let forecasts = this.forecasts;
@@ -105,7 +105,7 @@ class ForecastRegion {
         for (let f of forecasts) {
             let dh = util.hoursBetween( f.date, now);
             if (dh < 0) break; // the rest is in the future
-            if (dh > config.backHours) nPurge++; 
+            if (dh > config.backHours) nPurge++;
         }
         if (nPurge>0) {
             for (let i=0; i<nPurge; i++) {
@@ -187,34 +187,34 @@ class Forecast {
         this.vector.windNinja = new wf.VectorField( urlBase, "__vector.csv", vectorRender, wfStatusChanged);
         this.contour.windNinja = new wf.ContourField( urlBase, "__contour.json", contourRender, wfStatusChanged);
 
-        this.animation.hrrr_10m = new wf.AnimField( urlBase, "__hrrr__10__grid.csv", animRender, wfStatusChanged);
-        this.vector.hrrr_10m = new wf.VectorField( urlBase, "__hrrr__10__vector.csv", vectorRender, wfStatusChanged);
-        this.contour.hrrr_10m = new wf.ContourField( urlBase, "__hrrr__10__contour.json", contourRender, wfStatusChanged);
+        this.animation.wx_10m = new wf.AnimField( urlBase, "__10__grid.csv", animRender, wfStatusChanged);
+        this.vector.wx_10m = new wf.VectorField( urlBase, "__10__vector.csv", vectorRender, wfStatusChanged);
+        this.contour.wx_10m = new wf.ContourField( urlBase, "__10__contour.json", contourRender, wfStatusChanged);
 
-        this.animation.hrrr_80m = new wf.AnimField( urlBase, "__hrrr__80__grid.csv", animRender, wfStatusChanged);
-        this.vector.hrrr_80m = new wf.VectorField( urlBase, "__hrrr__80__vector.csv", vectorRender, wfStatusChanged);
-        this.contour.hrrr_80m = new wf.ContourField( urlBase, "__hrrr__80__contour.json", contourRender, wfStatusChanged);
+        this.animation.wx_80m = new wf.AnimField( urlBase, "__80__grid.csv", animRender, wfStatusChanged);
+        this.vector.wx_80m = new wf.VectorField( urlBase, "__80__vector.csv", vectorRender, wfStatusChanged);
+        this.contour.wx_80m = new wf.ContourField( urlBase, "__80__contour.json", contourRender, wfStatusChanged);
     }
 
     status () { return this[selDisplay][selSource].status; }
 
-    startViewChange () { 
+    startViewChange () {
         if (this.isShowing()) {
             this.showWindField(false);
             this._onHold = true;
-            this[selDisplay][selSource].startViewChange(); 
+            this[selDisplay][selSource].startViewChange();
         }
     }
 
-    endViewChange () { 
+    endViewChange () {
         if (this._onHold) {
-            this[selDisplay][selSource].endViewChange(); 
+            this[selDisplay][selSource].endViewChange();
             this.showWindField(true);
             this._onHold = undefined;
         }
     }
 
-    renderChanged () { 
+    renderChanged () {
         // TODO - to be consistent we either we have to set sliders upon source/display selection or we have
         // to update all source/display entries here
 
@@ -231,8 +231,8 @@ class Forecast {
 
     getResolution() { return Object.is( selSource, WindNinjaSource) ? this.mesh : 3000; }
 
-    showWindField (showIt) { 
-        this[selDisplay][selSource].setVisible( showIt); 
+    showWindField (showIt) {
+        this[selDisplay][selSource].setVisible( showIt);
     }
 
     // this keeps them loaded but sets primitives invisible
@@ -241,13 +241,13 @@ class Forecast {
         this.vector.windNinja.setVisible(false);
         this.contour.windNinja.setVisible(false);
 
-        this.animation.hrrr_10m.setVisible(false);
-        this.vector.hrrr_10m.setVisible(false);
-        this.contour.hrrr_10m.setVisible(false);
+        this.animation.wx_10m.setVisible(false);
+        this.vector.wx_10m.setVisible(false);
+        this.contour.wx_10m.setVisible(false);
 
-        this.animation.hrrr_80m.setVisible(false);
-        this.vector.hrrr_80m.setVisible(false);
-        this.contour.hrrr_80m.setVisible(false);
+        this.animation.wx_80m.setVisible(false);
+        this.vector.wx_80m.setVisible(false);
+        this.contour.wx_80m.setVisible(false);
     }
 
     // this releases all resources and causes a reload of the data files upon next display
@@ -256,13 +256,13 @@ class Forecast {
         this.vector.windNinja.clear();
         this.contour.windNinja.clear();
 
-        this.animation.hrrr_10m.clear();
-        this.vector.hrrr_10m.clear();
-        this.contour.hrrr_10m.clear();
+        this.animation.wx_10m.clear();
+        this.vector.wx_10m.clear();
+        this.contour.wx_10m.clear();
 
-        this.animation.hrrr_80m.clear();
-        this.vector.hrrr_80m.clear();
-        this.contour.hrrr_80m.clear();
+        this.animation.wx_80m.clear();
+        this.vector.wx_80m.clear();
+        this.contour.wx_80m.clear();
     }
 }
 
@@ -335,7 +335,7 @@ function handleForecastRegions (frsMsg) {
 // this is the notification everybody gets when a new region becomes active
 function handleStartForecastRegion (startFcr) {
     let fr = forecastRegions.get(startFcr.name);
-    if (fr) { 
+    if (fr) {
         fr.setActive(true);
         ui.updateListItem( regionView, fr);
 
@@ -348,7 +348,7 @@ function handleStartForecastRegion (startFcr) {
 // this is the notification the requester gets when a region request is rejected
 function handleRejectForecastRegion (rejectFcr) {
     let fr = forecastRegions.get(rejectFcr.name);
-    if (fr) { 
+    if (fr) {
         fr.setActive(false);
         ui.updateListItem( regionView, fr);
         alert( `region request rejected: ${rejectFcr.rejection}` );
@@ -357,7 +357,7 @@ function handleRejectForecastRegion (rejectFcr) {
 
 function handleStopForecastRegion (stopFcr) {
     let fr = forecastRegions.get(stopFcr.region);
-    if (fr) { 
+    if (fr) {
         fr.setActive(false);
         ui.updateListItem( regionView, fr);
     }
@@ -385,7 +385,7 @@ function handleShareMessage (msg) {
         if (msg.setShared) {
             let sharedItem = msg.setShared;
             if (sharedItem.key.match(BBOX_PATTERN)) {
-                addSharedGeoRect(sharedItem);// 
+                addOrUpdateSharedGeoRect(sharedItem);//
             }
         } else if (msg.removeShared) {
             removeSharedGeoRect( msg.removeShared);
@@ -409,14 +409,23 @@ function setSharedGeoRects() {
     ui.setTree( regionView, tree);
 }
 
-function addSharedGeoRect(si) {
-    let fr = new ForecastRegion( si.key, si.value.data, RegionStatus.INACTIVE);
-    forecastRegions.set( fr.name, fr);
-    ui.sortInTreeItem( regionView, fr, fr.name);
+function addOrUpdateSharedGeoRect(si) {
+    let old = forecastRegions.get(si.key);
+    if (old) {
+        old.bbox = si.value.data;
+    } else {
+        let fr = new ForecastRegion( si.key, si.value.data, RegionStatus.INACTIVE);
+        forecastRegions.set(fr.name, fr);
+        ui.sortInTreeItem(regionView, fr, fr.name);
+    }
 }
 
 function removeSharedGeoRect(sharedItemKey) {
-
+    let fr = forecastRegions.get(sharedItemKey);
+    if (fr) {
+        forecastRegions.delete(sharedItemKey);
+        ui.removeTreeItemPath( regionView, sharedItemKey);
+    }
 }
 
 function getSharedGeoRects() {
@@ -443,7 +452,7 @@ function createIcon() {
 function createWindow() {
     return ui.Window("Wind", "wind", "./asset/odin_wind/wind-icon.svg")(
         ui.LayerPanel("wind", toggleShowWind),
-        
+
         ui.Panel("wind-fields", true)(
             ui.RowContainer()(
                 (regionView = ui.TreeList("wind.regions", 10, "25rem", selectRegion, null,null, zoomRegion)),
@@ -511,7 +520,7 @@ function isContourDisplay () {
 }
 
 function initSourceCb() {
-    ui.setChoiceItems( sourceCb, [WindNinjaSource, Hrrr10Source, Hrrr80Source], 0);
+    ui.setChoiceItems( sourceCb, [WindNinjaSource, Wx10Source, Wx80Source], 0);
     selSource = ui.getSelectedChoiceValue( sourceCb);
 }
 
@@ -535,6 +544,7 @@ function initForecastView() {
             { name: "forecast", width: "10rem",  attrs: ["fixed"], map: e => util.toLocalDateHMTimeString( e.date) },
             { name: "Δt", tip: "hours from forecast creation", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.step },
             ui.listItemSpacerColumn(1),
+            { name: "wx", tip: "wx model source", width: "4rem", attrs:[], map: e=> e.wxSrc },
             { name: "res", tip: "mesh resolution in meters", width: "3rem", attrs: ["fixed", "alignRight"], map: e => e.getResolution() },
             ui.listItemSpacerColumn(1),
             { name: "", width: "1rem", attrs:[], map: e => e.status() },
@@ -663,7 +673,7 @@ function endViewChange() {
     wf.updateViewerParameters();
     for (let region of forecastRegions.values()) {
         for (let forecast of region.forecasts) {
-            
+
             forecast.endViewChange();
         }
     }
@@ -786,7 +796,7 @@ function selectWindSource (event) {
 /* #region anim display settings ****************************************************************************/
 
 // we have to delay particleSystem updates while user moves the slider
-var pendingUserInputChange = false; 
+var pendingUserInputChange = false;
 
 function triggerAnimRenderChange(forecast, newInput) {
     if (isAnimDisplay()) {
@@ -903,4 +913,3 @@ function colorIndex (e) {
     let id = e.id;
     return parseInt( id.charAt( id.length-1));
 }
-

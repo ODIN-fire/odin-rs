@@ -187,7 +187,7 @@ With those directory types we can now define the resource file lookup algorithm:
 ### File Lookup Algorithm
 For each given tuple
 
- - root-dir (ODIN_HOME | workspace-parent | ~/.odin)
+ - root-dir (ODIN_ROOT | workspace-parent | ~/.odin)
  - (optional) workspace-dir 
  - resource type ("configs" or "assets"), 
  - resource filename, 
@@ -215,15 +215,15 @@ This lookup is performed for each resource separately, i.e. it is not just possi
 
 At runtime, ODIN applications use the following optional environment variables:
 
-- `ODIN_HOME` - the ODIN root directory to use
+- `ODIN_ROOT` - the ODIN root directory to use
 - `ODIN_EMBEDDED_ONLY` - use only embedded configs, no file system lookup
 - `ODIN_BIN_SUFFIX` - optional suffix for binary name (can be used to differentiate multiple concurrent 
    `ODIN_BIN_NAME`/`CARGO_BIN_NAME` processes)
 - `ODIN_RELOAD_ASSETS` - if set asset lookup is not cached (useful for debugging javascript modules)
 
-Note that if you use `ODIN_HOME` to run applications outside of a workspace-dir (i.e. outside of a clones repository directory) you 
+Note that if you use `ODIN_ROOT` to run applications outside of a workspace-dir (i.e. outside of a clones repository directory) you 
 have to make sure your application does not rely on a config or asset that is normally kept in the repository - all configs and assets
-have to be copied into `ODIN_HOME` in this case. 
+have to be copied into `ODIN_ROOT` in this case. 
 
 At build-time, ODIN uses the following environment variables to provide build script input
 

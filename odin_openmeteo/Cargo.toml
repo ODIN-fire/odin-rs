@@ -1,0 +1,52 @@
+[package]
+name = "odin_openmeteo"
+version = "0.1.0"
+edition = "2024"
+
+#[[bin]]
+#name = "get_openmet"
+#path = "src/bin/get_openmet.rs"
+
+[[bin]]
+name = "basic_ecmwf_grid"
+path = "src/bin/basic_ecmwf_grid.rs"
+
+
+[dependencies]
+lazy_static = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true }
+regex = { workspace = true }
+anyhow = { workspace = true }
+gdal = { workspace = true }
+tempfile = "3.20.0"
+
+futures = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ron = { workspace = true }
+thiserror = { workspace = true }
+strum = { workspace = true }
+
+# workspace dependencies
+odin_common = { workspace = true }
+odin_actor = { workspace = true }
+odin_action = { workspace = true }
+odin_build = { workspace = true }
+odin_macro = { workspace = true }
+odin_gdal = { workspace = true }
+odin_hrrr = { workspace = true }
+odin_job = { workspace = true }
+odin_wx = { workspace = true }
+
+
+
+[build-dependencies]
+odin_build = { workspace = true }
+
+[features]
+## inline crate-specific resources (configs and assets) into the executable (see odin_build)
+embedded_resources = []

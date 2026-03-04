@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -21,11 +21,11 @@ use serde_json;
 use futures_util::{SinkExt,StreamExt,stream::{SplitSink,SplitStream}};
 use chrono::Utc;
 use tokio_tungstenite::{
-    connect_async, WebSocketStream, MaybeTlsStream, 
+    connect_async, WebSocketStream, MaybeTlsStream,
     tungstenite::{self,
-        protocol::Message, 
-        http::{Request,header::{AUTHORIZATION,HeaderValue}}, 
-        handshake::client::{Response,generate_key}, 
+        protocol::Message,
+        http::{Request,header::{AUTHORIZATION,HeaderValue}},
+        handshake::client::{Response,generate_key},
         client::IntoClientRequest
     }
 };
@@ -33,20 +33,19 @@ use tokio::{net::TcpStream,io::{AsyncRead,AsyncReadExt,AsyncWrite,AsyncWriteExt}
 use reqwest::Client;
 
 use odin_build::pkg_cache_dir;
-use odin_common::{    
-    collections::process_async, datetime::{hours, secs, short_utc_datetime_string, ZERO}, 
-    fs::remove_old_files, geo::GeoRect, net::{get_file, NO_HEADERS, ZERO_ADDR}, 
+use odin_common::{
+    collections::process_async, datetime::{hours, secs, short_utc_datetime_string, ZERO},
+    fs::remove_old_files, geo::GeoRect, net::{get_file, NO_HEADERS, ZERO_ADDR},
     ron::{from_typed_compact_ron, TypedCompactRon}, ws
 };
-use odin_hrrr::HrrrFileAvailable;
 use odin_actor::prelude::*;
 use crate::{
-    errors::{op_failed, OdinWindError, Result}, 
-    AddWindClient, AddWindClientResponse, ExecSnapshotAction, Forecast, ForecastRegion, ForecastStore, RemoveWindClient, RemoveWindClientResponse, 
+    errors::{op_failed, OdinWindError, Result},
+    AddWindClient, AddWindClientResponse, ExecSnapshotAction, Forecast, ForecastRegion, ForecastStore, RemoveWindClient, RemoveWindClientResponse,
     SubscribeResponse, WindConfig, WindRegion, WnJobRegion, PKG_CACHE_DIR,
-    huvw_wgs84_suffix, huvw_grid_suffix, huvw_vector_suffix, huvw_contour_suffix, 
-    hrrr_wgs84_suffix, hrrr_10_grid_suffix, hrrr_10_vector_suffix, hrrr_10_contour_suffix,
-    hrrr_80_grid_suffix, hrrr_80_vector_suffix, hrrr_80_contour_suffix
+    huvw_wgs84_suffix, huvw_grid_suffix, huvw_vector_suffix, huvw_contour_suffix,
+    wx_wgs84_suffix, wx_10_grid_suffix, wx_10_vector_suffix, wx_10_contour_suffix,
+    wx_80_grid_suffix, wx_80_vector_suffix, wx_80_contour_suffix
 };
 
 pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -54,7 +53,7 @@ pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 #[derive(Deserialize,Serialize,Debug)]
 pub struct WindServerClientConfig {
     pub ws_uri: String,
-    pub file_uri: String, 
+    pub file_uri: String,
     pub(crate) access_token: String,
     pub max_age: Duration,
     pub max_forecasts: usize,
@@ -120,13 +119,13 @@ impl <S,U> WindServerClient<S,U> where S: DataAction<SubscribeResponse> + 'stati
         if let Some(response) = from_typed_compact_ron::<AddWindClientResponse>(&msg) {
             return self.process_add_client_response(response).await;
         }
-        
+
         if let Some(forecast) = from_typed_compact_ron::<Forecast>(&msg) {
             return self.process_forecast(forecast).await;
         }
 
         warn!("ignored server message: {}", msg);
-        Ok(()) 
+        Ok(())
     }
 
     async fn process_add_client_response (&mut self, response: AddWindClientResponse)->Result<()> {
@@ -157,9 +156,9 @@ impl <S,U> WindServerClient<S,U> where S: DataAction<SubscribeResponse> + 'stati
         if let Some(fcr) = self.forecast_store.get_mut( &forecast.region) {
             download_forecast_data( client, &forecast, base_uri, cache_dir).await?;
 
-            if let Some(fc) = fcr.add_forecast(forecast) {  
+            if let Some(fc) = fcr.add_forecast(forecast) {
                 self.update_action.execute( fc).await.map_err(|e| OdinWindError::ActionFailure(e.to_string()))?;
-            }  
+            }
         }
         Ok(())
     }
@@ -176,11 +175,11 @@ impl <S,U> WindServerClient<S,U> where S: DataAction<SubscribeResponse> + 'stati
                 fcr.client_addrs.insert( request.remote_addr);
             }
 
-            let response = SubscribeResponse::Add( AddWindClientResponse { 
-                wn_region: request.wn_region, 
+            let response = SubscribeResponse::Add( AddWindClientResponse {
+                wn_region: request.wn_region,
                 is_new: false,
                 rejection,
-                remote_addr: Some(request.remote_addr) 
+                remote_addr: Some(request.remote_addr)
             });
             return self.subscribe_action.execute(response).await.map_err(|e| OdinWindError::ActionFailure(e.to_string()))
 
@@ -212,13 +211,13 @@ impl <S,U> WindServerClient<S,U> where S: DataAction<SubscribeResponse> + 'stati
 
         if let Some(region) = &request.region { // explicit unsubscribe for single region
             if let Some(fcr) = self.forecast_store.get_mut( region) {
-                if fcr.client_addrs.remove(  &request.remote_addr) && fcr.client_addrs.is_empty() { 
+                if fcr.client_addrs.remove(  &request.remote_addr) && fcr.client_addrs.is_empty() {
                     drop_regions.push( fcr.region.clone())
                 }
             }
         } else { // unsubscribe all regions for this client
             for (_,fcr) in self.forecast_store.iter_mut() {
-                if fcr.client_addrs.remove(  &request.remote_addr) && fcr.client_addrs.is_empty() { 
+                if fcr.client_addrs.remove(  &request.remote_addr) && fcr.client_addrs.is_empty() {
                     drop_regions.push( fcr.region.clone())
                 }
             }
@@ -258,15 +257,15 @@ async fn download_forecast_data( client: &Client, forecast: &Forecast, base_uri:
     get_wind_file( client, base_uri, &forecast.wn_out_base_name, huvw_contour_suffix(), cache_dir).await?;
 
     //--- HRRR output files
-    get_wind_file( client, base_uri, &forecast.wn_out_base_name, hrrr_wgs84_suffix(), cache_dir).await?;
+    get_wind_file( client, base_uri, &forecast.wn_out_base_name, wx_wgs84_suffix(), cache_dir).await?;
 
-    get_wind_file( client, base_uri, &forecast.wn_out_base_name, hrrr_10_grid_suffix(), cache_dir).await?;
-    get_wind_file( client, base_uri, &forecast.wn_out_base_name, hrrr_10_vector_suffix(), cache_dir).await?;
-    get_wind_file( client, base_uri, &forecast.wn_out_base_name, hrrr_10_contour_suffix(), cache_dir).await?;
+    get_wind_file( client, base_uri, &forecast.wn_out_base_name, wx_10_grid_suffix(), cache_dir).await?;
+    get_wind_file( client, base_uri, &forecast.wn_out_base_name, wx_10_vector_suffix(), cache_dir).await?;
+    get_wind_file( client, base_uri, &forecast.wn_out_base_name, wx_10_contour_suffix(), cache_dir).await?;
 
-    get_wind_file( client, base_uri, &forecast.wn_out_base_name, hrrr_80_grid_suffix(), cache_dir).await?;
-    get_wind_file( client, base_uri, &forecast.wn_out_base_name, hrrr_80_vector_suffix(), cache_dir).await?;
-    get_wind_file( client, base_uri, &forecast.wn_out_base_name, hrrr_80_contour_suffix(), cache_dir).await?;
+    get_wind_file( client, base_uri, &forecast.wn_out_base_name, wx_80_grid_suffix(), cache_dir).await?;
+    get_wind_file( client, base_uri, &forecast.wn_out_base_name, wx_80_vector_suffix(), cache_dir).await?;
+    get_wind_file( client, base_uri, &forecast.wn_out_base_name, wx_80_contour_suffix(), cache_dir).await?;
 
     Ok(())
 }
@@ -288,7 +287,7 @@ define_actor_msg_set!{ pub WindServerClientMsg = AddWindClient | ExecSnapshotAct
 #[derive(Debug)]
 pub struct ProcessServerWsMsg(String);
 
-impl_actor! { match msg for Actor<WindServerClient<S,U>,WindServerClientMsg> 
+impl_actor! { match msg for Actor<WindServerClient<S,U>,WindServerClientMsg>
     where S: DataAction<SubscribeResponse> + Sync, U: DataRefAction<Forecast> + Sync as
 
     _Start_ => cont! {
@@ -305,7 +304,7 @@ impl_actor! { match msg for Actor<WindServerClient<S,U>,WindServerClientMsg>
     }
 
     // received from a client to start forecasts for the given area
-    AddWindClient => cont! { 
+    AddWindClient => cont! {
         let hself = self.hself.clone();
         check_err( self.add_client( hself, msg).await, "failed to add windninja client")
     }
@@ -315,8 +314,8 @@ impl_actor! { match msg for Actor<WindServerClient<S,U>,WindServerClientMsg>
     }
 
     // received from client to process snapshot of current data
-    ExecSnapshotAction => cont! { 
-        msg.0.execute( &self.forecast_store).await; 
+    ExecSnapshotAction => cont! {
+        msg.0.execute( &self.forecast_store).await;
     }
 
     Forecast => cont! {
@@ -325,12 +324,12 @@ impl_actor! { match msg for Actor<WindServerClient<S,U>,WindServerClientMsg>
 
     // received from client to stop forecasts for given area (if there are no other clients left)
     // this could either be an explicit unsubscribe from a user or a dropped connection to a browser (e.g. when closing the tab)
-    RemoveWindClient => cont! { 
+    RemoveWindClient => cont! {
         let hself = self.hself.clone();
         check_err( self.remove_client( hself, msg).await, "failed to remove windninja client")
     }
 
-    _Terminate_ => stop! { 
+    _Terminate_ => stop! {
         self.terminate().await;
     }
 }
