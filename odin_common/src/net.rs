@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -35,7 +35,7 @@ lazy_static! {
     static ref FNAME_RE: Regex = Regex::new( r"(?:.*/)(.*)").unwrap();
 }
 
-define_error!{ pub OdinNetError = 
+define_error!{ pub OdinNetError =
     IOError(#[from] std::io::Error) : "IO error: {0}",
     NotFoundError(String) : "not found {0}",
     HttpError(#[from] reqwest::Error) : "http error: {0}",
@@ -46,7 +46,7 @@ define_error!{ pub OdinNetError =
 
 pub type Result<T> = std::result::Result<T, OdinNetError>;
 
-pub fn get_header_key_values (headers: &[String]) -> Result<Vec<(String,String)>> { 
+pub fn get_header_key_values (headers: &[String]) -> Result<Vec<(String,String)>> {
     Ok( headers.iter().flat_map( |s| {
         let s = s.as_str();
         s.find(':').map( |i| (s[0..i].to_string(), s[i+1..].to_string()))
@@ -62,8 +62,8 @@ pub fn get_headermap (headers: &Vec<String>) -> Result<HeaderMap> {
             if let Some(idx) = h.find(':') {
                 let k = h[0..idx].trim();
                 let v = h[idx+1..].trim();
-                hm.append( 
-                    HeaderName::from_bytes( k.as_bytes()).map_err(|e| OdinNetError::OpFailed(e.to_string()))?, 
+                hm.append(
+                    HeaderName::from_bytes( k.as_bytes()).map_err(|e| OdinNetError::OpFailed(e.to_string()))?,
                     HeaderValue::from_str(v).map_err(|e| OdinNetError::OpFailed(e.to_string()))?
                 );
             }
@@ -76,7 +76,7 @@ pub const NO_HEADERS: Option<&Vec<(String,String)>> = None;
 
 /// fetch file from URL using HTTP GET method. Retrieve in chunks to support large files
 /// Note this requires a full URL
-pub async fn get_file<'a,I> (client: &Client, url: &str, opt_headers: Option<I>, dir: impl AsRef<Path>) -> Result<u64>  
+pub async fn get_file<'a,I> (client: &Client, url: &str, opt_headers: Option<I>, dir: impl AsRef<Path>) -> Result<u64>
     where I: IntoIterator<Item=&'a (String,String)>
 {
     if let Some(fname) = url_file_name( url) {
@@ -87,7 +87,7 @@ pub async fn get_file<'a,I> (client: &Client, url: &str, opt_headers: Option<I>,
     }
 }
 
-pub async fn get_differing_size_file<'a,I> (client: &Client, url: &str, opt_headers: Option<I>, dir: &str) -> Result<u64>  
+pub async fn get_differing_size_file<'a,I> (client: &Client, url: &str, opt_headers: Option<I>, dir: &str) -> Result<u64>
     where I: IntoIterator<Item=&'a (String,String)> + Clone
 {
     if let Some(fname) = url_file_name( url) {
@@ -131,7 +131,7 @@ pub async fn post_json_query<T,U> (client: &Client, url: &str, data: T) -> Resul
     }
 }
 
-pub async fn download_url<'a,I> (client: &Client, url: &str, headers: Option<I>, path: impl AsRef<Path>) -> Result<u64> 
+pub async fn download_url<'a,I> (client: &Client, url: &str, headers: Option<I>, path: impl AsRef<Path>) -> Result<u64>
     where I: IntoIterator<Item=&'a (String,String)>
 {
     let mut file = File::create(path)?;
@@ -167,7 +167,7 @@ pub async fn download_url<'a,I> (client: &Client, url: &str, headers: Option<I>,
 }
 
 /// get content-length of URL without retrieving the actual content
-pub async fn get_content_length<'a,I> (client: &Client, url: &str, opt_headers: Option<I>)->Result<u64> 
+pub async fn get_content_length<'a,I> (client: &Client, url: &str, opt_headers: Option<I>)->Result<u64>
     where I: IntoIterator<Item=&'a (String,String)>
 {
     let mut req = client.head(url);
@@ -262,7 +262,7 @@ lazy_static! {
 pub fn enc_for (path: &str)->Option<&'static str> {
     let path_ext = get_filename_extension(path);
     for (ext,enc) in ENC_MAP.iter() {
-        if path_ext == Some(*ext) { 
+        if path_ext == Some(*ext) {
             return Some(enc)
         }
     }
@@ -281,8 +281,8 @@ pub fn encoding_for_path<'a,T: AsRef<Path>> (path: &'a T) -> Option<&'static str
 
 pub async fn from_json<T> (response: Response)->Result<T> where T: DeserializeOwned {
     let bytes = response.bytes().await?;
-    //println!("{}",String::from_utf8(bytes.to_vec()).unwrap());
-
-    serde_json::from_slice( &bytes).map_err(|e| OdinNetError::ParseError(e.to_string()))
+    serde_json::from_slice( &bytes).map_err(|e| {
+        println!("{}",String::from_utf8(bytes.to_vec()).unwrap());
+        OdinNetError::ParseError(e.to_string())
+    })
 }
-

@@ -66,7 +66,7 @@ pub struct DevicesResponse {
 pub struct Device {
     pub id: u32,
     pub station_id: String,
-    pub device_type: String,
+    pub device_type: Option<String>,  // as of 03/04/2026 there appear to be null types
     pub latest_status: Status,
 }
 
@@ -76,7 +76,7 @@ pub struct Status {
     pub active: bool,
     pub activation_date: DateTime<Utc>,
     pub location: Location,
-    pub location_description: String,
+    pub location_description: Option<String>, // as of 03/04/2026 has null strings
 }
 
 #[derive(Deserialize, Debug)]
@@ -195,11 +195,13 @@ impl N5Device {
     pub fn from(device: Device, config: &N5Config)->Self {
         let status = &device.latest_status;
 
+        let device_type = if let Some(dt) = device.device_type { dt.clone() } else { "?".to_string() }; // account for 'null' device types
+
         N5Device {
             id:device.id,
             position: GeoPoint3::from_lon_lat_degrees_alt_meters( status.location.static_loc.longitude, status.location.static_loc.latitude, 0.0),
             name: device.station_id,
-            device_type: device.device_type,
+            device_type,
             online: status.online,
             active: status.active,
 

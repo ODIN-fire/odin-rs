@@ -707,6 +707,8 @@ export function Panel (title, isExpanded=false, eid=null) {
         e.setAttribute("data-title", title);
         if (eid) e.setAttribute("id", eid);
 
+        e.addEventListener("transitionend", expandComplete);
+
         for (const c of children) e.appendChild(c);
 
         return e;
@@ -726,7 +728,14 @@ function initializePanel (e) {
         e.parentElement.insertBefore(panelHeader, e);
     }
 
-    if (!isExpanded) e.style.maxHeight = 0;
+    if (!isExpanded) e.style.maxHeight = 0; // make sure setting content does not show
+}
+
+function expandComplete(event) {
+    let panel = event.target;
+    if (panel.classList.contains("expanded")) {
+        panel.style.maxHeight = ''; // make sure setting content does show
+    }
 }
 
 // a programmatic way to expand/collapse panels
@@ -747,32 +756,23 @@ export function togglePanelExpansion(event) {
     const panel = panelHeader.nextElementSibling;
 
     if (panelHeader.classList.contains("expanded")) { // collapse
-        panel._uiCurrentHeight = panel.scrollHeight;
+        _swapClass(panelHeader, "expanded", "collapsed");
+        _swapClass(panel, "expanded", "collapsed");
 
-        if (!panel.style.maxHeight) { // we have to give max-height an initial value but without triggering a transition
-            panel.style.maxHeight = panel._uiCurrentHeight + "px";
-            setTimeout(() => { togglePanelExpansion(event); }, 100);
-        } else {
-            _swapClass(panelHeader, "expanded", "collapsed");
-            _swapClass(panel, "expanded", "collapsed");
-            panel.style.maxHeight = 0;
-            panel.style.visibility = "none";
-        }
+        panel.style.maxHeight = panel.scrollHeight + "px"; // set the transition start value
+        setTimeout(() => { panel.style.maxHeight = 0; }, 50 ) // set the end value (but not in this cycle)
 
     } else { // expand
         _swapClass(panelHeader, "collapsed", "expanded");
         _swapClass(panel, "collapsed", "expanded");
-        panel.style.maxHeight = "";
+
+        panel.style.visibility = "hidden"; // make sure we reflow but don't show
+        panel.style.maxHeight = ''; // make sure we honor current content
+        let scrollHeight = panel.scrollHeight;
+
+        panel.style.maxHeight = 0; // set transition start value
         panel.style.visibility = "visible";
-    }
-
-    // should we force a reflow on the parent here?
-}
-
-function _resetPanelMaxHeight(ce) {
-    let panel = nearestParentWithClass(ce, "ui_panel");
-    if (panel && !panel.classList.contains("collapsed")) {
-        panel.style.maxHeight = "";
+        setTimeout(() => { panel.style.maxHeight = scrollHeight + "px"; }, 50); // set transition end (will be reset by end event)
     }
 }
 
@@ -1149,7 +1149,6 @@ export function setTextContent(o,newContent) {
     if (e) {
         //e.setHTML(newContent); // use the sanitizer to avoid XSS (allow static html such as links) - not yet supported by Firefox
         e.innerHTML = newContent;
-        _resetPanelMaxHeight(e);
     }
 }
 
@@ -2240,7 +2239,6 @@ export function setKvList (o, kvList, createValueElement = undefined) {
                 e.appendChild(tr);
             });
         }
-        _resetPanelMaxHeight(e);
     }
 }
 
@@ -2530,7 +2528,6 @@ export function setListItems(o, items) {
         } else {
             clearList(e);
         }
-        _resetPanelMaxHeight(e);
     }
 }
 
@@ -2550,7 +2547,6 @@ export function setTree(o,root) {
             e._uiRoot = root;
 
             root.expandedDescendants().forEach( node=>e.appendChild(_createNodeElement(e, node)));
-            _resetPanelMaxHeight(e);
         }
     }
 }
@@ -2587,7 +2583,6 @@ export function sortInTreeItem (o, item, pathName, isSticky=false) {
                 } else {
                     e.appendChild(newElement);
                 }
-                _resetPanelMaxHeight(e);
             }
         }
 
@@ -2618,7 +2613,6 @@ export function removeTreeItemPath(o, pathName) {
                     prefixElem.innerText = parentNode.nodePrefix();
                 }
             }
-            _resetPanelMaxHeight(e);
         }
         return removedNodes;
     }
@@ -2694,7 +2688,6 @@ function repopulateNodes (e) {
     _setSelectedItemElement(e, null);
     _removeChildrenOf(e);
     e._uiRoot.expandedDescendants().forEach( node=>e.appendChild(_createNodeElement(e, node)));
-    _resetPanelMaxHeight(e);
 }
 
 function clickNodePrefix(event) {
