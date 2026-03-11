@@ -19,8 +19,10 @@
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_common::vec_boxed;
+
 use odin_wx::{WxServiceList,WxFileAvailable};
-use odin_hrrr::{self,HrrrService,HrrrActor,HrrrConfig,schedule::{HrrrSchedules,get_hrrr_schedules}};
+use odin_openmeteo::{actor::OpenMeteoActor,OpenMeteoConfig,OpenMeteoService};
+use odin_hrrr::{self, HrrrActor, HrrrConfig, HrrrService, schedule::{HrrrSchedules,get_hrrr_schedules}};
 
 use odin_wind::{
     actor::{WindActor, WindActorMsg},
@@ -31,9 +33,9 @@ use odin_wind::{
 
 run_actor_system!( actor_system => {
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
-    let pre_hrrr = PreActorHandle::new( &actor_system, "hrrr", 8);
+    let pre_wx = PreActorHandle::new( &actor_system, "wx", 8);
 
-    let wxs: WxServiceList = vec_boxed![ HrrrService::new_basic( pre_hrrr.to_actor_handle()) ];
+    let wxs: WxServiceList = vec_boxed![ HrrrService::new_basic( pre_wx.to_actor_handle()) ];
 
     let hwind = spawn_actor!( actor_system, "wind", WindActor::new(
         odin_wind::load_config("wind.ron")?,
@@ -42,7 +44,7 @@ run_actor_system!( actor_system => {
         wind_server_update_action( pre_server.to_actor_handle())
     ))?;
 
-    let hrrr = spawn_pre_actor!( actor_system, pre_hrrr, HrrrActor::with_statistic_schedules(
+    let hwx = spawn_pre_actor!( actor_system, pre_wx, HrrrActor::with_statistic_schedules(
         odin_hrrr::load_config( "hrrr_conus-8.ron")?,
         data_action!( let hwind: ActorHandle<WindActorMsg> = hwind.clone() => |data: WxFileAvailable| {
             Ok( hwind.try_send_msg( data)? )

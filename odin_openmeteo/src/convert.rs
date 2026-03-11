@@ -20,6 +20,8 @@ use odin_hrrr::meta;
 
 use crate::{OpenMeteoLocationData,BasicEcmwfIfs,BasicEcmwfIfsData,Result};
 
+/// re-grid an Open-Meteo dataset (represented as a `Vec<OpenMeteoLocationData<T>>`) into an equidistant
+/// geotiff grid with bands that correspond to variables/meta info according to HRRR forecasts
 pub fn basic_ecmwf_ifs_to_hrrr<P,U> (req: &WxDataSetRequest, path: P, tgt_dir: U)->Result<Vec<Arc<PathBuf>>>
 where P: AsRef<Path>, U: AsRef<Path>
 {

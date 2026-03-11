@@ -9,6 +9,7 @@ The following crates are currently included
 
 - [odin_geolayer](odin_geolayer/odin_geolayer.md) - display & post-process configured GeoJSON files
 - [odin_hrrr](odin_hrrr/odin_hrrr.md) - download of NOAA HRRR weather forecast data
+- [odin_openmeteo](odin_openmeteo/odin_openmeteo) - download of various weather model forecasts from open-meteo.com
 - [odin_goesr](odin_goesr/odin_goesr.md) - download, display and update of NOAA geostationary satellite (GOES-R) hotspot data
 - [odin_himawari](odin_himawari/odin_himawari.md) - download, display and update Himawari geostationary hotspot data from JAXA server
 - [odin_orbital](odin_orbital/odin_orbital.md) - download, display and update of polar orbiter satellite hotspot data (JPSS)
@@ -18,3 +19,4 @@ The following crates are currently included
 - [odin_alertca](odin_alertca/odin_alertca.md) - AlertCalifornia.org webcam integration
 - [odin_n5](odin_n5/odin_n5.md) - N5Sensors.com fire sensor integration
 - [odin-fires](odin_fires/odin_fires.md) - a micro service for historical and ongoing incident data such as perimeters
+- [odin_bushfire](odin_bushfire/odin_bushfire.md) - download, display and update Australian bushfire information

@@ -377,7 +377,6 @@ function createHotspotEntity(hs) {
             semiMinorAxis: 1000,
             semiMajorAxis: 1000,
             material: fillMaterial(hs),
-            height: 0,
             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
             distanceDisplayCondition: config.boundsDC
         }
