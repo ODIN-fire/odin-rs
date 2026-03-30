@@ -2,23 +2,20 @@
 
 ## Introduction
 
-This is the readme for the odin-rs repository, which is the Rust version of the Open Data Integration (ODIN) framework developed at the NASA Ames Research Center.
+This is the readme for the `odin-rs` repository, which is the main repository for the 
+[Open Data Integration for wildland fire mitigation (ODIN)](https://odin-fire.org) project. Please see the project webpage
+on ***https://odin-fire.org*** for news, screen shots, presentations and technical documentation.
 
-ODIN is a software framework to efficiently create servers that support disaster management. 
-
-More specifically it is a framework to make it easy to import and process an open number of external data sources for information such as weather, ground-/aerial- and space-based sensors, threat assessment, simulation and tracking. The over-arching goal is to improve situational awareness of responders by making more - and more timely - information available in stakeholder-specific applications. ODINs goal is *not* to create yet another website running in the cloud. To that end it is open sourced under Apachev2, highly extensible and supports running ODIN servers within stakeholder organizations on a variety of hardware and operating systems.
+ODIN is a software framework to create servers that improve situational awareness for natural disaster mitigation. 
+More specifically it is a framework to make it easy to import and process an open number of external data sources for (dynamic) information such as weather, ground-/aerial- and space-based sensors, threat assessment, simulation and tracking. The over-arching goal is to improve situational awareness by making more - and more timely - information available in stakeholder-specific single page web applications, not forcing users to context switch between dozens of external websites. ODINs goal is *not* to create yet another website running in the cloud. It is a toolset to create *your* web application. To that end it is open sourced under Apache v2, highly extensible and supports running ODIN servers within stakeholder organizations on a variety of hardware and operating systems.
 
 The online documentation for odin-rs can be found on https://odin-fire.org/book (or built from `odin_book` in this repository).
 
-To get an idea of what such ODIN servers might look like we refer to some of our recent talks:
+To get an idea of what such ODIN servers might look like we refer to our talk at the 
+ [Cesium DevCon 2025](https://www.youtube.com/watch?v=n2uRriuTWdU&list=PLONdwUX5Dqocrmxc6rWp82X9-eWcpN2Md&index=4)
 
-  * [Cesium DevCon 2025](https://www.youtube.com/watch?v=n2uRriuTWdU&list=PLONdwUX5Dqocrmxc6rWp82X9-eWcpN2Md&index=4)
-  * [TFRSAC spring 2023](https://www.youtube.com/watch?v=b9DfMBYCe-s&t=4950s)
-  * [TFRSAC fall 2022](https://www.youtube.com/watch?v=gCBXOaybDLA)
+ODIN-RS is a Rust based successor of the [race-odin](https://nasarace.github.io/race-odin/) system that was implemented in Scala/Java (see [RACE](https://nasarace.github.io/race/)). 
 
-ODIN-RS is a Rust based successor of the [race-odin](https://nasarace.github.io/race-odin/) system that was implemented in Scala/Java (see [RACE](https://nasarace.github.io/race/)). This is still an on-going effort - please contact us if you are interested in the current status.
-
-POC: [Peter.C.Mehlitz\@nasa.gov](mailto:Peter.C.Mehlitz@nasa.gov) 
 
 ## Building ODIN-RS from source
 
@@ -62,8 +59,6 @@ $> cargo build --example hello_world
 hello world!
 ```
 
-For IDEs we recommend [Visual Studio Code with the Rust Analyzer extension](https://code.visualstudio.com/docs/languages/rust) - just choose "File->Open Folder" with the directory this repository was cloned to and you should be ready to go.
-
 ## Further Documentation
 
 Many ODIN applications require configuration and asset data that is not part of its source distribution. To learn about how to set up ODIN development systems, how to deploy production applications and about the details of existing ODIN sub-crates please refer to the `odin_book` which is part of the odin-rs repository and can be built/viewed through [`mdbook`](https://rust-lang.github.io/mdBook/).
@@ -77,7 +72,7 @@ $> mdbook serve
 ...
 ```
 
-The online version of `odin_book` is available on https://odin-fire.github.io/odin-rs/
+The online version of `odin_book` is available on https://odin-fire.org/book.
 
 Please also look at the `examples/` directories of various ODIN crates. 
 
