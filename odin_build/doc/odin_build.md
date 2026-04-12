@@ -220,6 +220,8 @@ At runtime, ODIN applications use the following optional environment variables:
 - `ODIN_BIN_SUFFIX` - optional suffix for binary name (can be used to differentiate multiple concurrent 
    `ODIN_BIN_NAME`/`CARGO_BIN_NAME` processes)
 - `ODIN_RELOAD_ASSETS` - if set asset lookup is not cached (useful for debugging javascript modules)
+- `ODIN_KEEP_AWAKE` - prevent machine from going to sleep while application is running (value is comma separated list of "display","idle","sleep")
+- `ODIN_TRACE`- enable tracing of application at runtime
 
 Note that if you use `ODIN_ROOT` to run applications outside of a workspace-dir (i.e. outside of a clones repository directory) you 
 have to make sure your application does not rely on a config or asset that is normally kept in the repository - all configs and assets

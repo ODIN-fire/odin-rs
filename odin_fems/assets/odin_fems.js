@@ -100,12 +100,14 @@ class StationEntry {
                 billboard: {
                     image: src,
                     distanceDisplayCondition: config.windDC,
+                    disableDepthTestDistance: Number.MAX_SAFE_INTEGER,
                     color: config.color,
                     heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
                     alignedAxis: Cesium.Cartesian3.UNIT_Z,
                     rotation: util.toRadians( 360 - wObs.wndDir)
                 }
             });
+            entity._uiFemsStation = this; // backlink for selection
 
             dataSource.entities.add(entity);
             return entity;
@@ -346,9 +348,11 @@ function toggleShowFems(event) {
 // entity -> list
 function stationSelection() {
     let sel = odinCesium.getSelectedEntity();
-    if (sel && sel._uiFemsStation) {
-        if (!Object.is(sel._uiFemsStation, selectedStation)) {
-            ui.setSelectedListItem(stationView, sel._uiFemsStation);
+    if (sel) {
+        if (sel._uiFemsStation) {
+            if (!Object.is(sel._uiFemsStation, selectedStation)) {
+                ui.setSelectedListItem(stationView, sel._uiFemsStation);
+            }
         }
     }
 }

@@ -126,6 +126,8 @@ function geoLayerSelection() {
         } else {
             ui.clearKvList(objectView);
         }
+    } else {
+        ui.clearKvList(objectView);
     }
 }
 

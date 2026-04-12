@@ -50,6 +50,7 @@ image-compare = { version = "0.5.0" }
 imageproc = { version = "0.25.0" }
 linreg = { version = "0.2.0" }
 tiff = { version = "0.10.3" }
+keepawake = { version = "0.6" }
 
 aws-config = { version = "1.8.12", features = ["behavior-version-latest"], optional = true }
 aws-sdk-s3 = { version = "1.119.0", features = ["rt-tokio"], optional = true }

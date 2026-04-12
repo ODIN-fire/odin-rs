@@ -239,6 +239,14 @@ export const viewerReadyPromise = new Promise( async (resolve,reject) => {
         pendingRenderRequest = false;
     });
 
+    // don't show a selection indicator if there is no entity selected
+    // note this executes before module handlers get notified, i.e. they see a null selection if this is not a regular entity
+    viewer.selectedEntityChanged.addEventListener(function (se) {
+        if (!se || !se.entityCollection) {
+            clearSelectedEntity();
+        }
+    });
+
     let dataSource = new Cesium.CustomDataSource("positions");
     addDataSource(dataSource);
 

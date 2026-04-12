@@ -677,6 +677,14 @@ impl ActorSystem {
         Self::new(id)
     }
 
+    pub fn check_env_tracing (id: impl ToString)->Self {
+        if let Some(_) = std::env::var_os("ODIN_TRACE") {
+            Self::with_env_tracing(id)
+        } else {
+            Self::new(id)
+        }
+    }
+
     pub fn set_ui (&mut self, ui: DynActorSystemUI) {
         self.ui = Some(ui);
     }
@@ -1264,7 +1272,8 @@ macro_rules! run_actor_system {
         #[tokio::main]
         async fn main ()->anyhow::Result<()> {
             $context;
-            let mut $asys = ActorSystem::with_env_tracing("main");
+            let mut $asys = ActorSystem::check_env_tracing("main");
+            let _keep_awake = odin_common::process::keep_awake(); // reverted when dropped
             $asys.request_termination_on_ctrlc();
 
             let _res: anyhow::Result<()> = $set_up;

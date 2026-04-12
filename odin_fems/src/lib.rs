@@ -354,7 +354,7 @@ impl JsonWritable for FemsWeatherObs {
 
             w.write_field( "temp", self.temperature.get::<degree_fahrenheit>() as usize);
             w.write_field( "rh", self.rel_humidity.get::<percent>() as usize);
-            w.write_field( "hPrecip", self.hourly_precip.get::<inch>() as usize);
+            w.write_f64_field( "hPrecip", self.hourly_precip.get::<inch>(), NumFormat::Fp2 );
             w.write_field( "sr", self.sr.get::<watt_per_square_meter>());
 
             w.write_f64_field( "wndSpd", self.wind_spd.get::<mile_per_hour>(), NumFormat::Fp1 );
