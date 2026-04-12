@@ -33,6 +33,7 @@ use odin_adsb::{AircraftStore,actor::AdsbActor,adsb_service::AdsbService, sbs::S
 use odin_n5::{self, N5DeviceStore, N5DataUpdate, n5_service::N5Service, actor::N5Actor, live_connector::LiveN5Connector};
 use odin_alertca::{self,actor::AlertCaActor, alertca_service::AlertCaService, live_connector::LiveAlertCaConnector, CameraStore, CameraUpdate};
 use odin_fires::{fire_service::FireService};
+use odin_fems::{self, FemsStore, FemsStation, actor::FemsActor,service::FemsService};
 
 // note that odin_sentinel, odin_n5 and odin_adsb all require non-public data sources and hence are feature gated
 
@@ -87,6 +88,30 @@ run_actor_system!( actor_system => {
     ];
     let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), region, data, &orbital_sat_configs)?;
     let svc_list = svc_list.add( build_service!( => OrbitalHotspotService::new( orbital_sats)));
+
+    //--- spawn FemsActor
+    let svc_list = {
+        let fems_id = arc!("fems");
+        let hfems = spawn_actor!( actor_system, &fems_id,
+            FemsActor::new(
+                odin_fems::load_config("fems.ron")?,
+                dataref_action!(
+                    let fems_id: Arc<String> = fems_id.clone(),
+                    let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |store: &FemsStore| {
+                        Ok( hserver.try_send_msg( DataAvailable::new::<FemsStore>(fems_id) )? )
+                    }
+                ),
+                dataref_action!(
+                    let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |station: &FemsStation| {
+                        let ws_msg = station.get_json_update_msg();
+                        Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
+                    }
+                )
+            )
+        )?;
+
+        svc_list.add( build_service!( => FemsService::new(  hfems)))
+    };
 
     //--- spawn AlertCaActor
     let svc_list = {

@@ -434,11 +434,14 @@ fn repeat_timer_for<M> (ah: ActorHandle<M>, id: i64, timer_interval: Duration, i
     let timer_name = format!("{}-timer-{}", ah.id(), id);
     let mut interval = interval(timer_interval);
 
-    if instantly {
-        ah.try_send_actor_msg( _Timer_{id}.into() );
-    }
+    let tn = timer_name.clone();
 
     let th = spawn( &timer_name, async move {
+        if !instantly {
+            // note the first tick fires immediately according to tokio::time::interval() doc
+            // we have to consume it explicitly in case the instantly flag is not set
+            interval.tick().await;
+        }
         while ah.is_running() {
             interval.tick().await;
             ah.try_send_actor_msg( _Timer_{id}.into() );

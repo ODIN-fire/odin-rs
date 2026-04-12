@@ -26,6 +26,7 @@ odin_adsb = { workspace = true }
 odin_n5 = { workspace = true }
 odin_alertca = { workspace = true }
 odin_fires = { workspace = true }
+odin_fems = { workspace = true }
 
 tokio = { workspace = true }
 anyhow = { workspace = true }

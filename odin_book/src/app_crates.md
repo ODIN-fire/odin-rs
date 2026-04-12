@@ -20,3 +20,4 @@ The following crates are currently included
 - [odin_n5](odin_n5/odin_n5.md) - N5Sensors.com fire sensor integration
 - [odin-fires](odin_fires/odin_fires.md) - a micro service for historical and ongoing incident data such as perimeters
 - [odin_bushfire](odin_bushfire/odin_bushfire.md) - download, display and update Australian bushfire information
+- [odin_fems](odin_fems/odin_fems.md) - Fire Environment Mapping System (FEMS) integration

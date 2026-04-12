@@ -61,6 +61,7 @@
     - [odin_orbital](odin_orbital/odin_orbital.md)
     - [odin_sentinel](odin_sentinel/odin_sentinel.md)
     - [odin_wind](odin_wind/odin_wind.md)
+    - [odin_fems](odin_fems/odin_fems.md)
 
 - [6. ODIN Example Applications](examples.md)
     - [odin_live](odin_live/odin_live.md)

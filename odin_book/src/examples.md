@@ -5,4 +5,4 @@ the following bin crates:
 
 - [odin_live](odin_live/odin_live.md) - this is the primary demonstration for CONUS, including 
   configuration options for commercial data sources
-- [odin_live_aus] - this is a demonstration covering some data sources in Australia
+- [odin_live_aus](odin_live_aus/odin_live_aus.md) - this is a demonstration covering some data sources in Australia

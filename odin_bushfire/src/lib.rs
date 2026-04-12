@@ -36,7 +36,7 @@ use odin_common::{
     net::{NO_HEADERS, download_url}
 };
 use odin_dem::DemSource;
-use odin_build::{define_load_asset, define_load_config};
+use odin_build::{pkg_cache_dir, define_load_asset, define_load_config};
 use odin_server::{spa::SpaService,ws_service::ws_msg_from_json};
 
 
@@ -50,11 +50,7 @@ pub mod service;
 pub use service::BushfireService;
 
 lazy_static! {
-    pub static ref CACHE_DIR: PathBuf = {
-        let path = odin_build::cache_dir().join("odin_bushfire");
-        ensure_writable_dir(&path).expect( &format!("invalid odin_bushfire cache dir: {path:?}"));
-        path
-    };
+    pub static ref CACHE_DIR: PathBuf = { pkg_cache_dir!() };
 }
 
 define_load_config!{}

@@ -29,6 +29,7 @@ members = [
   "odin_openmeteo",
   "odin_wx",
   "odin_bushfire",
+  "odin_fems",
 
   "odin_live",
   "odin_live_aus",
@@ -68,6 +69,7 @@ odin_image =  { version = "*", path = "odin_image" }
 odin_openmeteo = { version = "*", path = "odin_openmeteo" }
 odin_wx = { version = "*", path = "odin_wx" }
 odin_bushfire = { version = "*", path = "odin_bushfire" }
+odin_fems = {  version = "*", path = "odin_fems" }
 
 # external crates for which we have to ensure the same version
 axum = { version = "0.8.8", features = [ "http2", "ws", "macros"] }
@@ -110,6 +112,7 @@ chrono = { version = "0.4.42", features = ["serde"] }
 chrono-tz = { version = "0.10.4", features = ["serde"] }
 thiserror = { version = "2.0.17" }
 anyhow = { version = "1.0.100" }
+itertools = { version = "0.14" }
 
 gdal = { version = "0.19", features = ["array", "bindgen"] }  # <<< reinstate when a new crate version is released
 gdal-sys = { version = "0.12", features = ["bindgen"]}        # <<< reinstate when a new crate version is released

@@ -15,7 +15,7 @@
 ///! common utility functions for network operations
 
 use std::{collections::HashMap, fs::File, io::{self, Write}, net::{SocketAddr,IpAddr,Ipv4Addr}, path::Path, sync::Arc};
-use reqwest::{header::{HeaderMap,HeaderName,HeaderValue,CONTENT_TYPE}, Client, IntoUrl, Request, Response, StatusCode};
+use reqwest::{header::{HeaderMap,HeaderName,HeaderValue,CONTENT_TYPE}, Client, IntoUrl, Request, Body, Response, StatusCode};
 use regex::Regex;
 use lazy_static::lazy_static;
 use serde::{de::DeserializeOwned,Serialize,Deserialize};
@@ -72,6 +72,10 @@ pub fn get_headermap (headers: &Vec<String>) -> Result<HeaderMap> {
     }
 }
 
+pub fn header (key: &'static str, val: &'static str)-> (HeaderName,HeaderValue) {
+    (HeaderName::from_static(key), HeaderValue::from_static(val))
+}
+
 pub const NO_HEADERS: Option<&Vec<(String,String)>> = None;
 
 /// fetch file from URL using HTTP GET method. Retrieve in chunks to support large files
@@ -105,6 +109,43 @@ pub async fn get_differing_size_file<'a,I> (client: &Client, url: &str, opt_head
 
     } else {
         Err( OdinNetError::OpFailed(format!("not a file URL: {}", url)) )
+    }
+}
+
+pub async fn post_query<'a,I> (client: &Client, url: &str, headers: Option<I>, path: impl AsRef<Path>, request_body: String) -> Result<u64>
+    where I: IntoIterator<Item=&'a (HeaderName,HeaderValue)>
+{
+    let mut file = File::create(path)?;
+    let mut len: u64 = 0;
+
+    let mut req = client.post(url);
+
+    if let Some(headers) = headers {
+        for (key,value) in headers {
+            req = req.header( key, value);
+        }
+    }
+
+    let mut response = req
+        .body( request_body)
+        .send().await?;
+
+    match response.status() {
+        StatusCode::OK => {
+            while let Some(chunk) = response.chunk().await? {
+                len += chunk.len() as u64;
+                file.write_all(&chunk)?;
+            }
+
+            file.flush()?;
+            Ok(len)
+        }
+        StatusCode::NOT_FOUND => {
+            Err( OdinNetError::NotFoundError(format!("{url}")))
+        }
+        other => {
+            Err( OdinNetError::OpFailed(format!("response status {other:?}")))
+        }
     }
 }
 

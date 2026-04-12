@@ -38,7 +38,7 @@ use nav_types::{ECEF,WGS84};
 
 use uom::si::area::square_meter;
 use uom::si::f64::{Length,Area};
-use uom::si::length::meter;
+use uom::si::length::{meter,foot};
 
 use chrono::{DateTime,TimeZone,Utc};
 
@@ -521,6 +521,13 @@ impl GeoPoint3 {
         GeoPoint3 {
             point: Point::new( lon, lat),
             alt
+        }
+    }
+
+    pub fn from_lon_lat_degrees_alt_ft (lon: f64, lat: f64, alt: f64) -> Self {
+        GeoPoint3 {
+            point: Point::new( lon, lat),
+            alt: Length::new::<foot>(alt).get::<meter>()
         }
     }
 

@@ -22,6 +22,18 @@ pub enum NumFormat {
     Fp0, Fp1, Fp2, Fp3, Fp4, Fp5
 }
 
+macro_rules! write_fmt_vals {
+    ($this:ident, $vs:ident, $fmt:literal) => {
+        {
+            write!( $this.buf, $fmt, $vs[0]);
+            for i in 1..$vs.len() {
+                write!( $this.buf, ",");
+                write!( $this.buf, $fmt, $vs[i]);
+            }
+        }
+    }
+}
+
 /// a simple standalone JSON writer that produces JSON strings from  (nested) closures.
 /// Useful for conditional serialization that would overstress serde (e.g. because of
 /// conditional field serialization or multiple/dynamic value sources). Use like so:
@@ -87,6 +99,56 @@ impl JsonWriter {
         self.buf.write_char(']');
     }
 
+    pub fn write_slice_field <T: Display> (&mut self, prop_name: &str, v: &[T]) {
+        self.check_separator();
+        write!( self.buf, "\"{prop_name}\":");
+        self.buf.write_char('[');
+        let len = v.len();
+        if len > 0 {
+            write!( self.buf, "{}", v[0]);
+            for i in 1..len {
+               write!( self.buf, ",{}", v[i]);
+            }
+        }
+        self.buf.write_char(']');
+    }
+
+    pub fn write_f64_array_field (&mut self, prop_name: &str, vs: &[f64], fmt: NumFormat) {
+        self.check_separator();
+        write!( self.buf, "\"{prop_name}\":");
+        self.buf.write_char('[');
+        let len = vs.len();
+        if len > 0 {
+            match fmt {
+                NumFormat::Fp0 => write_fmt_vals!( self, vs, "{:.0}"),
+                NumFormat::Fp1 => write_fmt_vals!( self, vs, "{:.1}"),
+                NumFormat::Fp2 => write_fmt_vals!( self, vs, "{:.2}"),
+                NumFormat::Fp3 => write_fmt_vals!( self, vs, "{:.3}"),
+                NumFormat::Fp4 => write_fmt_vals!( self, vs, "{:.4}"),
+                NumFormat::Fp5 => write_fmt_vals!( self, vs, "{:.5}"),
+            }
+        }
+        self.buf.write_char(']');
+    }
+
+    pub fn write_f32_array_field (&mut self, prop_name: &str, vs: &[f32], fmt: NumFormat) {
+        self.check_separator();
+        write!( self.buf, "\"{prop_name}\":");
+        self.buf.write_char('[');
+        let len = vs.len();
+        if len > 0 {
+            match fmt {
+                NumFormat::Fp0 => write_fmt_vals!( self, vs, "{:.0}"),
+                NumFormat::Fp1 => write_fmt_vals!( self, vs, "{:.1}"),
+                NumFormat::Fp2 => write_fmt_vals!( self, vs, "{:.2}"),
+                NumFormat::Fp3 => write_fmt_vals!( self, vs, "{:.3}"),
+                NumFormat::Fp4 => write_fmt_vals!( self, vs, "{:.4}"),
+                NumFormat::Fp5 => write_fmt_vals!( self, vs, "{:.5}"),
+            }
+        }
+        self.buf.write_char(']');
+    }
+
     pub fn write_array_field (&mut self, prop_name: &str, f: impl FnOnce(&mut JsonWriter)) {
         self.check_separator();
         write!( self.buf, "\"{prop_name}\":");
@@ -122,6 +184,20 @@ impl JsonWriter {
     }
 
     pub fn write_f64_field (&mut self, prop_name: &str, value: f64, fmt: NumFormat) {
+        self.check_separator();
+        write!( self.buf, "\"{prop_name}\":");
+
+        match fmt {
+            NumFormat::Fp0 => write!( self.buf, "{:.0}", value),
+            NumFormat::Fp1 => write!( self.buf, "{:.1}", value),
+            NumFormat::Fp2 => write!( self.buf, "{:.2}", value),
+            NumFormat::Fp3 => write!( self.buf, "{:.3}", value),
+            NumFormat::Fp4 => write!( self.buf, "{:.4}", value),
+            NumFormat::Fp5 => write!( self.buf, "{:.5}", value),
+        };
+    }
+
+    pub fn write_f32_field (&mut self, prop_name: &str, value: f32, fmt: NumFormat) {
         self.check_separator();
         write!( self.buf, "\"{prop_name}\":");
 

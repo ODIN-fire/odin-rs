@@ -9,7 +9,7 @@ The specific data set supported by `odin_bushfire` is the [Near Real-Time Nation
 - a `lib.rs` module defining the data model
 - an `actor.rs` module providing a [`odin_actor::Actor`](../odin_actor/odin_actor.md) implementation for data import and update
 - a `service.rs` module providing a [`odin_server::spa::SpaService`](../odin_server/odin_server.md) implementation for a bushfire micro service
-- a `odin_bushfire.js` client (browser) Javascript module to interactively browse and display bushfire object on top of a virtual globe
+- a `odin_bushfire.js` client (browser) Javascript module to interactively browse and display bushfire objects on top of a virtual globe
 
 ```
                                                     odin │ external      
@@ -27,7 +27,7 @@ The specific data set supported by `odin_bushfire` is the [Near Real-Time Nation
                               │      │                                   
                 exec_snapshot │      │                                   
             ┌─────────────────┼──────┼──┐                                
-            │ BushfireActor   │      │  │                                
+            │ SpaServerActor  │      │  │                                
             │      ┏━━━━━━━━━━━━━━━┓ │  │                                
             │      ┃BushfireService┃ │  │                                
             │      ┗━━━━━━━━━━▲━━━━┛ │  │                                

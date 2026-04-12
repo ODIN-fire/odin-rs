@@ -17,6 +17,7 @@ pub mod errors;
 pub mod warp;
 pub mod contour;
 pub mod grid;
+pub mod dem;
 
 use gdal::{errors::CplErrType, raster::RasterCreationOptions, DatasetOptions, GdalOpenFlags};
 use lazy_static::lazy_static;

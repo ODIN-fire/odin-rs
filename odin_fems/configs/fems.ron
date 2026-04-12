@@ -1,0 +1,29 @@
+
+FemsConfig (
+    region: "SantaClara",
+    url: "https://fems.fs2c.usda.gov/api/climatology/graphql",
+    station_ids: [
+        43913, // Los Gatos
+        43809, // Ben Lomond
+        55522229, // Calero
+        55522239, // Coast Daries
+        43304, // La Honda
+        43912, // Los Altos
+        43309, // Pulgas
+        43308, // Spring Valley
+        43802, // Corralitos
+        43916, // Cordoza Ridge
+        43915, // San Jose
+        43914, // Poverty
+        43404, // Rose Peak
+        43405, // Calaveras Rd
+        55522334, // Orestimba Creek
+        43502, // Diablo Grande
+        44406, // Hollister
+        44003  // Los Banos
+    ],
+    tx_delay: Duration( secs: 60, nanos: 0), // wait 1 min after scheduled tx time
+    check_interval: Duration( secs: 240, nanos: 0), // check every 4 min
+    forecast_hours: 8,
+    max_file_age: Duration( secs: 21600, nanos: 0) // delete files after 6h
+)

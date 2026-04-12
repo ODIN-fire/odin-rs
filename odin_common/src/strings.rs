@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -126,7 +126,7 @@ pub fn env_expand (s: &str)->String {
     static RE: LazyLock<Regex> = LazyLock::new( || {
         Regex::new(r"\{[^}]+\}").unwrap()
     });
-    
+
     let mut last_end = 0;
     let mut expanded = String::new();
     for m in RE.find_iter(s) {
@@ -139,13 +139,13 @@ pub fn env_expand (s: &str)->String {
         if let Ok(val) = env::var(name) {
             expanded.push_str(val.as_str());
         }
-        
+
         last_end = m_end+1;
     }
     if last_end < s.len() {
         expanded.push_str( &s[last_end..]);
     }
-    
+
     expanded
 }
 
@@ -174,6 +174,18 @@ pub fn to_lines<'a> (s: &'a str) -> Vec<&'a str> {
     s.lines().collect()
 }
 
+pub fn capitalize_words(s: &str) -> String {
+    s.split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(" ")
+}
 
 //--- utilize above parsers for serde deserialization (to be used in #[serde(deserialize_with=".."] field macros
 
@@ -210,7 +222,7 @@ fn de_arr <'a,T,const N: usize,D>(deserializer: D) -> Result<[T;N],D::Error>
     })
 }
 
-/// check if slice starts with JSON prefix followed by a JSON object value. If so extract and deserialize that object value 
+/// check if slice starts with JSON prefix followed by a JSON object value. If so extract and deserialize that object value
 pub fn extract_json_payload_object<'a, T: Deserialize<'a>> (prefix: &str, msg: &'a str)->Option<T> {
     if msg.starts_with( prefix) {
         serde_json::from_str( &msg[prefix.len()..msg.len()-1]).ok()

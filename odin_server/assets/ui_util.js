@@ -202,6 +202,10 @@ export const fmax_4 = new Intl.NumberFormat('en-US', { notation: 'standard', max
 export const fmax_5 = new Intl.NumberFormat('en-US', { notation: 'standard', maximumFractionDigits: 5 });
 
 
+export function formatNullable(value, fmt) {
+    return (typeof value === "undefined") ? "-" : fmt.format(value);
+}
+
 //--- position formatting
 
 export function degreesToString(arr, fmt=fmax_5) {
@@ -555,7 +559,7 @@ export function degrees360 (deg) {
 
 export function degrees180 (deg) {
     let x = deg % 360.0;
-    
+
     if (x < -180.0) { return 360.0 + x; }
     else if (x > 180.0) { return x - 360.0; }
     else { return x; }
@@ -696,8 +700,8 @@ export function lengthString (meters, isMetric) {
 }
 
 export function areaString (meters2, isMetric) {
-    if (isMetric) { 
-        if (meters2 > 100000000) { // > 10x10km -> rounded km² 
+    if (isMetric) {
+        if (meters2 > 100000000) { // > 10x10km -> rounded km²
             return `${Math.round(meters2/1000000)} km²`;
         } else if (meters2 > 10000) { // > 100x100m -> rounded to 1/10 ha
             return `${Math.round(meters2 / 1000) /10} ha`;
@@ -706,7 +710,7 @@ export function areaString (meters2, isMetric) {
         }
     } else {
         let ac = squareMetersToAcres(meters2);
-        if (ac > 2589988) { // > 100 mi² -> rounded mi² 
+        if (ac > 2589988) { // > 100 mi² -> rounded mi²
             return `${Math.round(ac/25899.88110336)} mi²`
         } else if (ac > 100) { // > 100 ac -> rounded ac
             return `${Math.round(ac)} ac`;
@@ -765,10 +769,10 @@ export function gcDistanceBetweenECEF (p1, p2) {
     let dy = p2.y - p1.y;
     let dz = p2.z - p1.z;
     let d = sqrt( dx*dx + dy*dy + dz*dz );
-    
+
     //let d = Cesium.Cartesian3.distance( p1, p2);
     let r = meanEarthRadius; // mean earth radius in m
-    
+
     let a = acos( 1 - (d*d)/(2*r*r) );
     return a * r;
 }
@@ -788,7 +792,7 @@ export function gcEndPosRadians (longitude, latitude, initialBearing, dist) {
     let sin_φ1 = sin(φ1);
     let cos_δ = cos(δ);
     let cos_φ1sin_δ = cos(φ1) * sin(δ);
-  
+
     let φ2 = asin( sin_φ1 * cos_δ + cos_φ1sin_δ * cos(θ));
     let λ2 = λ1 + atan2( sin(θ) * cos_φ1sin_δ, cos_δ - sin_φ1 * sin(φ2));
 
@@ -854,7 +858,7 @@ export function ecefPolygonArea (points) {
 export function rectArea(rect) {
     const r2 = 40589641000000;
     return Math.abs(r2 * (Math.sin(rect.north) - Math.sin(rect.south)) * (rect.east - rect.west));
-} 
+}
 
 export function geoRectArea (geoRect) {
     let west = toRadians( geoRect.west);
@@ -890,7 +894,7 @@ export function toGeoArray (points) {
    * IEEE Transactions on Aerospace and Electronic Systems, 32(1), 473–476. https://doi.org/10.1109/7.481290
    *
    * this is ~1.4x faster than Osen and roundtrip errors are still below 1e-10 so we pick this as default
-   * ECEF in meters, lat,lon in radians, alt in meters 
+   * ECEF in meters, lat,lon in radians, alt in meters
    */
 export function ecefToGeo (x,y,z, result=null) {
     const a  = 6378137.0;
@@ -947,8 +951,8 @@ export function ecefToGeo (x,y,z, result=null) {
         const alt = f + m*p/2.0;
         if (z < 0.0) lat = -lat;
 
-        result.lon = lon;  
-        result.lat = lat;  
+        result.lon = lon;
+        result.lat = lat;
         result.alt = alt;
 
     } else {
@@ -964,7 +968,7 @@ export function ecefToGeo (x,y,z, result=null) {
 export function geoToECEF (lon, lat, alt, result=null) {
     const a = 6378137.0;
     const e2 = 0.006694379990197619; // e²
-    const b2a2 = 9.93305620009858682943e-1; // `b²/a² 
+    const b2a2 = 9.93305620009858682943e-1; // `b²/a²
 
     const sin_lat = Math.sin(lat);
     const cos_lat = Math.cos(lat);
@@ -1021,7 +1025,7 @@ export function sortInUnique (list, e, compareFunc = defaultCompare, replace = f
     for (let i=0; i<list.length; i++) {
         switch (compareFunc(list[i],e)) {
             case -1: continue;
-            case 0: 
+            case 0:
                 if (replace) {
                     list.splice(i,1,e); return i;
                 } else {
@@ -1156,7 +1160,7 @@ function getUtmTransform () {
     const n = f / (2.0 - f);
     const n2 = n * n;
     const n3 = n2 * n;
-    const n4 = n2 * n2; 
+    const n4 = n2 * n2;
     const A = (a / (1 + n)) * (1 + n2/4 + n4/64);
     const α1 = n/2 - (2/3)*n2 + (5/16)*n3;
     const α2 = (13/48)*n2 - (3/5)*n3;
@@ -1190,7 +1194,7 @@ function getUtmTransform () {
 
         return { utmZone: utmZone, band: band, easting: round(E*1000), northing: round(N*1000)};
     }
-} 
+}
 
 export const latLon2Utm = getUtmTransform();
 
@@ -1319,9 +1323,9 @@ export function haveEqualKeys (a,b) {
 
     if (ka.length != kb.length) return false;
     for (var i=0; i<ka.length; i++) {
-      if (ka[i] != kb[i]) return false; 
+      if (ka[i] != kb[i]) return false;
     }
-    
+
     return true;
 }
 
