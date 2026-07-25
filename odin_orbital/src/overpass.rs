@@ -17,6 +17,7 @@
 use std::{collections::{HashMap, VecDeque}, f64, time::Duration as StdDuration, fmt, sync::Arc, path::{Path,PathBuf}};
 use odin_macro::public_struct;
 use satkit::{Instant,Duration,TLE,frametransform::qteme2itrf,itrfcoord::ITRFCoord,sgp4::sgp4};
+use numeris::vector;
 use nalgebra::{ViewStorage,base::{Matrix,ArrayStorage,dimension::{Const,Dyn}}};
 use geo::{Haversine, Bearing, Destination, Point};
 use uom::si::{length::meter,f64::Length};
@@ -37,7 +38,7 @@ use odin_common::{
     uom::{de_length_from_meters, meters, ser_length_as_meters}
 };
 use crate::{
-    get_time_vec, instant_now, ColumnVec, OrbitalSatelliteInfo, Hotspot,
+    get_time_vec, instant_now, ColumnVec, OrbitalSatelliteInfo, Hotspot, col_vec3, cart3,
     errors::{op_failed,Result,OdinOrbitalError},
     tle_store::TleStore,
     orbitinfo::{OrbitInfo}
@@ -236,7 +237,6 @@ impl fmt::Display for Overpass {
     }
 }
 
-
 /// the object that performs overpass calculations
 /// Note the overpass calculator makes some assumptions about the region. It has to be a concave polygon
 /// and cannot exceed a hemisphere so that we get at most one overpass section in each orbit
@@ -265,7 +265,7 @@ impl <T: TleStore> OverpassCalculator<T> {
         Ok(())
     }
 
-    fn calculate_orbitinfos (&mut self) {
+    fn calculate_orbitinfos (&mut self)->Result<()> {
         let max_tles = self.sat_info.max_tles;
         let mut ois: VecDeque<OrbitInfo> = VecDeque::with_capacity( max_tles);
         let mut tles = self.tle_store.get_available_tles();
@@ -274,9 +274,10 @@ impl <T: TleStore> OverpassCalculator<T> {
         let time_step = Duration::from_seconds( self.sat_info.time_step.as_secs_f64());
 
         let i0 = if n_tles > max_tles { n_tles - max_tles } else { 0 };
-        for i in i0..n_tles { ois.push_front( OrbitInfo::new( sat_id, time_step, tles.pop().unwrap())) }
+        for i in i0..n_tles { ois.push_front( OrbitInfo::new( sat_id, time_step, tles.pop().unwrap())?) }
 
         self.ois = ois;
+        Ok(())
     }
 
     pub async fn get_initial_overpasses (&mut self)-> Result<Vec<Overpass>> {
@@ -315,20 +316,26 @@ impl <T: TleStore> OverpassCalculator<T> {
             let mut i_last = 0;
             tvec.clear();
             for i in 0..n_steps { tvec.push(t + Duration::from_seconds( (i as f64) * step_secs)) } // initialize time vector for this rev ?? nlerp
-            let (pteme, vteme, errs) = sgp4( &mut tle, &tvec); // propagate
+            let sgp4_state = sgp4( &mut tle, &tvec)?; // propagate
+            let pteme = sgp4_state.pos;
+            let vteme = sgp4_state.vel;
 
             let q0 = qteme2itrf(&tvec[0]);
             let q1 = qteme2itrf(&tvec[n_steps1]);
 
-            let itrf_last = q0 * pteme.column(0);
-            let mut p_last = Cartesian3::from_col( &itrf_last);
+            //let itrf_last = q0 * pteme.column(0);
+            let pos = col_vec3!(pteme,0);
+            let itrf_last = q0 * pos;
+
+            //let mut p_last = Cartesian3::from_col( &itrf_last);
+            let mut p_last = cart3!(itrf_last);
             let mut is_recording = false;
 
             for i in 1..=n_steps1 {
                 let q = q0.slerp(&q1, (i as f64)/(n_steps1 as f64)); // since we got quaternions we might as well interpolate (qteme2itrf() is expensive)
 
-                let itrf = q * pteme.column(i);
-                let p = Cartesian3::from_col( &itrf);
+                let itrf = q * col_vec3!(pteme,i);
+                let p = cart3!(itrf);
 
                 if oc.is_inside( &p, &p_last) {
                     if !is_recording {
@@ -373,7 +380,6 @@ impl <T: TleStore> OverpassCalculator<T> {
 
     }
 }
-
 
 // FIXME - this is not enough, we also need to check swath endpoints but those need an approximation of
 // apparent inclination (inclination + earth rotation)

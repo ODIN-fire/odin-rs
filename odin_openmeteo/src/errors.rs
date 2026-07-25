@@ -24,10 +24,10 @@ use ron;
 use gdal;
 use chrono;
 
-pub type Result<T> = std::result::Result<T,OdinOpenMetError>;
+pub type Result<T> = std::result::Result<T,OdinOpenMeteoError>;
 
 #[derive(Error,Debug)]
-pub enum OdinOpenMetError {
+pub enum OdinOpenMeteoError {
     #[error("parse error {0}")]
     ParseError(String),
 
@@ -76,14 +76,14 @@ pub enum OdinOpenMetError {
 
 macro_rules! parse_error {
     ($fmt:literal $(, $arg:expr )* ) => {
-        crate::errors::OdinOpenMetError::ParseError( format!( $fmt $(, $arg)* ))
+        crate::errors::OdinOpenMeteoError::ParseError( format!( $fmt $(, $arg)* ))
     };
 }
 pub (crate) use parse_error;
 
 macro_rules! op_failed {
     ($fmt:literal $(, $arg:expr )* ) => {
-        crate::errors::OdinOpenMetError::OpFailedError( format!( $fmt $(, $arg)* ))
+        crate::errors::OdinOpenMeteoError::OpFailedError( format!( $fmt $(, $arg)* ))
     };
 }
 pub (crate) use op_failed;

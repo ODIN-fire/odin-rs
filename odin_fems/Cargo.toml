@@ -22,6 +22,9 @@ tokio = { workspace = true }
 axum = { workspace = true }
 async-trait = { workspace = true }
 itertools = { workspace = true }
+interp = { workspace = true }
+kiddo = { workspace = true }
+rkyv = { workspace = true }
 
 struct-field-names-as-array = { version = "0.3" }
 structstruck = { version = "0.5.1" }
@@ -35,6 +38,7 @@ odin_build = { workspace = true }
 odin_macro = { workspace = true }
 odin_job = { workspace = true }
 odin_dem = { workspace = true }
+odin_gdal = { workspace = true }
 odin_server = { workspace = true }
 odin_cesium = { workspace = true }
 

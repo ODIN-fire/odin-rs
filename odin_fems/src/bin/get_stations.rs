@@ -20,7 +20,7 @@ use chrono::{Timelike, Utc};
 use tokio;
 
 use odin_common::{define_cli};
-use odin_fems::{load_config, FemsConfig, get_stations};
+use odin_fems::{load_config, FemsConfig, FemsStore};
 
 define_cli! { ARGS [about="download FEMS station meta-data"] =
     config_name: String [help="name of config file", default_value="fems.ron"]
@@ -31,7 +31,7 @@ async fn main ()->Result<()> {
     let client = Client::new();
     let config: FemsConfig = load_config(&ARGS.config_name)?;
 
-    let mut stations = get_stations( &client, &config).await?;
+    let stations = FemsStore::retrieve_configured_store( &client, &config).await?;
     println!("{} stations downloaded", stations.len());
 
     for (id,station) in stations.iter() {

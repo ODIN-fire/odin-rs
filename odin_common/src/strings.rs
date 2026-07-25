@@ -13,7 +13,7 @@
  */
 
 use std::fmt;
-use std::fmt::{Display,Write};
+use std::fmt::{Display,Write, Debug};
 use std::str::FromStr;
 use std::sync::LazyLock;
 use std::env;
@@ -89,18 +89,25 @@ pub fn parse_string_vec (s: &str, delim: char) -> Vec<String> {
 
 /// Generic function to turn a `str` with character separated values into a `Vec<T> where T: FromStr`.
 /// Note the conversion from `&str` to `T` is fallible, hence we need to return a `Result`.
-pub fn parse_vec<T: FromStr> (s: &str, delim: char) -> Result<Vec<T>,<T as FromStr>::Err>
-    where <T as FromStr>::Err: core::fmt::Debug {
+pub fn parse_vec<T> (s: &str, delim: char) -> Result<Vec<T>,<T as FromStr>::Err>
+    where T: FromStr + Debug
+{
     s.split(delim)
         .map(|x| x.parse::<T>())
         .collect::<Result<Vec<T>,<T as FromStr>::Err>>()
 }
 
+pub fn parse_comma_separated<T> (s: &str) -> Result<Vec<T>,<T as FromStr>::Err>
+    where T: FromStr + Debug
+{
+    parse_vec( s, ',')
+}
 
 /// Convert str of delim separated values into an array `[T; N]`. Fail if length does not match exactly
 /// (note that `Into<[T;N]>` would adapt size).
-pub fn parse_array<T: FromStr, const N: usize> (s: &str, delim: char) -> Result<[T;N],String>
-    where <T as FromStr>::Err: core::fmt::Debug {
+pub fn parse_array<T, const N: usize> (s: &str, delim: char) -> Result<[T;N],String>
+    where T: FromStr + Debug, <T as FromStr>::Err: Debug
+{
     parse_vec(s,delim)
         .map_err(|e| format!("{:?}", e))
         .and_then(|v| {
@@ -187,10 +194,17 @@ pub fn capitalize_words(s: &str) -> String {
         .join(" ")
 }
 
+pub fn format_float (v: f64, precision: usize)->String {
+    format!("{v:.precision$}")
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
+}
+
 //--- utilize above parsers for serde deserialization (to be used in #[serde(deserialize_with=".."] field macros
 
 pub fn deserialize_vec <'a,T,D>(deserializer: D) -> Result<Vec<T>,D::Error>
-    where T: FromStr,
+    where T: FromStr + Debug,
           <T as FromStr>::Err: core::fmt::Debug,
           D: Deserializer<'a> {
     String::deserialize(deserializer).and_then( |string| {
@@ -201,20 +215,20 @@ pub fn deserialize_vec <'a,T,D>(deserializer: D) -> Result<Vec<T>,D::Error>
 
 // unfortunately we can't pass the array dimension as type parameter
 pub fn deserialize_arr2 <'a,T,D>(deserializer: D) -> Result<[T;2],D::Error>
-    where T: FromStr, <T as FromStr>::Err: core::fmt::Debug, D: Deserializer<'a> {
+    where T: FromStr + Debug, <T as FromStr>::Err: core::fmt::Debug, D: Deserializer<'a> {
     de_arr::<'a,T,2,D>(deserializer)
 }
 pub fn deserialize_arr3 <'a,T,D>(deserializer: D) -> Result<[T;3],D::Error>
-    where T: FromStr, <T as FromStr>::Err: core::fmt::Debug, D: Deserializer<'a> {
+    where T: FromStr + Debug, <T as FromStr>::Err: core::fmt::Debug, D: Deserializer<'a> {
     de_arr::<'a,T,3,D>(deserializer)
 }
 pub fn deserialize_arr4 <'a,T,D>(deserializer: D) -> Result<[T;4],D::Error>
-    where T: FromStr, <T as FromStr>::Err: core::fmt::Debug, D: Deserializer<'a> {
+    where T: FromStr + Debug, <T as FromStr>::Err: core::fmt::Debug, D: Deserializer<'a> {
     de_arr::<'a,T,4,D>(deserializer)
 }
 
 fn de_arr <'a,T,const N: usize,D>(deserializer: D) -> Result<[T;N],D::Error>
-    where T: FromStr, <T as FromStr>::Err: core::fmt::Debug, D: Deserializer<'a> {
+    where T: FromStr + Debug, <T as FromStr>::Err: core::fmt::Debug, D: Deserializer<'a> {
 
     String::deserialize(deserializer).and_then( |string| {
         parse_array::<T,N>(string.as_str(),',')

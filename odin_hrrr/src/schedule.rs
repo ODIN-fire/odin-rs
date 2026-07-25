@@ -135,8 +135,8 @@ fn parse_schedules (txt: &String, delay_minutes: u32, reg_len: usize, ext_len: u
         if avg_ext_schedule.len() > ext_len { avg_ext_schedule.truncate( ext_len); }
         if avg_reg_schedule.len() > reg_len { avg_reg_schedule.truncate( reg_len); }
 
-        check_schedule( &avg_reg_schedule)?;
-        check_schedule( &avg_ext_schedule)?;
+        check_schedule( &mut avg_reg_schedule)?;
+        check_schedule( &mut avg_ext_schedule)?;
 
         if delay_minutes > 0 {
             for i in 0..avg_reg_schedule.len() { avg_reg_schedule[i] += delay_minutes; }
@@ -170,7 +170,7 @@ fn update_schedule (avg_schedule: &mut Vec<u32>, max_schedule: &mut Vec<u32>, da
 
 
 /// check if schedule is a monotonic sequence of valid delays in minutes < 60
-fn check_schedule(sched: &Vec<u32>) -> Result<()> {
+fn check_schedule(sched: &mut Vec<u32>) -> Result<()> {
     if sched.is_empty() {
         Err( schedule_error("schedule is empty\n"))
     } else {
@@ -179,7 +179,10 @@ fn check_schedule(sched: &Vec<u32>) -> Result<()> {
         let len = sched.len();
         for i in 1..len {  // continuous forecasts for each hour (all schedules have to fit into 60min)
             if sched[i] < sched[i-1] {
-                return Err( schedule_error( format!("schedule not monotonic [{}] = {}", i, sched[i])));
+                eprintln!( "WARNING: schedule not monotonic [{}] in {:?} (using later value)", i, sched);
+                sched[i] = sched[i-1];
+
+                //return Err( schedule_error( format!("schedule not monotonic [{}] in {:?}", i, sched)));
             }
         }
 

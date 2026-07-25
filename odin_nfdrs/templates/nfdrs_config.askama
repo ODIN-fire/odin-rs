@@ -1,0 +1,12 @@
+# NFDRS4 config file
+
+stationID = "{{ station_id }}";
+initFile = "{{ init_path }}";
+wxFile = "{{ fw21_path }}";
+loadFromStateFile = "";
+saveToStateFile = "";
+allOutputsFile = "{{ nfdrs_path }}";
+indexOutputFile = "";
+fuelMoisturesOutputFile = "";
+outputInterval = "0";
+useStoredOutputs = "0";

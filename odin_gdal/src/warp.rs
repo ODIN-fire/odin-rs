@@ -23,11 +23,12 @@ use gdal::spatial_ref::SpatialRef;
 use gdal_sys::{GDALDatasetH, GDALProgressFunc, GDALWarpOptions, CPLErr::CE_None, CPLErr, GDALResampleAlg};
 use libc::{c_void,c_char,c_int, c_double, c_uint};
 use bit_set::BitSet;
+use odin_common::fs::replace_filename_extension;
 use regex::Regex;
 use lazy_static::lazy_static;
 use odin_common::{abs,BoundingBox,geo::GeoRect, fs::get_file_basename};
 use crate::{
-    DCAP_CREATE, DCAP_CREATECOPY, EMPTY, GTIFF, MEM, RasterInfo, driver_supports_create, driver_supports_create_copy, get_driver_by_name, get_driver_from_filename, get_extension_for_driver_name, ok_ce_none, ok_mut_non_null, ok_non_null, ok_not_zero
+    DCAP_CREATE, DCAP_CREATECOPY, EMPTY, GTIFF, MEM, RasterInfo, driver_supports_create, driver_supports_create_copy, get_driver_by_name, get_driver_from_filename, get_extension_for_driver_name, get_gtiff_create_opts, ok_ce_none, ok_mut_non_null, ok_non_null, ok_not_zero
 };
 use crate::errors::{OdinGdalError, Result, last_gdal_err_description, last_gdal_error, misc_error, reset_last_gdal_error};
 
@@ -314,7 +315,7 @@ impl <'a> SimpleWarpBuilder<'a> {
     // version without C shim functions
 
     pub fn exec(&self) -> Result<Dataset> {
-        let mut tgt_ds = self.create_tgt_ds()?; // note this might not yet be the final DS
+        let (mut tgt_ds, tmp_path) = self.create_tgt_ds()?; // note this might not yet be the final DS
         self.chunk_and_warp( &mut tgt_ds)?;
 
         if self.copy_meta {
@@ -326,18 +327,21 @@ impl <'a> SimpleWarpBuilder<'a> {
             Ok( tgt_ds )
         } else {
             unsafe {
-                tgt_ds.flush_cache()?;
+                //tgt_ds.flush_cache()?; // don't write temp file to disk
                 let c_tgt_driver = self.get_tgt_driver()?.c_driver();
                 let c_create_opts = if let Some(sl) = self.create_options { sl.as_ptr() } else { null_mut() };
                 let c_tgt_ds = gdal_sys::GDALCreateCopy( c_tgt_driver, self.tgt_filename.as_ptr(), tgt_ds.c_dataset(), 0, c_create_opts, GDALProgressFunc::None, null_mut());
                 let mut tgt_ds = Dataset::from_c_dataset(c_tgt_ds);
                 self.set_metainfo( &mut tgt_ds)?;
+                if let Some(tmp_path) = tmp_path {
+                    std::fs::remove_file( &tmp_path)?;
+                }
                 Ok( tgt_ds )
             }
         }
     }
 
-    fn create_tgt_ds (&self) -> Result<Dataset> {
+    fn create_tgt_ds (&self) -> Result<(Dataset,Option<PathBuf>)> {
         unsafe {
             reset_last_gdal_error();
             let c_src_ds = self.src_ds.c_dataset();
@@ -366,11 +370,10 @@ impl <'a> SimpleWarpBuilder<'a> {
                 gdal_sys::GDALGetDriverByName(tgt_format)
             } else {
                 // replace the requested extension with the temp driver extension
-                tgt_filename = CString::new( format!("{}.{}",
-                    get_file_basename( tgt_filename.to_str()?).ok_or( misc_error(format!("invalid filename: {:?}",tgt_filename)))?,
-                    get_extension_for_driver_name( GTIFF.to_str()?).ok_or( misc_error("unknown file extension for default driver".into()))?
-                ))?;
-                println!("@@@ temp DS: {:?}", tgt_filename);
+                // use same path as requested tgt_filename FIXME
+
+                let tmp_ext = get_extension_for_driver_name( GTIFF.to_str()?).ok_or( misc_error("unknown file extension for default driver".into()))?;
+                tgt_filename = CString::new( replace_filename_extension( tgt_filename.to_str()?, tmp_ext))?;
                 gdal_sys::GDALGetDriverByName( GTIFF.as_ptr()) // this is always supported (we don't use MEM so that we could cache on disk)
             };
 
@@ -499,7 +502,11 @@ impl <'a> SimpleWarpBuilder<'a> {
             }
             */
 
-            Ok(Dataset::from_c_dataset(c_tgt_ds))
+            if self.driver_supports_create {
+                Ok( (Dataset::from_c_dataset(c_tgt_ds), None) )
+            } else {
+                Ok( (Dataset::from_c_dataset(c_tgt_ds), Some(Path::new(tgt_filename.to_str()?).to_path_buf())) )
+            }
         }
     }
 
@@ -803,11 +810,13 @@ pub fn warp_to_wgs84<P,Q> (src_path: P, tgt_path: Q, nodatas: Vec<f64>) -> Resul
     let src_ds = Dataset::open(src_path)?;
     let tgt_srs = SpatialRef::from_epsg(4326)?;
     let tgt_format = "GTiff";
+    let c_opts = get_gtiff_create_opts();
 
     let mut warper = SimpleWarpBuilder::new( &src_ds, tgt_path)?;
     warper.set_tgt_srs( &tgt_srs);
     warper.set_tgt_format( tgt_format);
     warper.set_tgt_nodatas(nodatas);
+    warper.set_create_options( &c_opts);
 
     warper.exec()
 }

@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -19,6 +19,7 @@ use crate::geo_constants::{
     EARTH_RADIUS_RATIO_SQUARED, EQUATORIAL_EARTH_RADIUS, EQUATORIAL_EARTH_RADIUS_SQUARED, E_EARTH_SQUARED, MEAN_EARTH_RADIUS, MER_SQUARED, POLAR_EARTH_RADIUS_SQUARED
 };
 use crate::cartographic::Cartographic;
+use crate::geo::{GeoPoint,GeoPoint3};
 use crate::{pow2,sqrt,signum, atan, atan2,cos,sin};
 use crate::json_writer::{JsonWritable, JsonWriter, NumFormat};
 
@@ -70,12 +71,12 @@ impl Cartesian3 {
 
     #[inline]
     pub fn is_undefined (&self)->bool {
-        self.x.is_nan() || self.y.is_nan() || self.z.is_nan() 
+        self.x.is_nan() || self.y.is_nan() || self.z.is_nan()
     }
 
     #[inline]
     pub fn is_defined (&self)->bool {
-        !self.is_undefined() 
+        !self.is_undefined()
     }
 
     /// return if p1 and p2 are on same side of plane given by normal
@@ -155,16 +156,16 @@ impl Cartesian3 {
     pub fn to_rounded_decimals (&self, n: u8)->Self {
         if n > 0 {
             let s = (10f64).powi(n as i32);
-            Cartesian3 { 
-                x: (self.x * s).round() / s, 
-                y: (self.y * s).round() / s, 
+            Cartesian3 {
+                x: (self.x * s).round() / s,
+                y: (self.y * s).round() / s,
                 z: (self.z * s).round() / s
             }
         } else {
             Cartesian3 {
                 x: self.x.round(),
                 y: self.y.round(),
-                z: self.z.round()    
+                z: self.z.round()
             }
         }
     }
@@ -176,7 +177,7 @@ impl Cartesian3 {
             self.x = (self.x * s).round() / s;
             self.y = (self.y * s).round() / s;
             self.z = (self.z * s).round() / s;
-            
+
         } else {
             self.x = self.x.round();
             self.y = self.y.round();
@@ -191,7 +192,7 @@ impl Cartesian3 {
 
     pub fn scale_to_length(&mut self, len: f64) {
         self.mul_assign (len/self.length());
-    } 
+    }
 
     pub fn scale_to_mean_earth_radius(&mut self) {
         self.scale_to_length(MEAN_EARTH_RADIUS);
@@ -211,11 +212,11 @@ impl Cartesian3 {
 
     pub fn to_length (&self, len: f64)->Self {
         *self * (len/self.length())
-    } 
+    }
 
     pub fn extended_by_length (&self, l: f64)->Self {
         let length = self.length();
-        *self * ((length + l) / length) 
+        *self * ((length + l) / length)
     }
 
     /// return great circle distance of p1 and p2 projected to earth radius
@@ -239,7 +240,7 @@ impl Cartesian3 {
         *p1 + (p2-p1)*r
     }
 
-    /// answer if point is within open polyhedron that is defined by (inwards pointing) normals, i.e. 
+    /// answer if point is within open polyhedron that is defined by (inwards pointing) normals, i.e.
     /// p is on the same side of all bounding planes.
     /// Note this requires the polyhedron outside planes to define convex polygons
     /// NOTE ALSO - the polygon vertices have to be ordered clockwise
@@ -259,12 +260,12 @@ impl Cartesian3 {
         let c0 = (self.z.powi(2)) / d2;
         let c1 = ((self.x.powi(2)) + (self.y.powi(2))) / d2;
         let c2 = c0 / POLAR_EARTH_RADIUS_SQUARED + c1 / EQUATORIAL_EARTH_RADIUS_SQUARED;
-    
+
         sqrt(1.0/c2)
     }
 
     pub fn closest_point_on_plane (&self, p: &Cartesian3, q: &Cartesian3)->Self {
-        let mut r = p.cross(q);        
+        let mut r = p.cross(q);
         r.scale_to_unit_length();
 
         let dist = r.dot(self); // project self onto normal
@@ -317,7 +318,7 @@ impl Cartesian3 {
 
         for p in points {
             let uxp = u_axis.cross(p);
-            *p = *p + (uxp * b) + (u_axis.cross(&uxp) * c); 
+            *p = *p + (uxp * b) + (u_axis.cross(&uxp) * c);
         }
     }
 
@@ -333,8 +334,8 @@ pub const Y_UNIT: Cartesian3 = Cartesian3 { x: 0.0, y: 1.0, z: 0.0 };
 pub const Z_UNIT: Cartesian3 = Cartesian3 { x: 0.0, y: 0.0, z: 1.0 };
 
 /// return closest and second closest index pair of vertices to given point
-/// note the second index can either be the same (exact match), lower (intersection to the left) or 
-/// higher (intersection to the right)  
+/// note the second index can either be the same (exact match), lower (intersection to the left) or
+/// higher (intersection to the right)
 pub fn find_closest_index (ps: &[Cartesian3], p: &Cartesian3) -> usize {
     let len = ps.len();
 
@@ -360,7 +361,7 @@ pub fn find_closest_index (ps: &[Cartesian3], p: &Cartesian3) -> usize {
           let i_last = i;
           i = (l + r)/2;
           if i == i_last { break; }
-    
+
           di = dist_squared( &ps[i], p);
           dl = di - dist_squared( &ps[i-1], p);
           dr = dist_squared( &ps[i+1], p) - di;
@@ -612,6 +613,30 @@ impl From<&Cartographic> for Cartesian3 {
     }
 }
 
+impl From<&GeoPoint> for Cartesian3 {
+    fn from (p:&GeoPoint)->Self {
+        Cartographic::from( p).into()
+    }
+}
+
+impl From<GeoPoint> for Cartesian3 {
+    fn from (p:GeoPoint)->Self {
+        Cartographic::from( p).into()
+    }
+}
+
+impl From<&GeoPoint3> for Cartesian3 {
+    fn from (p:&GeoPoint3)->Self {
+        Cartographic::from( p).into()
+    }
+}
+
+impl From<GeoPoint3> for Cartesian3 {
+    fn from (p:GeoPoint3)->Self {
+        Cartographic::from( p).into()
+    }
+}
+
 /* #region serde *******************************************************/
 
 pub fn ser_rounded_cartesian3<S: Serializer> (p: &Cartesian3, s: S) -> Result<S::Ok, S::Error>  {
@@ -622,9 +647,9 @@ pub fn ser_rounded_cartesian3<S: Serializer> (p: &Cartesian3, s: S) -> Result<S:
     c3.end()
 }
 
-/* 
+/*
 
-// while this would save bytes for transmitting serialized values it would increase memory in clients 
+// while this would save bytes for transmitting serialized values it would increase memory in clients
 // since JSON.parse() would have to first create arrays which we then have to translate into Cesium.Cartesian3 objects
 
 use serde::ser::{Serialize as SerializeTrait, SerializeSeq, Serializer, SerializeStruct};

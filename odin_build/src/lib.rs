@@ -17,6 +17,7 @@
 #[doc = include_str!("../doc/odin_build.md")]
 
 use std::{fs, path::{Path,PathBuf}, sync::{Arc,OnceLock}, env, collections::HashMap};
+use serde::Deserialize;
 
 pub mod prelude;
 
@@ -319,3 +320,18 @@ fn find_internal_resource (path: &mut PathBuf, resource_dir: &str, bin_ctx: &Opt
 }
 
 /* #endregion resource lookup */
+
+
+/// this is a type to specify 2nd level config objects by means of their filenames and instantiate
+/// them deferred from clients that provide respective load_config() functions. This means we can explicitly
+/// name the crate by which this config object should be instantiated on demand.
+/// This is mostly syntactic sugar on top of a config filename but it makes semantics more obvious as
+/// a simple String would be too generic
+#[derive(Deserialize,Debug)]
+pub struct ConfigSrc(String);
+
+impl ConfigSrc {
+    pub fn load_with<T> (&self, load_func: fn(name:&str)->OdinBuildResult<T>)->OdinBuildResult<T> where T: for <'a> Deserialize<'a> {
+        load_func( &self.0)
+    }
+}

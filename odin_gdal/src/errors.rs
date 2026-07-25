@@ -11,7 +11,7 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
-use std::{ffi::CStr, str::Utf8Error};
+use std::{ffi::CStr, str::Utf8Error, path::Path};
 use std::ptr::null;
 use thiserror::Error;
 use crate::pc_char_to_string;
@@ -43,6 +43,15 @@ pub enum OdinGdalError {
 
     #[error("String to float conversion error {0}")]
     FloatConversionError( #[from] std::num::ParseFloatError),
+
+    #[error("OdinNetError {0}")]
+    OdinNetError( #[from] odin_common::net::OdinNetError),
+
+    #[error("OdinBuildError {0}")]
+    OdinBuildError( #[from] odin_build::OdinBuildError),
+
+    #[error("OdinImageError {0}")]
+    OdinImageError( #[from] odin_image::OdinImageError),
 
     // pass through for errors in gdal crate
     #[error("gdal error {0}")]
@@ -108,3 +117,15 @@ pub fn last_cpl_err(cpl_err_class: CPLErr::Type) -> GdalError {
 pub fn misc_error(s: String) -> OdinGdalError {
     OdinGdalError::MiscError(s)
 }
+
+pub fn invalid_filename(p: impl AsRef<Path>) -> OdinGdalError {
+    let fname: String = p.as_ref().file_name().map( |fname| fname.to_string_lossy().to_string()).unwrap_or("<unknown>".to_string());
+    OdinGdalError::InvalidFileName( fname)
+}
+
+macro_rules! op_failed {
+    ($fmt:literal $(, $arg:expr )* ) => {
+        OdinGdalError::MiscError( format!( $fmt $(, $arg)* ))
+    };
+}
+pub (crate) use op_failed;

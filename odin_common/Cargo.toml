@@ -13,6 +13,8 @@ path = "src/bin/duplicate_dir.rs"
 
 [dependencies]
 chrono = { workspace = true }
+chrono-tz = { workspace = true }
+tzf-rs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ron = { workspace = true }
@@ -45,6 +47,8 @@ miniz_oxide = { workspace = true }
 memchr = { workspace = true }
 kanal = {workspace = true }
 image = { workspace = true }
+rkyv = { workspace = true }
+bytecheck = { workspace = true }
 
 image-compare = { version = "0.5.0" }
 imageproc = { version = "0.25.0" }

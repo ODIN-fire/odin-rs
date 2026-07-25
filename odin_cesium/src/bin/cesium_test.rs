@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -13,7 +13,7 @@
  */
 #![allow(unused)]
 
-/// a simple test server that automatically serves the odin_server/ and odin_cesium/ assets in 
+/// a simple test server that automatically serves the odin_server/ and odin_cesium/ assets in
 /// a synthesized document that includes a command line argument specified Javascript test module.
 /// This module does not have to initialize Cesium and should have an exported "main.start()" function
 /// that kicks off whatever is supposed to be tested.
@@ -39,7 +39,7 @@ pub struct TestService {
 }
 
 impl TestService {
-    pub fn new (mod_pathname: &String, config_pathname: &Option<String>) -> Self { 
+    pub fn new (mod_pathname: &String, config_pathname: &Option<String>) -> Self {
         TestService {
             mod_path: Path::new(mod_pathname).to_path_buf(),
             config_path: config_pathname.as_ref().map( |pn| Path::new(&pn).to_path_buf())
@@ -57,7 +57,7 @@ impl SpaService for TestService {
         let mod_filename = self.mod_path.file_name()
             .and_then(|os| os.to_str())
             .ok_or(odin_server::errors::init_error("not a valid module filename"))?;
-        
+
         let conf_filename = format!("{}_config.js", self.mod_path.file_stem()
             .and_then(|os| os.to_str())
             .ok_or(odin_server::errors::init_error("not a valid module filename"))?

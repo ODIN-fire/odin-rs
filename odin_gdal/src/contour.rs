@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -71,7 +71,7 @@ impl <'a> ContourBuilder<'a> {
         })
     }
 
-    pub fn set_band (&mut self, band: i32) -> &mut ContourBuilder<'a> { 
+    pub fn set_band (&mut self, band: i32) -> &mut ContourBuilder<'a> {
         unsafe {
             self.band_no = Some(band);
             self.src_band = Some(GDALGetRasterBand(self.src_ds.c_dataset(), band));
@@ -122,8 +122,8 @@ impl <'a> ContourBuilder<'a> {
 
     fn create_tgt_ds (& self) -> Result<OGRDataSourceH> { // split into create tgt_dataset and create tgt_layer - can close dataset after?
         unsafe{
-            // create target dataset 
-            // 1. get driver from file 
+            // create target dataset
+            // 1. get driver from file
             let tgt_format: &str = if let Some(driver_name) = get_driver_name_from_filename(self.tgt_filename.as_c_str().to_str().unwrap()) { // self.tgt_filename checked during new
                 driver_name
             } else {
@@ -138,7 +138,7 @@ impl <'a> ContourBuilder<'a> {
             let tgt_ds = gdal_sys::OGR_Dr_CreateDataSource(c_driver, self.tgt_filename.as_ptr(), null_mut());
             Ok(tgt_ds)
         }
-        
+
     }
 
     fn create_tgt_layer(&mut self, tgt_ds: OGRDataSourceH) -> Result<OGRLayerH> {
@@ -159,9 +159,9 @@ impl <'a> ContourBuilder<'a> {
                     OGRwkbGeometryType::wkbLineString
                 }
             };
-            
+
             let tgt_layer = OGR_DS_CreateLayer(tgt_ds, self.tgt_layer_name.as_ptr(), srs, poly_type, null_mut());
-            
+
             // 2. create elevation attribute - check for conflicts with polygonize
             if self.polygonize {
                 if self.attr_name.is_some(){
@@ -188,7 +188,7 @@ impl <'a> ContourBuilder<'a> {
                 self.attr_max_id = Some(gdal_sys::OGR_FD_GetFieldIndex(OGR_L_GetLayerDefn(tgt_layer), max_name.clone().as_ptr()));
             }
 
-            // 3. add id field - needs to be after elevation to work? original cpp has it before 
+            // 3. add id field - needs to be after elevation to work? original cpp has it before
             let id = CString::new("ID")?;
             let h_fld = gdal_sys::OGR_Fld_Create(id.as_ptr(), OFTInteger);
             gdal_sys::OGR_Fld_SetWidth(h_fld, 8);
@@ -242,7 +242,7 @@ impl <'a> ContourBuilder<'a> {
             }
         }
     }
-    
+
     fn build_options(&self) -> Result<CslStringList> {
         unsafe {
             let mut options = CslStringList::new();
@@ -270,4 +270,17 @@ impl <'a> ContourBuilder<'a> {
     }
 }
 
+pub fn to_geo_json<P: AsRef<Path>> (ds: &Dataset, band: usize, interval: f64, path: P) -> Result<()> {
 
+    let mut contourer = ContourBuilder::new( ds, path)?;
+
+    contourer
+        .set_band( band as i32)
+        .set_interval( interval)
+        .set_poly()  // use polylines since polygon outlines cannot be clamped to ground and accumulative alpha channel fill looks distorted
+        .set_quiet();
+
+    contourer.exec()?;
+
+    Ok(())
+}

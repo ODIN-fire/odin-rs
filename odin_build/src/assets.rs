@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -18,7 +18,11 @@ pub extern crate lazy_static;
 
 use std::{io::Write,fs::{self,File},env,path::{Path,PathBuf},fmt::Write as FmtWrite, str, collections::HashMap, sync::Arc};
 use minifier::{js,css,json};  // js, json, css
-use minify_html_onepass::{Cfg, truncate};  // html, svg
+
+// we would prefer this but it locks in rkyv 0.7 through the not optional lightningcss dependency
+//use minify_html_onepass::{Cfg, truncate};  // html, svg
+//use simple_minify_html::{Cfg,minify};
+
 use bytes::Bytes;
 use crate::*; // this includes utils
 use crate::errors::*;
@@ -55,7 +59,7 @@ pub fn create_asset_data ()->Result<()> {
             let resources = &meta.odin_assets;
             for (key,resource) in resources.iter() {
                 if is_relevant_resource(&resource, &bin_ctx) {
-                    let path = if let Some(dir) = &resource.dir { 
+                    let path = if let Some(dir) = &resource.dir {
                         dir.join( &resource.file)
                     } else { // we do need the app_name / app_crate
                         find_resource_file( ASSETS, &bin_ctx.as_ref(), &resource_crate, &resource.file).unwrap()
@@ -68,7 +72,7 @@ pub fn create_asset_data ()->Result<()> {
                     let processed_data = process_asset_resource( &resource, data)?;
 
                     write!( buf, "static _D{}_: &[u8] = &{:?};\n", n_resources, processed_data);
-                    write!( buf, "map.insert( \"{}\", odin_build::EmbeddedAssetEntry{{ src: Bytes::from(_D{}_), is_encrypted:{} ));\n", 
+                    write!( buf, "map.insert( \"{}\", odin_build::EmbeddedAssetEntry{{ src: Bytes::from(_D{}_), is_encrypted:{} ));\n",
                             resource.file, n_resources, resource.encrypt);
                     n_resources += 1;
                 }
@@ -80,8 +84,8 @@ pub fn create_asset_data ()->Result<()> {
 
     write!( buf, "}}");
     write_file( &out_path, buf.as_bytes())?;
-    if n_resources > 0 { 
-        if embed_resources { info!("generated {out_path:?}"); } 
+    if n_resources > 0 {
+        if embed_resources { info!("generated {out_path:?}"); }
     }
 
     Ok(())
@@ -102,10 +106,10 @@ macro_rules! define_load_asset {
                 // embedded assets are the ones we compiled into the (standalone) application
                 static ref EMBEDDED_ASSETS: HashMap<&'static str, odin_build::EmbeddedAssetEntry> = {
                     let mut map: HashMap<&'static str, odin_build::EmbeddedAssetEntry> = HashMap::new();
-                    
+
                     #[cfg(feature="embedded_resources")]
                     include!(concat!(env!("OUT_DIR"), "/asset_data")) (&mut map);
-                    
+
                     map
                 };
 
@@ -233,9 +237,24 @@ pub fn process_asset (filename: &str, data: Vec<u8>) -> Result<Vec<u8>> {
     } else { Err( OdinBuildError::ResourceTypeError(filename.into()) ) }
 }
 
+#[cfg(not(feature = "minify_html_assets"))]
 fn process_html (mut data: Vec<u8>)->Result<Vec<u8>> {
-    let cfg = &Cfg { minify_js: true, minify_css: true };
-    truncate( &mut data, cfg).map_err(|e| OdinBuildError::MinifyError(e.to_string()))?;
+    // since we mostly serve generated HTML that just links CSS/javascript we probably won't gain much through minification
+    // and just compress. This might be faster on the server side
+    compress_vec( &data)
+}
+
+#[cfg(feature = "minify_html_assets")]
+fn process_html (mut data: Vec<u8>)->Result<Vec<u8>> {
+    // if we use minify-html-onepass this locks in rkyv 0.7 through a non-optional lightningcss dependency
+    //let cfg = &Cfg { minify_js: true, minify_css: true };
+    //truncate( &mut data, cfg).map_err(|e| OdinBuildError::MinifyError(e.to_string()))?;
+
+    // simple=minify-html replacement (this does not cover inline CSS)
+    // this does not pull in lightningcss / lock rkyv 0.7 but it takes a long time to compile
+    let mut cfg = Cfg::new();
+    let data = minify(&data, Some(cfg));
+
     compress_vec( &data)
 }
 

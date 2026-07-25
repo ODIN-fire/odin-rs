@@ -38,13 +38,14 @@ regex = { workspace = true }
 hashbrown = { workspace = true }
 bit-set = { workspace = true }
 csv = { workspace = true }
+kiddo = { workspace = true }
+rkyv = { workspace = true }
 
-satkit = "0.8"
-static_init = "1.0.4"
+satkit = "0.18"
+numeris = "0.5"
+static_init = "1.0"
 
-kml = "0.12"
-kiddo = { version = "5.2.4", features = ["rkyv_08"] }
-rkyv = { version = "0.8" }
+kml = "0.13"
 
 [build-dependencies]
 odin_build = { workspace = true }

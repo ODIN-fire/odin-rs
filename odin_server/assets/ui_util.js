@@ -335,6 +335,18 @@ export function toYYYYMMDDhhmmZString(timestamp,withSeconds=false) {
     return ts;
 }
 
+export function toISOString(timestamp, withSeconds = false) {
+    let ds = new Date(timestamp).toISOString();
+    if (!withSeconds) {
+        ds = ds.substring(0, 16) + 'Z';
+    }
+    return ds;
+}
+
+export function fromISOString(ds) {
+    return Date.parse(ds);
+}
+
 // [h+]:mm:ss
 export function toHMSTimeString(millis) {
     let s = Math.floor(millis / 1000) % 60;
@@ -636,6 +648,14 @@ export function tan2(rad) {
 
 export function pow2(x) {
     return x*x;
+}
+
+export function anyNaN(...numbers) {
+    for (let x of numbers) {
+        if (Number.isNaN(x)) return true;
+    }
+
+    return false;
 }
 
 export function checkLat (deg) {

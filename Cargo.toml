@@ -30,6 +30,9 @@ members = [
   "odin_wx",
   "odin_bushfire",
   "odin_fems",
+  "odin_landfire",
+  "odin_elmfire",
+  "odin_nfdrs",
 
   "odin_live",
   "odin_live_aus",
@@ -70,82 +73,99 @@ odin_openmeteo = { version = "*", path = "odin_openmeteo" }
 odin_wx = { version = "*", path = "odin_wx" }
 odin_bushfire = { version = "*", path = "odin_bushfire" }
 odin_fems = {  version = "*", path = "odin_fems" }
+odin_landfire = {  version = "*", path = "odin_landfire" }
+odin_elmfire = { version = "*", path = "odin_elmfire" }
+odin_nfdrs = { version = "*", path = "odin_nfdrs" }
 
 # external crates for which we have to ensure the same version
-axum = { version = "0.8.8", features = [ "http2", "ws", "macros"] }
+axum = { version = "0.8", features = [ "http2", "ws", "macros"] }
 axum-login = { version = "0.18" }
-password-auth = { version = "1.0.0" }
+password-auth = { version = "1.0" }
 passwords = { version = "3.1" }
 #reqwest = { version = "0.13", features = ["json", "stream", "query"] }
 #reqwest-middleware = { version = "0.5" }
 reqwest = { version = "0.12", features = ["json", "stream"] } # http-cache-reqwest still depends on 0.12
-reqwest-middleware = { version = "0.4.2" }
-http-cache-reqwest = { version = "0.16.0" } # this still depends on reqwest 12.2
-tower = { version = "0.5.2", features = ["full"] }
-tower-http = { version = "0.6.6", features = ["full"] }
+reqwest-middleware = { version = "0.4" }
+http-cache-reqwest = { version = "0.16" } # this still depends on reqwest 12.2
+tower = { version = "0.5", features = ["full"] }
+tower-http = { version = "0.6", features = ["full"] }
 tower-sessions = { version = "0.14.0", default-features = false, features = ["signed"] }
-tower-sessions-sqlx-store = { version = "0.15.0", features = ["sqlite"] }
-sqlx = { version = "0.8.6", features = ["sqlite", "time", "runtime-tokio"] }
-http = { version = "1.4.0" }
+tower-sessions-sqlx-store = { version = "0.15", features = ["sqlite"] }
+sqlx = { version = "0.9", features = ["sqlite", "time", "runtime-tokio"] }
+http = { version = "1.4" }
 cacache = { version = "13.1" }
-headers = { version = "0.4.1" }
-url = { version = "2.5.4" }
-bytes = { version = "1.10.1" }
-futures = { version = "0.3.31" }
-futures-util = { version = "0.3.31", features = ["sink"] }
-async-trait = { version = "0.1.89" }
-tokio = { version = "1.49", features = ["full", "tracing"] }
-tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
-#tokio-tungstenite = { version = "0.28.0", features = ["rustls"] } # this requires to explicitly handle certificates
+headers = { version = "0.4" }
+url = { version = "2.5" }
+bytes = { version = "1.11" }
+futures = { version = "0.3" }
+futures-util = { version = "0.3", features = ["sink"] }
+async-trait = { version = "0.1" }
+tokio = { version = "1.52", features = ["full", "tracing"] }
+tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
+#tokio-tungstenite = { version = "0.29.0", features = ["rustls"] } # this requires to explicitly handle certificates
 tokio-util = { version = "0.7", features = ["full"] }
 kanal = { version = "0.1", features = ["async"] } # TODO - do we want to promote this to workspace? What about flume?
-rustls = { version = "0.23.35" }
-serde = { version = "1.0.228", features = ["derive", "rc"] }
-serde_json = { version = "1.0.148" }
+rustls = { version = "0.23" }
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = { version = "1.0" }
 serde_repr = { version = "0.1" }
-serde_with = { version = "3.12.0" }
-ron = { version = "0.12.0" }
+serde_with = { version = "3.21" }
+ron = { version = "0.12" }
 csv = { version = "1.4" }
-uom = { version = "0.37.0", features = ["serde", "f32", "i64"] }
+uom = { version = "0.38", features = ["serde", "f32", "i64"] }
 num = { version = "0.4.3" }
-chrono = { version = "0.4.42", features = ["serde"] }
-chrono-tz = { version = "0.10.4", features = ["serde"] }
-thiserror = { version = "2.0.17" }
-anyhow = { version = "1.0.100" }
+chrono = { version = "0.4", features = ["serde", "rkyv-64", "rkyv-validation"] }
+chrono-tz = { version = "0.10", features = ["serde"] }
+tzf-rs = { version = "1.3" }
+thiserror = { version = "2.0" }
+anyhow = { version = "1.0" }
 itertools = { version = "0.14" }
+askama = { version = "0.16" }
 
-gdal = { version = "0.19", features = ["array", "bindgen"] }  # <<< reinstate when a new crate version is released
-gdal-sys = { version = "0.12", features = ["bindgen"]}        # <<< reinstate when a new crate version is released
-#gdal = { git = "https://github.com/georust/gdal.git", features = ["array", "bindgen"] } # required as of 11/20/25 for GDAL 3.12.0  (gdal v0.18.0 does not compile)
-#gdal-sys = { git = "https://github.com/georust/gdal.git", features = ["bindgen"] }
+#gdal = { version = "0.19", features = ["array", "bindgen"] }  # <<< reinstate when a new crate version is released
+#gdal-sys = { version = "0.12", features = ["bindgen"]}        # <<< reinstate when a new crate version is released
 
-geo = { version = "0.32.0" }
-geo-types = { version = "0.7.18" }
-geojson = { version = "0.24.2", features = ["geo-types"] }
-nalgebra = { version = "0.34.1"}
-lazy_static = { version = "1.5.0" }
-paste = { version ="1.0.15" }
-regex = { version = "1.12.2" }
-hashbrown = { version = "0.16.1" }
-bit-set = { version = "0.8.0", features = ["serde"] }
-ndarray = { version = "0.17.1" }
-flate2 = { version = "1.1.5" }
-miniz_oxide = { version = "0.8.9" }
-memchr = { version = "2.7.5" }
-clap = { version = "4.5.53", features = ["derive"]}
-strum = { version = "0.27", features = ["derive"] }
+# required as of 07-10-2026 because of GDAL 3.13 compatibility (crates.io version still at 0.19
+gdal = { git = "https://github.com/georust/gdal.git", features = ["array", "bindgen"] }
+gdal-sys = { git = "https://github.com/georust/gdal.git", features = ["bindgen"] }
 
-dashmap = { version = "6.1.0" }
-trait-set = { version = "0.3.0" } # remove when trait aliases become stabilized
-tracing-subscriber = { version = "0.3.22" }
-tracing = { version = "0.1.44"}
-glob = { version = "0.3.3" }
-globset = { version = "0.4.18" }
-rand = { version = "0.9.2" }
-zip = { version = "7.0.0"}
-image = { version = "0.25.9" }
+# last acceptable fallback if GDAL compatibility patches haven't made it to upstream yet
+#gdal = { path = "../patches/gdal", features = ["array","bindgen"]}
+#gdal-sys = { path = "../patches/gdal/gdal-sys", features = ["bindgen"]}
+
+geo = { version = "0.33" }
+geo-types = { version = "0.7" }
+geojson = { version = "1.0", features = ["geo-types"] }
+nalgebra = { version = "0.35"}
+lazy_static = { version = "1.5" }
+paste = { version ="1.0" }
+regex = { version = "1.12" }
+hashbrown = { version = "0.17" }
+bit-set = { version = "0.10", features = ["serde"] }
+ndarray = { version = "0.17" }
+interp = { version = "2.1" }
+flate2 = { version = "1.1" }
+miniz_oxide = { version = "0.9" }
+memchr = { version = "2.8" }
+clap = { version = "4.6", features = ["derive"]}
+strum = { version = "0.28", features = ["derive"] }
+derive_more = { version = "2.1", features = ["full"] }
 
 
+dashmap = { version = "6.2" }
+trait-set = { version = "0.3" } # remove when trait aliases become stabilized
+tracing-subscriber = { version = "0.3", features = ["env-filter"]}
+tracing = { version = "0.1"}
+glob = { version = "0.3" }
+globset = { version = "0.4" }
+rand = { version = "0.10" }
+zip = { version = "8.6"}
+image = { version = "0.25" }
+imageproc = { version = "0.27" }
+kiddo = { version = "5.3", features = ["serde", "rkyv_08"] }
+
+rkyv = { version = "0.8", features = ["bytecheck"]}  # use carefully as many crates don't support 0.8 yet (chrono, minify-html)
+bytecheck = { version = "0.8" }
 
 [profile.release]
 

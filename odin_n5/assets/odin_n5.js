@@ -153,8 +153,9 @@ class N5Entry {
                     billboard: {
                         image: src,
                         distanceDisplayCondition: config.billboardDC,
+                        disableDepthTestDistance: Number.MAX_SAFE_INTEGER,
                         color: clr,
-                        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                        //heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
                         alignedAxis: Cesium.Cartesian3.UNIT_Z,
                         rotation: util.toRadians( 360 - data.wind_dir)
                     }

@@ -1,0 +1,15 @@
+// this is a gdal::GeoDs::File configuration for a file system based Landfire source
+
+File (
+    layers: {
+        "EVT":    "$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT_CONUS.tif",
+        "FBFM40": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40_CONUS.tif",
+        "CC":     "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CC_CONUS.tif",
+        "CH":     "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CH_CONUS.tif",
+        "CBH":    "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBH_CONUS.tif",
+        "CBD":    "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBD_CONUS.tif",
+        "Asp":    "$ODIN_ROOT/data/odin_landfire/topo/LF2020_Asp_CONUS.tif",
+        "SlpD":   "$ODIN_ROOT/data/odin_landfire/topo/LF2020_SlpD_CONUS.tif",
+        "Elev":   "$ODIN_ROOT/data/odin_landfire/topo/LF2020_Elev_CONUS.tif",
+    }
+)

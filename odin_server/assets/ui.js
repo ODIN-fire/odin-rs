@@ -252,6 +252,8 @@ function initializeRecursive (e) {
         case "ui_kvtable": initializeKvTable(e); break;
         case "ui_menuitem": initializeMenuItem(e); break;
         case "ui_progress_bar": initializeProgressBar(e); break;
+        case "ui_dtg_entry": initializeDTGEntry(e); break;
+        case "ui_loc_entry": initializeLocationEntry(e); break;
         // default does not need initialization
     }
 
@@ -312,6 +314,14 @@ function setWindowEventHandlers(e) {
     e.onmousedown = function (event) {
         raiseWindowToTop(e);
     };
+
+    e.onmouseup = function (event) {
+        if (event.shiftKey) {
+            moveWindowLeft(e);
+        } else if (event.altKey) {
+            closeWindow(e);
+        }
+    }
 }
 
 function makeWindowDraggable(e) {
@@ -386,6 +396,10 @@ export function raiseWindowToTop(o) {
             updateWindowZorder();
         }
     }
+}
+
+export function isTopWindow(w) {
+    return (windows.length > 0) && Object.is(windows[windows.length-1], w);
 }
 
 function removeWindowFromStack(w) {
@@ -469,6 +483,32 @@ export function setWindowLocation(o, x, y) {
 
         e.style.left = x + "px";
         e.style.top = y + "px";
+    }
+}
+
+export function getWindowRect(o) {
+    let e = getWindow(o);
+    if (e) {
+        // top right should always be visible so that we can move/hide
+        return e.getBoundingClientRect();
+    } else {
+        return null;
+    }
+}
+
+export function moveWindowLeft(o) {
+    let e = getWindow(o);
+    if (e) {
+        let rect = getWindowRect(e);
+        e.animate([
+            { transform: 'translate(0,0)' },
+            { transform: 'translate(' + -rect.x + 'px, 0px)' }
+        ], {
+            duration: 500,
+            fill: 'forwards',
+            easing: 'cubic-bezier(0.25, 0.8, 0.25, 1)'
+        });
+        //setWindowLocation(e, 0, rect.top);
     }
 }
 
@@ -698,7 +738,7 @@ function initializeContainer (e) {
 
 //--- panels
 
-export function Panel (title, isExpanded=false, eid=null) {
+export function Panel (title, isExpanded=false, eid=null, cb) {
     return function (...children) {
         let e = createElement("DIV", "ui_panel");
 
@@ -707,6 +747,8 @@ export function Panel (title, isExpanded=false, eid=null) {
         e.setAttribute("data-title", title);
         if (eid) e.setAttribute("id", eid);
 
+        e._uiPanelCb = cb; // store optional CheckBoxes to initialize
+
         e.addEventListener("transitionend", expandComplete);
 
         for (const c of children) e.appendChild(c);
@@ -714,6 +756,7 @@ export function Panel (title, isExpanded=false, eid=null) {
         return e;
     }
 }
+
 
 function initializePanel (e) {
     let isExpanded = e.classList.contains("expanded");
@@ -725,6 +768,14 @@ function initializePanel (e) {
         panelHeader.classList.add( isExpanded ? "expanded" : "collapsed");
         panelHeader.addEventListener("click", togglePanelExpansion);
         if (e.id) panelHeader.id = e.id + "-header";
+
+        if (e._uiPanelCb) {
+            let cb = e._uiPanelCb;
+            positionRight(cb, 0);
+            initializeCheckBox(cb);
+            panelHeader.appendChild(cb);
+        }
+
         e.parentElement.insertBefore(panelHeader, e);
     }
 
@@ -752,7 +803,7 @@ export function expandPanel (o, cond) {
 }
 
 export function togglePanelExpansion(event) {
-    const panelHeader = event.target;
+    const panelHeader = _nearestElementWithClass( event.target, "ui_panel_header");
     const panel = panelHeader.nextElementSibling;
 
     if (panelHeader.classList.contains("expanded")) { // collapse
@@ -867,8 +918,10 @@ function getIconBox() {
 
 //--- input element functions
 
-export function Button (text, action, minWidth=null) {
+export function Button (text, action, minWidth=null, eid=null) {
     let e = createElement("INPUT", "ui_button");
+    if (eid) e.setAttribute("id", eid);
+
     e.type = "button";
     e.tabIndex = 0; // make button tab-traversable (not default on Safari)
     e.value = text;
@@ -895,6 +948,26 @@ export function setInputDisabled(o, isDisabled) {
 
 export function setButtonDisabled(o, isDisabled) {
     setInputDisabled(o, isDisabled);
+}
+
+export function setButtonActive(o, isActive) {
+    let e = getButton(o);
+    if (e) {
+        if (isActive) {
+            _addClass(e, "active");
+        } else {
+            _removeClass(e, "active");
+        }
+    }
+}
+
+export function getButton (o) {
+    let e = _elementOf(o);
+    if (e) {
+        let eCls = e.classList;
+        if (eCls.contains("ui_button")) return e;
+    }
+    return undefined;
 }
 
 //--- passive text (no user input, only programmatic)
@@ -979,13 +1052,36 @@ function genField (inputType, extraCls, label, eid, changeAction) {
 
 export function noChangeAction(event){}
 
+
 /** width is in CSS units (rem etc), opts = {isFixed: false, alignRight: false, isDisabled: false, placeHolder: null, changeAction: null} */
 export function TextInput (label, eid, width, opts = {}) {
     let extraCls = !opts.isDisabled ? ["input"] : [];
     if (opts.isFixed) extraCls.push("fixed");
     if (opts.alignRight) extraCls.push("align_right");
     let e = genField("text", extraCls, label, eid, opts.changeAction);
-    if (opts.placeHolder) e.setAttribute("data-placeholder", opts.placeHolder);
+    e.setAttribute("data-placeholder", opts.placeHolder ? opts.placeHolder : "");
+
+    if (width) e.setAttribute("data-width", width);
+    if (!label || label.length == 0) e.style.width = width;
+
+    return e;
+}
+
+export function DateTimeInput(label, eid, width, opts = {}) {
+    let extraCls = !opts.isDisabled ? ["input"] : [];
+    if (opts.isFixed) extraCls.push("fixed");
+    let e = genField("datetime-local", extraCls, label, eid, opts.changeAction);
+
+    if (width) e.setAttribute("data-width", width);
+    if (!label || label.length == 0) e.style.width = width;
+
+    return e;
+}
+
+export function TimeInput(label, eid, width, opts = {}) {
+    let extraCls = !opts.isDisabled ? ["input"] : [];
+    if (opts.isFixed) extraCls.push("fixed");
+    let e = genField("datetime-local", extraCls, label, eid, opts.changeAction);
 
     if (width) e.setAttribute("data-width", width);
     if (!label || label.length == 0) e.style.width = width;
@@ -1038,11 +1134,15 @@ function initializeField (e) {
             if (dataWidth) field.style.width = dataWidth;
             e.appendChild(field);
 
-            if (e.classList.contains("input") && inputType == "text") {
-                field.setAttribute("placeholder", e.dataset.placeholder);
-                field.addEventListener("keypress", _checkKeyEvent);
-            } else {
-                field.readOnly = true;
+            if (e.classList.contains("input")) {
+                if (inputType == "text") {
+                    field.setAttribute("placeholder", e.dataset.placeholder);
+                    field.addEventListener("keypress", _checkKeyEvent);
+                } else if (inputType == "datetime-local" || inputType == "date" || inputType == "time") {
+                    // nothing - the calendar icon would disappear if set readonly
+                } else {
+                    field.readOnly = true;
+                }
             }
         }
     }
@@ -1089,6 +1189,24 @@ export function getNonEmptyFieldValue(o) {
     return (e && e.value && e.value.length > 0) ? e.value : null;
 }
 
+export function getFloatNumFieldValue(o) {
+    let e = getField(o);
+    if (e && e.value && e.value.length > 0) {
+        return Number.parseFloat(e.value);
+    } else {
+        return Number.NaN;
+    }
+}
+
+export function getIntNumFieldValue(o) {
+    let e = getField(o);
+    if (e && e.value && e.value.length > 0) {
+        return Number.parseInt(e.value);
+    } else {
+        return Number.NaN;
+    }
+}
+
 export function focusField (o) {
     let e = getField(o);
     if (e) e.focus();
@@ -1118,6 +1236,276 @@ export function getField(o) {
     throw "not a field";
 }
 
+//--- DTGEntry
+
+export function DTGEntry(label, eid, opts = {}) {
+    let e = createElement("DIV", "ui_dtg_entry");
+    if (label) e.setAttribute("data-label", label);
+    if (eid) e.setAttribute("id", eid);
+
+    return e;
+}
+
+function initializeDTGEntry(e) {
+    if (e.tagName == "DIV" && e.children.length == 0) {
+        let id = e.dataset.id;
+        let labelText = e.dataset.label;
+
+        if (labelText) {
+            let label = createElement("DIV", "ui_field_label", labelText);
+            e.appendChild(label);
+        }
+
+        let wrapper = createElement("DIV", "ui_dtg_wrapper");
+
+        let dateBtn = createElement("DIV", "ui_dtg_btn");
+        dateBtn.append("▤");
+        wrapper.appendChild(dateBtn);
+        dateBtn.addEventListener("click", (e) => {
+            // TODO - needs a hidden date input
+        });
+
+        let eYear = createElement("INPUT", "ui_dtg_field ui_dtg_4 input");
+        setDtgFieldAttrs(eYear, "yyyy", 4);
+        wrapper.appendChild(eYear);
+        e._uiYear = eYear;
+
+        wrapper.append('–');
+        let eMon = createElement("INPUT", "ui_dtg_field ui_dtg_2 input");
+        setDtgFieldAttrs(eMon, "mm", 2, 12);
+        wrapper.appendChild(eMon);
+        e._uiMonth = eMon;
+
+        wrapper.append('–');
+        let eDay = createElement("INPUT", "ui_dtg_field ui_dtg_2 input");
+        setDtgFieldAttrs(eDay, "dd", 2, 31);
+        wrapper.appendChild(eDay);
+        e._uiDay = eDay;
+
+        let timeBtn = createElement("DIV", "ui_dtg_btn");
+        timeBtn.append("T");
+        wrapper.appendChild(timeBtn);
+        timeBtn.addEventListener("click", (e) => {
+            // TODO - needs a hidden time input
+        });
+
+        let eHour = createElement("INPUT", "ui_dtg_field ui_dtg_2 input");
+        setDtgFieldAttrs(eHour, "HH", 2, 23);
+        wrapper.appendChild(eHour);
+        e._uiHour = eHour;
+
+        wrapper.append(':');
+        let eMin = createElement("INPUT", "ui_dtg_field ui_dtg_2 input");
+        setDtgFieldAttrs(eMin, "MM", 2, 59);
+        wrapper.appendChild(eMin);
+        e._uiMinute = eMin;
+
+        let nowBtn = createElement("DIV", "ui_dtg_btn");
+        nowBtn.append("⎆");
+        wrapper.appendChild(nowBtn);
+        nowBtn.addEventListener("click", (e) => {
+            let now = new Date();
+            eYear.value = now.getFullYear();
+            eMon.value = leadZero(now.getMonth() + 1);
+            eDay.value = leadZero(now.getDate());
+            eHour.value = leadZero(now.getHours());
+            eMin.value = leadZero(now.getMinutes());
+        });
+
+        e.appendChild(wrapper);
+    }
+}
+
+function setDtgFieldAttrs(e, placeholder, length, max=null) {
+    e.setAttribute("placeholder", placeholder);
+    e.setAttribute("maxlength", length);
+    e.setAttribute("inputmode", "numeric");
+    e.setAttribute("pattern", "[0-9]*");
+    //e.setAttribute("type", "number");
+    //e.setAttribute("min", min);
+    //e.setAttribute("max", max);
+
+    if (max) {
+        e.onchange = (event) => {
+            let val = event.target.value;
+            if (val > max) {
+                event.target.value = null;
+                beep();
+            }
+        };
+    }
+}
+
+export function getDTGEntry(o) {
+    let e = _elementOf(o);
+    if (e && e.classList.contains("ui_dtg_entry")) {
+        return e;
+    }
+    throw "not a DTG entry";
+}
+
+export function getDTGEntryDate(o) {
+    let e = getDTGEntry(o);
+    if (e) {
+        let year = e._uiYear.value;
+        let month = e._uiMonth.value;
+        let day = e._uiDay.value;
+        let hour = e._uiHour.value;
+        let minute = e._uiMinute.value;
+
+        if (year == "" || month == "" || day == "" || hour == "" || minute == "") return null;
+        if (month > 12 || day > 31 || hour > 24 || minute > 60) {
+            alert("invalid DTG Entry input");
+            return null;
+        }
+
+        return new Date(year, month-1, day, hour, minute);
+    }
+    return null;
+}
+
+export function setDTGEntryDate(o, d) {
+let e = getDTGEntry(o);
+    if (e) {
+        if (typeof d === "number") d = new Date(d);
+
+        if (d instanceof Date) {
+            e._uiYear.value = d.getFullYear();
+            e._uiMonth.value = leadZero(d.getMonth() + 1);
+            e._uiDay.value = leadZero(d.getDate());
+            e._uiHour.value = leadZero(d.getHours());
+            e._uiMinute.value = leadZero(d.getMinutes());
+        }
+    }
+}
+
+function leadZero(n) {
+    return (n < 10) ? '0' + n : n;
+}
+
+//--- Location input
+
+export function LocationEntry(label, eid, pickHandler) {
+    let e = createElement("DIV", "ui_loc_entry");
+    if (label) e.setAttribute("data-label", label);
+    if (eid) e.setAttribute("id", eid);
+
+    if (pickHandler) e._uiPick = pickHandler;
+
+    return e;
+}
+
+function initializeLocationEntry(e) {
+    if (e.tagName == "DIV" && e.children.length == 0) {
+        function pasteHandler(event) {
+            event.preventDefault();
+            let s = event.clipboardData.getData('text/plain');
+            let a = s.split(/[, ]+/);
+
+            if (a.length == 1) {
+                let n = Number.parseFloat(a[0]);
+                if (!isNaN(n)) {
+                    let limit = Object.is(event.target, eLon) ? 180.0 : 90.0;
+                    if (Math.abs(n) > limit) {
+                        beep();
+                    } else {
+                        event.target.value = n;
+                    }
+                } else { beep(); }
+            } else if (a.length == 2) {
+                let n1 = Number.parseFloat(a[0]);
+                let n2 = Number.parseFloat(a[1]);
+                if (isNaN(n1) || isNaN(n2)) { beep(); return; }
+
+                if (Math.abs(n1) > 180.0) { beep(); return;}
+                if (Math.abs(n2) > 90.0) { beep(); return; }
+
+                console.log(n1);
+                console.log(n2);
+
+                e._uiLon.value = n1;
+                e._uiLat.value = n2;
+            }
+        }
+
+        let labelText = e.dataset.label;
+        if (labelText) {
+            let label = createElement("DIV", "ui_field_label", labelText);
+            e.appendChild(label);
+        }
+
+        let wrapper = createElement("DIV", "ui_loc_wrapper");
+
+        let eLon = createElement("INPUT", "ui_loc_field ui_loc_lon_field input");
+        setLocFieldAttrs(eLon, "-180..180", 10, -180, 180);
+        wrapper.appendChild(eLon);
+        eLon.addEventListener("paste", pasteHandler);
+        e._uiLon = eLon;
+        wrapper.append(" °lon");
+
+        let eLat = createElement("INPUT", "ui_loc_field ui_loc_lat_field input");
+        setLocFieldAttrs(eLat, "-90..90", 9, -90, 90);
+        wrapper.appendChild(eLat);
+        eLat.addEventListener("paste", pasteHandler);
+        e._uiLat = eLat;
+        wrapper.append(" °lat");
+
+        let pickBtn = createElement("DIV", "ui_loc_btn");
+        pickBtn.append("⨁");
+        wrapper.appendChild(pickBtn);
+        pickBtn.addEventListener("click", (event) => {
+            if (e._uiPick) e._uiPick(event);
+        });
+
+        e.appendChild(wrapper);
+    }
+}
+
+function setLocFieldAttrs(e, placeholder, length, min, max) {
+    e.setAttribute("placeholder", placeholder);
+    e.setAttribute("maxlength", length);
+    e.setAttribute("inputmode", "numeric");
+    e.setAttribute("pattern", "-?[0-9]\.?[0-9]*");
+    //e.setAttribute("type", "number");
+    //e.setAttribute("min", min);
+    //e.setAttribute("max", max);
+
+    e.onchange = (event) => {
+        let val = event.target.value;
+        if (val > max || val < min) {
+            event.target.value = null;
+            beep();
+        }
+    };
+}
+
+export function getLocationEntry(o) {
+    let e = _elementOf(o);
+    if (e && e.classList.contains("ui_loc_entry")) {
+        return e;
+    }
+    throw "not a location entry";
+}
+
+export function setLocation(o, loc) {
+    let e = getLocationEntry(o);
+    if (e) {
+        if (Math.abs(loc.lon) > 180.0 || Math.abs(loc.lat) > 90.0) return;
+        e._uiLon.value = loc.lon;
+        e._uiLat.value = loc.lat;
+    }
+}
+
+export function getLocation(o) {
+    let e = getLocationEntry(o);
+    if (e) {
+        let lon = Number.parseFloat(e._uiLon.value);
+        let lat = Number.parseFloat(e._uiLat.value);
+        if (isNaN(lon) || isNaN(lat)) return null;
+
+        return { lon, lat };
+    } else return null;
+}
 
 //--- TextArea
 
@@ -1192,6 +1580,8 @@ export function getTextAreaContent(o) {
         return v.value;
     }
 }
+
+
 
 //--- time & date widgets
 
@@ -1505,7 +1895,12 @@ const sliderResizeObserver = new ResizeObserver(entries => {
     }
 });
 
-export function Slider (label, eid, changeAction, trackWidth=undefined) {
+export function initSlider(name, elementId, changeAction, min, max, step, fmt, value) {
+    let attrs = { min, max, step, fmt, value };
+    return Slider(name, elementId, changeAction, attrs);
+}
+
+export function Slider (label, eid, changeAction, initAttrs=undefined, trackWidth=undefined) {
     let e = createElement( "DIV", "ui_slider");
 
     if (eid) e.setAttribute("data-id", eid);
@@ -1517,6 +1912,8 @@ export function Slider (label, eid, changeAction, trackWidth=undefined) {
         e.onchange = changeAction;
     }
 
+    e._uiInitAttrs = initAttrs; // if set this overrides HTML attributes
+
     return e;
 }
 
@@ -1524,11 +1921,15 @@ function initializeSlider (e) {
     if (e.children.length == 0) {
         let id = e.dataset.id;
         let labelText = e.dataset.label;
+
         // default init - likely to be set by subsequent uiSetSliderRange/Value calls
-        let minValue = _parseInt(e.dataset.minValue, 0);
-        let maxValue = _parseInt(e.dataset.maxValue, 100);
+        let minValue = e._uiInitAttrs?.min ?? _parseInt(e.dataset.min, 0);
+        let maxValue = e._uiInitAttrs?.max ?? _parseInt(e.dataset.max, 100);
+        let step = e._uiInitAttrs?.step ?? _parseNumber(e.dataset.step);
+        let value = e._uiInitAttrs?.value ?? _parseInt(e.dataset.value, minValue);
+        let fmt = e._uiInitAttrs?.fmt ?? null;
+
         let trackWidth = e.dataset.width;
-        let v = _parseInt(e.dataset.value, minValue);
 
         if (maxValue > minValue) {
             if (labelText) {
@@ -1540,8 +1941,8 @@ function initializeSlider (e) {
             track.id = id;
             track._uiMinValue = minValue;
             track._uiMaxValue = maxValue;
-            track._uiStep = _parseNumber(e.dataset.inc);
-            track._uiValue = _computeSliderValue(track, v);
+            track._uiStep = step;
+            track._uiNumFormatter = fmt;
             track.addEventListener("click", clickTrack);
 
             let range = createElement("DIV", "ui_slider_range");
@@ -1572,9 +1973,10 @@ function initializeSlider (e) {
                 track.style.width = trackWidth;
             }
 
+            setSliderValue( track, value);
+
             e.appendChild(track);
             sliderResizeObserver.observe(track);
-
         } else {
             console.log("illegal range for slider " + id);
         }
@@ -1730,7 +2132,7 @@ export function setSliderValue(o, v) {
             if (e._uiNum) e._uiNum.innerText = _formattedNum(newValue, e._uiNumFormatter);
 
             let slider = e.parentElement;
-            slider.dispatchEvent(new Event('change'));
+            if (slider) slider.dispatchEvent(new Event('change'));
         }
     }
 }
@@ -1754,17 +2156,19 @@ export function getSlider(o) {
 
 //--- choices
 
-export function Choice (label, eid, changeAction, width=null) {
+export function Choice (label, eid, changeAction=null, width=null) {
     let e = createElement("DIV", "ui_choice");
 
     e.setAttribute("data-label", label);
     if (eid) e.setAttribute("data-id", eid);
     if (width) e.setAttribute("data-width", width);
 
-    if (changeAction instanceof Function) {
-        e.addEventListener("change", changeAction);
-    } else {
-        e.onclick = changeAction; // expr.
+    if (changeAction) {
+        if (changeAction instanceof Function) {
+            e.addEventListener("change", changeAction);
+        } else {
+            e.onclick = changeAction; // expr.
+        }
     }
 
     return e;
@@ -3032,6 +3436,7 @@ export function replaceListItem(o, oldItem, newItem) {
     }
 }
 
+
 /*
 export function updateSelectedListItem(o) {
     let e = getList(o);
@@ -3071,6 +3476,27 @@ export function removeListItem(o, item) {
             if (Object.is( ie.parentNode, e)) e.removeChild(ie);
         }
     }
+}
+
+// convenience function - remove the selected or optionally the last item from this list and its underlying items array
+export function removeListItemFromList(o, items, selectionOnly = false) {
+    let e = getList(o);
+    if (e) {
+        let selIdx = getSelectedListItemIndex(e);
+        if (selIdx == -1) { // nothing selected
+            if (!selectionOnly) {
+                let removedItem = items.pop();
+                setListItems(e, items);
+                return removedItem;
+            }
+        } else {
+            let removedItem = items[selIdx];
+            items.splice(selIdx, 1);
+            setListItems(e, items);
+            return removedItem;
+        }
+    }
+    return null;
 }
 
 export function removeLastNListItems(o, n) {
@@ -3247,17 +3673,6 @@ function createTooltip (e, text) {
             ett.style.left = "-1000px";
         }
     });
-}
-
-//--- buttons
-
-export function getButton (o) {
-    let e = _elementOf(o);
-    if (e) {
-        let eCls = e.classList;
-        if (eCls.contains("ui_button")) return e;
-    }
-    return undefined;
 }
 
 //--- menus
@@ -3529,11 +3944,23 @@ export function createImage(src, placeholder, w, h) {
 
 //--- spacers
 
-export function HorizontalSpacer (minWidthInRem=2, maxWidthInRem=undefined) {
+export function HorizontalSpacer (minWidth=2, maxWidth=undefined) {
     let e = createElement("DIV", "spacer");
-    e.style.minWidth = minWidthInRem + "rem";
-    if (maxWidthInRem) {
-        e.style.maxWidth = maxWidthInRem + "rem";
+    if (typeof minWidth === 'number') minWidth += "rem";
+    if (maxWidth && typeof maxWidth === 'number') maxWidth += "rem";
+
+    e.style.minWidth = minWidth;
+    if (maxWidth) {
+        e.style.maxWidth = maxWidth;
+    }
+    return e;
+}
+
+export function VerticalSpacer (minHeightInRem=2, maxHeightInRem=undefined) {
+    let e = createElement("DIV", "spacer");
+    e.style.minHeight = minHeightInRem + "rem";
+    if (maxHeightInRem) {
+        e.style.maxHeight = maxHeightInRem + "rem";
     }
     return e;
 }
@@ -3849,7 +4276,7 @@ function _hasNoChildElements(element) {
 export function createElement(tagName, clsList = undefined, txtContent = undefined) {
     let e = document.createElement(tagName);
     if (clsList) e.classList = clsList;
-    if (txtContent) e.innerText = txtContent;
+    if (txtContent !== undefined) e.innerText = txtContent;
     return e;
 }
 
@@ -3910,7 +4337,7 @@ function _parseInt(s, defaultValue) {
 
 function _parseNumber(s, defaultValue) {
     if (s && s.length > 0) {
-        if (s.contains('.')) return parseFloat(s);
+        if (s.includes('.')) return parseFloat(s);
         else return parseInt(s);
     } else {
         return defaultValue;
@@ -3962,4 +4389,26 @@ export function initElem (e, initFunc) {
         initFunc(e);
         return e;
     }
+}
+
+export function beep(duration = 200, frequency = 440, volume = 0.1) {
+    // Create the audio context
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Create an oscillator and gain (volume) node
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    // Connect the nodes
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    // Configure options
+    gainNode.gain.setValueAtTime(volume, audioCtx.currentTime);
+    oscillator.frequency.setValueAtTime(frequency, audioCtx.currentTime);
+    oscillator.type = 'sine'; // Options: 'sine', 'square', 'sawtooth', 'triangle'
+
+    // Start and stop the beep
+    oscillator.start(audioCtx.currentTime);
+    oscillator.stop(audioCtx.currentTime + (duration / 1000));
 }

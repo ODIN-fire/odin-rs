@@ -18,24 +18,40 @@ pub mod warp;
 pub mod contour;
 pub mod grid;
 pub mod dem;
+pub mod geods;
+pub mod geods_srv;
+pub mod colorize;
 
-use gdal::{errors::CplErrType, raster::RasterCreationOptions, DatasetOptions, GdalOpenFlags};
 use lazy_static::lazy_static;
 use static_init::{constructor};
-use std::{collections::HashMap, ffi::{CStr, CString}, fs::File, ops::{Fn, Index, Sub}, path::Path, ptr::{null, null_mut}, sync::Mutex, usize};
+use std::{
+    collections::HashMap, ffi::{CStr, CString}, fs::File, marker::PhantomData, ops::{Fn, Index, Sub},
+    path::{Path,PathBuf}, ptr::{null, null_mut}, sync::Mutex, io::Write, ops::Range
+};
 use libc::{c_void,c_char,c_uint, c_int};
 use trait_set::trait_set;
 use clap::ValueEnum;
+use tdigest::TDigest;
 
 // we re-export these so that other crates don't have to use a direct gdal depedency to import.
 // this is to ensure we run bindgen for new GDAL versions that don't yet have pre-computed bindings in gdal-sys
-pub use gdal::{self, Driver, DriverManager, Metadata, MetadataEntry, Dataset, errors::GdalError, GeoTransform, GeoTransformEx, cpl::CslStringList};
-pub use gdal::raster::{GdalType,GdalDataType,RasterBand,Buffer};
-pub use gdal::spatial_ref::{CoordTransform, CoordTransformOptions, SpatialRef};
+pub use gdal::{
+    self, Driver, DriverManager, Metadata, MetadataEntry, Dataset, GeoTransform, GeoTransformEx, DatasetOptions, GdalOpenFlags,
+    cpl::CslStringList,
+    raster::{GdalType, GdalDataType, RasterBand, Buffer, RasterCreationOptions},
+    spatial_ref::{CoordTransform, CoordTransformOptions, SpatialRef},
+    errors::{GdalError,CplErrType},
+};
 
-use gdal_sys::{self,CPLErrorReset, OGRErr, OSRExportToWkt, OSRNewSpatialReference, OSRSetFromUserInput, GDALFillNodata, CPLErr};
+use gdal_sys::{self,
+    CPLErr, CPLErrorReset, GDALGetDefaultRAT, GDALRATGetColumnCount, GDALRATGetRowCount,
+    GDALRATFieldType,GDALRATGetValueAsString, GDALRATGetValueAsDouble, GDALRATGetValueAsInt,
+    GDALFillNodata, GDALRasterAttributeTableH, GDALRATFieldType::GFT_String, GDALRATGetTypeOfCol,
+    OGRErr, OSRExportToWkt, OSRNewSpatialReference, OSRSetFromUserInput
+};
 use geo::{Coord, Rect};
 
+use odin_build::{pkg_cache_dir,define_load_config};
 use odin_common::{
     BoundingBox,
     geo::{GeoRect,GeoPoint},
@@ -44,10 +60,13 @@ use odin_common::{
     macros::if_let,
     ranges::LinearRange
 };
-use crate::errors::{Result,misc_error, last_gdal_error, OdinGdalError, gdal_error, map_gdal_error};
+use crate::errors::{Result,misc_error, last_gdal_error, OdinGdalError, gdal_error, map_gdal_error, op_failed};
 
+define_load_config!{}
 
 lazy_static! {
+    pub static ref CACHE_DIR: PathBuf = { pkg_cache_dir!() };
+
     // note that we can't automatically populate this by iterating over DriverManager since some
     // drivers use the same file extension
     static ref EXT_MAP: HashMap<&'static str, &'static str> = HashMap::from( [ // file extension -> driver short name
@@ -109,6 +128,19 @@ pub fn get_extension_for_driver_name( driver_name: &str)->Option<&'static str> {
         if *v == driver_name { return Some(*k) }
     }
     None
+}
+
+pub fn get_gtiff_driver ()->gdal::Driver {
+    // GTiff is a builtin GDAL driver
+    DriverManager::get_driver_by_name("GTiff").unwrap()
+}
+
+pub fn is_gtiff_driver (driver: &gdal::Driver)->bool {
+    driver.short_name() == "GTiff"
+}
+
+pub fn is_tiff_ext(ext: &str)->bool {
+    ext == "tif" || ext == "tiff"
 }
 
 /// Note that filename extension has to be lowercase
@@ -217,6 +249,14 @@ pub fn to_csl_string_list (strings: &Vec<String>) -> Result<Option<CslStringList
     } else {
         Ok(None)
     }
+}
+
+pub fn get_gtiff_create_opts ()->RasterCreationOptions {
+    RasterCreationOptions::from_iter( ["COMPRESS=DEFLATE", "PREDICTOR=2"])
+}
+
+pub fn no_create_opts ()->RasterCreationOptions {
+    RasterCreationOptions::new()
 }
 
 #[macro_export]
@@ -471,6 +511,7 @@ pub fn find_grid_points_in_slice<T,F> (ds: &Dataset, band_index: usize, accumula
     Ok(result)
 }
 
+// this assumes positions are in the same SRS as the dataset
 pub fn get_values_for_positions (ds: &Dataset, band_index: usize, sub_no_data: Option<f64>, pts: &[(f64,f64)]) -> Result<Vec<f64>> {
     let band = ds.rasterband(band_index)?;
     let pixel_to_geo = ds.geo_transform()?;
@@ -575,8 +616,14 @@ pub fn get_linear_range<T> (ds: &Dataset, band_index: usize)->Result<LinearRange
 /* #region misc high level functions *************************************************************************************************/
 
 /// create an image with given width,height from VRT
-pub fn create_wh_image_from_vrt (bbox: &BoundingBox<f64>, tgt_epsg: u32, width: u32, height: u32, img_extension: &str, opts: &Option<CslStringList>, vrt_path: &Path, file_path: &Path) -> Result<()> {
-    let src_ds =  Dataset::open(vrt_path)?;
+pub fn create_wh_image_from_ds <P,Q> (
+    bbox: &BoundingBox<f64>, tgt_epsg: u32, width: u32, height: u32,
+    img_extension: &str, opts: &Option<CslStringList>,
+    ds_path: P, file_path: Q
+) -> Result<()>
+    where P: AsRef<Path>, Q: AsRef<Path>
+{
+    let src_ds =  Dataset::open(ds_path)?;
     let tgt_srs = SpatialRef::from_epsg( tgt_epsg)?;
     let driver_name = get_driver_name_for_extension( img_extension).ok_or(misc_error(format!("unsupported image type {}", img_extension)))?;
 
@@ -596,7 +643,13 @@ pub fn create_wh_image_from_vrt (bbox: &BoundingBox<f64>, tgt_epsg: u32, width: 
 }
 
 /// create an image with given resolution from VRT (width,height are computed)
-pub fn create_res_image_from_vrt (bbox: &BoundingBox<f64>, tgt_epsg: u32, res_x: f64, res_y: f64, img_extension: &str, opts: &Option<CslStringList>, vrt_path: &Path, file_path: &Path) -> Result<()> {
+pub fn create_res_image_from_ds <P,Q> (
+    bbox: &BoundingBox<f64>, tgt_epsg: u32, res_x: f64, res_y: f64,
+    img_extension: &str, opts: &Option<CslStringList>,
+    vrt_path: P, file_path: Q
+) -> Result<()>
+    where P: AsRef<Path>, Q: AsRef<Path>
+{
     let src_ds =  Dataset::open(vrt_path)?;
     let tgt_srs = SpatialRef::from_epsg( tgt_epsg)?;
     let driver_name = get_driver_name_for_extension( img_extension).ok_or(misc_error(format!("unsupported image type {}", img_extension)))?;
@@ -619,6 +672,28 @@ pub fn create_res_image_from_vrt (bbox: &BoundingBox<f64>, tgt_epsg: u32, res_x:
 pub fn get_values_for_vrt_positions (vrt_path: impl AsRef<Path>, band_index: usize, sub_no_data: Option<f64>, pts: &[(f64,f64)]) -> Result<Vec<f64>>
 {
     let ds =  Dataset::open(vrt_path)?;
+    get_values_for_positions( &ds, band_index, sub_no_data, pts)
+}
+
+pub fn get_values_for_ds_positions (ds_path: impl AsRef<Path>, band_index: usize, sub_no_data: Option<f64>, srs: &SpatialRef, pts: &mut [(f64,f64)]) -> Result<Vec<f64>>
+{
+    let ds =  Dataset::open(ds_path)?;
+
+    let ds_srs = ds.spatial_ref()?;
+    if ds_srs != *srs {
+        let transform = CoordTransform::new( srs, &ds_srs)?;
+        let mut xs: Vec<f64> = Vec::with_capacity( pts.len());
+        let mut ys: Vec<f64> = Vec::with_capacity( pts.len());
+        for p in pts.iter() {
+            xs.push( p.0);
+            ys.push( p.1);
+        }
+        transform.transform_coords( &mut xs, &mut ys, &mut [])?;
+        for i in 0..pts.len() {
+            pts[i] = (xs[i], ys[i]);
+        }
+    }
+
     get_values_for_positions( &ds, band_index, sub_no_data, pts)
 }
 
@@ -1030,17 +1105,277 @@ pub fn get_raster_info (ds: &Dataset)->Result<RasterInfo> {
 }
 
 /// syntactic sugar for creating CslStringLists. Note this panics if an invalid string (that cannot be translated into
-/// a C string) is provided.
+/// a C string) is provided. This should only be used
 #[macro_export]
 macro_rules! csl_string_list {
-    ( $( $v:expr ),* ) => {
-        {
-            use odin_gdal::CslStringList;
+    ( $( $kv:expr ),* ) => {
+        'block: {
             let mut co_list = CslStringList::new();
-            $( co_list.add_string( $v).unwrap(); )*
-            co_list
+            $(
+                if let Err(e) = co_list.add_string( $kv) {
+                    break 'block Err(e)
+                }
+            )*
+            Ok( co_list )
         }
     }
 }
 
+
+
 /* #endregion misc high level functions */
+
+pub struct RasterAttributeTable<'a> {
+    ds: &'a Dataset,
+    h_rat: GDALRasterAttributeTableH,
+    pub n_rows: usize,
+    pub n_cols: usize,
+}
+
+impl<'a> RasterAttributeTable<'a> {
+
+    pub fn from_dataset (ds: &'a Dataset, band_no: usize)->Option<RasterAttributeTable<'a>> {
+        if let Ok(band) = ds.rasterband(band_no) {
+            unsafe {
+                let h_rat = GDALGetDefaultRAT( band.c_rasterband());
+                if !h_rat.is_null() {
+                    let n_cols = GDALRATGetColumnCount(h_rat) as usize;
+                    let n_rows = GDALRATGetRowCount(h_rat) as usize;
+                    Some( RasterAttributeTable { ds, h_rat, n_cols, n_rows } )
+                } else { None }
+            }
+        } else { None }
+    }
+
+    pub fn get_string_rat_field (&self, row: usize, col: usize)->Option<String> {
+        if row >= self.n_rows || col >= self.n_cols {
+            None
+        } else {
+            unsafe {
+                let h_rat = self.h_rat;
+                if GDALRATGetTypeOfCol( h_rat, col as c_int) != GDALRATFieldType::GFT_String {
+                    None
+                } else {
+                    let c_str_ptr = GDALRATGetValueAsString(h_rat, row as c_int, col as c_int);
+                    if !c_str_ptr.is_null() {
+                        let s = CStr::from_ptr(c_str_ptr).to_string_lossy();
+                        Some( s.to_string() )
+                    } else {
+                        None
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn get_i64_rat_field( &self, row: usize, col: usize)->Option<i64> {
+        let h_rat = self.h_rat;
+        if row >= self.n_rows || col >= self.n_cols {
+            None
+        } else {
+            unsafe {
+                if GDALRATGetTypeOfCol( h_rat, col as c_int) != GDALRATFieldType::GFT_Integer {
+                    None
+                } else {
+                    let v = GDALRATGetValueAsInt(h_rat, row as c_int, col as c_int);
+                    // check for error here
+                    Some( v as i64 )
+                }
+            }
+        }
+    }
+
+    pub fn get_f64_rat_field( &self, row: usize, col: usize)->Option<f64> {
+        let h_rat = self.h_rat;
+        if row >= self.n_rows || col >= self.n_cols {
+            None
+        } else {
+            unsafe {
+                if GDALRATGetTypeOfCol( h_rat, col as c_int) != GDALRATFieldType::GFT_Real {
+                    None
+                } else {
+                    let v = GDALRATGetValueAsDouble(h_rat, row as c_int, col as c_int);
+                    // check for error here
+                    Some( v as f64 )
+                }
+            }
+        }
+    }
+}
+
+pub fn check_same_size (dss: &Vec<Dataset>)->bool {
+    let (width,height) = dss[0].raster_size();
+    for i in 1..dss.len() {
+        let (w,h) = dss[i].raster_size();
+        if w != width || h != height {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// stack band M of each of the N input datasets and stack them into a new dataset with M bands.
+/// All input datasets have to have same dimension, number of bands and data type
+pub fn stack_band<P: AsRef<Path>> (inputs: &Vec<Dataset>, band_no: usize, path: P)->Result<Dataset> {
+    if inputs.is_empty() { return Err(misc_error("no input datasets".into())) }
+
+    let first = &inputs[0];
+    let (w0,h0) = first.raster_size();
+    let n0 = first.raster_count();
+    if band_no > n0 { return Err(misc_error("not enough rasterbands in input".into())) }
+    let t0 = first.rasterband(band_no)?.band_type();
+
+    for i in 1..inputs.len() {
+        let ds = &inputs[i];
+        if ds.raster_count() != n0 || ds.raster_size() != (w0,h0) || ds.rasterband(band_no)?.band_type() != t0 {
+            return Err(misc_error("input bands do not have same dimension, number of bands and raster type".into()));
+        }
+    }
+
+    let path_name = path.as_ref().to_str().ok_or(misc_error("invalid output path".into()))?;
+    let drv = get_driver_from_filename( path_name).ok_or(misc_error("unsupported output driver".into()))?;
+
+    let co = if drv.short_name() == "GTiff" { Some( compress_create_opts()) } else { None };
+    let mut tgt_ds = create_dataset( &drv, path, w0, h0, n0, t0, co)?;
+
+    tgt_ds.set_geo_transform( &first.geo_transform()?);
+    tgt_ds.set_projection( &first.projection());
+    tgt_ds.set_spatial_ref( &first.spatial_ref()?);
+
+    for i in 0..inputs.len() {
+        let src_ds = &inputs[i];
+        let src_band = src_ds.rasterband(band_no)?;
+
+        copy_full_rasterband( &src_band, &mut tgt_ds.rasterband(band_no)?)?;
+    }
+
+    Ok(tgt_ds)
+}
+
+pub fn get_band_value_range (ds: &Dataset, band_no: usize)->Result<Range<f64>> {
+    let band = ds.rasterband(band_no)?;
+    let (width, height) = ds.raster_size();
+    let nodata_val = band.no_data_value();
+
+    let mut min_val = f64::MAX;
+    let mut max_val = f64::MIN;
+
+    for y in 0..height {
+        let line_buf: Buffer<f64> = band.read_as(
+            (0, y as isize),
+            (width, 1),
+            (width, 1),
+            None,
+        )?;
+        for &val in line_buf.data().iter() {
+            if let Some(nd) = nodata_val {
+                if val == nd {
+                    continue; // Skip NoData values
+                }
+            }
+            if val < min_val { min_val = val; }
+            if val > max_val { max_val = val; }
+        }
+    }
+
+    Ok( min_val..max_val )
+}
+
+pub fn get_band_value_percentile_range (ds: &Dataset, band_no: usize, pct_range: Option<Range<f64>>)->Result<Range<f64>> {
+    let band = ds.rasterband(band_no)?;
+    let (width, height) = ds.raster_size();
+    let nodata_val = if let Some(ndv) = band.no_data_value() { ndv } else { f64::NAN };
+
+    let mut digest = TDigest::new_with_size(100);
+
+    for y in 0..height {
+        let line_buf: Buffer<f64> = band.read_as((0, y as isize), (width, 1), (width, 1), None)?;
+        let data = line_buf.data();
+
+        for i in 0..width {
+            if data[i] != nodata_val {
+                digest.push(data[i]);
+            }
+        }
+    }
+    digest.flush();
+
+    let (lower_p, upper_p) = if let Some(r) = pct_range { (r.start, r.end) } else { (0.0, 1.0) };
+
+    let lower = digest.estimate_quantile(lower_p).ok_or( op_failed!("no lower quantile"))?;
+    let upper = digest.estimate_quantile(upper_p).ok_or( op_failed!("no upper quantile"))?;
+
+    Ok( lower..upper )
+}
+
+/// we provide this convenience wrapper since get_band_value_percentile_range() is considerably more expensive
+pub fn get_adjusted_band_value_range (src_ds: &Dataset, band_no: usize, pct_range: Option<Range<f64>>)->Result<Range<f64>> {
+    if pct_range.is_some() {
+        get_band_value_percentile_range( &src_ds, band_no, pct_range)
+    } else {
+        get_band_value_range( &src_ds, band_no)
+    }
+}
+
+pub fn get_bbox (ds: &Dataset)->Result<BoundingBox<f64>> {
+    let (w,h) = ds.raster_size();
+    let width = w as f64;
+    let height = h as f64;
+    let gt = ds.geo_transform()?;
+
+    let min_x = gt[0];
+    let max_y = gt[3];
+
+    let max_x = gt[0] + width * gt[1] + height * gt[2];
+    let min_y = gt[3] + width * gt[4] + height * gt[5];
+
+    Ok( BoundingBox::new( min_x, min_y, max_x, max_y) )
+}
+
+pub fn get_geo_rect (ds: &Dataset)->Result<GeoRect> {
+    let bbox = get_bbox( ds)?;
+    Ok( GeoRect::from_wsen_degrees( bbox.west, bbox.south, bbox.east, bbox.north) )
+}
+
+pub fn copy_srs<P: AsRef<Path>> (src_ds: &Dataset, dst_ds: &mut Dataset, dst_path: Option<&P>)->Result<()> {
+
+    if let Ok(geo_transform) = src_ds.geo_transform() {
+        dst_ds.set_geo_transform(&geo_transform)?;
+    }
+    if let Ok(srs) = src_ds.spatial_ref() {
+        dst_ds.set_spatial_ref( &srs)?;
+    }
+
+    let projection = src_ds.projection();
+    if !projection.is_empty() {
+        dst_ds.set_projection(&projection);
+
+        if let Some(dst_path) = dst_path {
+            if needs_prj( dst_path) {
+                let prj_path = dst_path.as_ref().with_extension("prj");
+                let mut prj_file = File::create(prj_path)?;
+                prj_file.write_all(projection.as_bytes())?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn needs_prj<P: AsRef<Path>> (path: &P)->bool {
+    if let Some(ext) = path.as_ref().extension() {
+        ext == "png" || ext == "jpg" || ext == "jpeg"
+    } else {
+        false
+    }
+}
+
+pub fn create_cloned_mem_ds<T: GdalType, P: AsRef<Path>> (src_ds: &Dataset, n_bands: usize, dst_path: Option<&P>)->Result<Dataset> {
+    let (width, height) = src_ds.raster_size();
+    let mem_driver = DriverManager::get_driver_by_name("MEM")?;
+    let mut dst_ds = mem_driver.create_with_band_type::<T, _>("", width, height, n_bands)?;
+    copy_srs( src_ds, &mut dst_ds, dst_path)?;
+
+    Ok( dst_ds )
+}

@@ -14,6 +14,7 @@
 
 use keepawake::KeepAwake;
 use odin_build::get_bin_context;
+use tokio::process::Command;
 
 /// execute the provided `exit_func` upon receiving a ctrl-c signal.
 /// Note this does *not* automatically exit the process if not done so from `exit_func`.
@@ -60,4 +61,52 @@ pub fn keep_awake()->Option<KeepAwake> {
         }
         _ => None
     }
+}
+
+
+// this needs to be awaited
+#[macro_export]
+macro_rules! run_cmd {
+    ($p:expr $(, $a:expr )* ) => {
+        async {
+            use tokio::process::Command;
+
+            let exe = $p;
+            let mut cmd = Command::new( &exe);
+            cmd $( .arg($a) )*;
+
+            cmd.kill_on_drop(true);
+            println!("executing command {:?}", cmd.as_std());
+            let mut child_proc = cmd.spawn().map_err( |e|
+                std::io::Error::new( std::io::ErrorKind::Other, format!("executing {:?} failed: {}", exe, e))
+            )?;
+            child_proc.wait().await
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! run_captured_cmd {
+    ($p:expr $(, $a:expr )* ) => {
+        async {
+            use tokio::process::Command;
+
+            let exe = $p;
+            let mut cmd = Command::new( &exe);
+            cmd $( .arg($a) )*;
+
+            cmd.kill_on_drop(true);
+            cmd.output().await
+        }
+    };
+}
+
+
+async fn execute_cmd( cmd: &mut Command) -> std::io::Result<()> {
+    cmd.kill_on_drop(true);
+
+    let mut child_proc = cmd.spawn()?;
+    let status = child_proc.wait().await?;
+
+    Ok(())
 }

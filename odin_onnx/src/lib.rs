@@ -22,7 +22,7 @@ use image::{
 use ndarray::{Array,Array4, ArrayView};
 use ort::{
 	inputs,
-	session::{Session, SessionOutputs, input::{SessionInputs}, output},
+	session::{Session, SessionOutputs, SessionInputs},
 	value::TensorRef,
 };
 use serde::{Serialize,Deserialize};

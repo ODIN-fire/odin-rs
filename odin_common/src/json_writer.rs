@@ -18,6 +18,9 @@ use std::fmt::{Write,Display,Debug};
 use std::borrow::Borrow;
 use chrono::{DateTime,Utc};
 
+use crate::{geo::{GeoPoint,GeoRect}};
+
+#[derive(Clone,Copy)]
 pub enum NumFormat {
     Fp0, Fp1, Fp2, Fp3, Fp4, Fp5
 }
@@ -75,6 +78,24 @@ impl JsonWriter {
         self.check_separator();
         write!( self.buf, "\"{prop_name}\":");
         write!( self.buf, "{}", value.timestamp_millis());
+    }
+
+    pub fn write_pos_field (&mut self, prop_name: &str, gp: &GeoPoint, fmt: NumFormat) {
+        self.check_separator();
+        self.write_object_field( prop_name, |w| {
+            w.write_f64_field("lon", gp.longitude_degrees(), fmt);
+            w.write_f64_field("lat", gp.latitude_degrees(), fmt);
+        });
+    }
+
+    pub fn write_rect_field (&mut self, prop_name: &str, geo_rect: &GeoRect, fmt: NumFormat) {
+        self.check_separator();
+        self.write_object_field( prop_name, |w| {
+            w.write_f64_field("west", geo_rect.west().degrees(), fmt);
+            w.write_f64_field("south", geo_rect.south().degrees(), fmt);
+            w.write_f64_field("east", geo_rect.east().degrees(), fmt);
+            w.write_f64_field("north", geo_rect.north().degrees(), fmt);
+        });
     }
 
     pub fn write_object (&mut self, f: impl FnOnce(&mut JsonWriter)) {

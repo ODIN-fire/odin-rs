@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -36,7 +36,7 @@ impl Mask {
     }
 
     pub fn open<P> (path: P)->Result<Self> where P: AsRef<Path> {
-        let file_contents =  filepath_contents_as_string(&path)?;
+        let file_contents =  filepath_contents_as_string(path)?;
         Ok( serde_json::from_str( &file_contents.as_str())? )
     }
 
@@ -137,7 +137,7 @@ impl Mask {
     }
 
     pub fn clear (&mut self) {
-        self.data.clear();
+        self.data.make_empty();
     }
 
     pub fn print (&self) {
@@ -194,7 +194,7 @@ impl Mask {
         } else {
             Err( crate::OdinImageError::IncompatibleMask("masks have different dimensions".into()))
         }
-    }    
+    }
 
     pub fn iter (&self)->MaskIter<'_> {
         MaskIter{ data: &self.data, w: self.width, n: 0 }
@@ -218,9 +218,9 @@ pub struct MaskIter<'a> {
 
 impl <'a> Iterator for MaskIter<'a> {
     type Item = (usize,usize);
-    
+
     fn next(&mut self) -> Option<Self::Item> {
-        while self.n < self.data.len() {
+        while self.n < self.data.count() {
             if self.data.contains( self.n) {
                 let x = self.n % self.w;
                 let y = self.n / self.w;

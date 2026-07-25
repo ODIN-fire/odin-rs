@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -35,15 +35,15 @@ use uom::si::f64::*;
 
 // odin's own imports
 use odin_common::fs::{ensure_writable_dir, existing_non_empty_file, file_contents_as_string, set_filepath_contents, set_filepath_contents_with_backup};
-use odin_common::datetime::{is_between_inclusive,ser_short_rfc3339,parse_utc_datetime_from_str_date};
+use odin_common::datetime::{is_between_inclusive,ser_short_rfc3339,parse_utc_datetime};
 use odin_common::{define_cli,if_let};
 
 define_cli!{ ARGS [about="split open data historical fire perimeter files"] =
     dry_run: bool [help="only report which feature files would be written (do not store files)", long],
     verbose: bool [help="verbose output", short, long],
     estimate_date: bool [help="use CreateDate or DateCurrent if {Polygon,Line,Point}DateTime is not set or has null value", long],
-    start_date: Option<DateTime<Utc>> [help="optional start date filter in yyyy-mm-dd format (interpreted as UTC, used to initialize new summary.json)", long, value_parser=parse_utc_datetime_from_str_date],
-    end_date: Option<DateTime<Utc>> [help="optional end date filter in yyyy-mm-dd format (interpreted as UTC, used to initialize new summary.json)", long, value_parser=parse_utc_datetime_from_str_date],
+    start_date: Option<DateTime<Utc>> [help="optional start date filter in yyyy-mm-dd format (interpreted as UTC, used to initialize new summary.json)", long, value_parser=parse_utc_datetime],
+    end_date: Option<DateTime<Utc>> [help="optional end date filter in yyyy-mm-dd format (interpreted as UTC, used to initialize new summary.json)", long, value_parser=parse_utc_datetime],
 
     //--- output options
     keep_properties: bool [help="store all feature properties found in input. If not set store only feature specific subset", long],

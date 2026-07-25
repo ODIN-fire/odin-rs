@@ -1,0 +1,39 @@
+[package]
+name = "odin_landfire"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lazy_static = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+
+chrono = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ron = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+gdal = { workspace = true }
+csv = { workspace = true }
+async-trait = { workspace = true }
+uom = { workspace = true }
+bit-set = { workspace = true }
+
+# workspace dependencies
+odin_common = { workspace = true }
+odin_actor = { workspace = true }
+odin_gdal = { workspace = true }
+odin_build = { workspace = true }
+odin_macro = { workspace = true }
+odin_cesium = { workspace = true }
+odin_server = { workspace = true }
+
+[build-dependencies]
+odin_build = { workspace = true }
+
+[features]
+## inline crate-specific resources (configs and assets) into the executable (see odin_build)
+embedded_resources = []

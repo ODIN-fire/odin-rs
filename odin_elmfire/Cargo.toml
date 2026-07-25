@@ -1,0 +1,49 @@
+[package]
+name = "odin_elmfire"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lazy_static = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+
+chrono = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ron = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+gdal = { workspace = true }
+async-trait = { workspace = true }
+uom = { workspace = true }
+interp = { workspace = true }
+askama = { workspace = true }
+regex = { workspace = true }
+derive_more = { workspace = true }
+csv = { workspace = true }
+
+# workspace dependencies
+odin_common = { workspace = true }
+odin_actor = { workspace = true }
+odin_action = { workspace = true }
+odin_gdal = { workspace = true }
+odin_build = { workspace = true }
+odin_macro = { workspace = true }
+odin_cesium = { workspace = true }
+odin_server = { workspace = true }
+odin_wind = { workspace = true }
+odin_landfire = { workspace = true }
+odin_fems = { workspace = true }
+odin_dem = { workspace = true }
+odin_openmeteo = { workspace = true }
+odin_nfdrs = { workspace = true }
+
+[build-dependencies]
+odin_build = { workspace = true }
+
+[features]
+## inline crate-specific resources (configs and assets) into the executable (see odin_build)
+embedded_resources = []

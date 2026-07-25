@@ -1,0 +1,5 @@
+// test GeoDsSource client config
+Server (
+    url: "http://127.0.0.1:9019",
+    app_key: Some("123456"), // not yet
+)

@@ -21,7 +21,7 @@ use odin_common::{datetime::{self, day_start, days, with_hms}, fs::{file_length,
 use odin_actor::{errors::op_failed, prelude::*};
 use odin_macro::public_struct;
 use odin_wx::{WxDataSetRequest,AddDataSet,RemoveDataSet,WxFileAvailable};
-use crate::{CACHE_DIR, OpenMeteoConfig, OpenMeteoMetadata, Result, data_url, errors::op_failed, get_timesteps_from_file, meta_url};
+use crate::{CACHE_DIR, OpenMeteoConfig, OpenMeteoMetadata, Result, forecast_url, errors::op_failed, get_timesteps_from_file, meta_url};
 
 
 struct OpenMeteoStatus {
@@ -149,7 +149,7 @@ impl <A> OpenMeteoActor<A> where A: DataAction<WxFileAvailable> + 'static {
     }
 
     async fn download_data (&mut self, dr: &WxDataSetRequest, meta: &OpenMeteoMetadata)->Result<Arc<PathBuf>> {
-        let url = data_url( &self.config, dr.query.as_str());
+        let url = forecast_url( &self.config, dr.query.as_str());
         info!("downloading open-meteo data: {}", url);
 
         let fname = odin_data_filename( dr.region.as_str(), Some(meta.base_date()?), &[dr.model_name.as_str()], Some("json"));

@@ -21,13 +21,16 @@ image = { workspace = true }
 bit-set = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+imageproc = { workspace = true }
+gdal = { workspace = true }
 
 image-compare = { version = "0.5.0" }
 edge-detection = { version = "0.3.0" }
-imageproc = { version = "0.25.0" }
 ab_glyph = { version = "0.2.32" }
 linreg = { version = "0.2.0" }
 tiff = { version = "0.10.3" }
+minifb = { version = "0.28" }
+
 
 [build-dependencies]
 odin_build = { workspace = true }

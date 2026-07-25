@@ -1,0 +1,11 @@
+// test GeoDsServerConfig example
+GeoDsServerConfig (
+    layers: {
+        "slope": "resources/LF2020_SlpD_SFBay.tif"
+    },
+    wms_capabilities_path: None, // TODO - needed for WMS test
+
+    sock_addr: "127.0.0.1:9019",
+    tls: None,
+    app_key_file: Some("resources/app_keys.txt"), // not yet
+)

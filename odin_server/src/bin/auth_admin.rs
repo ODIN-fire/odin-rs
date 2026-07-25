@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -61,7 +61,7 @@ async fn main ()->Result<()> {
         } else {
             create_table( &pool).await?;
         }
-    } 
+    }
 
     if ARGS.add_user.is_some() {
         add_user( &pool).await?;
@@ -106,13 +106,13 @@ async fn create_table (pool: &SqlitePool) -> Result<()> {
 }
 
 async fn add_user (pool: &SqlitePool) -> Result<()> {
-    if let Some(username) = &ARGS.add_user 
-    && let Some(email) = &ARGS.email 
+    if let Some(username) = &ARGS.add_user
+    && let Some(email) = &ARGS.email
     && let Some(days_valid) = ARGS.days_valid {
         let gen_pw = generate_pw()?;
-        let pw = if let Some(pw) = &ARGS.password { pw } else { 
+        let pw = if let Some(pw) = &ARGS.password { pw } else {
             println!("generated pw for user {}: {}", username, gen_pw);
-            &gen_pw 
+            &gen_pw
         };
         let pw_hash = generate_hash(&pw);
         let expires = (Utc::now() + Days::new(days_valid)).timestamp();
@@ -164,7 +164,7 @@ async fn update_user (pool: &SqlitePool) -> Result<()> {
         .await?;
 
         if let Some(user) = user {
-            if let Some(email) = &ARGS.email { 
+            if let Some(email) = &ARGS.email {
                 sqlx::query(
                     r#"
                     UPDATE users
@@ -286,7 +286,7 @@ async fn write_db (pool: &SqlitePool) -> Result<()> {
 
         let schema: Vec<(String,)> = sqlx::query_as(
             r#"
-            SELECT sql FROM sqlite_master 
+            SELECT sql FROM sqlite_master
             WHERE type='table' AND name='users'
             "#,
         )
@@ -332,17 +332,12 @@ async fn write_db (pool: &SqlitePool) -> Result<()> {
 }
 
 async fn read_db (pool: &SqlitePool) -> Result<()> {
-    if let Some(path) = &ARGS.read_from {
-        let sql_content = read_to_string(path)?;
+    let Some(path) = &ARGS.read_from else { return Err( anyhow!("no SQL filename for restoring database")) };
+    let sql_content = read_to_string(path)?;
 
-        for statement in sql_content.split(';') {
-            sqlx::query(statement)
-                .execute(pool)
-                .await?;
-        }
+    sqlx::query( sqlx::AssertSqlSafe(sql_content))
+        .execute(pool)
+        .await?;
 
-        Ok(())
-    } else {
-        Err( anyhow!("no SQL filename for restoring database"))
-    }
+    Ok(())
 }

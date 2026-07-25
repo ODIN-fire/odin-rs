@@ -1,0 +1,46 @@
+// example LandfireConfig
+
+LandfireConfig (
+
+    /* WMS is very inefficient for display purposes - use TMS
+    wms_layers: {
+        "LF2025_EVT_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT_CONUS.png",
+        //... and many more - note this can be *very* slow for large data sets (vrt can help to some degree)
+    },
+    wme_capabilities: Some("$ODIN_ROOT/data/LF_CONUS-capabilities.xml")
+    */
+
+    wms_layers: {},
+    wms_capabilities: None,
+
+    // those values have to be the root directories for respective tile trees
+    tms_layers: {
+        "LF2025_EVT_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT_CONUS-tms",
+        "LF2025_CC_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CC_CONUS-tms",
+        "LF2025_CH_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CH_CONUS-tms",
+        "LF2025_CBH_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBH_CONUS-tms",
+        "LF2025_CBD_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBD_CONUS-tms",
+    },
+
+    // dataset paths for ODIN specific WH or RES bbox requests
+    // note that for frequent requests for large data sets and smaller areas this should use a tiled VRT
+    datasets: {
+        "FBFM40_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40_CONUS.tif",
+        "CC_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CC_CONUS.tif",
+        "CH_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CH_CONUS.tif",
+        "CBH_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBH_CONUS.tif",
+        "CBD_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBD_CONUS.tif",
+        "Asp_CONUS": "$ODIN_ROOT/data/odin_landfire/topo/LF2020_Asp_CONUS.tif",
+        "SlpD_CONUS": "$ODIN_ROOT/data/odin_landfire/topo/LF2020_SlpD_CONUS.tif",
+        "Elev_CONUS": "$ODIN_ROOT/data/odin_landfire/topo/LF2020_Elev_CONUS.tif",
+    },
+
+    color_maps: {
+        "LF2025_EVT.json": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT.json",
+        "LF2025_FBFM40.json": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40.json",
+        "LF2025_CC.json": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CC.json",
+        "LF2025_CH.json": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CH.json",
+        "LF2025_CBH.json": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBH.json",
+        "LF2025_CBD.json": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBD.json",
+    }
+)

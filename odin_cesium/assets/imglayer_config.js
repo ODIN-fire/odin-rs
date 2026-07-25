@@ -57,7 +57,7 @@ export const config = {
             provider: Cesium.ImageryLayer.fromWorldImagery( {style: Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS}),
             exclusive:['globe'],
             render:{ brightness:1.0, contrast:1.0, hue:0.0 }
-        },
+        }
 
         //{
         //    pathName: 'weather/amsr2',
@@ -76,17 +76,8 @@ export const config = {
         //    exclusive: [],
         //    render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         //},
-        {
-            pathName: "fuel/landfire/cover",
-            info: "landfire fuel vegetation cover (FVC 230)",
-            provider: new Cesium.WebMapServiceImageryProvider({
-              url: "https://edcintl.cr.usgs.gov/geoserver/landfire/us_230/ows",
-              layers: "LC22_FVC_230",
-              parameters: "format=image/png"
-            }),
-            exclusive:["fuel"],
-            render:{ brightness:1.0, contrast:1.0, hue:0.0, alphaColor: "white" }
-        },
+
+        /*  WMS example
         {
             pathName: "fuel/landfire/type",
             info: "landfire fuel vegetation type (FVT 230)",
@@ -96,9 +87,11 @@ export const config = {
                 parameters: "format=image/png"
             }),
             exclusive: ["fuel"],
-            colorMap: "./asset/odin_cesium/landfire/LF20_FVT_220.json",
+            colorMapUrl: "./asset/odin_cesium/landfire/LF20_FVT_220.json",
             render:{ brightness:1.0, contrast:1.0, hue:0.0, alphaColor: "white" }
         },
+        */
+
         //{  // not everybody has the VERM data
         //    pathName: "fuel/VERM",
         //    info: "Vegetation Ember Relative Mass index 2023",
@@ -107,6 +100,7 @@ export const config = {
         //    render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         //},
 
+        /*
         {
             pathName: "mtbs/burn_severity/2018",
             info: "burn severity 2018 from MTBS",
@@ -232,6 +226,7 @@ export const config = {
             }),
             render: { hue: 218, saturation: 1.5, alphaColor: "white", alphaColorThreshold: 0.1 }
         }
+        */
     ],
 
     render: { alpha:1.0, brightness:1.0, contrast:1.0, hue:0.0, saturation:1.0, gamma:1.0 }

@@ -637,8 +637,7 @@ function handleGoesrSatellites(sats) {
         ui.setCheckBox("goesr." + sat.name, sat.show);
         satNames[sat.satId] = sat.name;
         sat.satIdx = idx++;
-        sat.dataSource = new Cesium.CustomDataSource("goesr-" + sat.name);
-
+        sat.dataSource = odinCesium.createDataSource("goesr-" + sat.name, config.layer.show);
         odinCesium.addDataSource(sat.dataSource);
     });
 }

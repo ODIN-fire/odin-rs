@@ -2,7 +2,7 @@ export const config = {
     layer: {
       name: "/fire/detection/Sentinel",
       description: "stationary Sentinel fire sensors",
-      show: true,
+      show: false,
     },
     color: Cesium.Color.fromCssColorString('chartreuse'),
     alertColor: Cesium.Color.fromCssColorString('deeppink'),

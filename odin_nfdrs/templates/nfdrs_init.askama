@@ -1,0 +1,87 @@
+# NFDRS Initialization file
+
+latitude = "{{ "{:.0}"|format(lat_degrees) }}";
+fuelModel = "{{ fuel_model }}";
+slopeClass = "{{ slope_class }}";
+avgAnnualPrecip = "{{ "{:.1}"|format( avg_annual_precip_inch) }}";
+useLoadTransfer = "1";
+useCure = "1";
+isAnnuals = "{{ annual_flag }}";
+kbdiThreshold = "100";
+startKBDI = "100";
+obsHour = "12";
+timeZoneOffset = "{{ tz_offset }}";
+maxSC = "{{ max_sc }}";
+
+liveFuelMoisture.defaults {
+    gsiMax = "1.0";
+    gsiHerbGreenup = "0.2";
+    gsiTminMin = "-2";
+    gsiTminMax = "5";
+    gsiVpdMin = "900";
+    gsiVpdMax = "4100";
+    gsiDayLenMin = "36000";
+    gsiDayLenMax = "39600";
+    gsiUseVpdAvg = "0";
+    gsiAveragingDays = "28";
+    gsiNumPrecipDays = "28";
+    gsiRTPrecipMin = "0";
+    gsiRTPrecipMax = "0.393701";
+    gsiUseRTPrecip = "1";
+    #fuelMoistureMax = "100";
+    #fuelMoistureMin = "0";
+}
+
+gsi_opts {
+    @copyFrom "liveFuelMoisture.defaults";
+}
+
+herb_opts {
+    @copyFrom "liveFuelMoisture.defaults";
+    #fuelMoistureMax = "250";
+    #fuelMoistureMin = "30";
+}
+
+woody_opts {
+    @copyFrom "liveFuelMoisture.defaults";
+    #fuelMoistureMax = "200";
+    fuelMoistureMin = "60";
+}
+
+deadFuelMoisture.defaults {
+    radius = "0.64";
+    adsorptionRate = "0.079548303";
+    stickDensity = "0.400";
+    maxLocalMoisture = "0.35";
+    desorptionRate = "0.06";
+}
+
+1hr_opts {
+    @copyFrom "deadFuelMoisture.defaults";
+    radius = "0.2";
+    adsorptionRate = "0.01";
+    desorptionRate = "0.02";
+    stickDensity = "0.62";
+    maxLocalMoisture = "0.9";
+}
+
+10hr_opts {
+    @copyFrom "deadFuelMoisture.defaults";
+    radius = "0.64";
+    adsorptionRate = "0.01";
+    desorptionRate = "0.02";
+    stickDensity = "0.62";
+    maxLocalMoisture = "0.9";
+}
+
+100hr_opts {
+    @copyFrom "deadFuelMoisture.defaults";
+    radius = "2.0";
+    adsorptionRate = "0.06";
+}
+
+1000hr_opts {
+    @copyFrom "deadFuelMoisture.defaults";
+    radius = "3.81";
+    adsorptionRate = "0.06";
+}

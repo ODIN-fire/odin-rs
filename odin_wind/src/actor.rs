@@ -22,7 +22,7 @@ use serde::{Serialize,Deserialize};
 
 use odin_build::pkg_cache_dir;
 use odin_common::{
-    collections::RingDeque, datetime::{hours,short_utc_datetime_string,utc_now}, fs::{basename, gzip_path, odin_data_filename, path_str_to_fname, path_to_unchecked_string, remove_old_files, replace_env_var_path, set_accessed}, geo::GeoRect, pow2, sqrt, utm::{self,UtmRect,UtmZone,UTM}, BoundingBox
+    collections::RingDeque, datetime::{hours,short_utc_datetime_string,utc_now}, fs::{basename, gzip_path, odin_data_filename, path_str_to_fname, path_to_unchecked_string, remove_old_files, replace_env_var_path, set_accessed}, geo::GeoRect, pow2, sqrt, utm::{self,UtmRect,UtmZone,UtmPoint}, BoundingBox
 };
 use odin_wx::{WxService, WxServiceList, AddDataSet, RemoveDataSet, WxDataSetRequest, WxFileAvailable};
 use odin_actor::prelude::*;
@@ -122,7 +122,7 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
             }
 
         } else { // new region request -> get utm rect, send HRRR region request and add ForecastRegion to our store
-            if let Some(mut utm_rect) = utm::geo_to_utm_rect( &rr.bbox) {
+            if let Ok(mut utm_rect) =  UtmRect::from_geo_rect( &rr.bbox, utm::GeoRectMapping::ExteriorGeo) {
                 utm_rect.round(); // we only need meters
                 match self.get_dem_file( rr.name.as_str(), &utm_rect).await {
                     Ok(dem_path) => { // Ok, we have a DEM for the region, now start the HRRR forecast retrieval for it and register the region
@@ -482,24 +482,24 @@ async fn run_wn (windninja_cmd: &String, cache_dir: &PathBuf, wn_job: &WnJob) ->
 
     let mut cmd = Command::new( windninja_cmd);
     cmd
-        .arg("--mesh_resolution").arg(wn_job.mesh_res.to_string())
-        .arg("--units_mesh_resolution").arg("m")
-        .arg("--output_wind_height").arg(wn_job.wind_height.to_string())
-        .arg("--units_output_wind_height").arg("m")
-        .arg("--elevation_file").arg( wn_job.dem_path.as_os_str())
-        .arg("--vegetation").arg("trees")  // FIXME - this should be computed from landfire.gov (grass,brush,trees)
-        .arg("--initialization_method").arg("wxModelInitialization")
-        .arg("--time_zone").arg("UTC")
-        .arg("--forecast_filename").arg( wn_job.wx_path.as_os_str())  // wx model file name
-        .arg("--forecast_time").arg( &wn_forecast_time(date)) // datetime string (UTC)
-        .arg("--start_year").arg( date.year().to_string())
-        .arg("--start_month").arg( date.month().to_string())
-        .arg("--start_day").arg( date.day().to_string())
-        .arg("--start_hour").arg( date.hour().to_string())
-        .arg("--stop_year").arg( date.year().to_string())
-        .arg("--stop_month").arg( date.month().to_string())
-        .arg("--stop_day").arg( date.day().to_string())
-        .arg("--stop_hour").arg( date.hour().to_string())
+        .arg( "--mesh_resolution").arg(wn_job.mesh_res.to_string())
+        .arg( "--units_mesh_resolution").arg("m")
+        .arg( "--output_wind_height").arg(wn_job.wind_height.to_string())
+        .arg( "--units_output_wind_height").arg("m")
+        .arg( "--elevation_file").arg( wn_job.dem_path.as_os_str())
+        .arg( "--vegetation").arg("trees")  // FIXME - this should be computed from landfire.gov (grass,brush,trees)
+        .arg( "--initialization_method").arg("wxModelInitialization")
+        .arg( "--time_zone").arg("UTC")
+        .arg( "--forecast_filename").arg( wn_job.wx_path.as_os_str())  // wx model file name
+        .arg( "--forecast_time").arg( &wn_forecast_time(date)) // datetime string (UTC)
+        .arg( "--start_year").arg( date.year().to_string())
+        .arg( "--start_month").arg( date.month().to_string())
+        .arg( "--start_day").arg( date.day().to_string())
+        .arg( "--start_hour").arg( date.hour().to_string())
+        .arg( "--stop_year").arg( date.year().to_string())
+        .arg( "--stop_month").arg( date.month().to_string())
+        .arg( "--stop_day").arg( date.day().to_string())
+        .arg( "--stop_hour").arg( date.hour().to_string())
         .arg( "--write_goog_output").arg( "false")
         .arg( "--write_shapefile_output").arg( "false")
         .arg( "--write_pdf_output").arg( "false")
@@ -511,7 +511,7 @@ async fn run_wn (windninja_cmd: &String, cache_dir: &PathBuf, wn_job: &WnJob) ->
         .arg( "--huvw_suffix").arg( huvw_suffix)
         .arg( "--write_huvw_output").arg( "true")
         //.arg( "--write_huvw_0_output").arg( "true") // this only makes sense if we need the same grid points (e.g. for diffs)
-        .arg("--diurnal_winds").arg( "true")
+        .arg( "--diurnal_winds").arg( "true")
         .arg( "--output_path").arg( cache_dir.as_os_str());
 
     //println!("@@--exec WN\n{:}\n@@--", cmd);

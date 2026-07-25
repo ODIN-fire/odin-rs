@@ -1,0 +1,6 @@
+// test GeoDsSource config
+File (
+    layers: {
+        "slope": "resources/LF2020_SlpD_SFBay.tif"
+    }
+)

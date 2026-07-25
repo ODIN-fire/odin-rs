@@ -22,11 +22,15 @@
 /// We employ the Rust [new type](https://doc.rust-lang.org/rust-by-example/generics/new_types.html) pattern
 /// to add those and still retain the capability to use algorithms of the 3rd party foundation crates with minimal cpoying overhead.
 
-use std::{fmt::{self,Debug,Display}, hash::{Hash,DefaultHasher,Hasher}};
+use std::{fmt::{self,Debug,Display}, hash::{Hash,DefaultHasher,Hasher}, f64::consts::{PI}, convert::{Infallible}};
 use serde::{Serialize,Deserialize};
 
 use serde::ser::{Serialize as SerializeTrait, SerializeSeq, Serializer, SerializeStruct};
 use serde::de::{self, Deserialize as DeserializeTrait, Deserializer, Visitor, SeqAccess, MapAccess};
+use rkyv::{
+    Archive, Deserialize as RkyvDeserialize, Place, Serialize as RkyvSerialize, access, deserialize, rancor::Error, to_bytes, traits::NoUndef, with::{ArchiveWith, DeserializeWith, SerializeWith}
+};
+use bytecheck;
 
 use geo::{Closest, Contains, Coord, CoordsIter, Distance, IsConvex, Line, LineString, Point, Polygon, Rect};
 use geo::algorithm::line_measures::metric_spaces::{Haversine,Geodesic};
@@ -42,14 +46,27 @@ use uom::si::length::{meter,foot};
 
 use chrono::{DateTime,TimeZone,Utc};
 
-use crate::cartesian3::Cartesian3;
+use crate::{cartesian3::Cartesian3, round_to_decimals, strings::format_float};
 use crate::cartographic::Cartographic;
 use crate::impl_deserialize_struct;
 use crate::angle::{normalize_180, normalize_90, Angle360, Latitude, Longitude};
+use crate::geo_constants::{EQUATORIAL_EARTH_RADIUS,F_EARTH};
 use crate::datetime::{Dated, EpochMillis};
 use crate::json_writer::{JsonWritable,JsonWriter,NumFormat};
 
 pub type GeoCoord = Coord<f64>;
+
+pub fn earth_radius_at_latitude (lat: Latitude)->Length {
+    Length::new::<meter>(EQUATORIAL_EARTH_RADIUS * (1.0 - (F_EARTH * lat.sin()).powi(2)))
+}
+
+pub fn lon_degrees_per_meter (lat: Latitude)->f64 {
+    (1.0 / (earth_radius_at_latitude(lat).get::<meter>() * lat.cos())).to_degrees()
+}
+
+pub fn lat_degrees_per_meter (lat: Latitude)->f64 {
+    (1.0 / earth_radius_at_latitude(lat).get::<meter>()).to_degrees()
+}
 
 /* #region GeoPoint ***********************************************************************************************/
 
@@ -103,6 +120,66 @@ impl GeoPoint {
         let cp1 = prev.to_cartographic();
         let cp2 = self.to_cartographic();
         Angle360::from_radians( cp2.bearing_from(&cp1))
+    }
+
+    pub fn from_median (gps: &[GeoPoint])->Self {
+        let mut lat: f64 = 0.0;
+        let mut lon: f64 = 0.0;
+        let n = gps.len() as f64;
+
+        for p in gps {
+            lat += p.latitude_degrees();
+            lon += p.longitude_degrees();
+        }
+
+        Self::from_lon_lat_degrees( lon/n, lat/n)
+    }
+
+    pub fn rounded (self, decimals: i32)->Self {
+        Self::from_lon_lat_degrees(
+            round_to_decimals( self.longitude_degrees(), decimals),
+            round_to_decimals( self.latitude_degrees(), decimals)
+        )
+    }
+
+    /// GeoPoint that is rounded to the given number of degree decimals
+    pub fn to_gridded (&self, deg_decimals: i32)->Self {
+        let d: f64 = 10.0_f64.powi(deg_decimals);
+        let lat_deg = (self.latitude_degrees() * d) / d;
+        let lon_deg = (self.longitude_degrees() * d) / d;
+
+        Self::from_lon_lat_degrees( lon_deg, lat_deg)
+    }
+
+    pub fn encode (&self, decimals: usize)->String {
+        format!("{:.decimals$}__{:.decimals$}", self.longitude_degrees(), self.latitude_degrees()).replace(".","_")
+    }
+
+    /// build grid with this GeoPoint as center
+    /// Note that we support different grid resolution for width/height so that we can approximate metric grids
+    /// but if a precise metric grid is required it is preferable to first convert the center to UTM, build the grid from there
+    /// and translate grid points back to geo
+    pub fn grid_points_from_center (&self, width_deg: f64, height_deg: f64, w_raster_deg: f64, h_raster_deg: f64, exterior: bool)->Vec<Self> {
+        let wr2 = 2.0 * w_raster_deg;
+        let n = if exterior { (width_deg / wr2).ceil() } else { (width_deg / wr2).floor() } as isize;
+
+        let hr2 = 2.0 * h_raster_deg;
+        let m = if exterior { (height_deg / hr2).ceil() } else { (height_deg / hr2).floor() } as isize;
+
+        let n2 = (2 * n) + 1;
+        let m2 = (2 * m) + 1;
+
+        let mut vs: Vec<GeoPoint> = Vec::with_capacity( (n2 * m2) as usize );
+
+        for j in 0..m2 {
+            let lat = self.latitude_degrees() + ((j-m) as f64) * h_raster_deg;
+            for i in 0..n2 {
+                let lon = self.longitude_degrees() + ((i-n) as f64) * w_raster_deg;
+                vs.push( Self::from_lon_lat_degrees(lon, lat));
+            }
+        }
+
+        vs
     }
 }
 
@@ -229,6 +306,30 @@ impl GeoRect {
         GeoRect( Rect::new( Point::new( a[0], a[1]), Point::new( a[2], a[3]) ) )
     }
 
+    pub fn from_center (geo_center: &GeoPoint, width: Length, height: Length) -> Self {
+        let lat_deg = geo_center.latitude_degrees();
+        let lon_deg = geo_center.longitude_degrees();
+        let lat = geo_center.latitude();
+        let dlat = height.get::<meter>() * lat_degrees_per_meter( lat)/2.0;
+        let dlon = width.get::<meter>() * lon_degrees_per_meter( lat)/2.0;
+
+        GeoRect::from_wsen_degrees(
+            lon_deg - dlon,
+            lat_deg - dlat,
+            lon_deg + dlon,
+            lat_deg + dlat
+        )
+    }
+
+    pub fn rounded (self, decimals: i32)->Self {
+        GeoRect::from_wsen_degrees(
+            round_to_decimals( self.west().degrees(), decimals),
+            round_to_decimals( self.south().degrees(), decimals),
+            round_to_decimals( self.east().degrees(), decimals),
+            round_to_decimals( self.north().degrees(), decimals)
+        )
+    }
+
     pub fn area (&self) -> Area {
         let a = self.0.geodesic_area_unsigned();
         Area::new::<square_meter>(a)
@@ -260,6 +361,23 @@ impl GeoRect {
         ))
     }
 
+    /// extend/shrink the GeoRect by average angles computed from the given deltas in meters
+    /// note this is a lossy approximation since length distances depend on latitude
+    pub fn add_avg_meters (&self, dw: f64, ds: f64, de: f64, dn: f64)->GeoRect {
+        let dlon_n = lon_degrees_per_meter(self.north());
+        let dlon_s = lon_degrees_per_meter(self.south());
+        let dlat_n = lat_degrees_per_meter(self.north());
+        let dlat_s = lat_degrees_per_meter(self.south());
+
+        let dlon = (dlon_n + dlon_s) / 2.0;
+        let dlat = (dlat_n + dlat_s) / 2.0;
+
+        GeoRect( Rect::new(
+            Point::new( self.west().degrees()+(dw * dlon), self.south().degrees()+(ds*dlat)),
+            Point::new( self.east().degrees()+(de * dlon), self.north().degrees()+(dn*dlat))
+        ))
+    }
+
     #[inline] pub fn west(&self)->Longitude { Longitude::from_degrees( self.0.min().x )}
     #[inline] pub fn east(&self)->Longitude { Longitude::from_degrees( self.0.max().x )}
     #[inline] pub fn south(&self)->Latitude { Latitude::from_degrees( self.0.min().y )}
@@ -268,7 +386,28 @@ impl GeoRect {
     pub fn to_wsen_degrees (&self)->[f64;4] {
         [self.west().degrees(), self.south().degrees(), self.east().degrees(), self.north().degrees()]
     }
+
+    pub fn contains_point (&self, p: &GeoPoint)->bool {
+        let lat = p.latitude();
+        let lon = p.longitude();
+
+        lat <= self.north() && lat >= self.south() && lon >= self.west() && lon <= self.east()
+    }
+
+    pub fn encode (&self)->String {
+        let w = format_float( self.west().degrees(), 4).replace(".", "°");
+        let s = format_float( self.south().degrees(), 4).replace(".", "°");
+        let e = format_float( self.east().degrees(), 4).replace(".", "°");
+        let n = format_float( self.north().degrees(), 4).replace(".", "°");
+
+        format!("{}_{}_{}_{}", w,s,e,n)
+    }
+
+    #[inline] pub fn center (&self)->GeoPoint {
+        GeoPoint::from_lon_lat_degrees( (self.0.min().x + self.0.max().x) / 2.0 , (self.0.min().y + self.0.max().y) / 2.0)
+    }
 }
+
 
 impl SerializeTrait for GeoRect {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
@@ -406,7 +545,7 @@ impl GeoPolygon {
 
     pub fn has_interiors(&self)->bool { self.0.interiors().len() > 0 }
 
-    pub fn contains (&self, p: &GeoPoint)->bool { self.0.contains( &p.0) }
+    pub fn contains_point (&self, p: &GeoPoint)->bool { self.0.contains( &p.0) }
 
     /// low level point iterator in case we have a large number of vertices to process - use with care
     pub fn points_iter (&self)->PointsIter<'_,f64> {
@@ -503,8 +642,10 @@ impl_deserialize_struct!{ GeoPolygon::from_geo_points(exterior,interiors = Vec::
 /// note this is not supported bu the `geo` crate and hence we need a different representation. Since
 /// this type is probably used in computations involving ECEF transformation we chose the `nav_types`
 /// implementation as the underlying basis
-#[derive(Debug,Clone,Copy,PartialEq)]
+#[derive(Debug,Clone,Copy,PartialEq, Archive,RkyvSerialize,RkyvDeserialize)]
+#[rkyv(compare(PartialEq),derive(Debug))]
 pub struct GeoPoint3 {
+    #[rkyv( with = PointAsXY)]
     point: Point,
     alt: f64
 }
@@ -699,3 +840,54 @@ impl SerializeTrait for GeoLineString4 {
 impl_deserialize_struct!{ GeoLineString4::from_geo_points4( points4) }
 
 /* #endregion GeoLineString4 */
+
+/* #region rkyv support */
+
+pub struct PointAsXY;
+
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, PartialEq, bytecheck::CheckBytes)]
+#[repr(C)]
+pub struct ArchivedGeoPoint {
+    pub x: f64,
+    pub y: f64,
+}
+
+// Note - ArchivedGeoPoint is #[repr(C)] with only f64 fields so its layout is stable and well-defined across all targets.
+unsafe impl rkyv::Portable for ArchivedGeoPoint {}
+
+impl PartialEq<Point<f64>> for ArchivedGeoPoint {
+    fn eq(&self, other: &Point<f64>) -> bool {
+        self.x == other.x() && self.y == other.y()
+    }
+}
+
+impl PartialEq<ArchivedGeoPoint> for Point<f64> {
+    fn eq(&self, other: &ArchivedGeoPoint) -> bool {
+        self.x() == other.x && self.y() == other.y
+    }
+}
+
+impl ArchiveWith<Point<f64>> for PointAsXY {
+    type Archived = ArchivedGeoPoint;
+    type Resolver = ();
+
+    fn resolve_with( field: &Point<f64>, _resolver: Self::Resolver, out: Place<ArchivedGeoPoint>) {
+        unsafe {
+            out.ptr().write( ArchivedGeoPoint { x: field.x(), y: field.y() });
+        }
+    }
+}
+
+impl<S: rkyv::rancor::Fallible + ?Sized> SerializeWith<Point<f64>, S> for PointAsXY {
+    fn serialize_with( _field: &Point<f64>, _serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+        Ok(())
+    }
+}
+
+impl<D: rkyv::rancor::Fallible + ?Sized> DeserializeWith<ArchivedGeoPoint, Point<f64>, D> for PointAsXY {
+    fn deserialize_with (archived: &ArchivedGeoPoint,_deserializer: &mut D,) -> Result<Point<f64>, D::Error> {
+        Ok(Point::new(archived.x, archived.y))
+    }
+}
+
+/* #endregion rkyv support */

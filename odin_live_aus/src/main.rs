@@ -26,7 +26,7 @@ use odin_himawari::{ self,
 use odin_orbital::{actor::spawn_orbital_hotspot_actors,hotspot_service::OrbitalHotspotService,firms::FirmsConfig};
 use odin_share::prelude::*;
 use odin_geolayer::GeoLayerService;
-use odin_openmeteo::{self,OpenMeteoActor,OpenMeteoService};
+use odin_openmeteo::{self,OpenMeteoActor,wx_service::OpenMeteoService};
 use odin_wx::{WxServiceList,WxFileAvailable};
 use odin_wind::{self, WindActor,WindActorMsg, server_subscribe_action, server_update_action, WindService};
 use odin_bushfire::{Bushfire, BushfireService, BushfireStore, actor::{BushfireActor,BushfireActorMsg}, load_config, get_json_update_msg};

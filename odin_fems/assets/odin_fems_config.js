@@ -2,7 +2,7 @@ export const config = {
     layer: {
       name: "/fire/detection/FEMS",
       description: "FEMS weather stations",
-      show: true,
+      show: false,
     },
     maxAlertAge: 60000 * 60, // 1h
     color: Cesium.Color.fromCssColorString('yellow'),

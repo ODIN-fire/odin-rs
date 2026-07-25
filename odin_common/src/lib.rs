@@ -13,7 +13,7 @@
  */
 #![allow(unused,uncommon_codepoints)]
 
-use std::{f64::consts::{PI as STD_PI}, fmt};
+use std::{f64::consts::{PI as STD_PI}, fmt, ops::Range};
 
 use serde::{Serialize,Deserialize};
 use num::{Num,ToPrimitive};
@@ -41,6 +41,7 @@ pub mod json_writer;
 pub mod u8extractor;
 pub mod ron;
 pub mod num_type;
+pub mod var_val;
 
 #[cfg(feature="s3")]
 pub mod s3;
@@ -112,6 +113,9 @@ impl <T: Num + Copy + ToPrimitive> BoundingBox<T> {
     pub fn center (&self) -> (f64,f64) {
         ( (self.west + self.east).to_f64().unwrap() / 2.0, (self.south + self.north).to_f64().unwrap() / 2.0 )
     }
+
+    #[inline] pub fn width (&self)->T { self.east - self.west }
+    #[inline] pub fn height (&self)->T { self.north - self.south }
 }
 
 /// a simple incremental min/max/avg accumulator
@@ -198,4 +202,18 @@ pub fn type_base_name<T> ()->&'static str {
 #[inline]
 pub fn type_base_name_of<T> (o: &T)->&'static str {
     type_base_name::<T>()
+}
+
+
+/// note this might still print trailing bits because some fp values cannot be represented exactly
+#[inline]
+pub fn round_to_decimals(val: f64, decimals: i32) -> f64 {
+    let multiplier = 10.0_f64.powi(decimals);
+    (val * multiplier).round() / multiplier
+}
+
+/// we can't do a From here as we own none of the types
+#[inline]
+pub fn as_min_max<T> (r: Range<T>)->(T,T) {
+    (r.start, r.end)
 }

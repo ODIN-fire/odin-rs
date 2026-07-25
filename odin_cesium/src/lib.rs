@@ -184,6 +184,7 @@ impl SpaService for ImgLayerService {
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()> {
         spa.add_assets( self_crate!(), load_asset);
 
+        spa.add_module( asset_uri!("img_window.js"));
         spa.add_module( asset_uri!("imglayer_config.js"));
         spa.add_module( asset_uri!("imglayer.js"));
 

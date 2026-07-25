@@ -16,13 +16,14 @@
 // note that we are not using the graphql-client crate here since it puts additional
 // constraints on reqwest versions and requires a full schema
 
+use core::{num::NonZero};
 use std::{path::{Path,PathBuf}, str::FromStr, time::Duration, collections::HashMap,
-    fs::{File,read_to_string}, ops::{Deref,DerefMut}, io::BufReader
+    fs::{File,read_to_string}, ops::{Deref,DerefMut}, io::{BufReader,BufWriter,Read,Write}
 };
+use ron;
 use axum::http::HeaderValue;
 use chrono::{DateTime,Utc,Datelike,Timelike, NaiveTime};
 use lazy_static::lazy_static;
-use odin_macro::public_struct;
 use serde::{Serialize,Deserialize};
 use serde_json::{self, value::{Value as JsonValue}};
 use reqwest::{Client, header::CONTENT_TYPE};
@@ -33,26 +34,30 @@ use uom::si::f64::{Angle, Length, Pressure, ThermodynamicTemperature, Ratio, Vel
 use uom::si::{
     thermodynamic_temperature::{degree_celsius,degree_fahrenheit},
     pressure::{pascal,inch_of_mercury},
-    length::{inch},
+    length::{inch,meter},
     velocity::{mile_per_hour},
     ratio::{percent,ratio},
     heat_flux_density::watt_per_square_meter,
 };
 use itertools::izip;
+use kiddo::{immutable::float::kdtree::ImmutableKdTree,SquaredEuclidean};
+use rkyv::{Serialize as RkyvSerialize, Deserialize as RkyvDeserialize, rancor::Error as RkyvError, Archive};
 
-use odin_build::{pkg_cache_dir,define_load_asset,define_load_config};
-
+use odin_macro::public_struct;
+use odin_build::{define_load_asset, define_load_config, pkg_cache_dir, pkg_data_dir};
 use odin_common::{
-    angle::{Angle360, Latitude, Longitude},
+    BoundingBox, angle::{Angle360, Latitude, Longitude},
+    cartesian3::Cartesian3,
     collections::{RingDeque,SortedCollection},
     datetime::{Dated, EpochMillis, days, deserialize_duration, full_hour, hours, minutes, secs, to_epoch_millis},
-    fs::{ensure_writable_dir, get_filename_extension, odin_data_filename},
-    geo::GeoPoint3,
-    strings::capitalize_words,
-    json_writer::{JsonWriter,JsonWritable,NumFormat},
-    net::{header, post_query}
+    fs::{EnvPathBuf, ensure_writable_dir, get_filename_extension, odin_data_filename},
+    geo::{GeoPoint,GeoPoint3,GeoRect},
+    json_writer::{JsonWritable, JsonWriter, NumFormat},
+    net::{header, post_query}, strings::capitalize_words,
+    utm::{UtmPoint, UtmRect, geo_to_utm, geo_to_utm_zone, get_xy_vecs}
 };
-use odin_server::{spa::SpaService,ws_service::ws_msg_from_json};
+use odin_server::{errors::op_failed, spa::SpaService, ws_service::ws_msg_from_json};
+use odin_gdal::{get_driver_by_name, get_gtiff_driver, grid::{self,GdalGridAlgorithmOptions}, gdal::raster::RasterCreationOptions};
 
 pub mod errors;
 use errors::{OdinFemsError,op_failed};
@@ -77,11 +82,12 @@ define_load_asset!{}
 struct FemsConfig {
     region: String,
     url: String,
-    station_ids: Vec<u32>,
+    station_ids: Vec<u32>, // stations to monitor
     tx_delay: Duration, // how long to wait between station tx time and retrieval
     check_interval: Duration, // how often to download & check the database for new updates
     forecast_hours: u32, // the number of forecast hours to retrieve
     max_file_age: Duration, // duration after which to delete cache files
+    station_metadata: EnvPathBuf, // file with KD tree of all known stations
 }
 
 /// a newtype to wrap a HashMap of configured FemsStation records
@@ -96,6 +102,25 @@ impl DerefMut for FemsStore {
 }
 
 impl FemsStore {
+    pub fn new (stations: Vec<FemsStation>)->Self {
+        FemsStore( HashMap::from_iter( stations.into_iter().map(|s| (s.id, s))) )
+    }
+
+    pub async fn retrieve_configured_store (client: &Client, config: &FemsConfig)->Result<Self> {
+        let path = download_station_list_metadata( client, &config.url, &config.region, &config.station_ids).await?;
+        let stations = parse_station_metadata( &path)?;
+        let mut store = FemsStore( stations.into_iter().map( |station| (station.id,station)).collect());
+
+        if store.is_empty() {
+            eprintln!("no station data retrieved");
+            Err( op_failed!("no station data retrieved"))
+        } else {
+            store.retrieve_current_obs(client, &config.url, &config.region, config.forecast_hours).await?;
+
+            Ok( store )
+        }
+    }
+
     pub fn get_json_snapshot_msg (&self)->String {
         let mut w = JsonWriter::with_capacity(8192 * self.0.len());
         w.write_object( |w| {
@@ -107,23 +132,231 @@ impl FemsStore {
         });
         ws_msg_from_json( FemsService::mod_path(), "snapshot", w.as_str())
     }
+
+    // note this is O(N) - for large number of stations we should use a kd-tree
+    pub fn get_station_ids_in_bbox (&self, bbox: &GeoRect)->Vec<u32> {
+        self.values()
+            .flat_map( |station| if bbox.contains_point( &station.position.as_geo_point()) { Some(station.id) } else { None })
+            .collect()
+    }
+
+    pub fn get_stations_in_bbox (&self, bbox: &GeoRect)->Vec<&FemsStation> {
+        self.values()
+            .flat_map( |station| if bbox.contains_point( &station.position.as_geo_point()) { Some(station) } else { None })
+            .collect()
+    }
+
+    pub fn get_stations_in_utm_rect (&self, utm_rect: &UtmRect)->Vec<(&FemsStation,UtmPoint)> {
+        self.values()
+            .flat_map( |station| {
+                geo_to_utm_zone( &station.position.as_geo_point(), utm_rect.utm_zone)
+                    .and_then( |utm| utm_rect.contains_point(&utm).map( |_| (station,utm)))
+            }).collect()
+    }
+
+    #[inline]
+    pub fn get_station (&self, id: u32)->Option<&FemsStation> { self.get(&id) }
+
+    pub fn get_stations (&self, ids: &[u32])->Vec<&FemsStation> {
+        ids.iter().flat_map( |id| self.get(id)).collect::<Vec<&FemsStation>>()
+    }
+
+    #[inline]
+    pub fn station_ids (&self) -> Vec<u32> { self.keys().map( |k| *k).collect() }
+
+    pub fn get_station_utm_points (&self)-> Result<Vec<UtmPoint>> {
+        self.values().map( |s| s.utm_position() ).collect()
+    }
+
+    pub async fn retrieve_current_obs (&mut self, client: &Client, url: &str, region: &str, forecast_hours: u32)->Result<()> {
+        let now = Utc::now();
+        let start = now - hours(2);
+        let end = now + hours(forecast_hours as u64);
+        let station_ids: Vec<u32> = self.station_ids();
+
+        match download_all_weather_obs( client, url, region, &station_ids, start, end).await {
+            Ok(path) => {
+                let n_obs = forecast_hours as usize + 2;
+                for (_,v) in self.iter_mut() {
+                    v.weather_obs = Vec::with_capacity( n_obs);
+                }
+                self.parse_weather_obs( &path, forecast_hours)?;
+            }
+            Err(e) => { eprintln!("error downloading current weather observation for configured stations: {}", e); }
+        }
+
+        match download_all_nfdrs_obs( client, url, region, &station_ids, start, end, ALL_FUEL_MODELS).await {
+            Ok(path) => {
+                let n_obs = forecast_hours as usize + 2;
+                for (_,v) in self.iter_mut() {
+                    v.nfdrs_obs_v = Vec::with_capacity( n_obs);
+                    v.nfdrs_obs_w = Vec::with_capacity( n_obs);
+                    v.nfdrs_obs_x = Vec::with_capacity( n_obs);
+                    v.nfdrs_obs_y = Vec::with_capacity( n_obs);
+                    v.nfdrs_obs_z = Vec::with_capacity( n_obs);
+                }
+                self.parse_nfdrs_obs( &path, forecast_hours, &start, &end)?;
+            }
+            Err(e) => { eprintln!("error downloading current NFDRS observation for configured stations: {}", e); }
+        }
+
+        Ok(())
+    }
+
+    fn parse_weather_obs (&mut self, path: impl AsRef<Path>, forecast_hours: u32)->Result<()> {
+        let reader = BufReader::new( File::open( &path)?);
+        let resp: WeatherObsResponse = serde_json::from_reader(reader)?;
+
+        for raw in resp.data.weather_obs.data.into_iter() {
+            let id = raw.station_id;
+            if let Some(station) = self.get_mut(&id) {
+                match FemsWeatherObs::try_from(raw) {
+                    Ok(obs) => {
+                        // we only keep the latest actual observation
+                        if !obs.is_forecast && !station.weather_obs.is_empty() && !station.weather_obs[0].is_forecast {
+                            if station.weather_obs[0].date < obs.date {
+                                station.weather_obs[0] = obs;
+                            } // otherwise we ignore obs
+                            continue;
+                        }
+                        station.weather_obs.sort_in( obs, |a,b| { a.date < b.date })
+                    }
+                    Err(e) => { eprintln!("failed to convert raw weather data for station: {}: {}", id, e); }
+                }
+            } else {
+                eprintln!("ignoring weather obs for unknown station {}", id)
+            }
+        }
+
+        Ok(())
+    }
+
+    fn parse_nfdrs_obs (&mut self, path: impl AsRef<Path>, forecast_hours: u32, start: &DateTime<Utc>, end: &DateTime<Utc>)->Result<()> {
+        let reader = BufReader::new( File::open( &path)?);
+        let resp: NfdrsObsResponse = serde_json::from_reader(reader)?;
+
+        for raw in resp.data.nfdrs_obs.data.into_iter() {
+            let id = raw.station_id;
+            if let Some(station) = self.get_mut(&id) { // is this a known station
+                if let Ok(fm) = NfdrsFuelModel::from_str( &raw.fuel_model) { // is this a known fuel model
+                    match FemsNfdrsObs::try_from(raw) {
+                        Ok(obs) => {
+                            // only add if this is within the time window (NFDRS queries don't let us specify specific start/end dates)
+                            if obs.date >= *start && obs.date <= *end {
+                                let nfdrs_obs = station.nfdrs_obs_for_model(fm);
+
+                                // only keep the latest actual observation
+                                if !obs.is_forecast && !nfdrs_obs.is_empty() && !nfdrs_obs[0].is_forecast {
+                                    if nfdrs_obs[0].date < obs.date {
+                                        nfdrs_obs[0] = obs;
+                                    } // otherwise we ignore obs
+                                    continue;
+                                }
+                                nfdrs_obs.sort_in( obs, |a,b| { a.date < b.date })
+                            }
+                        }
+                        Err(e) => { eprintln!("failed to convert raw NFDRS data for station: {}: {}", id, e); }
+                    }
+                } else { eprintln!("ignoring NFDRS obs for fuel model {} (station {})", raw.fuel_model, id) }
+            } else { eprintln!("ignoring NFDRS obs for unknown station {}", id) }
+        }
+        Ok(())
+    }
 }
+
+/// a structure that can be used to efficiently look up nearest FemsStations based on location
+#[derive(Serialize,Deserialize, Archive,RkyvSerialize,RkyvDeserialize)]
+pub struct FemsStationKdTree {
+    kd_tree: ImmutableKdTree<f64,u32,3,32>, // this stores index values into the stations list
+    stations: Vec<FemsStationMetaData> // this has to be invariant
+}
+
+// TODO - we really would like to use rkyv instead of ron serialization but rkyv 0.7/0.8 is a quagmire
+// with lots of crates (geo) not supporting rkyv and the rkyv(remote=..) attribute only being supported in 0.8
+// We still have crates (e.g. the - deprecating - chrono and minify-html) that pull in the old 0.7
+impl FemsStationKdTree {
+    pub fn new (stations: &[FemsStation]) -> Self {
+        let ecefs: Vec<[f64;3]> = stations.iter().map( |s| {
+            let ecef: Cartesian3 = s.position.into();
+            [ecef.x, ecef.y, ecef.z]
+        }).collect();
+
+        let kd_tree: ImmutableKdTree<f64,u32,3,32> = ImmutableKdTree::new_from_slice(&ecefs);
+        let stations: Vec<FemsStationMetaData> = stations.iter().map( |s| s.metadata.clone()).collect();
+
+        FemsStationKdTree { kd_tree, stations }
+    }
+
+    pub fn station_ids_within (&self, pos: &GeoPoint, dist: Length)->Vec<u32> {
+        let dist = dist.get::<meter>().powi(2); // we use SquaredEuclidean
+        let ecef: Cartesian3 = pos.into();
+        let max_stations = self.stations.len();
+
+        let nns = self.kd_tree.nearest_n_within::<SquaredEuclidean>(&[ecef.x,ecef.y,ecef.z], dist, NonZero::new(max_stations).unwrap(), false);
+        nns.into_iter().map( |nn| self.stations[nn.item as usize].id).collect()
+    }
+
+    pub fn stations_within (&self, pos: &GeoPoint, dist: Length)->Vec<FemsStation> {
+        let dist = dist.get::<meter>().powi(2); // we use SquaredEuclidean
+        let ecef: Cartesian3 = pos.into();
+        let max_stations = self.stations.len();
+
+        let nns = self.kd_tree.nearest_n_within::<SquaredEuclidean>(&[ecef.x,ecef.y,ecef.z], dist, NonZero::new(max_stations).unwrap(), false);
+        nns.into_iter().map( |nn| FemsStation::new( self.stations[nn.item as usize].clone())).collect()
+    }
+
+    pub fn station_distances_within (&self, pos: &GeoPoint, dist: Length)->Vec<(FemsStation,Length)> {
+        let dist = dist.get::<meter>().powi(2); // we use SquaredEuclidean
+        let ecef: Cartesian3 = pos.into();
+        let max_stations = self.stations.len();
+
+        let nns = self.kd_tree.nearest_n_within::<SquaredEuclidean>(&[ecef.x,ecef.y,ecef.z], dist, NonZero::new(max_stations).unwrap(), false);
+        nns.into_iter().map( |nn| (FemsStation::new( self.stations[nn.item as usize].clone()), Length::new::<meter>(nn.distance.sqrt()))).collect()
+    }
+
+    pub fn save_to (&self, path: impl AsRef<Path>)->Result<()> {
+        /*
+        let content = ron::ser::to_string( self)?; // Ron to_writer requires a std::fmt::Write (not implemented by File)
+        std::fs::write( &path, &content)?;
+        */
+        let data = rkyv::to_bytes::<RkyvError>(self)?;
+        std::fs::write( &path, data.as_slice())?;
+
+        Ok(())
+    }
+
+    pub fn load_from (path: impl AsRef<Path>)->Result<Self> {
+        /*
+        Ok( ron::de::from_reader( File::open(path)? ).map_err(|e| op_failed!("error loading KD tree: {}", e))? )
+        */
+        let bytes = std::fs::read( &path)?;
+        let fkt = rkyv::from_bytes::<FemsStationKdTree,RkyvError>(&bytes)?;
+        Ok( fkt )
+    }
+
+    pub fn load_from_data_file (fname: &str)->Result<Self> {
+        let path = pkg_data_dir!().join(fname);
+        Self::load_from( &path)
+    }
+
+    pub fn len (&self)->usize {
+        self.stations.len()
+    }
+}
+
 
 /// this is the main aggregate struct, containing the basic metadata, current weather and fire danger ratingand
 /// hourly forecasts for both. The variable parts of the structure are updated at the given tx_* time and interval
 #[derive(Debug,Clone)]
 #[public_struct]
 struct FemsStation {
-    id: u32, // this is the station_id || fems_station_id
-    name: String,
-    agency: String,
-    position: GeoPoint3,
+    metadata: FemsStationMetaData, // the invariant part
 
-    tx_time: NaiveTime,
-    tx_frequency: Duration,
+    //--- (dynamic) observations
 
     weather_obs: Vec<FemsWeatherObs>,
 
+    // TODO - does each station need all of them? What values differ?
     nfdrs_obs_v: Vec<FemsNfdrsObs>, // NFDRS obs for V fuel model (grass)
     nfdrs_obs_w: Vec<FemsNfdrsObs>, // NFDRS obs for W fuel model (grass-shrub)
     nfdrs_obs_x: Vec<FemsNfdrsObs>, // NFDRS obs for X fuel model (brush)
@@ -134,6 +367,21 @@ struct FemsStation {
 }
 
 impl FemsStation {
+    pub fn new (metadata: FemsStationMetaData) -> Self {
+        FemsStation {
+            metadata,
+            weather_obs: Vec::new(),
+            nfdrs_obs_v: Vec::new(),
+            nfdrs_obs_w: Vec::new(),
+            nfdrs_obs_x: Vec::new(),
+            nfdrs_obs_y: Vec::new(),
+            nfdrs_obs_z: Vec::new()
+        }
+    }
+
+    pub fn n_weather_obs (&self)->usize { self.weather_obs.len() }
+    pub fn n_nfdrs_obs (&self)->usize { self.nfdrs_obs_y.len() }
+
     pub fn nfdrs_obs_for_model (&mut self, fm: NfdrsFuelModel)->&mut Vec<FemsNfdrsObs> {
         match fm {
             NfdrsFuelModel::V => &mut self.nfdrs_obs_v,
@@ -148,6 +396,10 @@ impl FemsStation {
         self.weather_obs.first().and_then(|obs| if obs.is_forecast { None } else { Some(obs.date) })
     }
 
+    pub fn nfdrs_date_index (&self, date: DateTime<Utc>)->Option<usize> {
+        self.nfdrs_obs_y.iter().position( |obs| obs.date == date)
+    }
+
     pub fn get_json_update_msg (&self)->String {
         let mut w = JsonWriter::with_capacity(8192);
         w.write_object( |w| self.write_obs_fields_to(w));
@@ -160,7 +412,7 @@ impl FemsStation {
         w.write_field( "name", &self.name);
         w.write_field( "agency", &self.agency);
         w.write_json_field( "position", &self.position);
-        w.write_field( "tx_minute", self.tx_time.minute());
+        w.write_field( "tx_minute", self.tx_minute);
         w.write_field( "tx_interval", self.tx_frequency.as_secs() / 60);
     }
 
@@ -178,6 +430,116 @@ impl FemsStation {
                 FemsNfdrsObs::write_json_to( w, ov,ow,ox,oy,oz);
             }
         });
+    }
+
+    //--- slice getters
+    pub fn get_nfdrs_obs_dates (&self)->Vec<DateTime<Utc>> { self.nfdrs_obs_y.iter().map( |obs| obs.date).collect() }
+    pub fn get_dfm_1h_values (&self)->Vec<Ratio> { self.nfdrs_obs_y.iter().map( |obs| obs.dfm_1h).collect() }
+    pub fn get_dfm_10h_values (&self)->Vec<Ratio> { self.nfdrs_obs_y.iter().map( |obs| obs.dfm_10h).collect() }
+    pub fn get_dfm_100h_values (&self)->Vec<Ratio> { self.nfdrs_obs_y.iter().map( |obs| obs.dfm_100h).collect() }
+    pub fn get_lfm_herb_values (&self)->Vec<Ratio> { self.nfdrs_obs_y.iter().map( |obs| obs.lfm_herb).collect() }
+    pub fn get_lfm_wood_values (&self)->Vec<Ratio> { self.nfdrs_obs_y.iter().map( |obs| obs.lfm_wood).collect() }
+    pub fn get_ic_values (&self)->Vec<f32> { self.nfdrs_obs_y.iter().map( |obs| obs.ic).collect() }
+    pub fn get_sc_values (&self)->Vec<f32> { self.nfdrs_obs_y.iter().map( |obs| obs.sc).collect() }
+    pub fn get_erc_values (&self)->Vec<f32> { self.nfdrs_obs_y.iter().map( |obs| obs.erc).collect() }
+    pub fn get_bi_values (&self)->Vec<f32> { self.nfdrs_obs_y.iter().map( |obs| obs.bi).collect() }
+    pub fn get_gsi_values (&self)->Vec<f32> { self.nfdrs_obs_y.iter().map( |obs| obs.gsi).collect() }
+    // TODO: add weather_obs slicers
+
+    pub async fn update_obs (&mut self, client: &Client, url: &str, forecast_hours: u32, start: DateTime<Utc>)->Result<()> {
+        let id = self.id;
+        let end = start + hours( forecast_hours as u64);
+        let n_obs = forecast_hours as usize + 2;
+
+        let path = station_weather_obs_path( id, start, forecast_hours);
+        let len = download_weather_obs( client, url, &path, id, start, end).await?;
+        if len < 100 {
+            return Err( errors::op_failed!("no weather observation data for station {}", id))
+        }
+        self.parse_weather_obs( &path, n_obs)?;
+
+        let path = station_nfdrs_obs_path( id, start, forecast_hours, ALL_FUEL_MODELS);
+        if len < 100 {
+            return Err( errors::op_failed!("no NFDRS observation data for station {}", id))
+        }
+        self.parse_nfdrs_obs( &path, n_obs)?;
+
+        Ok(())
+    }
+
+    fn parse_weather_obs (&mut self, path: impl AsRef<Path>, n_obs: usize)->Result<()> {
+        let reader = BufReader::new( File::open( &path)?);
+        let resp: WeatherObsResponse = serde_json::from_reader(reader)?;
+
+        let mut new_obs: Vec<FemsWeatherObs> = Vec::with_capacity( n_obs);
+
+        for raw in resp.data.weather_obs.data.into_iter() {
+            let obs = FemsWeatherObs::try_from(raw)?;
+            // we only keep the latest actual observation
+            if !obs.is_forecast && !new_obs.is_empty() && !new_obs[0].is_forecast {
+                if new_obs[0].date < obs.date {
+                    new_obs[0] = obs;
+                } // otherwise we ignore obs
+                continue;
+            }
+            new_obs.sort_in( obs, |a,b| { a.date < b.date })
+        }
+
+        self.weather_obs = new_obs;
+        Ok(())
+    }
+
+    fn parse_nfdrs_obs (&mut self, path: impl AsRef<Path>, n_obs: usize)->Result<()> {
+        let reader = BufReader::new( File::open( &path)?);
+        let resp: NfdrsObsResponse = serde_json::from_reader(reader)?;
+
+        let mut new_obs_v: Vec<FemsNfdrsObs> = Vec::with_capacity( n_obs);
+        let mut new_obs_w: Vec<FemsNfdrsObs> = Vec::with_capacity( n_obs);
+        let mut new_obs_x: Vec<FemsNfdrsObs> = Vec::with_capacity( n_obs);
+        let mut new_obs_y: Vec<FemsNfdrsObs> = Vec::with_capacity( n_obs);
+        let mut new_obs_z: Vec<FemsNfdrsObs> = Vec::with_capacity( n_obs);
+
+        for raw in resp.data.nfdrs_obs.data.into_iter() {
+            let obs = FemsNfdrsObs::try_from(raw)?;
+            let nfdrs_obs = match obs.fuel_model {
+                NfdrsFuelModel::V => &mut new_obs_v,
+                NfdrsFuelModel::W => &mut new_obs_w,
+                NfdrsFuelModel::X => &mut new_obs_x,
+                NfdrsFuelModel::Y => &mut new_obs_y,
+                NfdrsFuelModel::Z => &mut new_obs_z,
+            };
+
+            // only keep the latest actual observation
+            if !obs.is_forecast && !nfdrs_obs.is_empty() && !nfdrs_obs[0].is_forecast {
+                if nfdrs_obs[0].date < obs.date {
+                    nfdrs_obs[0] = obs;
+                } // otherwise we ignore obs
+                continue;
+            }
+            nfdrs_obs.sort_in( obs, |a,b| { a.date < b.date })
+        }
+
+        self.nfdrs_obs_v = new_obs_v;
+        self.nfdrs_obs_w = new_obs_w;
+        self.nfdrs_obs_x = new_obs_x;
+        self.nfdrs_obs_y = new_obs_y;
+        self.nfdrs_obs_z = new_obs_z;
+
+        Ok(())
+    }
+}
+
+impl Deref for FemsStation {
+    type Target = FemsStationMetaData;
+
+    fn deref(&self) -> &Self::Target {
+        &self.metadata
+    }
+}
+
+impl PartialEq for FemsStation {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
     }
 }
 
@@ -197,26 +559,73 @@ impl TryFrom<RawStationMetaData> for FemsStation {
     type Error = OdinFemsError;
 
     fn try_from (raw: RawStationMetaData)->Result<Self> {
-        Ok( FemsStation {
+        Ok( FemsStation::new( FemsStationMetaData::try_from(raw)? ) )
+    }
+}
+
+/// retrieve all known FEMS stations metadata but don't initialize with observations
+pub async fn get_all_stations_metadata (client: &Client, url: &str)->Result<Vec<FemsStation>> {
+    let path = download_all_stations_metadata( client, url).await?;
+    parse_station_metadata( &path)
+}
+
+pub fn parse_station_metadata (path: impl AsRef<Path>)->Result<Vec<FemsStation>> {
+    let mut stations: Vec<FemsStation> = Vec::new();
+
+    let reader = BufReader::new( File::open( &path)?);
+    let resp: StationMetaDataResponse = serde_json::from_reader(reader)?;
+    for raw in resp.data.station_meta_data.data.into_iter() {
+        let id = raw.station_id;
+        match FemsStation::try_from(raw) {
+            Ok(station) => {
+                stations.push( station)
+            }
+            Err(e) => { eprintln!("failed to convert raw data for station: {}: {}", id, e); }
+        }
+    }
+
+    Ok( stations )
+}
+
+#[derive(Debug,Clone,Serialize,Deserialize, Archive,RkyvSerialize,RkyvDeserialize)]
+#[public_struct]
+pub struct FemsStationMetaData {
+    id: u32, // this is the unique station_id || fems_station_id
+    name: String,
+    agency: String,
+    position: GeoPoint3,
+
+    tx_minute: u32, // hourly minute this station transmits
+    tx_frequency: Duration,
+    //... possibly more to follow
+}
+
+impl FemsStationMetaData {
+    pub fn utm_position (&self)->Result<UtmPoint> {
+        let p = self.position.as_geo_point();
+        geo_to_utm( &p).ok_or( op_failed!("FEMS station has no valid UTM coordinate: {:?}", p))
+    }
+}
+
+impl TryFrom<RawStationMetaData> for FemsStationMetaData {
+    type Error = OdinFemsError;
+
+    fn try_from (raw: RawStationMetaData)->Result<Self> {
+        Ok( FemsStationMetaData {
             id: raw.station_id,
             name: capitalize_words( &raw.station_name.to_lowercase()), // make it more readable
             agency: raw.agency,
             position: GeoPoint3::from_lon_lat_degrees_alt_ft( raw.longitude as f64, raw.latitude as f64, raw.elevation as f64),
 
-            tx_time: NaiveTime::parse_from_str( &raw.transmit_time, "%H:%M:%S")?,
-            tx_frequency: minutes( raw.tx_frequency as u64),
-
-            // those are filled in later
-            weather_obs: Vec::with_capacity(0),
-            nfdrs_obs_v: Vec::with_capacity(0),
-            nfdrs_obs_w: Vec::with_capacity(0),
-            nfdrs_obs_x: Vec::with_capacity(0),
-            nfdrs_obs_y: Vec::with_capacity(0),
-            nfdrs_obs_z: Vec::with_capacity(0),
+            tx_minute: NaiveTime::parse_from_str( &raw.transmit_time, "%H:%M:%S")?.minute(),
+            tx_frequency: minutes( raw.tx_frequency.unwrap_or(60) as u64)
         } )
     }
 }
 
+/// this is from the FEMS API documentation on
+/// https://wildfireweb-prod-media-bucket.s3.us-gov-west-1.amazonaws.com/s3fs-public/2025-09/FEMS%20Climatology%20API%20External%20User%20Guide.pdf
+/// note that the database is quite uneven - not all stations have the same set of values (we have to account for a lot of 'null' values)
 #[derive(Deserialize,Debug,FieldNamesAsArray)]
 struct RawStationMetaData {
     fems_station_id: u32, // 55521297,
@@ -226,10 +635,10 @@ struct RawStationMetaData {
     wrcc_id: Option<String>, // "CFOU",
     station_name: String, // "FOUNTAIN SPRINGS",
     state: String, // "CA",
-    county_name: String, // "Tulare",
+    county_name: Option<String>, // "Tulare",
     latitude: f32, // 35.89116,
     longitude: f32, // -118.91559,
-    elevation: u32, // 794,
+    elevation: i32, // 794,
     slope: Option<u8>, // 1,
     aspect: Option<String>, // "0": flat, "1"-"8" cardinal direction
     aspect_direction: Option<String>, // "E",
@@ -237,7 +646,7 @@ struct RawStationMetaData {
     kbdi_threshold: u32, // 800,
     init_kbdi: u32, // 100,
     avg_annual_precip: f32, // 9.91,
-    annual_maintenance_date_time: String, // "2024-03-5T00:00:00.000Z",
+    annual_maintenance_date_time: Option<String>, // "2024-03-5T00:00:00.000Z",
     period_record_start: String, // "2005-01-01T00:00:00.000Z",
     period_record_stop: String, // "2022-12-31T00:00:00.000Z",
     station_status: String, // "A",
@@ -245,13 +654,13 @@ struct RawStationMetaData {
     network_id: u32, // 2,
     network_name: String, // "RAWS",
     agency: String, // "S&PF",
-    region: String, // "CALIFORNIA",
-    unit: String, // "CDF",
+    region: Option<String>, // "CALIFORNIA",
+    unit: Option<String>, // "CDF",
     sub_unit: Option<String>, // "TULARE UNIT",
-    ownership_type: String, // "FIRE",
-    goes: String, // "West",
-    tx_frequency: u32, // 60,
-    obs_frequency: u32, // 60,
+    ownership_type: Option<String>, // "FIRE",
+    goes: Option<String>, // "West",
+    tx_frequency: Option<u32>, // 60,
+    obs_frequency: Option<u32>, // 60,
     site_description: Option<String>, // null,
     maintenance_standard: Option<String>, // "Yes",
     reg_scheduled_observation_time: u32, // 0,
@@ -259,8 +668,8 @@ struct RawStationMetaData {
     time_zone_offset: i8, // -8,
     zoom_level: Option<u8>, // null,
     transmit_time: String, // "00:00:50",   <<<<<< this is the hourly minute when the station is supposed to report
-    modified_time: String, // "2025-03-13T22:40:42.600Z",
-    modified_by: String, // "WXx Service",
+    modified_time: Option<String>, // "2025-03-13T22:40:42.600Z",
+    modified_by: Option<String>, // "WXx Service",
     //created_time: null,
     //created_by: "EA",
     first_observation: String, // "2005-01-01",
@@ -286,12 +695,18 @@ structstruck::strike! {
     }
 }
 
-fn station_metadata_query (station_ids: &[u32])->String {
+fn station_list_metadata_query (station_ids: &[u32])->String {
     let ids = station_ids.iter().map( |s| s.to_string()).collect::<Vec<String>>().join(",");
     let fields = RawStationMetaData::FIELD_NAMES_AS_ARRAY.join("\\n ");
-    // this fails for stations that nly have a fems_station_id (e.g. 55522229 Calero)
+    // this fails for stations that only have a fems_station_id (e.g. 55522229 Calero)
     //format!(r#"{{ "query": "query StationMetaData {{\n stationMetaData(stationIds: \"{}\"){{\n data {{\n {}\n }}\n }}\n }}" }}"#, ids, fields)
     format!(r#"{{ "query": "query GetStationMetaData($stationId: String!, $hasHistoricData: TriState) {{ stationMetaData(stationIds: $stationId, hasHistoricData: $hasHistoricData){{ data {{ {} }} }} }}", "variables":{{ "stationId":"{}", "hasHistoricData":"ALL" }} }}"#, fields, ids)
+}
+
+/// this is the query string for all available FEMS stations (~2000)
+fn all_stations_metadata_query ()->String {
+    let fields = RawStationMetaData::FIELD_NAMES_AS_ARRAY.join("\\n ");
+    format!(r#"{{ "query": "query GetStationMetaData($hasHistoricData: TriState) {{ stationMetaData(returnAll:true, hasHistoricData: $hasHistoricData){{ data {{ {} }} }} }}", "variables":{{ "hasHistoricData":"ALL" }} }}"#, fields)
 }
 
 pub fn metadata_path (station_id: u32)->PathBuf {
@@ -299,16 +714,30 @@ pub fn metadata_path (station_id: u32)->PathBuf {
 }
 
 pub async fn download_station_metadata<P: AsRef<Path>> (client: &Client, url: &str, path: P, station_id: u32)->Result<u64> {
-    let request_body = station_metadata_query( &[station_id]);
+    let request_body = station_list_metadata_query( &[station_id]);
     let headers = &[(CONTENT_TYPE, HeaderValue::from_static("application/json"))];
     Ok( post_query( client, url, Some(headers), path, request_body).await? )
 }
 
-pub async fn download_all_station_metadata (client: &Client, url: &str, region: &str, station_ids: &[u32])->Result<PathBuf> {
+pub async fn download_station_list_metadata (client: &Client, url: &str, region: &str, station_ids: &[u32])->Result<PathBuf> {
     let fname = format!("{}__stations", region);
     let fname = odin_data_filename( &fname, Some( Utc::now()), &[], Some("json"));
     let path = CACHE_DIR.join( fname);
-    let request_body = station_metadata_query( station_ids);
+    let request_body = station_list_metadata_query( station_ids);
+    let headers = &[(CONTENT_TYPE, HeaderValue::from_static("application/json"))];
+
+    let len = post_query( client, url, Some(headers), &path, request_body).await?;
+    if len > 100 { // account for empty arrays
+        Ok( path )
+    } else {
+        Err( op_failed!("no station metadata downloaded"))
+    }
+}
+
+pub async fn download_all_stations_metadata (client: &Client, url: &str)->Result<PathBuf> {
+    let fname = odin_data_filename( "all_stations", Some( Utc::now()), &[], Some("json"));
+    let path = CACHE_DIR.join( fname);
+    let request_body = all_stations_metadata_query();
     let headers = &[(CONTENT_TYPE, HeaderValue::from_static("application/json"))];
 
     let len = post_query( client, url, Some(headers), &path, request_body).await?;
@@ -340,6 +769,7 @@ struct FemsWeatherObs {
     gust_spd: Option<Velocity>,
     gust_dir: Option<Angle360>,
 
+    // WARNING - this is specified as non-null but we do get null values as server response
     color: String, // FEMS (CSS hex) color code - TODO should we turn this into an enum? There seems to be no definition
 
     //... more to follow
@@ -388,7 +818,7 @@ impl TryFrom<RawWeatherObs> for FemsWeatherObs {
             wind_dir: Angle360::from_degrees( raw.wind_direction as f64),
             gust_spd: raw.peak_gust_speed.map( |spd| Velocity::new::<mile_per_hour>(spd as f64)),
             gust_dir: raw.peak_gust_dir.map( |dir| Angle360::from_degrees( dir as f64)),
-            color: raw.hex,
+            color: if let Some(hex) = raw.hex { hex } else { "#ffff00".to_string()},  // NOTE - this is a hotfix for a spec violation
         } )
     }
 }
@@ -444,7 +874,7 @@ struct RawWeatherObs {
     sol_rad: Option<f32>,
     snow_flag: Option<String>, // "Y": yes, "N": no,
     observation_type: String, // "O": observation, "F": forecast,
-    hex: String,  // hex color value associated with measured attr e.g. "#0c9687"
+    hex: Option<String>,  // hex color value associated with measured attr e.g. "#0c9687"   FIXME!! - this is specified as non-nullable but we get null values
     t_flag: Option<u8>, // temperature QC flag:  0: orig value retained, 1: orig val estimated, 2: suspicious
     rh_flag: Option<u8>, // rel humidity QC flag
     pcp_flag: Option<u8>, // precipitation QC flag
@@ -704,209 +1134,4 @@ pub async fn download_all_nfdrs_obs (client: &Client, url: &str, region: &str, s
     } else {
         Err( op_failed!("no nfdrs obs data downloaded"))
     }
-}
-
-// make sure we don't bail prematurely - as long as there is one station we still return Ok
-pub async fn get_stations (client: &Client, config: &FemsConfig)->Result<FemsStore> {
-    let mut stations: HashMap<u32,FemsStation> = HashMap::new();
-
-    match download_all_station_metadata( client, &config.url, &config.region, &config.station_ids).await {
-        Ok(path) => {
-            let reader = BufReader::new( File::open( &path)?);
-            let resp: StationMetaDataResponse = serde_json::from_reader(reader)?;
-            for raw in resp.data.station_meta_data.data.into_iter() {
-                let id = raw.station_id;
-                match FemsStation::try_from(raw) {
-                    Ok(station) => {
-                        stations.insert( id, station);
-                    }
-                    Err(e) => { eprintln!("failed to convert raw data for station: {}: {}", id, e); }
-                }
-            }
-        }
-        Err(e) => { eprintln!("error downloading metadata for configured stations: {}", e); }
-    }
-
-    if stations.is_empty() {
-        eprintln!("no station data retrieved");
-        Err( op_failed!("no station data retrieved"))
-    } else {
-        let mut store = FemsStore(stations);
-        get_current_weather_obs( &client, config, &mut store).await?;
-        get_current_nfdrs_obs(client, config, &mut store).await?;
-
-        Ok( store )
-    }
-}
-
-pub async fn get_current_weather_obs (client: &Client, config: &FemsConfig, store: &mut FemsStore)->Result<()> {
-    let now = Utc::now();
-    let start = now - hours(2);
-    let end = now + hours(config.forecast_hours as u64);
-
-    match download_all_weather_obs( client, &config.url, &config.region, &config.station_ids, start, end).await {
-        Ok(path) => {
-            let reader = BufReader::new( File::open( &path)?);
-            let resp: WeatherObsResponse = serde_json::from_reader(reader)?;
-
-            for (k,v) in store.iter_mut() {
-                v.weather_obs = Vec::with_capacity( config.forecast_hours as usize + 2);
-            }
-
-            for raw in resp.data.weather_obs.data.into_iter() {
-                let id = raw.station_id;
-                if let Some(station) = store.get_mut(&id) {
-                    match FemsWeatherObs::try_from(raw) {
-                        Ok(obs) => {
-                            // we only keep the latest actual observation
-                            if !obs.is_forecast && !station.weather_obs.is_empty() && !station.weather_obs[0].is_forecast {
-                                if station.weather_obs[0].date < obs.date {
-                                    station.weather_obs[0] = obs;
-                                } // otherwise we ignore obs
-                                continue;
-                            }
-                            station.weather_obs.sort_in( obs, |a,b| { a.date < b.date })
-                        }
-                        Err(e) => { eprintln!("failed to convert raw weather data for station: {}: {}", id, e); }
-                    }
-                } else {
-                    eprintln!("ignoring weather obs for unknown station {}", id)
-                }
-            }
-        }
-        Err(e) => { eprintln!("error downloading current weather observation for configured stations: {}", e); }
-    }
-
-    Ok(())
-}
-
-pub async fn get_current_nfdrs_obs (client: &Client, config: &FemsConfig, store: &mut FemsStore)->Result<()> {
-    let now = Utc::now();
-    let start = now - hours(2);
-    let end = now + hours(config.forecast_hours as u64);
-
-    match download_all_nfdrs_obs( client, &config.url, &config.region, &config.station_ids, start, end, ALL_FUEL_MODELS).await {
-        Ok(path) => {
-            let reader = BufReader::new( File::open( &path)?);
-            let resp: NfdrsObsResponse = serde_json::from_reader(reader)?;
-
-            let n_obs = config.forecast_hours as usize + 2;
-            for (k,v) in store.iter_mut() {
-                v.nfdrs_obs_v = Vec::with_capacity( n_obs);
-                v.nfdrs_obs_w = Vec::with_capacity( n_obs);
-                v.nfdrs_obs_x = Vec::with_capacity( n_obs);
-                v.nfdrs_obs_y = Vec::with_capacity( n_obs);
-                v.nfdrs_obs_z = Vec::with_capacity( n_obs);
-            }
-
-            for raw in resp.data.nfdrs_obs.data.into_iter() {
-                let id = raw.station_id;
-                if let Some(station) = store.get_mut(&id) { // is this a known station
-                    if let Ok(fm) = NfdrsFuelModel::from_str( &raw.fuel_model) { // is this a known fuel model
-                        match FemsNfdrsObs::try_from(raw) {
-                            Ok(obs) => {
-                                // only add if this is within the time window (NFDRS queries don't let us specify specific start/end dates)
-                                if obs.date >= start && obs.date <= end {
-                                    let nfdrs_obs = station.nfdrs_obs_for_model(fm);
-
-                                    // only keep the latest actual observation
-                                    if !obs.is_forecast && !nfdrs_obs.is_empty() && !nfdrs_obs[0].is_forecast {
-                                        if nfdrs_obs[0].date < obs.date {
-                                            nfdrs_obs[0] = obs;
-                                        } // otherwise we ignore obs
-                                        continue;
-                                    }
-                                    nfdrs_obs.sort_in( obs, |a,b| { a.date < b.date })
-                                }
-                            }
-                            Err(e) => { eprintln!("failed to convert raw NFDRS data for station: {}: {}", id, e); }
-                        }
-                    } else { eprintln!("ignoring NFDRS obs for fuel model {} (station {})", raw.fuel_model, id) }
-                } else { eprintln!("ignoring NFDRS obs for unknown station {}", id) }
-            }
-        }
-        Err(e) => { eprintln!("error downloading current NFDRS observation for configured stations: {}", e); }
-    }
-
-    Ok(())
-}
-
-pub async fn update_station_weather_obs (client: &Client, config: &FemsConfig, station: &mut FemsStation, start: DateTime<Utc>)->Result<()> {
-    let id = station.id;
-    let path = station_weather_obs_path( id, start, config.forecast_hours);
-    let end = start + hours(config.forecast_hours as u64);
-
-    let len = download_weather_obs( client, &config.url, &path, id, start, end).await?;
-    if len < 100 {
-        return Err( errors::op_failed!("no weather observation data for station {}", id))
-    }
-
-    let reader = BufReader::new( File::open( &path)?);
-    let resp: WeatherObsResponse = serde_json::from_reader(reader)?;
-
-    let mut new_obs: Vec<FemsWeatherObs> = Vec::with_capacity(config.forecast_hours as usize + 2);
-
-    for raw in resp.data.weather_obs.data.into_iter() {
-        let obs = FemsWeatherObs::try_from(raw)?;
-        // we only keep the latest actual observation
-        if !obs.is_forecast && !new_obs.is_empty() && !new_obs[0].is_forecast {
-            if new_obs[0].date < obs.date {
-                new_obs[0] = obs;
-            } // otherwise we ignore obs
-            continue;
-        }
-        new_obs.sort_in( obs, |a,b| { a.date < b.date })
-    }
-
-    station.weather_obs = new_obs;
-    Ok(())
-}
-
-pub async fn update_station_nfdrs_obs (client: &Client, config: &FemsConfig, station: &mut FemsStation, start: DateTime<Utc>)->Result<()> {
-    let id = station.id;
-    let path = station_nfdrs_obs_path( id, start, config.forecast_hours, ALL_FUEL_MODELS);
-    let end = start + hours(config.forecast_hours as u64);
-
-    let len = download_nfdrs_obs( client, &config.url, &path, id, start, end, ALL_FUEL_MODELS).await?;
-    if len < 100 {
-        return Err( errors::op_failed!("no NFDRS observation data for station {}", id))
-    }
-
-    let reader = BufReader::new( File::open( &path)?);
-    let resp: NfdrsObsResponse = serde_json::from_reader(reader)?;
-
-    let n_obs = config.forecast_hours as usize + 2;
-    let mut new_obs_v: Vec<FemsNfdrsObs> = Vec::with_capacity( n_obs);
-    let mut new_obs_w: Vec<FemsNfdrsObs> = Vec::with_capacity( n_obs);
-    let mut new_obs_x: Vec<FemsNfdrsObs> = Vec::with_capacity( n_obs);
-    let mut new_obs_y: Vec<FemsNfdrsObs> = Vec::with_capacity( n_obs);
-    let mut new_obs_z: Vec<FemsNfdrsObs> = Vec::with_capacity( n_obs);
-
-    for raw in resp.data.nfdrs_obs.data.into_iter() {
-        let obs = FemsNfdrsObs::try_from(raw)?;
-        let nfdrs_obs = match obs.fuel_model {
-            NfdrsFuelModel::V => &mut new_obs_v,
-            NfdrsFuelModel::W => &mut new_obs_w,
-            NfdrsFuelModel::X => &mut new_obs_x,
-            NfdrsFuelModel::Y => &mut new_obs_y,
-            NfdrsFuelModel::Z => &mut new_obs_z,
-        };
-
-        // only keep the latest actual observation
-        if !obs.is_forecast && !nfdrs_obs.is_empty() && !nfdrs_obs[0].is_forecast {
-            if nfdrs_obs[0].date < obs.date {
-                nfdrs_obs[0] = obs;
-            } // otherwise we ignore obs
-            continue;
-        }
-        nfdrs_obs.sort_in( obs, |a,b| { a.date < b.date })
-    }
-
-    station.nfdrs_obs_v = new_obs_v;
-    station.nfdrs_obs_w = new_obs_w;
-    station.nfdrs_obs_x = new_obs_x;
-    station.nfdrs_obs_y = new_obs_y;
-    station.nfdrs_obs_z = new_obs_z;
-
-    Ok(())
 }

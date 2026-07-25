@@ -21,7 +21,7 @@ use odin_server::prelude::*;
 use odin_common::vec_boxed;
 
 use odin_wx::{WxServiceList,WxFileAvailable};
-use odin_openmeteo::{actor::OpenMeteoActor,OpenMeteoConfig,OpenMeteoService};
+use odin_openmeteo::{actor::OpenMeteoActor,OpenMeteoConfig,wx_service::OpenMeteoService};
 use odin_hrrr::{self, HrrrActor, HrrrConfig, HrrrService, schedule::{HrrrSchedules,get_hrrr_schedules}};
 
 use odin_wind::{

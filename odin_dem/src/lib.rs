@@ -19,7 +19,7 @@ use errors::{invalid_filename, op_failed};
 use serde::{Deserialize, Serialize};
 use tokio::io;
 use odin_gdal::{
-    create_wh_image_from_vrt, csl_string_list, get_driver_name_for_extension, CslStringList, Dataset, Driver, SpatialRef,
+    create_wh_image_from_ds, csl_string_list, get_driver_name_for_extension, CslStringList, Dataset, Driver, SpatialRef,
     warp::SimpleWarpBuilder,
 };
 use odin_common::{fs::{self,EnvPathBuf}, net::{download_url, mime_type_for_extension, NO_HEADERS}, BoundingBox};
@@ -68,7 +68,7 @@ impl DemImgType {
     pub fn gdal_create_options(&self) -> Option<CslStringList> {
         match *self {
             DemImgType::PNG => None,
-            DemImgType::TIF => Some( csl_string_list!("COMPRESS=DEFLATE", "PREDICTOR=2") )
+            DemImgType::TIF => Some( csl_string_list!("COMPRESS=DEFLATE", "PREDICTOR=2").unwrap() ) // Ok to panic since this is static
         }
     }
 
@@ -193,7 +193,7 @@ pub fn get_wh_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, width: u32, height: 
 
     if !file_path.exists() {
         let create_opts = img_type.gdal_create_options();
-        odin_gdal::create_wh_image_from_vrt( bbox, srs.epsg(), width, height, img_type.file_extension(), &create_opts, &vrt_path, &file_path)?;
+        odin_gdal::create_wh_image_from_ds( bbox, srs.epsg(), width, height, img_type.file_extension(), &create_opts, &vrt_path, &file_path)?;
     } else {
         fs::set_accessed(&file_path)?; // update atime so that we could use it for LRU cache bounds
     }

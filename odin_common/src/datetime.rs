@@ -12,14 +12,34 @@
  * and limitations under the License.
  */
 
-use chrono::{DateTime, TimeDelta, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
+use lazy_static::lazy_static;
+use chrono::{DateTime, TimeDelta, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc, Offset};
+use chrono_tz::Tz;
+use tzf_rs::DefaultFinder;
 use serde::{Serialize,Deserialize,Serializer,Deserializer,de::{Error as DeError}};
-use std::time::{Duration, UNIX_EPOCH, SystemTime};
+use std::{str::FromStr, time::{Duration, SystemTime, UNIX_EPOCH}};
 use std::ffi::OsStr;
 use std::fmt;
 use parse_duration::parse;
 use anyhow::anyhow;
-use crate::if_let;
+use crate::geo::GeoPoint;
+
+
+lazy_static! {
+    pub static ref DEFAULT_FINDER: DefaultFinder = { DefaultFinder::new() };
+}
+
+pub fn get_tz_of_location (geo_point: &GeoPoint)->Option<Tz> {
+    let tz_name = DEFAULT_FINDER.get_tz_name( geo_point.longitude_degrees(), geo_point.latitude_degrees());
+    Tz::from_str( &tz_name).ok()
+}
+
+pub fn get_offset_hours<T: TimeZone> (tz: &T)->f32 {
+    let utc_time = Utc::now();
+    let tz_time = utc_time.with_timezone(tz);
+    let offset_secs = tz_time.offset().fix().local_minus_utc();
+    offset_secs as f32 / 3600.0
+}
 
 #[derive(Serialize,Deserialize,Debug,Clone,Copy,PartialEq)]
 pub struct EpochMillis(i64);
@@ -99,6 +119,10 @@ pub fn from_epoch_millis(millis: i64)->DateTime<Utc> {
     DateTime::<Utc>::from_timestamp_millis(millis).unwrap()
 }
 
+pub fn from_epoch_secs(secs: i64)->DateTime<Utc> {
+    DateTime::<Utc>::from_timestamp_millis(secs * 1000).unwrap()
+}
+
 /// return the full hour for given DateTime (minutes, seconds and nanos all zeroed)
 pub fn full_hour<Tz:TimeZone> ( dt: &DateTime<Tz>)->DateTime<Tz> {
     dt.with_minute(0).unwrap().with_second(0).unwrap().with_nanosecond(0).unwrap()
@@ -161,6 +185,14 @@ pub fn naive_local_date_to_utc_datetime (nd: NaiveDate) -> Option<DateTime<Utc>>
 
 pub fn short_utc_datetime_string (dt: &DateTime<Utc>) -> String {
     format!("{}", dt.format("%Y-%m-%dT%H:%M:%S%Z"))
+}
+
+pub fn ymd (dt: &DateTime<Utc>) -> impl fmt::Display {
+    dt.format("%Y-%m-%d")
+}
+
+pub fn timestamps (dates: &[DateTime<Utc>])->Vec<i64> {
+    dates.iter().map( |d| d.timestamp()).collect::<Vec<i64>>()
 }
 
 //--- support for serde
@@ -244,9 +276,11 @@ pub fn serialize_optional_duration<S>(dur: &Option<Duration>, s: S) -> Result<S:
 
 //--- support for clap parsers
 
-pub fn parse_utc_datetime_from_str_date (s: &str) -> anyhow::Result<DateTime<Utc>> {
-    let nd = NaiveDate::parse_from_str( s, "%Y-%m-%d").map_err(|e| anyhow!("error parsing date {e}"))?;
-    naive_local_date_to_utc_datetime(nd).ok_or( anyhow!("invalid date spec {}", s))
+pub fn parse_utc_datetime (s: &str) -> std::result::Result<DateTime<Utc>,chrono::format::ParseError> {
+    Ok( DateTime::parse_from_rfc3339(s)?.to_utc() )
+
+    //let nd = NaiveDate::parse_from_str( s, "%Y-%m-%d").map_err(|e| anyhow!("error parsing date {e}"))?;
+    //naive_local_date_to_utc_datetime(nd).ok_or( anyhow!("invalid date spec {}", s))
 }
 
 //--- misc string format parsing

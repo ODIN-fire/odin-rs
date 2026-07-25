@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -25,9 +25,9 @@ use odin_build::{data_dir, pkg_cache_dir, pkg_data_dir, define_load_config, defi
 use odin_actor::prelude::*;
 use odin_server::{spa::SpaService, ws_service::ws_msg_from_json};
 use odin_common::{
-    angle::{Angle360, Angle90}, cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque, 
-    datetime::{utc_now, EpochMillis}, extract_all, extract_optional, fs::{self, filename}, 
-    geo::{GeoPoint, GeoPoint3, GeoPolygon}, json_writer::{JsonWritable, JsonWriter, NumFormat}, net::{download_url, NO_HEADERS} 
+    angle::{Angle360, Angle90}, cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque,
+    datetime::{utc_now, EpochMillis}, extract_all, extract_optional, fs::{self, filename},
+    geo::{GeoPoint, GeoPoint3, GeoPolygon}, json_writer::{JsonWritable, JsonWriter, NumFormat}, net::{download_url, NO_HEADERS}
 };
 use odin_macro::{define_struct, public_struct};
 
@@ -48,7 +48,7 @@ define_load_asset!{}
 
 /// our internal, updated data model for (selected) AlertCalifornia cameras
 /// the fixed part is initialized from configuration and CalOES data
-/// the VarCameraData is updated from connector messages 
+/// the VarCameraData is updated from connector messages
 #[public_struct]
 struct Camera {
     id: Arc<String>,
@@ -176,8 +176,8 @@ pub struct CameraStore {
 }
 
 impl CameraStore {
-    fn new(map: HashMap<String,Camera>)->Self { 
-        CameraStore{ map, last_update: EpochMillis::new(0) } 
+    fn new(map: HashMap<String,Camera>)->Self {
+        CameraStore{ map, last_update: EpochMillis::new(0) }
     }
 
     pub fn get(&self, id: &str)->Option<&Camera> { self.map.get( id) }
@@ -271,7 +271,7 @@ pub fn create_cameras (config: &AlertCaConfig, cal_oes_cameras: &HashMap<String,
 }
 
 pub fn get_cal_oes_cameras (path: impl AsRef<Path>)->Result<HashMap<String,CalOesCamera>> {
-    let ron = fs::filepath_contents_as_string(&path)?;
+    let ron = fs::filepath_contents_as_string(path)?;
     let mut map: HashMap<String,CalOesCamera> = ron::from_str(&ron)?;
 
     //--- add missing cameras (TODO - this should be added to the source files, not hardcoded)

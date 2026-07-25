@@ -1,0 +1,3 @@
+NfdrsConfig (
+    nfdrs_cmd: "NFDRS4_cli", // has to be absolute or in $PATH
+)

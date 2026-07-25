@@ -1,0 +1,855 @@
+/*
+ * Copyright 2026 Peter Mehlitz
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://apache.org
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#![allow(unused)]
+
+use std::{
+    fs::{File, create_dir, create_dir_all, remove_dir_all, remove_file},
+    path::{Path,PathBuf}, time::Duration, io::{Read,Write}, sync::Arc, ops::Range,
+    result::{Result as StdResult}
+};
+use chrono::{DateTime,Utc,Timelike};
+use serde::{Serialize,Deserialize};
+use ron;
+use lazy_static::lazy_static;
+use regex::Regex;
+use uom::si::{
+    f64::{Angle, Area, Length, LinearPowerDensity, Mass, Power, Pressure, Ratio, ThermodynamicTemperature, Velocity, Volume},
+};
+use uom::si::{
+    angle::{degree},
+    thermodynamic_temperature::{degree_celsius,degree_fahrenheit},
+    linear_power_density::{watt_per_meter},
+    pressure::{pascal,inch_of_mercury},
+    velocity::{mile_per_hour,meter_per_second,foot_per_minute},
+    length::{kilometer,meter,foot},
+    area::{acre,hectare},
+    volume::{acre_foot},
+    mass::{milligram,kilogram,microgram},
+    ratio::{percent,ratio},
+    power::{megawatt},
+};
+use askama::Template;
+use csv;
+use gdal::Dataset;
+
+use odin_build::{define_load_asset, define_load_config, pkg_cache_dir, pkg_data_dir};
+use odin_macro::public_struct;
+use odin_common::{
+    BoundingBox, run_captured_cmd, as_min_max,
+    angle::Angle360,
+    datetime::{self, as_minutes, full_hour, hours, short_utc_datetime_string},
+    fs::{
+        EnvPathBuf, ensure_writable_dir, filepath_contents_as_string, find_first_match_in_dir, path_as_str,
+        filestem, matching_files_in_dir, set_filepath_contents
+    },
+    geo::{GeoPoint,GeoRect},
+    json_writer::{JsonWritable, JsonWriter, NumFormat},
+    utm::{UtmPoint, UtmRect, geo_to_utm, try_geo_to_utm_zone},
+};
+use odin_gdal;
+use odin_fems::FemsConfig;
+use odin_openmeteo::get_fc_days;
+use odin_server::{spa::SpaService,ws_service::ws_msg_from_json};
+
+pub mod input;
+use input::{create_internal_input, create_fems_input, create_landfire_input, create_wx_input};
+
+pub mod actor;
+pub mod service;
+pub use service::ElmfireService;
+pub mod fixed;
+
+pub mod errors;
+use errors::{OdinElmfireError,Result,op_failed};
+
+use crate::input::{create_fixed_input, create_nfdrs_input};
+
+lazy_static! {
+    pub static ref CACHE_DIR: PathBuf = { pkg_cache_dir!() };
+    pub static ref DATA_DIR: PathBuf = { pkg_data_dir!() };
+
+    pub static ref SPOTTING_DIR: PathBuf = DATA_DIR.join("spotting");
+    pub static ref FIXED_DIR: PathBuf = DATA_DIR.join("fixed");
+    pub static ref NML_RE: Regex = Regex::new( r#"^[^._].*\.nml"#).unwrap(); // namelist file pattern
+
+    pub static ref FLIN_RE: Regex = Regex::new( r#"flin_.*\.tif"#).unwrap();
+    pub static ref TOA_RE: Regex = Regex::new( r#"time_of_arrival_.*\.tif"#).unwrap();
+    pub static ref VS_RE: Regex = Regex::new( r#"vs_.*\.tif"#).unwrap();
+    pub static ref CF_RE: Regex = Regex::new( r#"crown_fire_.*\.tif"#).unwrap();
+    pub static ref FL_RE: Regex = Regex::new( r#"flame_length_.*\.tif"#).unwrap();
+    pub static ref AREA_RE: Regex = Regex::new( r#"acres_.*\.csv"#).unwrap();
+    pub static ref STATS_RE: Regex = Regex::new( r#"fire_size_stats.*\.csv"#).unwrap();
+
+    pub static ref EF_RUN_RE: Regex = Regex::new( r#"elmfire.ron"#).unwrap();
+}
+
+const WX_DT: Duration = Duration::from_secs( 60 * 15);
+
+define_load_config!{}
+define_load_asset!{}
+
+#[derive(Deserialize,Debug)]
+#[public_struct]
+struct ElmfireConfig {
+    lf_src_name: String,       // filename of odin_landfire GeoDs source to use (->odin_gdalgdal::GeoDs)
+    lf_res_m: u32,             // landfire pixel resolution in meters
+
+    fems_config_name: String,  // filename of odin_fems config to use (->odin_fems::FemsConfig)
+    fems_res_m: u32,           // FEMS pixel resolution in meters (should be multiple of lf_res_meters)
+
+    nfdrs_config_name: String,
+    nfdrs_past_days: u32,     // number of past days to retrieve to compute (accumulated) fuel moisture (>100h)
+    nfdrs_res_m: u32,         // pixel resolution in meter for fuel moisture data sets
+
+    wx_config_name: String,    // name of odin_openmeteo config file to use
+    wx_res_m: u32,             // pixel resolution in meter for generated wx data sets
+    wx_model: String,
+
+    bbox_size_m: u32,         // edge size of UTM bounding box in meter
+    wind_raster_m: u32,       // raster size in meter for retrieving wind data
+    fm_raster_m: u32,         // raster size in meter for retrieving/calculating fuel moisture data
+
+    input_dt: Duration,       // meteorologicel time step length
+    elmfire_cmd: EnvPathBuf   // the Elmfire executable
+}
+
+/// structure with given wx and fuel data values for the same time point.
+/// Used to construct time/location dependent Elmfire inputs for wind and fuel moisture
+#[derive(Debug,Clone, Serialize, Deserialize)]
+#[public_struct]
+struct FixedInputStep {
+    ws: Velocity,
+    wd: Angle360,
+    m1: Ratio,
+    m10: Ratio,
+    m100: Ratio,
+    lh: Ratio,
+    lw: Ratio
+}
+
+impl JsonWritable for FixedInputStep {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w| {
+            w.write_f64_field("ws", self.ws.get::<mile_per_hour>(), NumFormat::Fp1);
+            w.write_f64_field("wd", self.wd.degrees(), NumFormat::Fp0);
+            w.write_f64_field("m1", self.m1.get::<percent>(), NumFormat::Fp0);
+            w.write_f64_field("m10", self.m10.get::<percent>(), NumFormat::Fp0);
+            w.write_f64_field("m100", self.m100.get::<percent>(), NumFormat::Fp0);
+            w.write_f64_field("lh", self.lh.get::<percent>(), NumFormat::Fp0);
+            w.write_f64_field("lw", self.lw.get::<percent>(), NumFormat::Fp0);
+        });
+    }
+}
+
+/// turn lists of primitive input values into a vec of FxiedInputSteps. All provided input value slices have to be non-empty.
+/// If an input value slice has not enough elements for a time step it is filled up with the last element
+pub fn get_fixed_steps (n_steps: usize, ws_mph: &[f64], wd_deg: &[f64], m1: &[f64], m10: &[f64], m100: &[f64], lh: &[f64], lw: &[f64])->Result<Vec<FixedInputStep>> {
+    if ws_mph.is_empty() || wd_deg.is_empty() || m1.is_empty() || m10.is_empty() || m100.is_empty() || lh.is_empty() || lw.is_empty(){
+        return Err( op_failed!("missing FixedInputStep component"))
+    }
+
+    let mut vs: Vec<FixedInputStep> = Vec::with_capacity( n_steps);
+
+    let ws_len = ws_mph.len();
+    let wd_len = wd_deg.len();
+    let m1_len = m1.len();
+    let m10_len = m10.len();
+    let m100_len = m100.len();
+    let lh_len = lh.len();
+    let lw_len = lw.len();
+
+    for i in 0..n_steps {
+        let ws = Velocity::new::<mile_per_hour>( if i < ws_len { ws_mph[i] } else { ws_mph[ws_len-1] });
+        let wd = Angle360::from_degrees( if i < wd_len { wd_deg[i] } else { wd_deg[wd_len-1] });
+        let m1 = Ratio::new::<percent>( if i < m1_len { m1[i] } else { m1[m1_len-1] });
+        let m10 = Ratio::new::<percent>( if i < m10_len { m10[i] } else { m10[m10_len-1] });
+        let m100 = Ratio::new::<percent>( if i < m100_len { m100[i] } else { m100[m100_len-1] });
+        let lh = Ratio::new::<percent>( if i < lh_len { lh[i] } else { lh[lh_len-1] });
+        let lw = Ratio::new::<percent>( if i < lw_len { lw[i] } else { lw[lw_len-1] });
+
+        vs.push( FixedInputStep{ws,wd,m1,m10,m100,lh,lw});
+    }
+
+    Ok( vs )
+}
+
+
+/// this represents the translated outcome of a Elmfire run
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ElmfireOutput {
+    pub stats: Vec<FireStats>, // at the end of the simulation
+    pub area: Vec<AreaSnapshot>,
+    pub comp_stats: ComputedStats,
+    pub files: Vec<String>, // filenames of generated images and geojsons
+    pub geo_rect: GeoRect // wgs84 bounding box of files (if any)
+}
+
+/// those we read from the Elmfire generated acres*.csv file
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AreaSnapshot {
+    pub date: DateTime<Utc>,
+    pub area: Area
+}
+
+impl JsonWritable for AreaSnapshot {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w| {
+            w.write_date_field("date", self.date);
+            w.write_f64_field("area", self.area.get::<acre>(), NumFormat::Fp1);
+        });
+    }
+}
+
+/// those are read from the Elmfire generated fire_size_stats.csv
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FireStats {
+    pub date: DateTime<Utc>,
+    pub total_area: Area,
+    pub crown_fire_area: Area,
+    pub volume: Volume,
+    pub population: f64,        // ?? unit
+    pub real_estate_value: f64, // ?? unit
+    pub land_value: f64,        // ?? unit
+    pub n_embers: u32,
+    pub pm25_release: Mass,
+    pub hrr_peak: Power,         // heat release rate
+}
+
+impl JsonWritable for FireStats {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w|{
+            w.write_date_field("date", self.date);
+            w.write_f64_field("totalArea", self.total_area.get::<acre>(), NumFormat::Fp1);
+            w.write_f64_field("crownArea", self.crown_fire_area.get::<acre>(), NumFormat::Fp1);
+            w.write_f64_field("volume", self.volume.get::<acre_foot>(), NumFormat::Fp1);
+            w.write_f64_field("population", self.population, NumFormat::Fp1);
+            w.write_f64_field("realEstate", self.real_estate_value, NumFormat::Fp1);
+            w.write_f64_field("land", self.land_value, NumFormat::Fp1);
+            w.write_field("n_embers", self.n_embers);
+            w.write_f64_field("pm25", self.pm25_release.get::<microgram>(), NumFormat::Fp1);
+            w.write_f64_field("hrrPeak", self.hrr_peak.get::<megawatt>(), NumFormat::Fp1);
+        })
+    }
+}
+
+/// those are computed when we process the output rasters
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComputedStats {
+    pub flin_max: LinearPowerDensity,
+    pub fl_max: Length,
+    pub vs_max: Velocity
+}
+
+impl JsonWritable for ComputedStats {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w| {
+            w.write_f64_field("flinMax", self.flin_max.get::<watt_per_meter>() / 1000.0, NumFormat::Fp1); // we need kW/m
+            w.write_f64_field("flMax", self.fl_max.get::<foot>(), NumFormat::Fp1);
+            w.write_f64_field("vsMax", self.vs_max.get::<foot_per_minute>(), NumFormat::Fp1);
+        })
+    }
+}
+
+/// this captures the data we need to run a simulation on a single incident
+#[derive(Debug, Clone, Serialize, Deserialize)]
+//#[public_struct]
+pub struct ElmFire {
+    pub id: String, // this is supposed to be unique
+
+    pub name: String,
+    pub ignition: Ignition,
+    pub n_hours: u32,
+
+    pub geo_center: GeoPoint,
+    pub utm_rect: UtmRect,
+    pub base_date: DateTime<Utc>, // this is the base date for the Elmfire run (full hour)
+    pub start_date: DateTime<Utc>,
+
+    pub fixed_inputs: Option<Vec<FixedInputStep>>,
+    pub spotting: Option<String>,
+
+    pub dir: PathBuf, // where we keep inputs and outputs of this run
+}
+
+impl ElmFire {
+    pub fn new (
+        name: String,
+        ignition: Ignition,
+        utm_rect: UtmRect,
+        n_hours: u32,
+        fixed_inputs: Option<Vec<FixedInputStep>>,
+        spotting: Option<String>
+    )->Result<Self>
+    {
+        let start_date = ignition.first_date();
+        let base_date = full_hour( &start_date);
+        let geo_center: GeoPoint = GeoPoint::from(utm_rect.center()).rounded(4);
+        let id = format!("{}__{}__{}", name, start_date.format("%Y-%m-%dT%H%M%SZ"), geo_center.encode(4));
+
+        let dir = CACHE_DIR.join( &id);
+        if ignition.num_ignitions() < 1 { return Err( op_failed!("no ignitions")) }
+
+        Ok( ElmFire { id, name, ignition, n_hours, geo_center, utm_rect, base_date, start_date, fixed_inputs, spotting, dir } )
+    }
+
+    pub fn from_point_ignition (
+        name: String,
+        date: DateTime<Utc>,
+        geo_point: GeoPoint,
+        bbox_size: Length,
+        n_hours: u32,
+        fixed_inputs: Option<Vec<FixedInputStep>>,
+        spotting: Option<String>
+    ) ->Result<Self>
+    {
+        let utm_rect = get_utm_rect_around_point( &geo_point, bbox_size / 2.0)?;
+        let ignition = Ignition::SinglePoint(IgnitionPoint { position: geo_point, date });
+
+        Self::new( name, ignition, utm_rect, n_hours, fixed_inputs, spotting)
+    }
+
+    pub fn from_point_ignitions (
+        name: String,
+        ips: Vec<IgnitionPoint>,
+        bbox_size: Length,
+        n_hours: u32,
+        fixed_inputs: Option<Vec<FixedInputStep>>,
+        spotting: Option<String>
+    ) ->Result<Self>
+    {
+        let ignition = Ignition::from_ignition_points(ips);
+        let geo_point = ignition.center();
+        let utm_rect = get_utm_rect_around_point( &geo_point, bbox_size / 2.0)?;
+
+        Self::new( name, ignition, utm_rect, n_hours, fixed_inputs, spotting)
+    }
+
+    //.. and possibly more specialized constructors
+
+    // number of forecast days to request from OpenMeteo so that we cover the full n_hours
+    fn wx_forecast_days (&self)->u32 {
+        get_fc_days( &self.base_date, hours(self.n_hours as u64))
+    }
+
+    fn get_wx_timestamps (&self)->Vec<i64> {
+        let ts0 = self.base_date.timestamp();
+        let n_steps = self.n_hours + 1;
+        let mut tss: Vec<i64> = Vec::with_capacity(n_steps as usize);
+
+        for i in 0..n_steps {
+            tss.push( ts0 + (i * 3600) as i64)
+        }
+
+        tss
+    }
+
+    /// we use exterior mapping here so that no information is lost
+    fn get_geo_rect (&self)->GeoRect {
+        self.utm_rect.to_geo_rect( odin_common::utm::GeoRectMapping::ExteriorGeo)
+    }
+
+    fn get_output_dir (&self)->PathBuf {
+        self.dir.join("outputs")
+    }
+
+    pub async fn create_inputs (&self, config: &ElmfireConfig)->Result<PathBuf> {
+        self.prepare_run_dir()?;
+
+        create_internal_input( &self, config)?;
+        create_landfire_input( &self, config).await?;
+
+        if let Some(steps) = &self.fixed_inputs { // run (mostly) on provided inputs
+            create_fixed_input( &self, config, steps)?;
+
+        } else { // acquire live data from external sources
+            //create_fems_input( &self, config).await?;
+            create_nfdrs_input( &self, config).await?;
+            create_wx_input( &self, &config).await?;
+        }
+
+        self.create_datafile(config)
+    }
+
+    fn create_datafile (&self, config: &ElmfireConfig)->Result<PathBuf> {
+        let input_dir = self.dir.join("inputs");
+        let output_dir = self.get_output_dir();
+        let scratch_dir = self.dir.join("scratch");
+
+        let ignitions: Vec<(i64,f64,f64)> = self.ignition.iter().map( |ip| {
+            try_geo_to_utm_zone( &ip.position, self.utm_rect.utm_zone)
+                .map_err( |e| op_failed!("invalid ignition point location"))
+                .and_then( |p| Ok( (self.secs_from_base( ip.date), p.easting.round(), p.northing.round()) ) )
+        }).collect::<Result<Vec<(i64,f64,f64)>>>()?;
+
+        let contents = ElmfireDataTemplate {
+            input_dir: path_as_str( &input_dir)?,
+            output_dir: path_as_str( &output_dir)?,
+            scratch_dir: path_as_str( &scratch_dir)?,
+            wx_dt_secs: config.input_dt.as_secs(),
+            t_start_secs: self.t_start(),
+            t_report_secs: self.t_report(),
+            t_stop_secs: self.t_stop(),
+            epsg: self.utm_rect.epsg(),
+            lf_res_m: config.lf_res_m,
+            x_min: self.utm_rect.x_min(),
+            y_min: self.utm_rect.y_min(),
+            n_steps: (self.n_hours + 1) as usize,
+            num_ignitions: ignitions.len(),
+            ignitions: &ignitions,
+            spotting: self.spotting.as_ref().map(|s| s.as_str())
+        }.to_string();
+
+        let path = input_dir.join("elmfire.data");
+        std::fs::write( &path, contents.as_str())?;
+        Ok(path)
+    }
+
+    pub fn t_start (&self)->i64 {
+        self.start_date.timestamp() - self.base_date.timestamp()
+    }
+
+    pub fn t_report (&self)->i64 {
+        1800 // TODO - maybe we should make this configurable
+    }
+
+    pub fn t_stop (&self)->i64 {
+        (self.n_hours * 3600) as i64
+    }
+
+    // seconds between first ignition timestamp and the base wx timestamp
+    pub fn secs_from_base (&self, d: DateTime<Utc>)->i64 {
+        d.timestamp() - self.base_date.timestamp()
+    }
+
+    pub fn prepare_run_dir (&self)->Result<()> {
+        let input_dir = self.dir.join("inputs");
+        let output_dir = self.dir.join("outputs");
+        let scratch_dir = self.dir.join("scratch");
+
+        if input_dir.is_dir() { remove_dir_all( &input_dir); }
+        if output_dir.is_dir() { remove_dir_all( &output_dir); }
+        if scratch_dir.is_dir() { remove_dir_all( &scratch_dir); }
+
+        create_dir_all( &input_dir)?;
+        create_dir_all( &output_dir)?;
+        create_dir_all( &scratch_dir)?;
+
+        Ok(())
+    }
+
+    pub fn process_outputs (&self, config: &ElmfireConfig)->Result<ElmfireOutput> {
+        let mut area: Vec<AreaSnapshot> = Vec::with_capacity(0);
+        let mut stats: Vec<FireStats> = Vec::with_capacity(0);
+        let mut files: Vec<String> = Vec::new();
+
+        let output_dir = self.get_output_dir();
+
+        // fireline intensity output raster (always on so we use it to get the geo_rect)
+        let ds = process_raster_output(&output_dir, &FLIN_RE, "flin_wgs84.tif", "flin.png", Some(0.02..0.99))?;
+        let geo_rect = odin_gdal::get_geo_rect(&ds)?; // will be the same for all so we just need to compute once
+        let (flin_min,flin_max) = as_min_max( odin_gdal::get_band_value_range( &ds, 1)? );
+        files.push( "flin.png".into());
+
+        // spread rate output raster
+        let ds = process_raster_output(&output_dir, &VS_RE, "vs_wgs84.tif", "vs.png", Some(0.02..0.99))?;
+        let (vs_min, vs_max) = as_min_max( odin_gdal::get_band_value_range( &ds, 1)? );
+        files.push("vs.png".into());
+
+        // flame length raster
+        let ds = process_raster_output(&output_dir, &FL_RE, "fl_wgs84.tif", "fl.png", Some(0.02..0.99))?;
+        let (fl_min, fl_max) = as_min_max( odin_gdal::get_band_value_range( &ds, 1)? );
+        files.push("fl.png".into());
+
+        // crown fire raster (don't adjust ranges)
+        process_raster_output(&output_dir, &FL_RE, "cf_wgs84.tif", "cf.png", None)?;
+        files.push("cf.png".into());
+
+        // time-of-arrival contours
+        if let Some(utm_path) = find_first_match_in_dir( &output_dir, &TOA_RE) {
+            let wgs84_path = output_dir.join("toa_wgs84.tif");
+            let ds = odin_gdal::warp::warp_to_wgs84( &utm_path, &wgs84_path, vec![-9999.0])?;
+
+            let json_path = output_dir.join("toa.geojson");
+            odin_gdal::contour::to_geo_json( &ds, 1, 1800.0, &json_path)?;
+
+            files.push("toa.geojson".into());
+        }
+
+        if let Some(area_path) = find_first_match_in_dir( &output_dir, &AREA_RE) {
+            area = parse_area( &area_path, self.base_date)?;
+        }
+
+        if let Some(stats_path) = find_first_match_in_dir( &output_dir, &STATS_RE) {
+            stats = parse_fire_stats( &stats_path, self.base_date)?;
+        }
+
+        let comp_stats = ComputedStats {
+            flin_max: LinearPowerDensity::new::<watt_per_meter>(flin_max * 1000.0), // we get it in kW/m
+            fl_max: Length::new::<foot>(fl_max),
+            vs_max: Velocity::new::<foot_per_minute>(vs_max)
+        };
+
+        Ok( ElmfireOutput { stats, area, comp_stats, files, geo_rect } )
+    }
+
+    async fn execute (&self, config: &ElmfireConfig)->Result<ElmfireOutput> {
+        let path = self.create_inputs( config).await?;
+        let output = run_captured_cmd!( &config.elmfire_cmd, path_as_str( &path)?).await?;
+        if output.status.success() {
+            self.process_outputs( config)
+
+        } else {
+            let xc = output.status.code().unwrap_or(-1);
+            eprintln!("Elmfire execution failed: {}", xc);
+            eprintln!( "{}", String::from_utf8_lossy( &output.stderr));
+
+            Err( op_failed!("Elmfire failed to execute with code {}", xc) )
+        }
+    }
+}
+
+fn process_raster_output (output_dir: &PathBuf, utm_re: &Regex, wgs84_fname: &str, png_fname: &str, pct_range: Option<Range<f64>>)->Result<Dataset>
+{
+    if let Some(utm_path) = find_first_match_in_dir( &output_dir, utm_re) {
+        let wgs84_path = output_dir.join(wgs84_fname);
+        let ds = odin_gdal::warp::warp_to_wgs84( &utm_path, &wgs84_path, vec![-9999.0])?;
+
+        let img_path = output_dir.join(png_fname);
+
+        let cmap = vec![0xff000000, 0xff000040, 0xff000080, 0xa00000ff, 0xff0000ff, 0xff4500ff, 0xffa500ff, 0xffd700ff, 0xffff00ff];
+        odin_gdal::colorize::to_cmap( &img_path, &ds, 1, pct_range, &cmap)?;
+        //odin_gdal::colorize::to_alpha( &img_path, &ds, 1, 0xffffff, pct_range)?; // target color should be configured
+
+        Ok(ds)
+
+    } else {
+        Err( op_failed!("no match for {:?}", utm_re) )
+    }
+}
+
+#[derive(Template)]
+#[template( path = "elmfire.askama")]
+struct ElmfireDataTemplate<'a> {
+    input_dir: &'a str,
+    output_dir: &'a str,
+    scratch_dir: &'a str,
+    wx_dt_secs: u64,
+    t_start_secs: i64,
+    t_report_secs: i64,
+    t_stop_secs: i64,
+    epsg: u32,
+    lf_res_m: u32,
+    x_min: f64,
+    y_min: f64,
+    n_steps: usize,
+    num_ignitions: usize,
+    ignitions: &'a [(i64,f64,f64)],
+    spotting: Option<&'a str>
+}
+
+#[derive(Serialize,Deserialize,Debug, Clone)]
+pub enum Ignition {
+    SinglePoint(IgnitionPoint),
+    MultiPoint(Vec<IgnitionPoint>),
+    // line and others to follow
+}
+
+impl Ignition {
+    pub fn from_ignition_points (ips: Vec<IgnitionPoint>)->Self {
+        if ips.len() == 1 { Ignition::SinglePoint(ips[0].clone()) }
+        else { Ignition::MultiPoint( ips) }
+    }
+
+    pub fn center (&self)->GeoPoint {
+        match self {
+            Ignition::SinglePoint(p) => {
+                p.position.clone()
+            }
+            Ignition::MultiPoint(ps) => {
+                let gps: Vec<GeoPoint> = ps.iter().map( |p| p.position.clone()).collect();
+                GeoPoint::from_median(&gps)
+            }
+        }
+    }
+
+    fn first_date (&self)->DateTime<Utc> {
+        match self {
+            Ignition::SinglePoint(p) => p.date,
+            Ignition::MultiPoint(ps) => ps.iter().map( |p| p.date).min().unwrap_or( datetime::ZERO)
+        }
+    }
+
+    fn num_ignitions (&self)->usize {
+        match self {
+            Ignition::SinglePoint(p) => 1,
+            Ignition::MultiPoint(ps) => ps.len()
+        }
+    }
+
+    fn is_multi_point (&self)->bool {
+        match self {
+            Ignition::SinglePoint(p) => false,
+            Ignition::MultiPoint(ps) => true
+        }
+    }
+
+    pub fn iter<'a> (&'a self)->impl Iterator<Item=&'a IgnitionPoint> {
+        self.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a Ignition {
+    type Item = &'a IgnitionPoint;
+    type IntoIter = std::slice::Iter<'a, IgnitionPoint>;
+
+    fn into_iter(self)->Self::IntoIter {
+        match self {
+            Ignition::SinglePoint(p) => std::slice::from_ref(p).iter(),
+            Ignition::MultiPoint(ps) => ps.iter()
+        }
+    }
+}
+
+#[derive(Serialize,Deserialize,Debug, Clone)]
+#[public_struct]
+struct IgnitionPoint {
+    position: GeoPoint,
+    date: DateTime<Utc>
+}
+
+impl IgnitionPoint {
+    pub fn new (position: GeoPoint, date: DateTime<Utc>)->Self {
+        IgnitionPoint{position,date}
+    }
+}
+
+impl JsonWritable for IgnitionPoint {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w| {
+            w.write_f64_field("lon", self.position.longitude_degrees(), NumFormat::Fp4);
+            w.write_f64_field("lat", self.position.latitude_degrees(), NumFormat::Fp4);
+            w.write_date_field("date", self.date);
+        })
+    }
+}
+
+pub fn get_utm_rect_around_point (center: &GeoPoint, dist: Length)->Result<UtmRect> {
+    let mut p = geo_to_utm( center).ok_or( op_failed!("center not valid UTM"))?;
+    p.round();
+    let dm = dist.get::<meter>();
+
+    let mut utm_rect = UtmRect::from_wsen_meters(p.easting - dm, p.northing - dm, p.easting + dm, p.northing + dm, p.utm_zone);
+    utm_rect.round();
+
+    Ok( utm_rect )
+}
+
+pub fn parse_area<P: AsRef<Path>> (path: P, base_date: DateTime<Utc>)->Result<Vec<AreaSnapshot>> {
+    let mut vs: Vec<AreaSnapshot> = Vec::new();
+
+    let mut rdr = csv::Reader::from_reader( File::open(&path)?);
+    for result in rdr.records() {
+        let record = result?;
+        if record.len() != 2 { return Err( op_failed!("not an Acres Record") ) }
+
+        let ts: f64 = record[0].trim().parse()?;
+        let acres: f64 = record[1].trim().parse()?;
+
+        let date = base_date + Duration::from_secs_f64(ts);
+        let area = Area::new::<acre>( acres);
+
+        vs.push( AreaSnapshot { date, area } )
+    }
+
+    Ok( vs )
+}
+
+/// format:
+/// icase,Meteorology band, x, y, tstop (h), Wall clock time (s), Total fire area (ac), Crown fire area (ac),
+/// Fire volume (ac-ft), Population affected, Real estate value, Land value, Nembers, Pyrome, Containfrac,
+/// PM 2.5 release (ug), HRR peak (MW), Start timestamp, Fire id, Astop (ac)
+pub fn parse_fire_stats<P: AsRef<Path>> (path: P, base_date: DateTime<Utc>)->Result<Vec<FireStats>> {
+    let mut vs: Vec<FireStats> = Vec::new();
+
+    let mut rdr = csv::Reader::from_reader( File::open(&path)?);
+    for result in rdr.records() {
+        let record = result?;
+        if record.len() != 20 { return Err( op_failed!("not an FireSizeStats Record") ) }
+
+        let h: f64 = record[4].trim().parse()?;
+        let date = base_date + Duration::from_hours(h as u64);
+
+        let ac: f64 = record[6].trim().parse()?;
+        let total_area = Area::new::<acre>(ac);
+
+        let ac: f64 = record[7].trim().parse()?;
+        let crown_fire_area = Area::new::<acre>(ac);
+
+        let ac_ft: f64 = record[8].trim().parse()?;
+        let volume = Volume::new::<acre_foot>(ac_ft);
+
+        let population: f64 = record[9].trim().parse()?;
+        let real_estate_value: f64 = record[10].trim().parse()?;
+        let land_value: f64 = record[11].trim().parse()?;
+
+        let n_embers: u32 = record[12].trim().parse()?;
+
+        let ug: f64 = record[15].trim().parse()?;
+        let pm25_release = Mass::new::<microgram>(ug);
+
+        let mw: f64 = record[16].trim().parse()?;
+        let hrr_peak = Power::new::<megawatt>( mw);
+
+        vs.push( FireStats{date,total_area,crown_fire_area,volume,population,real_estate_value,land_value,n_embers,pm25_release,hrr_peak})
+    }
+
+    Ok( vs )
+}
+
+/// aggregate to bundle simulation spec and results.
+/// we need to wrap the ElmFire instance into an Arc so that it can be easily cloned
+/// Note that results are set delayed, i.e. we need to wrap into an Option
+/// Note also that we cannot use OdinElmfireResult to wrap the result since it is not Send (because of wrapped 3rd party errors)
+#[derive(Debug,Clone, Serialize,Deserialize)]
+pub struct ElmfireRun {
+    pub fire: Arc<ElmFire>, // needs to be Arc so that we can easily clone
+    pub result: Option<StdResult<ElmfireOutput,String>> // not set before the run is done but should also preserve failure
+}
+
+impl ElmfireRun {
+
+    pub fn get_json_update_msg (&self)->String {
+        let mut w = JsonWriter::with_capacity(8192);
+        self.write_json_to( &mut w);
+        let msg = w.as_str();
+        ws_msg_from_json( ElmfireService::mod_path(), "update", &msg)
+    }
+
+    pub fn save_to<P: AsRef<Path>> (&self, path: P)->Result<()> {
+        let s = ron::ser::to_string(self)?;
+        let mut file = File::create(path)?;
+        file.write_all( s.as_bytes())?;
+        Ok(())
+    }
+
+    pub fn read_from<P: AsRef<Path>> (path: P)->Result<Self> {
+        let s = filepath_contents_as_string(path)?;
+        let elmfire_run: Self = ron::de::from_str( &s)?;
+        Ok(elmfire_run)
+    }
+}
+
+impl JsonWritable for ElmfireRun {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        let fire = self.fire.as_ref();
+        let center = &fire.geo_center;
+        let geo_rect = fire.get_geo_rect();
+
+        w.write_object( |w| {
+            w.write_field( "id", &fire.id);
+            w.write_field( "name", &fire.name);
+            w.write_pos_field( "pos", center, NumFormat::Fp4);
+            w.write_date_field( "date", fire.start_date);
+            w.write_rect_field( "bbox", &geo_rect, NumFormat::Fp4);
+            w.write_field( "nHours", fire.n_hours);
+
+            w.write_array_field( "ignitions", |w|{
+                for ign in fire.ignition.iter() {
+                    ign.write_json_to(w);
+                }
+            });
+
+            if let Some(fixed_inputs) = &fire.fixed_inputs {
+                w.write_array_field( "fixedInputs", |w|{
+                    for fixed_step in fixed_inputs.iter() {
+                        fixed_step.write_json_to(w);
+                    }
+                });
+            }
+
+            if let Some(result) = &self.result {
+                match result {
+                    Ok(outputs) => {
+                        w.write_object_field( "output", |w|{
+                            w.write_array_field("stats", |w|{
+                                for s in outputs.stats.iter() {
+                                    s.write_json_to(w);
+                                }
+                            });
+                            w.write_array_field("area", |w|{
+                                for a in outputs.area.iter() {
+                                    a.write_json_to(w);
+                                }
+                            });
+                            w.write_json_field("compStats", &outputs.comp_stats);
+                            w.write_array_field( "files", |w|{
+                                for fname in outputs.files.iter() {
+                                    w.write_value( fname);
+                                }
+                            });
+
+                            // this is the bbox for the generated WGS84 imagery
+                            w.write_rect_field("bbox", &outputs.geo_rect, NumFormat::Fp5);
+                        });
+                    }
+                    Err(e) => {
+                        w.write_field("error", e);
+                    }
+                }
+            }
+        });
+    }
+}
+
+/* #region stored namelist support **********************************************************************/
+
+pub fn get_saved_list<P: AsRef<Path>> (dir: P, fname_re: &Regex)->Result<Vec<String>> {
+    let mut list: Vec<String> = Vec::new();
+
+    for pn in matching_files_in_dir( &dir, fname_re)? {
+        if let Some(fname) = filestem( &pn) {
+            list.push( fname.into()) // we only store the filename stem (no extension)
+        }
+    }
+    list.sort();
+
+    Ok( list )
+}
+
+pub fn get_contents<P: AsRef<Path>> (dir: P, name: &str)->Option<String> {
+    let fname = format!("{}.nml", name);
+    let file_path = dir.as_ref().join(fname);
+
+    filepath_contents_as_string(file_path).ok()
+}
+
+pub fn save_contents<P: AsRef<Path>> (dir: P, name: &str, new_content: &str)->Result<()> {
+    // TODO - this should sanitize the source to see if it is valid Elmfire nml
+    // note that Elmfire uses the slice operator ':' (hence nml crate does not work)
+    let fname = format!("{}.nml", name);
+    Ok( set_filepath_contents( dir, &fname, new_content.as_bytes())? )
+}
+
+pub fn remove_contents<P: AsRef<Path>> (dir: P, name: &str)->Result<()> {
+    // TODO - this should sanitize the source to see if it is valid Elmfire nml
+    // note that Elmfire uses the slice operator ':' (hence nml crate does not work)
+    let fname = format!("{}.nml", name);
+    let path = dir.as_ref().join( fname);
+    Ok( remove_file(&path)? )
+}
+
+/* #endregion stored namelist support */

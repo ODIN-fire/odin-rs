@@ -25,6 +25,7 @@ pub enum FieldId {
     cloud_cover,
     dew_point_2m,
     precipitation,
+    precipitation_sum,
     relative_humidity_2m,
     runoff,
     surface_pressure,
@@ -36,6 +37,8 @@ pub enum FieldId {
     wind_gusts_10m,
     wind_speed_10m,
     wind_speed_100m,
+    shortwave_radiation,
+    snow_depth,
     //... and many more to come
 }
 
@@ -49,5 +52,6 @@ impl FieldId {
 #[derive(Deserialize,Debug,AsRefStr,Clone,Hash,PartialEq,Eq)]
 #[allow(nonstandard_style)]
 pub enum ModelId {
-    ecmwf_ifs
+    ecmwf_ifs,
+    gfs_hrrr,
 }

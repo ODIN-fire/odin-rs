@@ -26,7 +26,7 @@ use odin_share::prelude::*;
 use odin_geolayer::GeoLayerService;
 use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, SentinelActor, sentinel_service::SentinelService};
 use odin_hrrr::{self,HrrrActor,HrrrService};
-use odin_openmeteo::{self,OpenMeteoActor,OpenMeteoService};
+use odin_openmeteo::{self,OpenMeteoActor,wx_service::OpenMeteoService};
 use odin_wx::{WxServiceList,WxFileAvailable};
 use odin_wind::{self, WindActor,WindActorMsg, server_subscribe_action, server_update_action, WindService};
 use odin_adsb::{AircraftStore,actor::AdsbActor,adsb_service::AdsbService, sbs::SbsConnector};
@@ -34,6 +34,9 @@ use odin_n5::{self, N5DeviceStore, N5DataUpdate, n5_service::N5Service, actor::N
 use odin_alertca::{self,actor::AlertCaActor, alertca_service::AlertCaService, live_connector::LiveAlertCaConnector, CameraStore, CameraUpdate};
 use odin_fires::{fire_service::FireService};
 use odin_fems::{self, FemsStore, FemsStation, actor::FemsActor,service::FemsService};
+use odin_landfire::{service::LandfireService,LandfireConfig};
+use odin_elmfire::{self,ElmfireRun, ElmfireService, actor::{ElmfireActor,ElmfireActorMsg}};
+
 
 // note that odin_sentinel, odin_n5 and odin_adsb all require non-public data sources and hence are feature gated
 
@@ -50,9 +53,26 @@ run_actor_system!( actor_system => {
     //--- add the geolayer service
     let svc_list = svc_list.add( build_service!( => GeoLayerService::new( &odin_geolayer::default_data_dir())));
 
+    //--- add the landfire service
+    let svc_list = svc_list.add( build_service!( let svc = LandfireService::new(odin_landfire::load_config("landfire.ron")?) => svc));
+
     //--- add the fires service
     // (service construction can fail since it has to parse externally generated data files)
     let svc_list = svc_list.add( build_service!(let svc = FireService::new(odin_fires::load_config("fires.ron")?)? => svc));
+
+    //--- spawn the elmfire actor
+    let hfire = spawn_actor!( actor_system, "elmfire",
+        ElmfireActor::new(
+            odin_elmfire::load_config("elmfire.ron")?,
+            dataref_action!(
+                let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |run: &ElmfireRun| {
+                    let ws_msg = run.get_json_update_msg();
+                    Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
+                }
+            )
+        )
+    )?;
+    let svc_list = svc_list.add( build_service!( let svc = ElmfireService::new( hfire) => svc));
 
     //--- spawn the micro grid wind simulator
     let wxs: WxServiceList = vec_boxed![ HrrrService::new_basic( pre_hrrr.to_actor_handle()) ];

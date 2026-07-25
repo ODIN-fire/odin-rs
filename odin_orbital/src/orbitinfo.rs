@@ -14,10 +14,11 @@
 #![allow(unused)]
 
 use satkit::{sgp4::sgp4,Duration,Instant,TLE,frametransform::qteme2itrf};
+use numeris::{DynMatrix,DynVector,vector};
 use odin_common::{angle::normalize_360, cartesian3::Cartesian3, cartographic::{geodetic_latitude, Cartographic},
     atan, cos, pow2, sin, asin, sqrt, abs, MinMaxAvg, HALF_PI
 };
-use crate::{get_time_vec,ColumnVec};
+use crate::{get_time_vec,ColumnVec, col_vec3, cart3, errors::Result};
 
 
 /// time and ECEF longitude (degrees) of ascending or descending orbital node
@@ -63,7 +64,7 @@ pub struct OrbitInfo {
 
 impl OrbitInfo {
 
-    pub fn new (sat_id: u32, step_dur: Duration, tle: TLE)->Self {
+    pub fn new (sat_id: u32, step_dur: Duration, tle: TLE)->Result<Self> {
         let mut dist_stats = MinMaxAvg::new();
         let mut asc_node  = OrbitNode{ t: f64::NAN, longitude_deg: 0.0};
         let mut desc_node = OrbitNode{ t: f64::NAN, longitude_deg: 0.0};
@@ -88,12 +89,16 @@ impl OrbitInfo {
         let n_steps = tvec.len();
 
         // it is about 30% faster to compute a full orbit with a 1 sec timestep as a batch than it is to go step-by-step
-        let (pteme, vteme, errs) = sgp4( &mut tle.clone(), &tvec); // note this mutates the TLE, which is why we need to pass in a copy
-        let p_first = Cartesian3::from_column( &pteme, 0);
+        //let (pteme, vteme, errs) = sgp4( &mut tle.clone(), &tvec); // note this mutates the TLE, which is why we need to pass in a copy
+        let sgp4_state = sgp4( &mut tle.clone(), &tvec)?; // propagate
+        let pteme = sgp4_state.pos;
+        let vteme = sgp4_state.vel;
+
+        let p_first = cart3!(pteme);
         let mut p_last = Cartesian3::zero();
 
         for i in 0..n_steps {
-            let v = pteme.column(i);
+            let v = pteme.col(i);
             let p = Cartesian3::new( v[0], v[1], v[2]);  // x,y,z in TEME
             let dist = p.length();  // dist same between TEME and ITRF
             let vz = vteme[(2,i)];
@@ -104,7 +109,7 @@ impl OrbitInfo {
                 // check for nodes (z changing signum)
                 if p_last.z.signum() != p.z.signum() {
                     let c = get_cartographic( &tvec[i], &v);
-                    let c_last = get_cartographic(&tvec[i-1], &pteme.column(i-1));
+                    let c_last = get_cartographic(&tvec[i-1], &pteme.col(i-1));
 
                     let new_node = interpolate_node( tvec[i-1].as_unixtime(), &c_last, tvec[i].as_unixtime(), &c);
                     let mut node = if vz > 0.0 { &mut asc_node } else { &mut desc_node };
@@ -157,7 +162,7 @@ impl OrbitInfo {
             2.0 * (normalize_360( desc_node.longitude_deg) - normalize_360(asc_node.longitude_deg + 180.0))
         };
 
-        OrbitInfo { sat_id, tle, incl, apparent_incl, max_latitude, dist_stats, rev_per_day, rev_sec, nodal_displacement, asc_node, desc_node, s_pole, n_pole }
+        Ok( OrbitInfo { sat_id, tle, incl, apparent_incl, max_latitude, dist_stats, rev_per_day, rev_sec, nodal_displacement, asc_node, desc_node, s_pole, n_pole } )
     }
 
     //--- various metrics directly derived from TLE
@@ -257,8 +262,9 @@ fn interpolate_pole (t1: f64, p1: &Cartesian3, vz1: f64, t2: f64, p2: &Cartesian
     OrbitPole { t, latitude_deg }
 }
 
-pub fn get_cartographic (t: &Instant, v: &ColumnVec) -> Cartographic {
+pub fn get_cartographic (t: &Instant, v: &DynVector<f64>) -> Cartographic {
+    let v = vector![ v[0], v[1], v[2]];
     let itrf = qteme2itrf( t).to_rotation_matrix() * v;
-    let p = Cartesian3::from_col( &itrf);
+    let p = cart3!( itrf);
     Cartographic::from(p)
 }

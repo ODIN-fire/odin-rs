@@ -33,7 +33,7 @@ pub enum OdinOrbitalError {
     HttpError( #[from] odin_common::net::OdinNetError),
 
     #[error("Propagation error {0}")]
-    Sgp4Error( String ),
+    Sgp4Error( #[from] satkit::sgp4::Error ),
 
     #[error("csv error {0}")]
     CsvError( #[from] csv::Error),

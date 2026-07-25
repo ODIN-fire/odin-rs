@@ -454,3 +454,20 @@ pub fn load_region_config (filename: &str)->Result<GeoPolygon> {
 
     Ok(poly)
 }
+
+#[macro_export]
+macro_rules! col_vec3 {
+    ($m:ident,$col:expr) => {
+        {
+            let i: usize = $col;
+            vector![ $m[(0,i)], $m[(1,i)], $m[(2,i)]]
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! cart3 {
+    ($m:ident) => {
+        Cartesian3::new( $m[(0,0)], $m[(1,0)], $m[(2,0)])
+    }
+}

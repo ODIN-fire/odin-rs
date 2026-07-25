@@ -20,8 +20,12 @@ cargo_toml = "0.22.3"
 flate2 = "1.1.1"
 brotli = "8.0.2"
 minifier = "0.3.6"
-minify-html-onepass = "0.16.4"
+
+#minify-html-onepass = "0.18" # this would lock in rkyv 0.7 through lightningcss (which is enabled by default)
+simple-minify-html = { version="0.17.2", optional = true } # this does not by default pull in lightningcss but is restricted to HTML
 
 # pgp = "0.14.2"
 magic-crypt = "4.0.1"
 
+[features]
+minify_html_assets = ["dep:simple-minify-html"]

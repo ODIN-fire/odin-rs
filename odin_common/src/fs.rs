@@ -38,6 +38,13 @@ type Result<T> = std::result::Result<T,std::io::Error>;
 
 // TODO - public functions should all use AsRef<Path>
 
+pub fn path_as_str<'a,P: AsRef<Path>> (path: &'a P)->Result<&'a str> {
+    path.as_ref()
+        .as_os_str()
+        .to_str()
+        .ok_or(IOError::new(ErrorKind::InvalidFilename, format!("invalid char in filename {:?}", path.as_ref())))
+}
+
 pub fn filename<'a,T: AsRef<Path>> (path: &'a T)->Option<&'a str> {
     path.as_ref().file_name().and_then(|ostr| ostr.to_str())
 }
@@ -119,12 +126,12 @@ pub fn file_contents_as_string (file: &mut fs::File) -> Result<String> {
     Ok(contents)
 }
 
-pub fn filepath_contents_as_string <P: AsRef<Path>> (path: &P) -> Result<String> {
+pub fn filepath_contents_as_string <P: AsRef<Path>> (path: P) -> Result<String> {
     let mut file = File::open(path)?;
     file_contents_as_string( &mut file)
 }
 
-pub fn filepath_contents <P: AsRef<Path>> (path: &P) -> Result<Vec<u8>> {
+pub fn filepath_contents <P: AsRef<Path>> (path: P) -> Result<Vec<u8>> {
     let mut file = File::open(path)?;
     let md = file.metadata()?;
     let len = md.len();
@@ -305,6 +312,8 @@ pub fn odin_data_filename (name: &str, date: Option<DateTime<Utc>>, attrs: &[&st
     s
 }
 
+
+// FIXME - dir with '.'
 pub fn get_filename_extension<'a> (path: &'a str) -> Option<&'a str> {
     if let Some(idx) = path.rfind('.') {
         if idx < path.len()-1 {
@@ -315,6 +324,15 @@ pub fn get_filename_extension<'a> (path: &'a str) -> Option<&'a str> {
 
     //let path = Path::new(path);
     //path.extension().and_then( |ostr| ostr.to_str())
+}
+
+// FIXME - dir with '.'
+pub fn replace_filename_extension (fname: &str, new_ext: &str)->String {
+    if let Some(idx) = fname.rfind('.') {
+        format!("{}.{}", &fname[0..idx], new_ext)
+    } else {
+        format!("{}.{}", fname, new_ext)
+    }
 }
 
 /// this is the non-extension part of a filename. Input can be a path - everything up to the last
@@ -407,6 +425,26 @@ pub fn matching_files_in_dir<P: AsRef<Path>> (dir: &P, fname_regex: &Regex) -> R
     }
 
     Ok(list)
+}
+
+pub fn find_first_match_in_dir<P: AsRef<Path>> (path: P, fname_regex: &Regex) -> Option<PathBuf> {
+    let dir: &Path = path.as_ref();
+
+    if dir.is_dir() {
+        if let Ok(read_dir) = fs::read_dir( dir) {
+            for entry in read_dir {
+                if let Ok(entry) = entry {
+                    if let Some(fname) = entry.file_name().to_str() {
+                        if fname_regex.is_match( fname) {
+                            return Some( entry.path() )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 pub fn matching_files_in_tree <P: AsRef<Path>> (dir: P, fname_regex: &Regex) -> Result<Vec<PathBuf>> {

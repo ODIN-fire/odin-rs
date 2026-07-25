@@ -38,6 +38,9 @@ pub enum OdinFemsError {
     #[error("DEM error {0}")]
     DemError( #[from] odin_dem::errors::OdinDemError),
 
+    #[error("GDAL error {0}")]
+    GdalError( #[from] odin_gdal::errors::OdinGdalError),
+
     #[error("actor error {0}")]
     ActorError( #[from] odin_actor::errors::OdinActorError),
 
@@ -48,7 +51,10 @@ pub enum OdinFemsError {
     SerdeError( #[from] serde_json::Error),
 
     #[error("config RON error {0}")]
-    RonError( #[from] ron::error::SpannedError),
+    RonError( #[from] ron::error::Error),
+
+    #[error("config RKYV error {0}")]
+    RkyvError( #[from] rkyv::rancor::Error),
 
     #[error("strum error {0}")]
     StrumError( #[from] strum::ParseError),

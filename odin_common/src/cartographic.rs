@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -21,9 +21,10 @@ use std::f64::{self, NAN};
 
 use geo::{Bearing, Destination, Distance, Haversine, Point};
 use crate::{
-    abs, angle::{Latitude, Longitude}, atan, atan2, cartesian3::Cartesian3, cos, geo::{GeoPoint, GeoPolygon, GeoRect}, 
-    geo_constants::*, 
-    json_writer::{JsonWriter,NumFormat}, 
+    abs, angle::{Latitude, Longitude}, atan, atan2, cartesian3::Cartesian3, cos,
+    geo::{GeoPoint, GeoPoint3, GeoPolygon, GeoRect},
+    geo_constants::*,
+    json_writer::{JsonWriter,NumFormat},
     pow2, signum, sin, sin2, sqrt, tan, BoundingBox, HALF_PI, PI, TWO_PI
 };
 
@@ -113,7 +114,7 @@ impl Cartographic {
         let r_self = earth_radius_at_geodetic_latitude( self.latitude) + self.height;
         let r_other = earth_radius_at_geodetic_latitude( other.latitude) + other.height;
 
-        ((r_self + r_other) / 2.0) * c 
+        ((r_self + r_other) / 2.0) * c
     }
 
     pub fn from_lon_lat_degrees_slice (a: &[(f64,f64)]) -> Vec<Cartographic> {
@@ -147,7 +148,7 @@ impl Cartographic {
 
         let mut i = 0;
         for p in poly.points_iter() {
-            if i < len { vs.push( Cartographic::from(p)) } 
+            if i < len { vs.push( Cartographic::from(p)) }
         }
         vs
     }
@@ -171,12 +172,6 @@ impl Cartographic {
     }
 }
 
-impl From<Cartographic> for (f64,f64,f64) {
-    fn from (p: Cartographic) -> Self {
-        (p.longitude_deg(), p.latitude_deg(), p.height)
-    }
-}
-
 pub fn geocentric_latitude (geodetic_latitude: f64) -> f64 {
     atan( tan(geodetic_latitude) * ONE_MINUS_E_EARTH_SQUARED)
 }
@@ -191,7 +186,7 @@ pub fn earth_radius_at_geodetic_latitude (geodetic_latitude: f64) -> f64 {
 
     let n = ((EQUATORIAL_EARTH_RADIUS_SQUARED * cos_φ).powi(2)) + ((POLAR_EARTH_RADIUS_SQUARED * sin_φ).powi(2));
     let d = ((EQUATORIAL_EARTH_RADIUS * cos_φ).powi(2)) + ((POLAR_EARTH_RADIUS * sin_φ).powi(2));
-    
+
     sqrt(n/d)
 }
 
@@ -219,7 +214,7 @@ pub fn mean_distance_rad (dist_meter: f64)->f64 {
 /// note this is just an approximation as the moment computation is based on the assumption that vertices lie on
 /// a spherical surface, not an ellipsoid
 pub fn approximate_surface_centroid (vertices: &[Cartographic])->Cartographic {
-    let avg_radius:f64 = vertices.iter().fold( 0.0, |acc,v| acc + earth_radius_at_geodetic_latitude(v.latitude) ) / vertices.len() as f64; 
+    let avg_radius:f64 = vertices.iter().fold( 0.0, |acc,v| acc + earth_radius_at_geodetic_latitude(v.latitude) ) / vertices.len() as f64;
     let vs: Vec<Cartesian3> = vertices.iter().map( |v| Cartesian3::from(v)).collect();
 
     let mut m = moment_of_spherical_poly(&vs); // this is assuming vertices are on spherical surface
@@ -238,7 +233,7 @@ fn moment_of_spherical_poly (vertices: &[Cartesian3])->Cartesian3 {
     for i in 0..n {
         let p1 = &vertices[i];
         let p2 = &vertices[ (i+1)%n ];
-        
+
         moment += p1.cross(p2).scaled_to_unit_length() * Cartesian3::angle_between(p1,p2) / 2.0;
     }
 
@@ -310,6 +305,12 @@ fn parallel_deg_per_meters_at (lat: f64, s: f64)->f64 {
     s / (111412.84 * cos(lat) - 93.5 * cos(lat * 3.0) + 0.118 * cos(lat * 5.0))
 }
 
+impl From<Cartographic> for (f64,f64,f64) {
+    fn from (p: Cartographic) -> Self {
+        (p.longitude_deg(), p.latitude_deg(), p.height)
+    }
+}
+
 impl From<Cartographic> for GeoPoint {
     fn from (p: Cartographic) -> Self {
         GeoPoint::from_lon_lat_degrees( p.longitude_deg(), p.latitude_deg())
@@ -319,6 +320,18 @@ impl From<Cartographic> for GeoPoint {
 impl From<&Cartographic> for GeoPoint {
     fn from (p: &Cartographic) -> Self {
         GeoPoint::from_lon_lat_degrees( p.longitude_deg(), p.latitude_deg())
+    }
+}
+
+impl From<GeoPoint3> for Cartographic {
+    fn from (p: GeoPoint3) -> Self {
+        Cartographic::from_degrees( p.longitude_degrees(), p.latitude_degrees(), p.altitude_meters())
+    }
+}
+
+impl From<&GeoPoint3> for Cartographic {
+    fn from (p: &GeoPoint3) -> Self {
+        Cartographic::from_degrees( p.longitude_degrees(), p.latitude_degrees(), p.altitude_meters())
     }
 }
 
@@ -376,7 +389,7 @@ impl From<&Cartesian3> for Cartographic {
         let a4 = 4.5577281365188637e+9;
         let a5 = 4.2840589930055659e+4;
         let a6 = 9.9330562000986220e-1;
-    
+
         let x = p.x;
         let y = p.y;
         let z = p.z;
@@ -387,19 +400,19 @@ impl From<&Cartesian3> for Cartographic {
         let z2 = z*z;
         let r2 = w2 + z2;
         let r = r2.sqrt();
-    
+
         if r >= 100000.0 {
             let lon = y.atan2(x);
             let s2 = z2 / r2;
             let c2 = w2 / r2;
             let mut u = a2 / r;
             let mut v = a3 - a4 / r;
-    
+
             let mut c = 0.0;
             let mut s = 0.0;
             let mut ss = 0.0;
             let mut lat = 0.0;
-    
+
             if c2 > 0.3 {
                 s = (zp/r)*(1.0 + c2*(a1 + u + s2*v)/r);
                 lat = s.asin();
@@ -419,16 +432,16 @@ impl From<&Cartesian3> for Cartographic {
             let f = c * u + s * v;
             let m = c * v - s * u;
             let p = m / (rf / g + f);
-    
+
             lat += p;
             let alt = f + m*p/2.0;
             if z < 0.0 { lat = -lat; }
-    
+
             Cartographic::new( lon, lat, alt)
-    
+
         } else {
             Cartographic::new( 0.0, 0.0, 0.0)
-        }    
+        }
     }
 }
 

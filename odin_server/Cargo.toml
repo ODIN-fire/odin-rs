@@ -14,7 +14,6 @@ bytes = { workspace = true }
 anyhow = { workspace = true }
 headers = { workspace = true }
 futures-util = { workspace = true }
-minify-html = "0.18"
 http = { workspace = true }
 http-body = "1.0.1"
 http-body-util = "0.1.3"

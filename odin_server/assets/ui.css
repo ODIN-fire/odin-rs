@@ -101,6 +101,7 @@ div.ui_window {
     border: var(--window-border);
     box-shadow: var(--window-shadow);
     background: var(--window-background);
+    user-select: none;
 }
 
 div.ui_window.spotlight {
@@ -372,6 +373,7 @@ div.ui_field_label {
     padding-right: 3px;
     text-align: right;
     vertical-align: middle;
+    align-content: center;
     line-height: var(--field-height);
     height: var(--field-height);
     white-space: pre;
@@ -398,6 +400,94 @@ input.ui_field.fixed {
 input.ui_field.num {
     text-align: right;
     font: var(--mono-font);
+}
+
+/* DTG entry */
+
+div.ui_dtg_entry {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    background: inherit;
+}
+
+div.ui_dtg_wrapper {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    background: var(--data-background);
+    border: var(--field-border);
+    height: var(--input-height);
+    color: var(--border-color);
+}
+
+input.ui_dtg_field {
+    font: var(--mono-font);
+    color: var(--field-value-color);
+    background: var(--data-background);
+    border: none;
+    text-align: center;
+    outline: none;
+    box-shadow: none;
+}
+
+input.ui_dtg_4 {
+    width: 4ch;
+}
+
+input.ui_dtg_2 {
+    width: 2ch;
+}
+
+div.ui_dtg_btn {
+    display: inline-block;
+    background: transparent;
+    width: 1.6rem;
+    text-align: center;
+}
+
+/* LocationEntry */
+
+div.ui_loc_entry {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    background: inherit;
+}
+
+div.ui_loc_wrapper {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    background: var(--data-background);
+    border: var(--field-border);
+    height: var(--input-height);
+    color: var(--border-color);
+}
+
+input.ui_loc_field {
+    font: var(--mono-font);
+    color: var(--field-value-color);
+    background: var(--data-background);
+    border: none;
+    text-align: right;
+    outline: none;
+    box-shadow: none;
+}
+
+input.ui_loc_lat_field {
+    width: 6rem;
+}
+
+input.ui_loc_lon_field {
+    width: 6rem;
+}
+
+div.ui_loc_btn {
+    display: inline-block;
+    background: transparent;
+    width: 1.6rem;
+    text-align: center;
 }
 
 /* table cell fields */
@@ -522,7 +612,6 @@ input.ui_field.input:hover {
 }
 */
 
-
 /* sliders */
 
 div.ui_slider {
@@ -618,7 +707,7 @@ div.ui_choice_value {
 
 div.ui_choice_value::before {
     display: inline-block;
-    color: var(--field-value-color);
+    color: var(--border-color);
     background: transparent;
     width: 1.5rem;
     height: 1rem;
@@ -755,7 +844,7 @@ div.ui_radio_label {
     background: var(--button-background);
     border: var(--button-border);
     border-radius: var(--button-border-radius);
-    margin: var(--margin);
+    /*margin: var(--margin);*/
     padding: 3px 5px 3x 5px;
 }
 
@@ -774,8 +863,9 @@ div.ui_radio_label {
     background: var(--button-background);
 }
 
-.ui_button:active {
+.ui_button.active {
     border: var(--button-border-pressed);
+    background: var(--button-hover-background);
     color: var(--button-color-pressed);
 }
 
@@ -1035,8 +1125,9 @@ div.ui_container {
 div.ui_container.bordered {
     display: inline-flex;
     border: var(--border);
-    background: var(--data-background);
+    background: transparent;
     margin: var(--margin);
+    padding: var(--container-gap);
     gap: 0;
 }
 

@@ -275,10 +275,10 @@ registerMouseClickHandler( globalMouseClickHandler); // global click
 console.log("ui_cesium initialized");
 
 // executed *after* all modules have been loaded and initialized (i.e. after any awaits they do during their init)
-export function postInitialize() {
+export async function postInitialize() {
     initModuleLayerViewData();
 
-    checkImagery(); // make sure we have a base layer (normally provided by imglayer.js)
+    await setImageryLayers(); // we can't do that before all modules have been initialized since promise resolving could change order of layers
 
     const credit = new Cesium.Credit('<a href="https://openstreetmap.org/" target="_blank">OpenStreetMap</a>');
     viewer.creditDisplay.addStaticCredit(credit);
@@ -291,7 +291,58 @@ export function postInitialize() {
     console.log("odin_cesium.postInitialize complete.");
 }
 
-//--- end initialization
+//--- imagery providers/layers
+
+var imagerySources = [];
+
+// this has to be called from client modules *before* they await any promises to ensure proper module load order (which controls layer visibility)
+export function registerImagerySource(modName, src) {
+    if (src.provider) {
+        if (!src.show) src.show = false;
+        src.layer = undefined;
+        imagerySources.push(src);
+    } else {
+        console.error("no provider for imagery source ", modName, src.pathName);
+    }
+}
+
+// make sure we add layers in order of registration, regardless if provider is a Promise or not
+async function setImageryLayers() {
+    viewer.imageryLayers.removeAll(false);
+
+    for (let i = 0; i < imagerySources.length; i++) {
+        let src = imagerySources[i];
+
+        let opts = { show: src.show }; // TODO - add other non-render opts here (rectangle, cutoutRectangle, max/minTerrainLevel, ..)
+        if (src.render) {
+            if (src.render.alphaColor) opts.colorToAlpha = Cesium.Color.fromCssColorString(src.render.alphaColor);
+            if (typeof src.render.alphaColorThreshold !== 'undefined') opts.colorToAlphaThreshold = src.render.alphaColorThreshold;
+        }
+
+        try {
+            let layer = src.provider.brightness ? src.provider : new Cesium.ImageryLayer( await Promise.resolve(src.provider), opts);
+            setLayerRendering( layer, src.render);
+            layer.show = src.show;
+            viewer.imageryLayers.add(layer);
+            src.layer = layer;
+            console.log("added imagery layer", src.pathName);
+
+        } catch (err) {
+            console.error("failed to load imagery layer", src.pathName, ":", err);
+        }
+    }
+}
+
+function setLayerRendering (layer,render) {
+    layer.alpha = render.alpha;
+    layer.brightness = render.brightness;
+    layer.contrast = render.contrast;
+    layer.hue = render.hue * Math.PI / 180.0;
+    layer.saturation = render.saturation;
+    layer.gamma = render.gamma;
+}
+
+//--- WebGL/color
 
 function showContext() {
     let canvas = viewer.canvas;
@@ -300,6 +351,33 @@ function showContext() {
     console.log("webGL extensions: ", gl.getSupportedExtensions());
     console.log("clamp-to-height supportet:", scene.clampToHeightSupported);
     console.log("logarithmic depth buffer:", scene.logarithmicDepthBuffer, ", far/near ratio:", scene.logarithmicDepthFarToNearRatio);
+}
+
+export function getWebGL2Context() {
+    return viewer.scene.getContext("webgl2");
+}
+
+export function withSceneColor(x, y, callback) {
+
+    const probeColor = function (scene, time) {
+        let gl = scene.canvas.getContext('webgl2');
+        if (gl) {
+            let pixBuf = new Uint8Array(4);
+
+            gl.readPixels( x, gl.drawingBufferHeight - y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixBuf);
+
+            let r = pixBuf[0];
+            let g = pixBuf[1];
+            let b = pixBuf[2];
+            let clr = Cesium.Color.fromBytes(r, g, b);
+
+            callback(clr);
+        }
+
+        scene.postRender.removeEventListener(probeColor);
+    };
+
+    viewer.scene.postRender.addEventListener(probeColor);
 }
 
 //--- terrain handling
@@ -386,16 +464,6 @@ function handleTerrainChange() {
 }
 
 //--- imagery
-
-function checkImagery() {
-    if (viewer.imageryLayers.length == 0) {
-        console.log("no imglayer configured, using default imagery");
-        const imageryProvider = Cesium.ImageryLayer.fromWorldImagery({
-            style: Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS
-        });
-        viewer.imageryLayers.add(imageryProvider);
-    }
-}
 
 function initViewWindow() {
     createViewWindow();

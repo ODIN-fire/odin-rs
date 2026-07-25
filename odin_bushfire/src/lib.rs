@@ -25,7 +25,7 @@ use odin_macro::public_struct;
 use serde::{Serialize,Deserialize};
 use serde_json::{self, value::{Value as JsonValue}};
 use reqwest::Client;
-use geojson::{GeoJson,Value,FeatureCollection,Feature,Geometry};
+use geojson::{GeoJson,GeometryValue,FeatureCollection,Feature,Geometry};
 use geo::{Polygon, MultiPolygon, Centroid, Geometry as GeoGeometry};
 use strum::AsRefStr;
 use uom::si::{length::meter,length::kilometer,area::hectare,f64::{Length,Area}};
@@ -220,11 +220,11 @@ pub fn cleanup_feature_properties (features: &mut Vec<Feature>) {
 pub fn get_centroid (geometry: &Geometry) -> Result<GeoPoint3> {
     let geo_val = &geometry.value;
     match *geo_val {
-        Value::Polygon(_) => {
+        GeometryValue::Polygon { coordinates: _ } => {
             let poly: Polygon<f64> = geo_val.try_into()?;
             Ok( GeoPoint3::from_point_alt_meters( poly.centroid().ok_or( op_failed!("invalid polygon"))?, 0.0) )
         }
-        Value::MultiPolygon(_) => {
+        GeometryValue::MultiPolygon { coordinates: _ } => {
             let multi_poly: MultiPolygon<f64> = geo_val.try_into()?;
             Ok( GeoPoint3::from_point_alt_meters( multi_poly.centroid().ok_or( op_failed!("invalid multi-polygon"))?, 0.0) )
         }

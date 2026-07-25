@@ -1,0 +1,76 @@
+&INPUTS
+FUELS_AND_TOPOGRAPHY_DIRECTORY = '{{ input_dir }}'
+ASP_FILENAME      = 'asp'
+CBD_FILENAME      = 'cbd'
+CBH_FILENAME      = 'cbh'
+CC_FILENAME       = 'cc'
+CH_FILENAME       = 'ch'
+DEM_FILENAME      = 'dem'
+FBFM_FILENAME     = 'fbfm40'
+SLP_FILENAME      = 'slp'
+ADJ_FILENAME      = 'adj'
+PHI_FILENAME      = 'phi'
+DT_METEOROLOGY    = {{ wx_dt_secs }}
+WEATHER_DIRECTORY = '{{ input_dir }}'
+WS_AT_10M         = .TRUE.
+WS_FILENAME       = 'ws'
+WD_FILENAME       = 'wd'
+M1_FILENAME       = 'm1'
+M10_FILENAME      = 'm10'
+M100_FILENAME     = 'm100'
+USE_CONSTANT_LH   = .FALSE.
+MLH_FILENAME      = 'lh'
+USE_CONSTANT_LW   = .FALSE.
+MLW_FILENAME      = 'lw'
+/
+
+&OUTPUTS
+OUTPUTS_DIRECTORY    = '{{ output_dir }}'
+DTDUMP               = {{ t_report_secs }}
+DUMP_TRANSIENT_ACREAGE = .TRUE.
+DUMP_FLIN            = .TRUE.
+DUMP_SPREAD_RATE     = .TRUE.
+DUMP_TIME_OF_ARRIVAL = .TRUE.
+DUMP_CROWN_FIRE      = .TRUE.
+DUMP_SURFACE_FIRE    = .TRUE.
+DUMP_FLAME_LENGTH    = .TRUE.
+DUMP_HPUA            = .TRUE.
+CONVERT_TO_GEOTIFF   = .TRUE.
+/
+
+&MISCELLANEOUS
+SCRATCH = '{{ scratch_dir }}'
+/
+
+&COMPUTATIONAL_DOMAIN
+A_SRS = 'EPSG:{{ epsg }}'
+COMPUTATIONAL_DOMAIN_CELLSIZE  = {{ lf_res_m }}
+COMPUTATIONAL_DOMAIN_XLLCORNER = {{ x_min }}
+COMPUTATIONAL_DOMAIN_YLLCORNER = {{ y_min }}
+/
+
+&TIME_CONTROL
+SIMULATION_DT     = 1.0
+TARGET_CFL        = 0.2
+SIMULATION_TSTART = {{ t_start_secs }}
+SIMULATION_TSTOP  = {{ t_stop_secs }}
+/
+
+{% if let Some(spotting) = spotting %}
+&SPOTTING
+{{ spotting | safe }}
+/
+{% endif %}
+
+&MONTE_CARLO
+NUM_METEOROLOGY_TIMES = {{ n_steps }}
+/
+
+&SIMULATOR
+NUM_IGNITIONS = {{ num_ignitions }}
+{% for ign in ignitions %}
+T_IGN({{ loop.index }}) = {{ ign.0 }}
+X_IGN({{ loop.index }}) = {{ ign.1 }}
+Y_IGN({{ loop.index }}) = {{ ign.2 }}
+{% endfor %}
+/

@@ -91,7 +91,7 @@
     /* containers */
     --container-title-font: var(--font);
     --container-title-color: var(--color);
-    --container-title-border: 1px solid var(--border-color); 
+    --container-title-border: 1px solid var(--border-color);
     --container-border: var(--border);
     /* scrollbars */
     --scrollbar-track-width: 0.7rem;
@@ -128,7 +128,7 @@
     --button-color: rgb(200, 200, 200);
     --button-hover-color: rgb(230, 230, 230);
     --button-background: rgb(62, 59, 122);
-    --button-hover-background: rgb(56, 56, 101);
+    --button-hover-background: rgb(100, 90, 200);
     --button-border: 3px groove rgb(50,50,50); /*var(--border-color); */
     --button-hover-border: var(--button-border);
     --button-border-radius: 0px;
@@ -198,4 +198,10 @@
     --document-background: black;
     /* scale */
     --scale-color: rgb(0, 255, 0);
+}
+
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"] {
+    color-scheme: dark;
 }

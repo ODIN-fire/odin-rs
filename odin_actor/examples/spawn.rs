@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -43,26 +43,26 @@ impl Spawner {
     }
 }
 
-impl_actor! { match msg for Actor<Spawner,SpawnerMsg> as 
-    _Start_ => cont! { 
+impl_actor! { match msg for Actor<Spawner,SpawnerMsg> as
+    _Start_ => cont! {
         if let Ok(timer) = self.start_repeat_timer( 1, millis(1000), false) {
             self.timer = Some(timer);
             println!("started timer");
         }
     }
-    _Timer_ => cont! { 
+    _Timer_ => cont! {
         self.count += 1;
         println!("tick {}", self.count);
-        if self.count > 15 { 
+        if self.count > 15 {
             println!("spawner had enough, terminating..");
-            self.request_termination(millis(500)).await; 
+            self.request_termination(millis(500)).await;
         }
     }
     Spawn => cont! {
         let hself = self.hself.clone();
         let max_cycles = 5;
 
-        if let Ok(join_handle) = spawn( "spawner-task", 
+        if let Ok(join_handle) = spawn( "spawner-task",
             async move {
                 let result = Spawner::run_task(max_cycles).await;
                 hself.send_msg( DataAvailable(result)).await;
@@ -75,7 +75,7 @@ impl_actor! { match msg for Actor<Spawner,SpawnerMsg> as
         println!("got {:?}", msg)
     }
     _Terminate_ => stop! {
-        if let Some(timer) = &self.timer { 
+        if let Some(timer) = &self.timer {
             timer.abort();
             self.timer = None;
         }
@@ -90,7 +90,8 @@ impl_actor! { match msg for Actor<Spawner,SpawnerMsg> as
 
 #[tokio::main]
 async fn main ()->Result<()> {
-    let mut actor_system = ActorSystem::new("main");
+    //let mut actor_system = ActorSystem::new("main");
+    let mut actor_system = ActorSystem::with_env_tracing("main");
 
     let spawner = spawn_actor!( actor_system, "spawner", Spawner::new())?;
 

@@ -20,10 +20,6 @@ name = "crop_nodata"
 path = "src/bin/crop_nodata.rs"
 
 [dependencies]
-odin_common = { workspace = true }
-thiserror = { workspace = true }
-serde = { workspace = true }
-
 gdal-sys = { workspace = true }
 gdal = { workspace = true }
 
@@ -36,7 +32,34 @@ ndarray = { workspace = true }
 trait-set = { workspace = true }
 regex = { workspace = true }
 num = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ron = { workspace = true }
+reqwest = { workspace = true }
+axum = { workspace = true }
+http = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+image = { workspace = true }
+imageproc = { workspace = true }
+
+tokio = { workspace = true }
+tokio-util = { workspace = true }
 
 static_init = "1.0.4"
 libc = "0.2.175"
 meshgridrs = "0.1.1"
+tdigest = "1.0"
+
+
+odin_build = { workspace = true }
+odin_common = { workspace = true }
+odin_image = { workspace = true }
+odin_server = { workspace = true }
+
+[features]
+## inline crate-specific resources (configs and assets) into the executable (see odin_build)
+embedded_resources = []
+trace_server = []

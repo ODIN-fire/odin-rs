@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -62,7 +62,7 @@ impl ServerConfig {
     }
 }
 
-#[derive(Deserialize,Serialize,Debug)]
+#[derive(Deserialize,Serialize,Debug,Clone)]
 pub struct TlsConfig {
     pub cert_path: String, // path to PEM encoded certificate
     pub key_path: String,  // path to PEM encoded key data
@@ -79,7 +79,7 @@ fn build_ok_response (content_type: &str, encoding: Option<&str>, bytes: Bytes)-
     let mut builder = Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", content_type);
- 
+
     if let Some(enc) = encoding {
         builder = builder.header("Content-Encoding", enc);
     }
@@ -101,7 +101,7 @@ pub fn spawn_server_task (config: &ServerConfig, router: Router) -> JoinHandle<(
     } else {
         tokio::spawn( async move {
             let listener = tokio::net::TcpListener::bind(sock_addr).await.unwrap();
-            axum::serve( listener, router_svc).await.unwrap();    
+            axum::serve( listener, router_svc).await.unwrap();
         })
     }
 }
@@ -111,34 +111,32 @@ pub fn spawn_server_task (config: &ServerConfig, router: Router) -> JoinHandle<(
 const STREAM_SIZE: u64 = 65535;
 
 /// this can be used from a handler that returns a (potentially large) file exposing its filename (but not path)
-pub async fn file_response<P: AsRef<Path>> (path: &P, with_content_disposition: bool) -> impl IntoResponse {
-    if_let! {
-        Some(fname) = { fs::filename( path) } else { (AxStatusCode::BAD_REQUEST, HeaderMap::new(), Body::from("invalid name")) },
-        true = { path.as_ref().is_file() } else { (AxStatusCode::NOT_FOUND, HeaderMap::new(), Body::empty()) },
-        Some(mime_type) = { net::mime_type_for_path( path) } else { (AxStatusCode::BAD_REQUEST, HeaderMap::new(), Body::from("unsupported mime type")) },
-        Some(flen) = { fs::file_length(path) } else { (AxStatusCode::NO_CONTENT, HeaderMap::new(), Body::from("file empty")) } => {
+pub async fn file_response<P: AsRef<Path>> (path: P, with_content_disposition: bool) -> impl IntoResponse {
+    if !path.as_ref().is_file() { return (AxStatusCode::NOT_FOUND, HeaderMap::new(), Body::empty()) }
 
-            let mut headers = HeaderMap::new();
-            headers.insert( header::CONTENT_TYPE, mime_type.parse().unwrap());
-            if with_content_disposition {
-                headers.insert( header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", fname).parse().unwrap());
-            }
+    let Some(fname) = fs::filename( &path) else { return (AxStatusCode::BAD_REQUEST, HeaderMap::new(), Body::from("invalid name")) };
+    let Some(mime_type) = net::mime_type_for_path( &path) else { return (AxStatusCode::BAD_REQUEST, HeaderMap::new(), Body::from("unsupported mime type")) };
+    let Some(flen) = fs::file_length(&path) else { return (AxStatusCode::NO_CONTENT, HeaderMap::new(), Body::from("file empty")) };
 
-            if flen < STREAM_SIZE {
-                if let Ok(data) = fs::filepath_contents(path) {
-                    let body = Body::from(data);
-                    (AxStatusCode::OK, headers, body)
+    let mut headers = HeaderMap::new();
+    headers.insert( header::CONTENT_TYPE, mime_type.parse().unwrap());
+    if with_content_disposition {
+        headers.insert( header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", fname).parse().unwrap());
+    }
 
-                } else { (AxStatusCode::INTERNAL_SERVER_ERROR, HeaderMap::new(), Body::empty()) }
-            } else {
-                if let Ok(file) = tokio::fs::File::open( path).await {
-                    let stream = ReaderStream::new(file);
-                    let body = Body::from_stream(stream);
-                    (AxStatusCode::OK, headers, body)
+    if flen < STREAM_SIZE {
+        if let Ok(data) = fs::filepath_contents(path) {
+            let body = Body::from(data);
+            (AxStatusCode::OK, headers, body)
 
-                } else { (AxStatusCode::INTERNAL_SERVER_ERROR, HeaderMap::new(), Body::empty()) }
-            }
-        }
+        } else { (AxStatusCode::INTERNAL_SERVER_ERROR, HeaderMap::new(), Body::empty()) }
+    } else {
+        if let Ok(file) = tokio::fs::File::open( path).await {
+            let stream = ReaderStream::new(file);
+            let body = Body::from_stream(stream);
+            (AxStatusCode::OK, headers, body)
+
+        } else { (AxStatusCode::INTERNAL_SERVER_ERROR, HeaderMap::new(), Body::empty()) }
     }
 }
 

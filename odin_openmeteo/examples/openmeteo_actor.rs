@@ -2,7 +2,7 @@ use std::sync::Arc;
 use odin_common::{define_cli, geo::GeoRect, datetime::{hours}, vec_boxed};
 use odin_actor::prelude::*;
 use odin_wx::{WxService,WxFileAvailable};
-use odin_openmeteo::{load_config, OpenMeteoService, actor::OpenMeteoActor, OpenMeteoConfig};
+use odin_openmeteo::{load_config, wx_service::OpenMeteoService, actor::OpenMeteoActor, OpenMeteoConfig};
 
 define_cli! { ARGS [about="OpenMeteo download example using OpenMeteoActor"] =
     region: String [help="name of geo region to retrieve wx forecasts for"],

@@ -22,9 +22,8 @@ use odin_actor::{error,debug,warn,info};
 use odin_common::{collections::RingDeque,fs::remove_old_files, datetime::{hours, minutes, utc_now}};
 use uom::si::time::minute;
 
-use crate::{update_station_nfdrs_obs, update_station_weather_obs};
 use crate::{
-    CACHE_DIR, FemsConfig, FemsStation, FemsStore, get_stations, errors::{Result}
+    CACHE_DIR, FemsConfig, FemsStation, FemsStore, errors::{Result}
 };
 
 #[derive(Debug)] pub struct ExecSnapshotAction( pub DynDataRefAction<FemsStore> );
@@ -56,7 +55,12 @@ impl <I,U> FemsActor <I,U>
 
     async fn initialize (&mut self, hself: ActorHandle<FemsActorMsg>)->Result<()> {
         // do initial update and slot exec here
-        self.store = get_stations( &self.client, &self.config).await?;
+        let mut store = FemsStore::retrieve_configured_store( &self.client, &self.config).await?;
+        info!("retrieving data for configured FEMS store..");
+        store.retrieve_current_obs( &self.client, &self.config.url, &self.config.region, self.config.forecast_hours).await?;
+        info!("done ({} stations)", store.len());
+        self.store = store;
+
         self.init_action.execute( &self.store).await;
 
         // periodically check (we use polling instead of a direct schedule since we might monitor an open number of stations with retry)
@@ -76,7 +80,7 @@ impl <I,U> FemsActor <I,U>
             let (last_date, start) = if let Some(last_date) = station.obs_date() {
                 ( last_date, (last_date + station.tx_frequency).with_second(0).unwrap() )
             } else { // we don't have an observation yet - compute the last scheduled date
-                let mut sched_date = now.with_minute(station.tx_time.minute()).unwrap().with_second(0).unwrap();
+                let mut sched_date = now.with_minute(station.tx_minute).unwrap().with_second(0).unwrap();
                 if sched_date > now { sched_date = sched_date - station.tx_frequency; }
                 (DateTime::<Utc>::MIN_UTC, sched_date)
             };
@@ -86,24 +90,13 @@ impl <I,U> FemsActor <I,U>
                 // (we could get the position from weather_obs)
 
                 let start = start - station.tx_frequency; // make sure we get at least one observation
-                match update_station_weather_obs( &self.client, &self.config, station, start).await {
+                match station.update_obs( &self.client, &self.config.url, self.config.forecast_hours, start).await {
                     Ok(()) => {
-                        let date = station.obs_date().unwrap_or( DateTime::<Utc>::MIN_UTC);
-                        if date > last_date {
-                            if let Err(e) = update_station_nfdrs_obs( &self.client, &self.config, station, start).await {
-                                eprintln!("error updating NFDRS data for station {}: {}", station.id, e);
-                            }
-
-                            if let Err(e) = self.update_action.execute( station).await {
-                                eprintln!("failed to execute update action for station {}: {:?}", station.id, e);
-                            }
-                        } else { // this might still update station but we don't report it as there is no new observation
-                            //println!("   @@@ no new weather obs for station {}: {} ? {}", station.id, date, last_date );
+                        if let Err(e) = self.update_action.execute( station).await {
+                            eprintln!("failed to execute update action for station {}: {:?}", station.id, e);
                         }
                     }
-                    Err(e) => {
-                        eprintln!("error updating weather data for station {}: {}", station.id, e);
-                    }
+                    Err(e) => { eprintln!("error updating weather data for station {}: {}", station.id, e); }
                 }
             }
         }

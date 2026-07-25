@@ -1,5 +1,6 @@
 OpenMeteoConfig(
-    data_url: "https://api.open-meteo.com/v1/forecast",
+    forecast_url: "https://api.open-meteo.com/v1/forecast",
+    archive_url: "https://archive-api.open-meteo.com/v1/archive",
     meta_url: "https://api.open-meteo.com/data",
 
     initial_delay: Duration( secs: 600, nanos: 0), // wait 10min before scheduled download attempt (this is on top of the OpenMetMetadata availability)

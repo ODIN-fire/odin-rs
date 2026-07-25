@@ -13,7 +13,7 @@
  */
 #![allow(unused)]
 
-use std::{boxed, collections::HashMap, sync::Arc, ops::{Deref,DerefMut}, 
+use std::{boxed, collections::HashMap, sync::Arc, ops::{Deref,DerefMut},
     net::SocketAddr, future::{Future,ready}, time::SystemTime,
     path::{PathBuf}, any::type_name, fmt::Write,
     result::Result, error::Error
@@ -27,7 +27,7 @@ use axum::{
     },
     http::{HeaderMap, StatusCode, Uri},
     response::{Html, IntoResponse, Response},
-    middleware::map_request, 
+    middleware::map_request,
     routing::{get,options,head},
     handler::Handler,
     Router,ServiceExt
@@ -66,8 +66,8 @@ const HEARTBEAT_TIMER_ID: i64 = 1;
 pub trait SpaService: Send + Sync + 'static {
 
     /// used to identify this service on the client side
-    fn mod_path()->&'static str where Self: Sized { 
-        type_name::<Self>() 
+    fn mod_path()->&'static str where Self: Sized {
+        type_name::<Self>()
     }
 
     fn get_mod_path(&self)->&str {
@@ -107,7 +107,7 @@ pub trait SpaService: Send + Sync + 'static {
     /// called from within the server task. Override if service processes incomingg websocket message.
     /// Although we pass in hself and hence services could send SendWsMsg/BroadcastWsMsg messages to respond we also
     /// use a result type that can bypass additional messages since this is already executing in the SpaServer actor task
-    async fn handle_ws_msg (&mut self, 
+    async fn handle_ws_msg (&mut self,
         hself: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr, ws_msg_parts: &WsMsgParts
     ) -> OdinServerResult<WsMsgReaction> {
         Ok( WsMsgReaction::None )
@@ -169,8 +169,8 @@ impl SpaServiceList {
     pub fn new ()->Self { SpaServiceList{seen: Vec::new(), services: Vec::new()} }
 
     /// this is the version for infallible service ctor construction
-    pub fn add<F,T> (self, svc_ctor: F)->Self 
-        where F: FnOnce()->T, T: SpaService + 'static 
+    pub fn add<F,T> (self, svc_ctor: F)->Self
+        where F: FnOnce()->T, T: SpaService + 'static
     {
         let name = type_name::<T>();
         if !self.seen.contains(&name) {
@@ -190,8 +190,8 @@ impl SpaServiceList {
     /// use this if the service ctor construction can fail (use the ? operator on the call result)
     /// (alternatively you can use the capture variable section of the build_service! macro to instantiate fallible parts
     /// if it can be evaluated at the point of the add() call)
-    pub fn try_add<F,T,E> (self, svc_ctor: F)->OdinServerResult<Self> 
-        where F: FnOnce()->std::result::Result<T,E>, T: SpaService + 'static, E: std::error::Error 
+    pub fn try_add<F,T,E> (self, svc_ctor: F)->OdinServerResult<Self>
+        where F: FnOnce()->std::result::Result<T,E>, T: SpaService + 'static, E: std::error::Error
     {
         let name = type_name::<T>();
         if !self.seen.contains(&name) {
@@ -315,7 +315,7 @@ impl SpaServer {
             }
         }
 
-        // create the http_client once 
+        // create the http_client once
         let http_client = self.create_cached_client();
         let proxies = Arc::new(comps.proxies);  // used in mutiple handlers so we have to make it shareable
         let proxy_url = format!("/{}/proxy/{{*unmatched}}", self.name);
@@ -325,7 +325,7 @@ impl SpaServer {
             .route( &proxy_url, options( proxy_handler!( http_client, proxies)))
             .route( &proxy_url, head( proxy_handler!( http_client, proxies)))
             .route( &proxy_url, get( proxy_handler!( http_client, proxies)))
-            // TODO shall we also support POST ? 
+            // TODO shall we also support POST ?
 
             // 'key' is the owning crate
             .route( &format!("/{}/asset/{{key}}/{{*unmatched}}", self.name), get({
@@ -344,7 +344,7 @@ impl SpaServer {
         let mode = CacheMode::Default;
         let manager = CACacheManager::new( odin_build::cache_dir().join("proxies"), true);
         let options = HttpCacheOptions::default();
-        
+
         ClientBuilder::new(Client::new())
             .with( Cache( HttpCache {mode, manager, options}))
             .build()
@@ -448,7 +448,7 @@ impl SpaServer {
         self.connections.remove(&remote_addr);
         println!("connection removed: {remote_addr:?} ({})", self.connections.len());
 
-        for svc in self.services.iter_mut() { 
+        for svc in self.services.iter_mut() {
             svc.service.remove_connection( &hself, &remote_addr).await?;
         }
 
@@ -491,9 +491,9 @@ impl SpaServer {
                     stringify!("reinitialize") => self.reinitialize_svc(hself, remote_addr, ws_msg_parts.mod_path).await?,
                     _ => {} // nothing else yet
                 }
-                
+
             } else { // this is a service specific application message - dispatch to each service to see if they want to process it
-                // this is ugly - we have to sequentialize the service loop and the response processing so that we don't keep the mutable self borrow open, 
+                // this is ugly - we have to sequentialize the service loop and the response processing so that we don't keep the mutable self borrow open,
                 // which would prohibit to call broadcast_/send_ws_msg(&mut self,...). The nested loops are just a way to avoid heap allocating the results
                 let mut i = 0;
                 let n = self.services.len();
@@ -587,7 +587,7 @@ impl SpaServer {
         }
 
         if let Some(jh) = &self.server_task {
-            for svc in self.services.iter_mut() { 
+            for svc in self.services.iter_mut() {
                 svc.service.terminate_service();
             }
 
@@ -963,7 +963,7 @@ impl SpaComponents {
 
             write!( buf, "<script type=\"module\">\n");
 
-            // note that Safari 18.6 has a bug that does not properly resolve the module imports (Promise.all fires prematurely) 
+            // note that Safari 18.6 has a bug that does not properly resolve the module imports (Promise.all fires prematurely)
 
             write!( buf, "const modulePromises=[");
             for i in 0..module_uris.len() {
@@ -987,9 +987,9 @@ impl SpaComponents {
             write!( buf, "console.log('post-initializing', modulePromises.length, 'modules...');\n");
 
             //for mod_name in &mod_names { write!( buf, "console.log('@@ mod ',{mod_name});\n"); }
-           
+
             for mod_name in mod_names.iter() {
-                write!( buf, "  if (typeof {mod_name}.postInitialize === 'function') {{ try {{ {mod_name}.postInitialize(); }} catch (e) {{ console.error('error during postInitialize:', e);}} }}\n");
+                write!( buf, "  if (typeof {mod_name}.postInitialize === 'function') {{ try {{ await {mod_name}.postInitialize(); }} catch (e) {{ console.error('error during postInitialize:', e);}} }}\n");
             }
 
             write!( buf, "console.log('post-initializing',  modulePromises.length, 'modules finished.');\n");

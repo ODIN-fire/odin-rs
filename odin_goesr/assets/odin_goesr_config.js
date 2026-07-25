@@ -2,7 +2,7 @@ export const config = {
     layer: {
       name: "/fire/detection/GOES-R",
       description: "GOES-R ABI Fire / Hotspot Characterization",
-      show: true,
+      show: false,
     },
     maxMissingMin: 15,
     pixelLevel: 'all',

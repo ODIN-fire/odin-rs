@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -16,10 +16,14 @@
 
 /// classic image processing module of ODIN
 /// this mostly wraps and extends the external 'image' crate (and related)
- 
+
 use std::{fs::File, io::{Read, Write}, ops::{Deref,Add, Div, Mul, Sub}, path::{Path,PathBuf}};
 use flate2::{write::{GzEncoder,DeflateEncoder}, Compression};
-use image::{self, imageops::{blur_advanced, FilterType, GaussianBlurParameters}, DynamicImage, EncodableLayout, GenericImage, GenericImageView, GrayImage, ImageBuffer, Luma, Pixel, Primitive, Rgb, RgbImage, Rgba, RgbaImage, SubImage
+use image::{
+    self,
+    imageops::{ blur_advanced, FilterType, GaussianBlurParameters },
+    DynamicImage, EncodableLayout, GenericImage, GenericImageView,
+    GrayImage, ImageBuffer, Luma, Pixel, Primitive, Rgb, RgbImage, Rgba, RgbaImage, SubImage
 };
 use image_compare::{self, Algorithm, CompareError, Metric, Similarity};
 //use miniz_oxide::deflate::compress_to_vec;
@@ -60,8 +64,8 @@ pub struct Stats<T> {
     pub n: usize
 }
 
-impl <T> Stats<T> 
-    where T: Add<T,Output=T> + Sub<T,Output=T> + Div<T,Output=T> + Mul<T,Output=T> + 
+impl <T> Stats<T>
+    where T: Add<T,Output=T> + Sub<T,Output=T> + Div<T,Output=T> + Mul<T,Output=T> +
              Bounded + PartialOrd + PartialEq + Zero + Into<f64> + Copy
 {
     pub fn new ()->Self {
@@ -120,7 +124,7 @@ pub fn check_equal_regions (sub1: &SubImage<&DynamicImage>, sub2: &SubImage<&Dyn
 pub fn open_diff_image_pair<P> (path1: P, path2: P)->Result<(DynamicImage,DynamicImage)> where P: AsRef<Path> {
     let img1 = image::open(path1)?;
     let img2 = image::open(path2)?;
-    if img1.dimensions() == img2.dimensions() { 
+    if img1.dimensions() == img2.dimensions() {
         Ok( (img1, img2) )
     } else {
         Err( OdinImageError::InvalidDimensions("images have different dimensions".into()))
@@ -363,12 +367,12 @@ pub fn get_grid_dim (img: &DynamicImage, tile_width: u32, tile_height: u32, frac
     if fractional_tiles {
         if (w % tile_width) > 0 { nx += 1 }
         if (h % tile_height) > 0 { ny += 1 }
-    }  
+    }
 
     (nx,ny)
 }
 
-pub fn process_subimage_tiles_mut<F> (img: &mut DynamicImage, tile_width: u32, tile_height: u32, fractional_tiles: bool, mask: Option<&Mask>, mut f: F)->Result<()> 
+pub fn process_subimage_tiles_mut<F> (img: &mut DynamicImage, tile_width: u32, tile_height: u32, fractional_tiles: bool, mask: Option<&Mask>, mut f: F)->Result<()>
     where F: FnMut(&mut SubImage<&mut DynamicImage>, (usize,usize))
 {
     let (w,h) = img.dimensions();
@@ -388,7 +392,7 @@ pub fn process_subimage_tiles_mut<F> (img: &mut DynamicImage, tile_width: u32, t
 }
 
 
-pub fn process_subimage_tiles<F> (img: &DynamicImage, tile_width: u32, tile_height: u32, fractional_tiles: bool, mask: Option<&Mask>, mut f: F)->Result<()> 
+pub fn process_subimage_tiles<F> (img: &DynamicImage, tile_width: u32, tile_height: u32, fractional_tiles: bool, mask: Option<&Mask>, mut f: F)->Result<()>
     where F: FnMut(&SubImage<&DynamicImage>, (usize,usize))
 {
     let (w,h) = img.dimensions();
@@ -554,8 +558,8 @@ pub fn avg_horizontal_brenner_focus (img: &SubImage<&mut DynamicImage>)->f32 {
 
     for x in 0..w {
         for y in 0..h-2 {
-            let l = img.get_pixel(x, y).to_luma().0[0];  // TODO - does this incur cost if the image is already in Luma ? 
-            let l2 = img.get_pixel(x,y+2).to_luma().0[0]; 
+            let l = img.get_pixel(x, y).to_luma().0[0];  // TODO - does this incur cost if the image is already in Luma ?
+            let l2 = img.get_pixel(x,y+2).to_luma().0[0];
             let diff = l2 - l;
             let diff2 = diff*diff;
 
@@ -563,7 +567,7 @@ pub fn avg_horizontal_brenner_focus (img: &SubImage<&mut DynamicImage>)->f32 {
         }
     }
 
-    (focus / (w * (h-2)) as f64) as f32  // average focus 
+    (focus / (w * (h-2)) as f64) as f32  // average focus
 }
 
 /* #endregion focus */
@@ -571,9 +575,9 @@ pub fn avg_horizontal_brenner_focus (img: &SubImage<&mut DynamicImage>)->f32 {
 /* #region fractal dimension ***********************************************************************************************/
 
 /// this implements estimation of a fractal dimension metric according to "Smoke detection in images through fractal dimension-based binary classification"
-/// Javier Del-Pozo-Velázquez et al, Digital Signal Processing Vol 166 (Nov 2025) 
+/// Javier Del-Pozo-Velázquez et al, Digital Signal Processing Vol 166 (Nov 2025)
 /// https://www.sciencedirect.com/science/article/pii/S1051200425003689
-/// While it does show enough sensitivity to smoke against ground for differential analysis it does not handle sky well (the oauthors just cropped sky) 
+/// While it does show enough sensitivity to smoke against ground for differential analysis it does not handle sky well (the oauthors just cropped sky)
 /// hence this should be used with a horizon line that removes the sky
 /// Note this requires a regular ImageBuffer and does not work with SubImages since we need a contiguous data array for compression efficiency.
 /// This means this method is both CPU and memory intensive
@@ -594,7 +598,7 @@ pub fn fractal_dim (img: &DynamicImage, s_min: f32)->Result<f32> {
         let sz = compressed_size( &s_img);
 
         scales.push( (s * 10 as f32).log2());
-        sizes.push( (sz as f32).log2()); 
+        sizes.push( (sz as f32).log2());
 
         s += 0.1;
     }
@@ -677,7 +681,7 @@ pub fn compressed_sub_size (sub: &SubImage<&DynamicImage>) -> usize {
 /// note this is only a coarse approximation of difference that requires tiles to be large enough to compare complexity
 /// it can be used to detect changes in uniform color areas
 /// othewise the (significantly more expensive) fractal dimension analysis is a better metric for complexity
-pub fn get_tiled_comp (img: &DynamicImage, tile_width: u32, tile_height: u32, fractional_tiles: bool, mask: Option<&Mask>) -> Result<TileData<u32>>  
+pub fn get_tiled_comp (img: &DynamicImage, tile_width: u32, tile_height: u32, fractional_tiles: bool, mask: Option<&Mask>) -> Result<TileData<u32>>
 {
     let (nx, ny) = get_grid_dim( img, tile_width, tile_height, fractional_tiles);
     let mut comp_data: TileData<u32> = TileData::new( nx, ny);
@@ -753,7 +757,7 @@ pub fn hsv_horizon_line (img: &DynamicImage, offset: u32, y_dist: u32, v_diff: f
             let y0 = if y > y1 { y - y_dist } else { offset } as usize;
 
             // we look for dV < CV or dS > CS conditions
-            if (v - (v_col[y0]) < v_diff) || ((s - s_col[y0]) > s_diff) { 
+            if (v - (v_col[y0]) < v_diff) || ((s - s_col[y0]) > s_diff) {
                 horizon[x as usize] = y;
                 continue 'outer;
             }
@@ -775,10 +779,10 @@ pub fn offset_horizon (horizon: &mut Vec<u32>, offset: i32, min_horizon: u32, ma
 
     for i in 0..horizon.len() {
         let mut y = horizon[i] as i32 + offset;
-        if y < min_horizon { 
-            y = min_horizon; 
-        } else if y > max_horizon { 
-            y = max_horizon; 
+        if y < min_horizon {
+            y = min_horizon;
+        } else if y > max_horizon {
+            y = max_horizon;
         }
         horizon[i] = y as u32;
     }
@@ -834,7 +838,7 @@ pub fn load_horizon<P> (path: P)->Result<Vec<u32>> where P: AsRef<Path> {
 
 pub fn load_checked_horizon<P> (path: P, width: u32)->Result<Vec<u32>> where P: AsRef<Path> {
     let horizon = load_horizon(path)?;
-    if horizon.len() == width as usize { 
+    if horizon.len() == width as usize {
         Ok( horizon )
     } else {
         Err( OdinImageError::InvalidDimensions("incompatible horizon data".into()))
@@ -844,10 +848,10 @@ pub fn load_checked_horizon<P> (path: P, width: u32)->Result<Vec<u32>> where P: 
 /// load horizon from file or fall back to computing it from image and given parameters
 /// if horizon is loaded from file check against image width
 pub fn get_horizon<P> (
-    horizon_file: Option<&P>, 
-    img: &DynamicImage, 
+    horizon_file: Option<&P>,
+    img: &DynamicImage,
     top_margin: u32, y_dist: u32, v_diff: f32, s_diff: f32, loess_width: usize
-)->Result<Vec<u32>> where P: AsRef<Path> 
+)->Result<Vec<u32>> where P: AsRef<Path>
 {
     if let Some(path) = horizon_file {
         load_checked_horizon( path, img.width())
@@ -911,7 +915,7 @@ pub fn mean_hsv<F> (img: &SubImage<&DynamicImage>, min_valid: f32, pred: F) -> R
             let [r, g, b,_] = img.get_pixel(x, y).0;
             let hsv = rgb_to_hsv( r, g, b);
 
-            if pred( x + x0, y + y0, &hsv)  { 
+            if pred( x + x0, y + y0, &hsv)  {
                 h_sum += hsv.0 as f64;
                 s_sum += hsv.1 as f64;
                 v_sum += hsv.2 as f64;
@@ -921,7 +925,7 @@ pub fn mean_hsv<F> (img: &SubImage<&DynamicImage>, min_valid: f32, pred: F) -> R
         }
     }
 
-    if (n as f32 / (w*h) as f32) >= min_valid { 
+    if (n as f32 / (w*h) as f32) >= min_valid {
         let n = n as f64;
         Ok( ( (h_sum / n) as f32, (s_sum / n) as f32, (v_sum / n) as f32 ) )
     } else {
@@ -930,15 +934,15 @@ pub fn mean_hsv<F> (img: &SubImage<&DynamicImage>, min_valid: f32, pred: F) -> R
 }
 
 pub fn tiled_mean_hsv<F> (
-    img: &DynamicImage, tile_width: u32, tile_height: u32, fractional_tiles: bool, mask: Option<&Mask>, 
+    img: &DynamicImage, tile_width: u32, tile_height: u32, fractional_tiles: bool, mask: Option<&Mask>,
     min_valid: f32, valid_pixel_pred: &F
-) -> Result<(TileData<f32>,TileData<f32>,TileData<f32>)>  
+) -> Result<(TileData<f32>,TileData<f32>,TileData<f32>)>
     where F: Fn(u32,u32,&(f32,f32,f32))->bool + Clone // WATCH OUT - the closure should only capture references
 {
     let (nx, ny) = get_grid_dim( img, tile_width, tile_height, fractional_tiles);
     let mut h_data: TileData<f32> = TileData::new( nx, ny);
-    let mut s_data: TileData<f32> = TileData::new( nx, ny); 
-    let mut v_data: TileData<f32> = TileData::new( nx, ny); 
+    let mut s_data: TileData<f32> = TileData::new( nx, ny);
+    let mut v_data: TileData<f32> = TileData::new( nx, ny);
 
     let mut compute_hsv_tile_data = |sub: &SubImage<&DynamicImage>, p: (usize,usize)| {
         if let Ok( (h,s,v) ) = mean_hsv( sub, min_valid, valid_pixel_pred) {
@@ -963,7 +967,7 @@ const WHITE_LEN: f64 = 441.6729559300637; // length of white-vector: (3 * (255^2
 const MAX_A: f64 = 0.9553166181245093; // max angle between [r,b,g] vector and white vector [255,255,255] in radians (~54.7356 deg)
 
 
-/// computes gray-/white-ness factors for a given RGB value. 
+/// computes gray-/white-ness factors for a given RGB value.
 /// The grayness factor [0..1] represents the relative angle between the given [r,g,b] vector and the white [255,255,255] vector. A value
 /// of 0 represents the max angle (on either one of the R, G or B axis), 1 means [r,g,b] is colinear with the white vector (the color is perfect gray)
 /// The whiteness factor [0..1] represents the relative length of the [r,g,b] vector projection onto the white vector. A value of 0 means black,
@@ -981,7 +985,7 @@ fn rgb_to_gw (rgb: &[u8;3])->(f32,f32) {
     let len = (((r*r) + (g*g) + (b*b)) as f64).sqrt();
     let dot = (r*255 + g*255 + b*255) as f64;
     let cos_a = dot / (len * WHITE_LEN);
-    
+
     let gray = 1.0 - (cos_a.acos() / MAX_A); // relative grayness: 1 is perfect gray, 0 is pure R,G,B
     let white = (len * cos_a) / WHITE_LEN; // relative whiteness = projection of rgb vector on white-vector (gray axis)
 
@@ -1001,7 +1005,7 @@ fn rgba_to_gw (rgba: &[u8;4])->(f32,f32) {
     let len = (((r*r) + (g*g) + (b*b)) as f64).sqrt();
     let dot = (r*255 + g*255 + b*255) as f64;
     let cos_a = dot / (len * WHITE_LEN);
-    
+
     let gray = 1.0 - (cos_a.acos() / MAX_A); // relative grayness
     let white = (len * cos_a) / WHITE_LEN; // relative whiteness = projection of rgb vector on white-vector (gray axis)
 
@@ -1021,7 +1025,7 @@ pub fn mean_gw <F> (img: &SubImage<&DynamicImage>, min_valid: f32, pred: F) -> R
             let rgba = img.get_pixel(x, y).0;
             let gw = rgba_to_gw( &rgba);
 
-            if pred( x + x0, y + y0, &gw)  { 
+            if pred( x + x0, y + y0, &gw)  {
                 g_sum += gw.0 as f64;
                 w_sum += gw.1 as f64;
             } else {
@@ -1030,7 +1034,7 @@ pub fn mean_gw <F> (img: &SubImage<&DynamicImage>, min_valid: f32, pred: F) -> R
         }
     }
 
-    if (n as f32 / (w*h) as f32) >= min_valid { 
+    if (n as f32 / (w*h) as f32) >= min_valid {
         let n = n as f64;
         Ok( ((g_sum/n) as f32, (w_sum/n) as f32) )
     } else {
@@ -1041,12 +1045,12 @@ pub fn mean_gw <F> (img: &SubImage<&DynamicImage>, min_valid: f32, pred: F) -> R
 pub fn tiled_mean_gw<F> (
     img: &DynamicImage, tile_width: u32, tile_height: u32, fractional_tiles: bool, mask: Option<&Mask>,
     min_valid: f32, valid_pixel_pred: &F
-) -> Result<(TileData<f32>,TileData<f32>)>  
+) -> Result<(TileData<f32>,TileData<f32>)>
     where F: Fn(u32,u32,&(f32,f32))->bool //+ Clone // WATCH OUT - the closure should only capture references
 {
     let (nx, ny) = get_grid_dim( img, tile_width, tile_height, fractional_tiles);
     let mut gray_data: TileData<f32> = TileData::new( nx, ny);
-    let mut white_data: TileData<f32> = TileData::new( nx, ny); 
+    let mut white_data: TileData<f32> = TileData::new( nx, ny);
 
     let mut compute_gw_tile_data = |sub: &SubImage<&DynamicImage>, p: (usize,usize)| {
         if let Ok( (g,w) ) = mean_gw( sub, min_valid, valid_pixel_pred) {
@@ -1143,7 +1147,7 @@ impl Rgb8Stats {
     fn upper_channel_percentile_bounds (&self, cut: f32, hist: &[usize])->u8 {
         let n = self.r.n;
         let n_upper = (n as f32 * cut) as usize; // the number of upper samples to filter
-        let mut n_cut = 0; 
+        let mut n_cut = 0;
 
         for upper in (0..256).rev() {
             n_cut += hist[upper];
@@ -1157,7 +1161,7 @@ impl Rgb8Stats {
     fn lower_channel_percentile_bounds (&self, cut: f32, hist: &[usize])->u8 {
         let n = self.r.n;
         let n_lower = (n as f32 * cut) as usize; // the number of upper samples to filter
-        let mut n_cut = 0; 
+        let mut n_cut = 0;
 
         for lower in 0..256 {
             n_cut += hist[lower];
@@ -1191,10 +1195,10 @@ impl Rgb8Stats {
         println!("  blue:  {:3} .. {:3}", self.b.min, self.b.max);
 
         println!("  total: {:3} .. {:3}", self.min(), self.max());
-        println!("  {:.0} - {:.0} %:  {:3} .. {:3}", 
-            lower_cut * 100.0, 
-            100.0 - upper_cut * 100.0, 
-            self.lower_percentile_bounds(lower_cut), 
+        println!("  {:.0} - {:.0} %:  {:3} .. {:3}",
+            lower_cut * 100.0,
+            100.0 - upper_cut * 100.0,
+            self.lower_percentile_bounds(lower_cut),
             self.upper_percentile_bounds(upper_cut)
         );
 
@@ -1205,7 +1209,7 @@ impl Rgb8Stats {
 
 /// get the RGB stats for a potentially masked/filtered image
 pub fn filtered_rgb_stats<F> (
-    img: &DynamicImage, 
+    img: &DynamicImage,
     tile_width: u32, tile_height: u32, fractional_tiles: bool, mask: Option<&Mask>,
     valid_pixel_pred: &F
 ) -> Result<Rgb8Stats>
@@ -1218,7 +1222,7 @@ pub fn filtered_rgb_stats<F> (
     }
 
     let mut rgb_stats = Rgb8Stats::new();
-    
+
     for y in 0..h {
         let y_mask = (y / tile_height) as usize;
         for x in 0..w {
@@ -1226,7 +1230,7 @@ pub fn filtered_rgb_stats<F> (
             if !is_masked( x_mask, y_mask, &mask) { // only scale pixels in tiles that are not masked
                 let rgba = img.get_pixel(x, y).0;
                 if valid_pixel_pred( x, y, &rgba) {
-                    rgb_stats.add_rgba( &rgba);                                                
+                    rgb_stats.add_rgba( &rgba);
                 }
             }
         }
@@ -1236,7 +1240,7 @@ pub fn filtered_rgb_stats<F> (
 }
 
 pub fn min_max_normalize_filtered_rgb_mut<F> (
-    img: &mut DynamicImage, 
+    img: &mut DynamicImage,
     tile_width: u32, tile_height: u32, fractional_tiles: bool, mask: Option<&Mask>,
     lower: u8, upper: u8,
     valid_pixel_pred: &F
@@ -1267,8 +1271,8 @@ pub fn min_max_normalize_filtered_rgb_mut<F> (
                             let range = upper - lower;
 
                             let r = (((rgba[0] as f32 - lower).max(0.0)/range) * 255.0) as u8;
-                            let g = (((rgba[1] as f32 - lower).max(0.0)/range) * 255.0) as u8;                    
-                            let b = (((rgba[2] as f32 - lower).max(0.0)/range) * 255.0) as u8;                    
+                            let g = (((rgba[1] as f32 - lower).max(0.0)/range) * 255.0) as u8;
+                            let b = (((rgba[2] as f32 - lower).max(0.0)/range) * 255.0) as u8;
                             img.put_pixel(sx, sy, Rgba([r,g,b,255]));
                         }
                     }
@@ -1283,9 +1287,9 @@ pub fn min_max_normalize_filtered_rgb_mut<F> (
 
 /// note: all scaling has to preserve gray-ness (RGB channels have to be scaled with the same factor)
 pub fn enhance_whiteness (
-    img: &mut RgbImage, 
-    tile_width: u32, tile_height: u32, fractional_tiles: bool, 
-    mask: Option<&Mask>, horizon: &[u32], 
+    img: &mut RgbImage,
+    tile_width: u32, tile_height: u32, fractional_tiles: bool,
+    mask: Option<&Mask>, horizon: &[u32],
     lower_w: f32, upper_w: f32, limit_w: f32
 ) -> Result<()> {
     let (mut w, mut h) = img.dimensions();
@@ -1301,7 +1305,7 @@ pub fn enhance_whiteness (
                 let x_mask = (x / tile_width) as usize;
                 if !is_masked( x_mask, y_mask, &mask) { // only scale pixels in tiles that are not masked
                     let mut rgb = img.get_pixel(x, y).0;
-                    normalize_rgb( &mut rgb, lower_w, upper_w, limit_w);                    
+                    normalize_rgb( &mut rgb, lower_w, upper_w, limit_w);
                     img.put_pixel( x,  y, Rgb(rgb));
                 }
             }
@@ -1313,9 +1317,9 @@ pub fn enhance_whiteness (
 
 pub fn normalize_rgb (rgb: &mut [u8;3], lower_w: f32, upper_w: f32, limit_w: f32) {
     let (g,w) = rgb_to_gw(rgb);
-    
+
     let ww = if w >= upper_w { // clip whiteness outside bounds to limit
-        limit_w 
+        limit_w
     } else if w <= lower_w {
         0.0
     } else { // expand whiteness within bounds to limit
@@ -1331,8 +1335,8 @@ pub fn normalize_rgb (rgb: &mut [u8;3], lower_w: f32, upper_w: f32, limit_w: f32
 
 
     rgb[0] = ((rgb[0] as f32) * c) as u8;
-    rgb[1] = ((rgb[1] as f32) * c) as u8;                    
-    rgb[2] = ((rgb[2] as f32) * c) as u8; 
+    rgb[1] = ((rgb[1] as f32) * c) as u8;
+    rgb[2] = ((rgb[2] as f32) * c) as u8;
 }
 
 // using SIMD via the argminmax crate is significantly slower due to loop over array slices (it also requires nightly)
@@ -1367,7 +1371,7 @@ pub fn max_rgba (rgba: &[u8;4])->u8 {
 
 #[inline]
 pub fn is_artificial_color (rgba: &[u8;4])->bool {
-    (rgba[0] == 0) || (rgba[1] == 0) || (rgba[2] == 0) 
+    (rgba[0] == 0) || (rgba[1] == 0) || (rgba[2] == 0)
     || (rgba[0] == 255) || (rgba[1] == 255) || (rgba[2] == 255)
 }
 
@@ -1387,7 +1391,7 @@ pub fn tiled_mean_rgb_diff_norm<F> (
     img1: &DynamicImage, img2: &DynamicImage,
     tile_width: u32, tile_height: u32, fractional_tiles: bool, mask: Option<&Mask>,
     min_valid: f32, valid_pixel_pred: &F
-) -> Result<TileData<f32>>  
+) -> Result<TileData<f32>>
     where F: Fn(u32,u32, &[u8;4], &[u8;4])->bool
 {
     check_equal_dimensions(img1, img2)?;
@@ -1415,7 +1419,7 @@ pub fn tiled_mean_rgb_diff_norm<F> (
     Ok( diff_data )
 }
 
-pub fn mean_rgb_diff_norm<F> (sub1: &SubImage<&DynamicImage>, sub2: &SubImage<&DynamicImage>, min_valid: f32, valid_pixel_pred: F)->Result<f32> 
+pub fn mean_rgb_diff_norm<F> (sub1: &SubImage<&DynamicImage>, sub2: &SubImage<&DynamicImage>, min_valid: f32, valid_pixel_pred: F)->Result<f32>
     where F: Fn(u32,u32, &[u8;4], &[u8;4])->bool
 {
     let (w,h) = sub1.dimensions();
@@ -1443,7 +1447,7 @@ pub fn mean_rgb_diff_norm<F> (sub1: &SubImage<&DynamicImage>, sub2: &SubImage<&D
         }
     }
 
-    if (n as f32 / (w*h) as f32) >= min_valid { 
+    if (n as f32 / (w*h) as f32) >= min_valid {
         Ok( mean as f32 )
     } else {
         Err( OdinImageError::InsufficientData("not enough valid pixels".into()))
@@ -1464,3 +1468,42 @@ pub fn rgb_diff_norm (rgba1: &[u8;4], rgba2: &[u8;4])->f64 {
 }
 
 /* #endregion image comparison */
+
+pub fn overlay_imgs<P> (in_fnames: &[&P], out_fname: &P)->Result<()> where P: AsRef<Path> + ?Sized {
+    let n_fnames = in_fnames.len();
+
+    if in_fnames.is_empty() {
+        return Err( OdinImageError::OpFailed("no input images to overlay".into()));
+    }
+
+    if out_fname.as_ref().is_file() {
+        std::fs::remove_file( out_fname)?;
+    }
+
+    let mut img = image::open( &in_fnames[0])?.to_rgba8();
+    let height = img.height();
+    let width = img.width();
+
+    let mut out_img = RgbaImage::new( width, height);
+
+    for i in 0..n_fnames {
+        imageproc::compose::overlay_mut( &mut out_img, &img, 0, 0);
+
+        if i < n_fnames-1 {
+            img = image::open( &in_fnames[i+1])?.to_rgba8();
+            let w = img.width();
+            let h = img.height();
+            if w != width || h != height {
+                return Err( OdinImageError::InvalidDimensions("input images have different size".into()));
+            }
+        }
+    }
+
+    out_img.save( out_fname.as_ref())?;
+
+    Ok(())
+
+
+
+
+}

@@ -102,7 +102,7 @@ class StationEntry {
                     distanceDisplayCondition: config.windDC,
                     disableDepthTestDistance: Number.MAX_SAFE_INTEGER,
                     color: config.color,
-                    heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                    //heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
                     alignedAxis: Cesium.Cartesian3.UNIT_Z,
                     rotation: util.toRadians( 360 - wObs.wndDir)
                 }
