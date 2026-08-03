@@ -1050,13 +1050,17 @@ div.ui_listcontrols {
 
 div.ui_popup_menu {
     /*display: none;*/
-    position: fixed;
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    width: max-content;
     visibility: hidden;
     border: var(--popup-menu-border);
     border-radius: 5px;
     background: var(--menuitem-background);
     box-shadow: var(--box-shadow);
     z-index: 5;
+    animation:
 }
 
 div.ui_popup_menu hr {

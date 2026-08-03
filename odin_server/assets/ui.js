@@ -500,7 +500,8 @@ export function moveWindowLeft(o) {
     let e = getWindow(o);
     if (e) {
         let rect = getWindowRect(e);
-        e.animate([
+
+        let animation = e.animate([
             { transform: 'translate(0,0)' },
             { transform: 'translate(' + -rect.x + 'px, 0px)' }
         ], {
@@ -508,7 +509,17 @@ export function moveWindowLeft(o) {
             fill: 'forwards',
             easing: 'cubic-bezier(0.25, 0.8, 0.25, 1)'
         });
-        //setWindowLocation(e, 0, rect.top);
+
+        safelyApplyStylesPostAnimation(animation, e, { left: '0px' });
+
+        /****
+        animation.finished.then(() => {
+            animation.cancel();
+            requestAnimationFrame(() => {
+                e.style.left = "0px";
+            });
+        });
+        ***/
     }
 }
 
@@ -3780,8 +3791,13 @@ export function popupMenu(event, o) {
     event.preventDefault();
     let popup = getPopupMenu(o);
     if (popup) {
-        let left = _computePopupLeft(event.pageX, popup.scrollWidth);
-        let top = _computePopupTop(event.pageY, popup.scrollHeight);
+        //let left = _computePopupLeft(event.pageX, popup.scrollWidth);
+        //let top = _computePopupTop(event.pageY, popup.scrollHeight);
+
+        let pr = nearestParentWithClass(event.target, "ui_window").getBoundingClientRect();
+
+        let left = event.clientX - pr.left;
+        let top = event.clientY - pr.top;
 
         popup.style.left = left + "px";
         popup.style.top = top + "px";
@@ -4411,4 +4427,24 @@ export function beep(duration = 200, frequency = 440, volume = 0.1) {
     // Start and stop the beep
     oscillator.start(audioCtx.currentTime);
     oscillator.stop(audioCtx.currentTime + (duration / 1000));
+}
+
+// workaround for browser animation rendering bug that makes elements disappear
+// when setting styles after an animation has ended. This applies to Chrome, Safari and Firefox rendering engines
+function safelyApplyStylesPostAnimation(animation, element, styles) {
+  if (!animation || !element) return;
+
+  animation.finished
+    .then(() => {
+      // instantly unbind the animation timeline layer from the element
+      animation.cancel();
+
+      // defer style mutation to the browser's next official paint frame
+      requestAnimationFrame(() => {
+        Object.assign(element.style, styles);
+      });
+    })
+    .catch((error) => {
+      console.warn("Animation was interrupted or failed to finish:", error);
+    });
 }
