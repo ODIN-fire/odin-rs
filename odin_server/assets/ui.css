@@ -956,6 +956,12 @@ div.ui_list_subitem {
     -moz-user-select: none;
 }
 
+div.ui_list_subitem.edit {
+    pointer-events: auto;
+    cursor: text;
+    color: var(--input-data-color);
+}
+
 div.ui_list_subitem.align_left {
     text-align: left;
 }

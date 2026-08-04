@@ -11,12 +11,13 @@
     --dim-color: rgb(80,80,80);
     --data-color: #01ff01;
     /* rgb(0,255,0); */
-    --selected-data-color: yellow;
+    /*--selected-data-color: yellow; */
+    --selected-data-color: rgb( 100, 255, 0);
     --input-data-color: yellow;
     --disabled-color: rgba(200, 200, 200, 0.297);
     --background: rgb(42, 42, 64);
     --data-background: rgb(20, 20, 20);
-    --selection-background: rgb(64, 64, 200);
+    --selection-background: rgb(24, 24, 140);
     --hover-background: rgb(84, 84, 160);
     --font-size: 11pt;
     --font-size-small: 10pt;
@@ -116,7 +117,7 @@
     --input-height: 1.8rem;
     --input-color: var(--input-data-color);
     --input-active-color: yellow;
-    --input-active-background: rgb(64, 64, 200);
+    --input-active-background: var(--selection-background);
     /* choices */
     --choice-height: var(--field-height);
     --choice-value-width: var(--field-value-width);

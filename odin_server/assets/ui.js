@@ -2791,6 +2791,12 @@ export function setListItemDisplayColumns(o, listAttrs, colSpecs) {
             if (cs.attrs.includes("fixed")) _addClass(ce, "fixed");
             if (cs.attrs.includes("small")) _addClass(ce, "small");
 
+            if (cs.edit) {
+                _addClass(ce, "edit");
+                ce._uiEditFunc = cs.edit;
+                // note we don't add an event listener here since ce is in the Row prototype
+            }
+
             re.appendChild(ce);
             if (he) he.appendChild(createSubitemHeader(he, cs, w));
         });
@@ -2804,6 +2810,10 @@ export function setListItemDisplayColumns(o, listAttrs, colSpecs) {
 
         if (he) addListHeader(e,he);
     }
+}
+
+function editSubItem(e) {
+    console.log("@@@ edit item: ", e.target);
 }
 
 function createSubitemHeader(header, cs, w) {
@@ -2898,6 +2908,11 @@ function _cloneRowPrototype(proto) {
         let pe = proto.children[i];
 
         ce._uiMapFunc = pe._uiMapFunc;
+
+        if (pe._uiEditFunc) {
+            ce._uiEditFunc = pe._uiEditFunc;
+            ce.addEventListener("click", ce._uiEditFunc);
+        }
     }
     return e;
 }
