@@ -11,12 +11,14 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
-use std::{fs,collections::HashSet};
-use kiddo::{KdTree, NearestNeighbour, SquaredEuclidean};
+use std::{fs,collections::HashSet, num::NonZero};
+use kiddo::{ImmutableKdTree, KdTree, dist::SquaredEuclidean, leaf_strategies::VecOfArenas, stem_strategies::eytzinger::Eytzinger};
 use rkyv::{ from_bytes, {rancor::Error as RkyvError}};
 use odin_build::pkg_data_dir;
 use uom::si::{f64::Length, length::meter};
 use crate::{errors::Result,overpass::Overpass};
+
+pub type TileKdTree = KdTree<f64, u64, Eytzinger, VecOfArenas<f64,u64,3,32>,3,32>;
 
 pub fn tile_enc (tile_id: &str)->u64 {
     let tc = tile_id.as_bytes();
@@ -42,19 +44,24 @@ pub fn tile_dec (tile_enc: u64)->String {
     String::from_utf8_lossy(&bs).into()
 }
 
-pub fn load_kdtree ()->Result<KdTree<f64,3>> {
+pub fn load_kdtree ()->Result<TileKdTree> {
     let path = pkg_data_dir!().join("s2a-tiles.rkyv");
     let bytes = fs::read( &path)?;
-    Ok( from_bytes::<KdTree<f64,3>,RkyvError>(&bytes)? )
+    Ok( from_bytes::<TileKdTree,RkyvError>(&bytes)? )
 }
 
-pub fn get_overpass_tiles (kdtree: &KdTree<f64,3>, overpass: &Overpass, radius: Length)->Vec<String> {
+pub fn get_overpass_tiles (kdtree: &TileKdTree, overpass: &Overpass, radius: Length)->Vec<String> {
     let mut set: HashSet<String> = HashSet::new();
     let dist = radius.get::<meter>().powi(2);
 
     let track = &overpass.track;
     for ecef in track {
-        for nn in kdtree.best_n_within::<SquaredEuclidean>( &[ecef.x, ecef.y, ecef.z], dist, 64) {
+        let nearest = kdtree
+            .query( &[ecef.x, ecef.y, ecef.z])
+            .best_n_within::<SquaredEuclidean<f64>>( dist, NonZero::new(64 as usize).unwrap())
+            .execute();
+
+        for nn in nearest.iter() {
             let tile_id = tile_dec(nn.item);
             set.insert( tile_id);
         }

@@ -15,14 +15,14 @@
  */
 #![allow(unused)]
 
-use std::{path::{Path,PathBuf}};
+use std::{path::{Path,PathBuf},str::FromStr};
 use anyhow::{anyhow,Result};
 use chrono::{Timelike, DateTime, Utc};
 use uom::si::f64::{Length,Ratio};
 use uom::si::{length::{meter,kilometer},ratio::{percent}};
 
-use odin_common::{define_cli, geo::{GeoPoint,GeoRect}};
-use odin_openmeteo::{self,OpenMeteoConfig};
+use odin_common::{define_cli, geo::{GeoPoint,GeoRect}, datetime::days};
+use odin_openmeteo::{self,OpenMeteoConfig, ids::ModelId};
 use odin_landfire;
 use odin_gdal::geods::GeoDs;
 use odin_nfdrs::{
@@ -32,13 +32,13 @@ use odin_nfdrs::{
 define_cli! { ARGS [about="create input data files for NFDRS4"] =
     config: String [help="filename of NFDRS config file", long, default_value="nfdrs.ron"],
     wx_config: String [help="filename of OpenMeteo config file", long, default_value="openmeteo.ron"],
-    wx_model: String [help="name of openmeteo wx model", long, default_value="gfs_hrrr"],
+    model: String [help="name of openmeteo wx model", long, default_value="gfs_hrrr"],
     lf_src: String [help="name of landfire source", long, default_value="lf_2025_conus.ron"],
     date:  DateTime<Utc> [help="simulation start date (default: now)", long, default_value_t=default_date()],
     dry_run: bool [help="only create input, don't execute NFDRS", long],
     show_result: bool [help="show computed output", long],
-    forecast_days: u32 [help="number of forecast days to retrieve", long, default_value="1"],
-    past_days: u32 [help="number of past days to retrieve", long, default_value="7"],
+    forecast_days: u64 [help="number of forecast days to retrieve", long, default_value="1"],
+    past_days: u64 [help="number of past days to retrieve", long, default_value="7"],
     lat:   f64 [help="center latitude [degrees]", allow_hyphen_values = true],
     lon:   f64 [help="center longitude [degrees]", allow_hyphen_values = true],
 }
@@ -52,14 +52,14 @@ async fn main ()->Result<()> {
 
     let openmeteo_config: OpenMeteoConfig = odin_openmeteo::load_config( &ARGS.wx_config)?;
     let lf_src: GeoDs = odin_landfire::load_config( &ARGS.lf_src)?;
-    let forecast_days = ARGS.forecast_days;
-    let past_days = ARGS.past_days;
-    let wx_model = &ARGS.wx_model;
-    let date = Utc::now();
-    let output_path = output_path( &pos, &date, forecast_days, past_days, wx_model);
+    let now = Utc::now();
+    let start = now - days(ARGS.past_days);
+    let end = now + days( ARGS.forecast_days);
+    let model = ModelId::from_str( &ARGS.model)?;
+    let output_path = output_path( &pos, &start, &end, model);
 
     // this reaches out to OpenMeteo and uses the Landfire GeoDs to obtain meteorological and fuel data for the given point
-    let cfg_path = create_nfdrs_inputs( &openmeteo_config, &lf_src, &pos, &date, forecast_days, past_days, wx_model, &output_path).await?;
+    let cfg_path = create_nfdrs_inputs( &openmeteo_config, &lf_src, &pos, &start, &end, model, &output_path).await?;
     println!("created NFDRS run configuration at {:?}", cfg_path);
 
     if !ARGS.dry_run {

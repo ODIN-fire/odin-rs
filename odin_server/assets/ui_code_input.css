@@ -1,0 +1,42 @@
+/* ui specific overrides for code-input.css styles */
+
+code-input {
+    font: var(--mono-font);
+    color: var(--input-data-color);
+    background: var(--data-background);
+    border: var(--border);
+    caret-color: var(--caret-color);
+    caret-shape: var(--caret-shape);
+    overflow: auto;
+    box-sizing: border-box;
+    margin: 0;
+
+    --padding: 2px;
+}
+
+code-input::selection {
+    background-color: var(--text-selection-background);
+    color: var(--text-selection-color);
+}
+
+.code-input_mouse-focused {
+    outline: var(--focus-outline);
+    border: var(--focus-border);
+}
+
+code-input:has(textarea:focus):not(.code-input_mouse_focused) {
+    outline: var(--focus-outline);
+    border: var(--focus-border);
+}
+
+/* token color categories */
+.token-comment          { color: var(--token-comment-color); font-style: italic; }
+.token-string           { color: var(--token-string-color); }
+.token-number           { color: var(--token-num-color); }
+.token-boolean          { color: var(--token-boolean-color); font-weight: 600; }
+.token-namelist-delim   { color: var(--token-delim-color); font-weight: 700; }
+.token-variable         { color: var(--token-var-color); }
+.token-operator         { color: var(--token-op-color); }
+.token-const            { color: var(--token-const-color); }
+.token-key              { color: var(--token-key-color); }
+.token-punctuation      { color: var(--token-delim-color); }

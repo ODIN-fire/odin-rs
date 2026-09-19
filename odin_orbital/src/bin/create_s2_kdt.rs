@@ -15,12 +15,12 @@
 
 use std::{fs,collections::HashMap};
 use kml::{Kml, KmlReader, types::{Coord, Geometry, MultiGeometry}};
-use kiddo::{KdTree, NearestNeighbour, SquaredEuclidean};
+use kiddo::{KdTree, SquaredEuclidean};
 use rkyv::{ to_bytes, {rancor::Error as RkyvError}, Archive, Serialize};
 use anyhow::{anyhow,Result};
 
 use odin_common::{define_cli,cartographic::Cartographic,cartesian3::Cartesian3};
-use odin_orbital::copernicus::{tile_enc};
+use odin_orbital::copernicus::{TileKdTree,tile_enc};
 
 define_cli! { ARGS [about="create ESA Sentinel-2 tile kd-tree for tile ECEF positions"] =
     boundaries: Option<String> [help="optional filename to store HashMap with tile boundaries", long],
@@ -29,7 +29,6 @@ define_cli! { ARGS [about="create ESA Sentinel-2 tile kd-tree for tile ECEF posi
 }
 
 fn main()->Result<()> {
-    let mut kdtree: KdTree<f64,3> = KdTree::new();
     let mut boundaries: HashMap<String,[[f64;2];4]> = HashMap::new();
 
     let res = if ARGS.input.ends_with(".kmz") {
@@ -37,6 +36,8 @@ fn main()->Result<()> {
     } else {
         KmlReader::<_,f64>::from_path(&ARGS.input)?.read()
     };
+
+    let mut entries: Vec<(u64,[f64;3])> = Vec::new();
 
     if let Ok(Kml::KmlDocument(doc)) = res {
         if let Some(Kml::Document{attrs,elements}) = doc.elements.first() {
@@ -54,7 +55,8 @@ fn main()->Result<()> {
                                                 let Coord{x,y,z} = pt.coord;
                                                 let geo = Cartographic::from_degrees( x, y, 0.0);
                                                 let ecef: Cartesian3 = geo.into();
-                                                kdtree.add( &[ecef.x,ecef.y,ecef.z], tile_enc(&tile_id));
+                                                entries.push( (tile_enc(&tile_id), [ecef.x,ecef.y,ecef.z]));
+
                                                 break; // we only need the poly preceding the point
                                             }
                                             Geometry::Polygon(poly) => {
@@ -80,6 +82,7 @@ fn main()->Result<()> {
             }
         }
     }
+    let kdtree = TileKdTree::new_from_entries( &entries)?;
 
     let bytes = to_bytes::<RkyvError>(&kdtree)?;
     fs::write( &ARGS.output, &bytes)?;

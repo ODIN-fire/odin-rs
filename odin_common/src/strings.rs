@@ -194,7 +194,15 @@ pub fn capitalize_words(s: &str) -> String {
         .join(" ")
 }
 
+
 pub fn format_float (v: f64, precision: usize)->String {
+    format!("{v:.precision$}")
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
+}
+
+pub fn format_float_f32 (v: f32, precision: usize)->String {
     format!("{v:.precision$}")
         .trim_end_matches('0')
         .trim_end_matches('.')

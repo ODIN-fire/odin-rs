@@ -364,6 +364,16 @@ textarea.ui_textarea.fixed {
     font: var(--mono-font);
 }
 
+textarea.ui_textarea::selection {
+    background-color: var(--text-selection-background);
+    color: var(--text-selection-color);
+}
+
+textarea.ui_textarea:focus {
+    outline: var(--focus-outline);
+    border: var(--focus-border);
+}
+
 /* fields (label + display) */
 
 div.ui_field_label {
@@ -391,6 +401,11 @@ input.ui_field {
     text-align: left;
     vertical-align: middle;
     font: var(--font);
+}
+
+input.ui_field::selection {
+    background-color: var(--text-selection-background);
+    color: var(--text-selection-color);
 }
 
 input.ui_field.fixed {
@@ -579,6 +594,10 @@ div.ui_timer_value {
 
 /* input field */
 
+div.ui_field {
+    overflow: visible;
+}
+
 input.ui_field.input {
     color: var(--input-color);
     background: var(--data-background);
@@ -603,6 +622,7 @@ input.ui_field.input:focus {
     color: var(--input-active-color);
     background: var(--input-active-background);
     outline: var(--focus-outline);
+    border: var(--focus-border);
 }
 
 /*
@@ -918,6 +938,8 @@ div.ui_list {
 
 div.ui_list:focus {
     outline: var(--focus-outline);
+    border: var(--focus-border);
+    /*box-shadow: 0 0 5px var(--focus-border-color);*/
 }
 
 div.ui_list_item {
@@ -960,6 +982,33 @@ div.ui_list_subitem.edit {
     pointer-events: auto;
     cursor: text;
     color: var(--input-data-color);
+}
+
+div.ui_list_subitem.edit.active {
+    position: relative;
+    border: var(--border)
+}
+
+input.ui_list_subitem {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    color: var(--input-color);
+    background: var(--selection-background);
+    padding-block: 0;
+    padding-inline: 0;
+    border: var(--border);
+    z-index: 100;
+    pointer-events: auto;
+}
+input.ui_list_subitem.fixed {
+    font: var(--mono-font);
+}
+input.ui_list_subitem.num {
+    text-align: right;
+    font: var(--mono-font);
 }
 
 div.ui_list_subitem.align_left {
@@ -1066,7 +1115,6 @@ div.ui_popup_menu {
     background: var(--menuitem-background);
     box-shadow: var(--box-shadow);
     z-index: 5;
-    animation:
 }
 
 div.ui_popup_menu hr {

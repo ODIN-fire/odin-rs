@@ -32,7 +32,7 @@ var lastMsgCount = 0; // number of total messages received (including pings so s
 // handler functions have to be registered by JS modules during initialization with the `addWsHandler(k,v)` function
 var wsHandlers = new Map();
 
-window.addEventListener('unload', shutdown);
+document.addEventListener('pagehide', shutdown);
 
 function getWsUrl() {
     // firefox does reject the url if given as a relative path ("./ws"), probably because it doesn't handle the
@@ -137,9 +137,11 @@ export function sendWsReinitializeMessage (modPath) {
 }
 
 export function shutdown() {
-    console.log("closing websocket...");
-    isShutdown = true;
-    if (ws) ws.close();
+    if (document.visibilityState === "hidden") {
+        console.log("closing websocket...");
+        isShutdown = true;
+        if (ws) ws.close();
+    }
 }
 
 function connect () {
@@ -198,7 +200,7 @@ function connect () {
 }
 
 function checkReconnect () {
-    if (!ws && !document.hidden) {
+    if (!ws && document.visibilityState === "visible") {
         console.log("reconnecting WebSocket..");
         connect();
     }

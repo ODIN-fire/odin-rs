@@ -166,6 +166,7 @@ pub fn is_between_inclusive (dt: &DateTime<Utc>, dt_start: &DateTime<Utc>, dt_en
     dt >= dt_start && dt <= dt_end
 }
 
+
 /// get a `DateTime<Utc>` from a NaiveDate that is supposed to be in Utc
 pub fn naive_utc_date_to_utc_datetime (nd: NaiveDate) -> DateTime<Utc> {
     let nt = NaiveTime::from_hms_opt(0, 0, 0).unwrap(); // 00:00:00 can't fail
@@ -191,6 +192,10 @@ pub fn ymd (dt: &DateTime<Utc>) -> impl fmt::Display {
     dt.format("%Y-%m-%d")
 }
 
+pub fn ymd_hms_enc (dt: &DateTime<Utc>) -> impl fmt::Display {
+    dt.format("%Y-%m-%d_%H-%M-%S_Z")
+}
+
 pub fn timestamps (dates: &[DateTime<Utc>])->Vec<i64> {
     dates.iter().map( |d| d.timestamp()).collect::<Vec<i64>>()
 }
@@ -209,6 +214,51 @@ pub fn ser_short_rfc3339_opt<S: Serializer> (opt_dt: &Option<DateTime<Utc>>, s: 
         s.serialize_none()
     }
 }
+
+/// deserializes a single YYYY-mm-ddTHH:MM string literal into a DateTime<Utc> value
+pub fn date_from_ymd_hm <'a,D>(deserializer: D) -> Result<DateTime<Utc>,D::Error> where D: Deserializer<'a> {
+    let s: String = String::deserialize(deserializer)?;
+    let date: DateTime<Utc> = NaiveDateTime::parse_from_str( &s, "%Y-%m-%dT%H:%M")
+        .map_err(serde::de::Error::custom)
+        .and_then( |d| Ok( d.and_utc() ))?;
+
+    Ok( date )
+}
+
+/// deserializes a list of YYYY-mm-ddTHH:MM string literals into a Vec<DateTime<Utc>> values
+pub fn dates_from_ymd_hm <'a,D>(deserializer: D) -> Result<Vec<DateTime<Utc>>,D::Error> where D: Deserializer<'a> {
+    let strings: Vec<String> = Vec::deserialize(deserializer)?;
+    let dates: Vec<DateTime<Utc>> = strings
+        .into_iter()
+        .map(|s| {
+            NaiveDateTime::parse_from_str( &s, "%Y-%m-%dT%H:%M")
+                .map_err(serde::de::Error::custom)
+                .and_then( |d| Ok( d.and_utc() ))
+        })
+        .collect::<Result<_, _>>()?;
+
+    Ok( dates )
+}
+
+/// deserializes a list of YYYY-mm-ddTHH:MM string literals into a Vec<DateTime<Utc>> values
+pub fn dates_from_ymd <'a,D>(deserializer: D) -> Result<Vec<DateTime<Utc>>,D::Error> where D: Deserializer<'a> {
+    let strings: Vec<String> = Vec::deserialize(deserializer)?;
+    let dates: Vec<DateTime<Utc>> = strings
+        .into_iter()
+        .map(|s| {
+            let naive_date = NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+                .map_err( |e| D::Error::custom( e.to_string()))?;
+
+            naive_date
+                .and_hms_opt(0, 0, 0)
+                .ok_or( D::Error::custom("Invalid time parameters"))
+                .map(|naive_dt| naive_dt.and_utc())
+        })
+        .collect::<Result<_, _>>()?;
+
+    Ok( dates )
+}
+
 
 pub fn ser_epoch_millis<S: Serializer> (dt: &DateTime<Utc>, s: S) -> Result<S::Ok, S::Error>  {
     s.serialize_i64(dt.timestamp_millis())

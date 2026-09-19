@@ -1167,7 +1167,7 @@ function withMetersPerPixel (f) {
     let cameraHeight = geo.alt; // of camera above ellipsoid
 
     if (cameraHeight < 80000) { // factor in terrain height
-        geo = new Cesium.Cartographic.fromRadians( geo.lon, geo.lat);
+        geo = new Cesium.Cartographic( geo.lon, geo.lat);
         geo.height = viewer.scene.globe.getHeight(geo);
         cameraHeight -= geo.height; // subtract the terrain elevation from the camera height
     }

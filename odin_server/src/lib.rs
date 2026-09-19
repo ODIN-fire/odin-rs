@@ -34,6 +34,7 @@ use odin_common::{fs::{self, get_filename_extension}, if_let, net, strings};
 pub mod prelude;
 pub mod spa;
 pub mod ui_service;
+pub mod code_service;
 
 pub mod ws_service;
 pub use ws_service::{WsMsg,WsMsgParts};
@@ -186,7 +187,7 @@ macro_rules! asset_uri {
 #[macro_export]
 macro_rules! proxy_uri {
     ($pname:literal, $rel_uri:literal) => {
-        concat!( "./proxy/", $pname, "/", $rel_uri);
+        concat!( "./proxy/", $pname, "/", $rel_uri)
     }
 }
 

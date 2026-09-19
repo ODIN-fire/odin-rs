@@ -1301,19 +1301,61 @@ export function parseCsvValue(s) {
     }
 }
 
-const csvRegEx = /(?:,|\n|^)("(?:(?:"")*[^"]*)*"|[^",\n]*|(?:\n|$))/g;
+const csvRe = /(?:,|\n|^)("(?:(?:"")*[^"]*)*"|[^",\n]*|(?:\n|$))/g;
+const csvRegexp = new RegExp(csvRe);
 
 export function parseCsvValues(line) {
-    const regex = new RegExp(csvRegEx);
     let values = [];
     var matches = null;
-    while (matches = regex.exec(line)) {
+    while (matches = csvRegexp.exec(line)) {
         if (matches.length > 1) {
             values.push( parseCsvValue( matches[1]));
         }
     }
     return values;
 }
+
+export function parseLatitude(v) {
+    let lat = Number.parseFloat(v);
+    return (isNaN(lat) || lat < -90.0 || lat > 90.0) ? NaN : lat;
+}
+
+export function parseLongitude(v) {
+    let lon = Number.parseFloat(v);
+    return (isNaN(lon) || lon < -180.0 || lon > 180.0) ? NaN : lon;
+}
+
+const localDtgRe = /(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))? *T? *(\d{1,2})\:(\d{1,2})(?:\:(\d{1,2}))?/;
+const localDtgRegexp = new RegExp(localDtgRe);
+
+// this first tries to parse the standard formats and then falls back to local DTGs like "08/09 14:42" with optional year and seconds groups
+export function parseDtg(input) {
+    let dtg = Date.parse(input);
+    if (!isNaN(dtg)) { // try the standard formats first
+        return dtg;
+
+    } else { // if that doesn't work fall back to our "mm/dd[/yyyy] HH:MM[:SS]
+        let matches = localDtgRegexp.exec(input);
+        if (matches.length >= 4) {
+            let month = Number.parseInt(matches[1]);
+            let day = Number.parseInt(matches[2]);
+            let year = (matches[3]) ? Number.parseInt(matches[3]) : new Date().getFullYear();
+            if (year < 100) year += 2000;
+            let hours = Number.parseInt(matches[4]);
+            let minutes = Number.parseInt(matches[5]);
+            let seconds = (matches[6]) ? Number.parseInt(matches[6]) : 0;
+
+            let date = new Date(year, month, day, hours, minutes, seconds);
+            let dtg = date.valueOf();
+
+            return dtg;
+
+        } else {
+            return null;
+        }
+    }
+}
+
 
 //--- comparators
 

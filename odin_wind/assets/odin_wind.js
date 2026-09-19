@@ -127,10 +127,10 @@ class ForecastRegion {
 
         // Cesium rect properties do not support outlines that are clampToGround so we turn this into a polygon
         let points = [];
-        points.push( new Cesium.Cartesian3.fromDegrees( d.west, d.north));
-        points.push( new Cesium.Cartesian3.fromDegrees( d.east, d.north));
-        points.push( new Cesium.Cartesian3.fromDegrees( d.east, d.south));
-        points.push( new Cesium.Cartesian3.fromDegrees( d.west, d.south));
+        points.push( Cesium.Cartesian3.fromDegrees( d.west, d.north));
+        points.push( Cesium.Cartesian3.fromDegrees( d.east, d.north));
+        points.push( Cesium.Cartesian3.fromDegrees( d.east, d.south));
+        points.push( Cesium.Cartesian3.fromDegrees( d.west, d.south));
         points.push( points[0]);
 
         let entity = new Cesium.Entity({

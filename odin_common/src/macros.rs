@@ -420,10 +420,10 @@ macro_rules! impl_deserialize_struct {
 #[macro_export]
 macro_rules! arc {
     ($s:literal) => {
-        Arc::new( $s.to_string() )
+        std::sync::Arc::new( $s.to_string() )
     };
     ($s:expr) => {
-        Arc::new( $s.to_string() )
+        std::sync::Arc::new( $s.to_string() )
     }
 }
 
@@ -437,6 +437,20 @@ macro_rules! sliced {
 #[macro_export]
 macro_rules! vec_boxed {
     ( $( $e:expr ),* ) => {
-        vec![ $( Box::new($e) ),* ]
+        vec![ $( std::boxed::Box::new($e) ),* ]
+    };
+}
+
+#[macro_export]
+macro_rules! join_idents {
+    // Base case: Empty input produces an empty string
+    ($sep:literal) => { "" };
+
+    // Match the first element, and pull out the remaining elements
+    ($sep:literal, $first:ident $(, $rest:ident)* $(,)?) => {
+        concat!(
+            stringify!($first)
+            $(, $sep, stringify!($rest))*
+        )
     };
 }

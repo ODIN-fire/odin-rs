@@ -29,19 +29,19 @@ use odin_common::{
     utm::{UtmPoint,UtmRect, try_geo_to_utm}
 };
 use odin_elmfire::{
-    CACHE_DIR, load_config, ElmfireConfig, ElmFire, get_fixed_steps, get_utm_rect_around_point,
+    CACHE_DIR, load_config, ElmfireConfig, ElmFire,
     errors::OdinElmfireError,
-    input::{create_fems_input, create_landfire_input, create_wx_input}
 };
 
 define_cli! { ARGS [about="create live weather and fuel input files and run Elmfire"] =
     config: String [help="filename of Elmfire config file (refers to FEMS and landfire configs)", long, default_value="elmfire.ron"],
     fc_hours: u32 [help="number of forecast hours to compute", long, default_value="6"],
     dry_run: bool [help="dry run: create inputs but do not execute Elmfire", long],
-    date:  DateTime<Utc> [help="simulation start date (default: now)", long, default_value_t=default_date(), value_parser=parse_utc_datetime],
+    date:  DateTime<Utc> [help="simulation start date (default: now)", long, default_value_t=default_date()],
+    compute_wind: bool [help="compute micro-grid wind using WindNinja", long],
     name: String [help="name of incident"],
-    lat:   f64 [help="center latitude [degrees]", allow_hyphen_values = true],
     lon:   f64 [help="center longitude [degrees]", allow_hyphen_values = true],
+    lat:   f64 [help="center latitude [degrees]", allow_hyphen_values = true],
 }
 
 fn default_date()->DateTime<Utc> { Utc::now() }
@@ -53,20 +53,26 @@ async fn main ()->Result<()> {
     let bbox_size = Length::new::<meter>( config.bbox_size_m as f64);
     let n_hours = ARGS.fc_hours;
 
-    let mut ef = ElmFire::from_point_ignition( ARGS.name.clone(), ARGS.date, geo_center, bbox_size, n_hours, None, None)?;
+    let mut ef = ElmFire::from_point_ignition(
+        ARGS.name.clone(), ARGS.date, geo_center, bbox_size, n_hours, ARGS.compute_wind, None, None)?;
     let data_file_path = ef.create_inputs( &config).await?;
 
     if !ARGS.dry_run {
         println!("running Elmfire on live {:?}..", data_file_path);
-        let output = run_captured_cmd!( &config.elmfire_cmd, path_as_str( &data_file_path)?).await?;
-        if output.status.success() {
-            println!("done.");
+        match run_captured_cmd!( &config.elmfire_cmd, path_as_str( &data_file_path)?).await {
+            Ok(output) => {
+                if output.status.success() {
+                    println!("done.");
+                    ef.process_outputs( &config)?;
 
-            ef.process_outputs( &config)?;
-
-        } else {
-            eprintln!("Elmfire exit status: {}", output.status.code().unwrap_or(-1));
-            eprintln!( "{}", String::from_utf8(output.stderr)?);
+                } else {
+                    eprintln!("Elmfire exit status: {}", output.status.code().unwrap_or(-1));
+                    eprintln!( "{}", String::from_utf8(output.stderr)?);
+                }
+            }
+            Err(e) => {
+                eprintln!("error running {:?} : {}", config.elmfire_cmd, e);
+            }
         }
     }
 

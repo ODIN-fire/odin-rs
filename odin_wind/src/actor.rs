@@ -17,12 +17,11 @@ use std::{collections::{HashMap,HashSet}, net::SocketAddr, path::{Path,PathBuf},
 use chrono::{DateTime,Datelike,Timelike, Utc};
 use odin_dem::DemSRS;
 use reqwest::{self, Client};
-use tokio::process::Command;
 use serde::{Serialize,Deserialize};
 
 use odin_build::pkg_cache_dir;
 use odin_common::{
-    collections::RingDeque, datetime::{hours,short_utc_datetime_string,utc_now}, fs::{basename, gzip_path, odin_data_filename, path_str_to_fname, path_to_unchecked_string, remove_old_files, replace_env_var_path, set_accessed}, geo::GeoRect, pow2, sqrt, utm::{self,UtmRect,UtmZone,UtmPoint}, BoundingBox
+    BoundingBox, collections::RingDeque, datetime::{hours,short_utc_datetime_string,utc_now}, fs::{EnvPathBuf, basename, gzip_path, path_as_str, path_str_to_fname, path_to_lossy_string, path_to_unchecked_string, remove_old_files, replace_env_var_path, set_accessed}, geo::GeoRect, pow2, sqrt, utm::{self, UtmPoint, UtmRect, UtmZone}
 };
 use odin_wx::{WxService, WxServiceList, AddDataSet, RemoveDataSet, WxDataSetRequest, WxFileAvailable};
 use odin_actor::prelude::*;
@@ -33,7 +32,7 @@ use odin_gdal::{
     warp::{warp_to_raster_info, warp_to_rect, ResampleAlg}
 };
 use crate::{
-    errors::{OdinWindError,Result}, op_failed, get_tmp_path,
+    errors::{OdinWindError,Result}, op_failed, get_tmp_path, run_wn, get_wn_out_basename,
     wx_10_contour_suffix, wx_10_grid_suffix, wx_10_vector_suffix, wx_80_contour_suffix, wx_80_grid_suffix,
     wx_80_vector_suffix, wx_wgs84_suffix, huvw_contour_suffix, huvw_grid_suffix, huvw_vector_suffix, huvw_wgs84_suffix,
     purge_old_forecasts, wind_service::{self, WindService},
@@ -61,9 +60,6 @@ pub struct WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
 {
     config: Arc<WindConfig>,
 
-    // from config, with env-var pathelements expanded
-    windninja_cmd: String,
-
     cache_dir: Arc<PathBuf>,        // where to store computed forecasts
     wxs: WxServiceList,             // where to get weather reports from - this drives our data update
 
@@ -79,10 +75,6 @@ pub struct WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
 
 impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefAction<Forecast> {
     pub fn new (config: WindConfig, wxs: WxServiceList, subscribe_action: S, update_action: U)->Self {
-
-         let windninja_cmd = path_to_unchecked_string( replace_env_var_path( &config.windninja_cmd).unwrap()); // Ok to panic - this is the ctor
-         // TODO - we should check here if comands are valid executables
-
         let config = Arc::new(config);
         let cache_dir = Arc::new(pkg_cache_dir!());
         let wn_job_regions = HashMap::new();
@@ -90,7 +82,6 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
 
         WindActor {
             config,
-            windninja_cmd,
             cache_dir,
             wxs,
             wn_job_regions,
@@ -103,7 +94,7 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
 
     fn start (&mut self, hself: ActorHandle<WindActorMsg>)->Result<()> {
         let (tx, rx) = create_mpsc_sender_receiver::<WnJob>(64);
-        let join_handle = spawn("wn_task", wn_loop( hself, self.windninja_cmd.clone(), self.cache_dir.clone(), rx))?;
+        let join_handle = spawn("wn_task", wn_loop( hself, self.config.windninja_cmd.clone(), self.cache_dir.clone(), rx))?;
 
         self.wn_task = Some( WnTask{join_handle, tx} );
         Ok(())
@@ -256,7 +247,7 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
                     let dem_path = dem_path.clone();
                     let wx_src = msg.request.model_name.clone();
                     let wx_path = path.clone();
-                    let wn_out_basename = Arc::new( Self::get_wn_out_basename( region.as_str(), date, &utm_bbox, mesh_res, wx_src.as_str()) );
+                    let wn_out_basename = Arc::new( get_wn_out_basename( region.as_str(), date, &utm_bbox, mesh_res, wx_src.as_str()) );
 
                     let wn_job = WnJob{region, date, step, mesh_res, wind_height, wx_src, wx_path, dem_path, wn_out_basename};
 
@@ -283,13 +274,6 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
 
     fn get_matching_wx (&self, request: &WxDataSetRequest)->Option<&Box<dyn WxService>> {
         self.wxs.iter().find( |wx| { wx.matches_request( request) } )
-    }
-
-    fn get_wn_out_basename (region: &str, date: DateTime<Utc>, bbox: &BoundingBox<f64>, mesh_res: f64, wx_model: &str) -> String {
-        //let sbb = format!("{:.0}_{:.0}_{:.0}_{:.0}", bbox.west, bbox.south, bbox.east, bbox.north);
-        let mr = format!("{:.0}m", mesh_res);
-        let attrs = &[ mr.as_str(), wx_model, "huvw" ];
-        odin_data_filename( region, Some(date), attrs, None)
     }
 
     // TODO - this should be the same entry point for all potential wx systems (HRRR, ECMWF etc)
@@ -449,7 +433,7 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
 }
 
 
-async fn wn_loop (hself: ActorHandle<WindActorMsg>, windninja_cmd: String, cache_dir: Arc<PathBuf>, rx: MpscReceiver<WnJob>) {
+async fn wn_loop (hself: ActorHandle<WindActorMsg>, windninja_cmd: EnvPathBuf, cache_dir: Arc<PathBuf>, rx: MpscReceiver<WnJob>) {
     loop {
         match recv(&rx).await {
             Ok(wn_job) => {
@@ -472,74 +456,6 @@ async fn wn_loop (hself: ActorHandle<WindActorMsg>, windninja_cmd: String, cache
             Err(_) => { break } // request queue closed, no use to go on
         }
     }
-}
-
-async fn run_wn (windninja_cmd: &String, cache_dir: &PathBuf, wn_job: &WnJob) -> Result<()> {
-    let date = &wn_job.date;
-    info!("running WindNinja on forecast file {:?} for time: {}", wn_job.wx_path, date);
-
-    let huvw_suffix = format!("_{}_huvw", wn_job.wx_src); // we have to preserve the wx model to be able to run several of them
-
-    let mut cmd = Command::new( windninja_cmd);
-    cmd
-        .arg( "--mesh_resolution").arg(wn_job.mesh_res.to_string())
-        .arg( "--units_mesh_resolution").arg("m")
-        .arg( "--output_wind_height").arg(wn_job.wind_height.to_string())
-        .arg( "--units_output_wind_height").arg("m")
-        .arg( "--elevation_file").arg( wn_job.dem_path.as_os_str())
-        .arg( "--vegetation").arg("trees")  // FIXME - this should be computed from landfire.gov (grass,brush,trees)
-        .arg( "--initialization_method").arg("wxModelInitialization")
-        .arg( "--time_zone").arg("UTC")
-        .arg( "--forecast_filename").arg( wn_job.wx_path.as_os_str())  // wx model file name
-        .arg( "--forecast_time").arg( &wn_forecast_time(date)) // datetime string (UTC)
-        .arg( "--start_year").arg( date.year().to_string())
-        .arg( "--start_month").arg( date.month().to_string())
-        .arg( "--start_day").arg( date.day().to_string())
-        .arg( "--start_hour").arg( date.hour().to_string())
-        .arg( "--stop_year").arg( date.year().to_string())
-        .arg( "--stop_month").arg( date.month().to_string())
-        .arg( "--stop_day").arg( date.day().to_string())
-        .arg( "--stop_hour").arg( date.hour().to_string())
-        .arg( "--write_goog_output").arg( "false")
-        .arg( "--write_shapefile_output").arg( "false")
-        .arg( "--write_pdf_output").arg( "false")
-        .arg( "--write_farsite_atm").arg( "false")
-        .arg( "--write_wx_model_goog_output").arg( "false")
-        .arg( "--write_wx_model_shapefile_output").arg( "false")
-        .arg( "--write_wx_model_ascii_output").arg( "false")
-        .arg( "--write_wx_station_kml").arg( "false")
-        .arg( "--huvw_suffix").arg( huvw_suffix)
-        .arg( "--write_huvw_output").arg( "true")
-        //.arg( "--write_huvw_0_output").arg( "true") // this only makes sense if we need the same grid points (e.g. for diffs)
-        .arg( "--diurnal_winds").arg( "true")
-        .arg( "--output_path").arg( cache_dir.as_os_str());
-
-    //println!("@@--exec WN\n{:}\n@@--", cmd);
-
-    execute_cmd( &mut cmd).await
-}
-
-async fn execute_cmd( cmd: &mut Command) -> Result<()> {
-    debug!("executing {cmd:?}");
-    cmd.kill_on_drop(true);
-
-    match cmd.spawn() {
-        Ok(mut child) => {
-            match child.wait().await {
-                Ok(status) => {
-                    info!("{:?} completed with status {}", cmd.as_std().get_program(), status);
-                    Ok(())
-                }
-                Err(e) => Err( OdinWindError::ExecError(e.to_string()))
-            }
-        }
-        Err(e) => Err( OdinWindError::ExecError(e.to_string()))
-    }
-}
-
-/// note this is for WindNinja, which implicitly assumes UTC (no zone)
-fn wn_forecast_time (date: &DateTime<Utc>)->String {
-    format!("{:4}{:02}{:02}T{:02}0000", date.year(), date.month(), date.day(), date.hour())
 }
 
 /// this has to adhere to our data filename conventions

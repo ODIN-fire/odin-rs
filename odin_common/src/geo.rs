@@ -99,6 +99,8 @@ impl GeoPoint {
     #[inline] pub fn latitude(&self) -> Latitude { Latitude::from_degrees( self.0.y()) }
     #[inline] pub fn latitude_degrees(&self) -> f64 { self.0.y() }
 
+    #[inline] pub fn lon_lat_degrees(&self)->(f64,f64) { (self.longitude_degrees(), self.latitude_degrees()) }
+
     #[inline] pub fn point<'a> (&'a self) -> &'a Point { &self.0 }
     #[inline] pub fn mut_point<'a> (&'a mut self) -> &'a mut Point { &mut self.0 }
 

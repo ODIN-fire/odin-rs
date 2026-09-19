@@ -11,9 +11,9 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  */
-use std::hash::{Hash,DefaultHasher,Hasher};
+use std::{str::FromStr,hash::{Hash,DefaultHasher,Hasher}};
 use serde::{Deserialize};
-use strum::AsRefStr;
+use strum::{AsRefStr,EnumString,VariantNames,IntoStaticStr};
 
 /// Known OpenMeteo query field names
 /// We use a public enum with non-standard variant names to avoid explicit (error prone) mapping to &str
@@ -49,9 +49,19 @@ impl FieldId {
     }
 }
 
-#[derive(Deserialize,Debug,AsRefStr,Clone,Hash,PartialEq,Eq)]
+#[derive(Deserialize,Debug,EnumString,AsRefStr,IntoStaticStr,Clone,Copy,Hash,PartialEq,Eq)]
 #[allow(nonstandard_style)]
 pub enum ModelId {
+    best_match,
     ecmwf_ifs,
-    gfs_hrrr,
+    ncep_hrrr_conus,
+    ncep_hrrr_conus_15min,
+
+    //... and a lot more to follow
+}
+
+impl ModelId {
+    pub fn is_known_model (wx_model: &str)->bool {
+        ModelId::from_str( wx_model).is_ok()
+    }
 }

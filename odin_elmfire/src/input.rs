@@ -14,25 +14,46 @@
  * limitations under the License.
  */
 
-use std::{path::{Path,PathBuf},collections::HashMap, time::Duration};
-use odin_wind::errors::op_failed;
-use uom::si::{f64::{Angle, Length, Ratio}, velocity::mile_per_hour};
-use uom::si::{ratio::{ratio,percent}, length::{meter,kilometer}};
+use std::{path::{Path,PathBuf},collections::HashMap, time::Duration, str::FromStr, sync::Arc};
+use tokio::time::sleep;
+use uom::si::f64::{Angle, Length, Ratio};
+use uom::si::{ratio::{ratio,percent}, length::{meter,kilometer,inch}, angle::{degree}, velocity::{meter_per_second,mile_per_hour}};
 use chrono::{DateTime, Timelike, Utc};
 use interp::{interp_slice, InterpMode};
 use reqwest::Client;
+use ndarray::Array2;
+use gdal::{Dataset as GdalDataset};
 
 use odin_common::{
-    BoundingBox, datetime::{as_minutes, hours, is_between_inclusive, short_utc_datetime_string}, fs::path_as_str, geo::{GeoPoint,GeoRect}, utm::{UtmPoint,UtmRect,geo_to_utm, try_get_xy_vecs}
+    BoundingBox, arc,
+    collections::Grid,
+    datetime::{as_minutes, days, hours, is_between_inclusive, secs, short_utc_datetime_string, ymd, ymd_hms_enc},
+    fs::{create_symlink, ensure_writable_dir, path_as_str, path_to_lossy_string, replace_env_var_path},
+    geo::{GeoPoint,GeoRect},
+    uom::{LengthF32, ToF64Quantity,VelocityF32},
+    utm::{UtmPoint,UtmRect,geo_to_utm, try_get_xy_vecs}
 };
 use odin_fems::{self, FemsConfig, FemsStore, FemsStation, FemsStationKdTree};
-use odin_nfdrs::{self, NfdrsConfig, NfdrsRecord, create_nfdrs_inputs, parse_nfdrs_records, run_nfdrs};
+use odin_nfdrs::{self, NfdrsConfig, NfdrsLocationClassification, NfdrsRecord, compute_nfdrs_recs, create_nfdrs_inputs, output_path, parse_nfdrs_records, run_nfdrs};
 use odin_landfire::LANDFIRE_PIXEL_RESOLUTION;
 use odin_gdal::{
-    CslStringList, errors::OdinGdalError, gdal::raster::RasterCreationOptions, geods::{GeoDs, GeoDsImgType, GeoDsSrs}, get_driver_by_name, get_gtiff_create_opts, get_gtiff_driver, grid::{self, GdalGridAlgorithmOptions, create_grid_ds}
+    CslStringList, GdalDataType, copy_proj, create_dataset, find_rasterband_index,
+    get_driver_by_name, get_gtiff_create_opts, get_gtiff_driver, get_rasterband_as_vec,
+    open_dataset, read_rasterband_into_slice, set_rasterband_from_vec, get_raster_info,
+    gdal::raster::RasterCreationOptions,
+    errors::OdinGdalError,
+    geods::{GeoDs, GeoDsImgType, GeoDsSrs},
+    grid::{self, GdalGridAlgorithmOptions, create_grid_ds_from_array2,create_grid_ds_from_raster, create_grid_ds_from_scatter},
 };
-use odin_openmeteo::{OpenMeteoConfig, OpenMeteoLocationData, dataset::MinimalSfcData};
+use odin_wind::{WindConfig, WnJob, get_wn_out_basename, run_wn, wn_output_path};
+use odin_openmeteo::{
+    HourlyLocationData, MAX_POINTS, OpenMeteoConfig,
+    convert::{create_stacked_hourly_utm_ds, wn_utm_grid_to_hrrr},
+    dataset::{Fw21Data, MinimalSfcData}, get_forecast_url, get_time_step_range,
+    grid::{GridAlgorithm, UtmGrid}, ids::ModelId, queries::get_cached_annual_grid_precipitations
+};
 use crate::{CACHE_DIR, ElmfireConfig, ElmFire, FixedInputStep, WX_DT, errors::{OdinElmfireError,Result,op_failed}, get_utm_rect_around_point};
+
 
 fn check_cache<F,T,E> (path: PathBuf, f:F) -> Result<()>
     where F: FnOnce(PathBuf)->std::result::Result<T,E>, OdinElmfireError: From<E>
@@ -135,7 +156,7 @@ pub fn create_fixed_input (ef: &ElmFire, config: &ElmfireConfig, steps: &[FixedI
 
     //--- generate the fuel moisture inputs
 
-    let dpix = config.nfdrs_res_m as f64;
+    let dpix = config.wx_res_m as f64;
     let xsize = (x_width / dpix).round() as usize;
     let ysize = (y_height / dpix).round() as usize;
 
@@ -179,283 +200,246 @@ fn extend<T: Clone> (mut vs: Vec<T>, n: usize)->Vec<T> {
 
 /* #endregion  fixed steps */
 
-/* #region NFDRS (fuel moistures) *****************************************************************************************/
+/* #region actual weather inputs (combined NFDRS and wind inputs) *********************************************************/
 
-// although we could get the fuel moisture input from FEMS it is advisible to compute the values based on the grid
-// we are simulating. Using FEMS would not work if there are no stations in range
-
-pub async fn create_nfdrs_input (ef: &ElmFire, config: &ElmfireConfig)->Result<()> {
+pub async fn create_wx_based_input (ef: &ElmFire, config: &ElmfireConfig)->Result<()> {
     let wx_config: OpenMeteoConfig = odin_openmeteo::load_config( &config.wx_config_name)?;
     let lf_src: GeoDs = odin_landfire::load_config( &config.lf_src_name)?;
     let nfdrs_config: NfdrsConfig = odin_nfdrs::load_config( &config.nfdrs_config_name)?;
     let nodata: f64 = -9999.0;
 
     let dir = ef.dir.join("inputs");
-    let forecast_days = ef.wx_forecast_days();
     let past_days = config.nfdrs_past_days; // we need some to predict 10/100 h DFM based on last weeks' weather
-    let wx_model = &config.wx_model;
+    let wx_model = ModelId::from_str( &config.wx_model)?;
+    let wx_res = config.wx_res_m as f64;
 
-    let start_date = ef.base_date.clone();
-    let end_date = start_date + hours( ef.n_hours as u64);
-    let n_time_steps = ef.n_hours as usize + 1;
+    let start_date = ef.base_date - days( past_days as u64);
+    let end_date = ef.base_date + hours( ef.n_hours as u64);
+    let n_time_steps = ef.n_hours as usize + 1; // this is forecast-only (number of rasterbands for Elmfire input)
 
-    let center = ef.utm_rect.center();
-    let bbox_size = Length::new::<meter>( config.bbox_size_m as f64);
-    let raster = Length::new::<meter>( config.fm_raster_m as f64);
-    let grid_points = center.grid_points_from_center( bbox_size, bbox_size, raster, false);
-    let n_grid_points = grid_points.len();
-    let (mut xs,mut ys) = try_get_xy_vecs( &grid_points, ef.utm_rect.utm_zone)?;
+    let n2 = ((ef.utm_rect.width() / wx_res).ceil() as usize) / 2;  // number of grid points in each direction from center
+    if (2*n2 + 1).pow(2) >= MAX_POINTS {
+        return Err( op_failed!("too many grid points"))
+    }
 
-    // the band data vecs we need for respective tif data sets
-    let mut m1 = vec![ Vec::<f64>::with_capacity(n_grid_points); n_time_steps];
-    let mut m10 = vec![ Vec::<f64>::with_capacity(n_grid_points); n_time_steps];
-    let mut m100 = vec![ Vec::<f64>::with_capacity(n_grid_points); n_time_steps];
-    let mut lh = vec![ Vec::<f64>::with_capacity(n_grid_points); n_time_steps];
-    let mut lw = vec![ Vec::<f64>::with_capacity(n_grid_points); n_time_steps];
+    // the cached weather data acquisition
+    let fw21_grid = get_fw21_grid( &wx_config, wx_model, &dir, &ef.geo_center, Length::new::<meter>(wx_res), n2, &start_date, &end_date).await?;
+    let precip_grid = get_annual_precip( &wx_config, &dir, &fw21_grid, &ef.geo_center, &ef.base_date).await?;
 
-    let mut dropped = 0;
+    let (ny,nx) = fw21_grid.dim();
+    let n_grid_points = nx * ny;
+    let nodata: f32 = -9999.0;
 
-    for (i,p) in grid_points.iter().enumerate() {
-        let pos: GeoPoint = p.into();
-        let output_path = odin_nfdrs::output_path( &pos, &ef.base_date, forecast_days, past_days, wx_model);
+    // the band data vecs we need for respective tif data sets (forecast only)
+    let mut m1:   Vec<Array2<f32>> = vec![ Array2::from_elem( (ny,nx), nodata); n_time_steps];
+    let mut m10:  Vec<Array2<f32>> = vec![ Array2::from_elem( (ny,nx), nodata); n_time_steps];
+    let mut m100: Vec<Array2<f32>> = vec![ Array2::from_elem( (ny,nx), nodata); n_time_steps];
+    let mut lh:   Vec<Array2<f32>> = vec![ Array2::from_elem( (ny,nx), nodata); n_time_steps];
+    let mut lw:   Vec<Array2<f32>> = vec![ Array2::from_elem( (ny,nx), nodata); n_time_steps];
+    let mut ws:   Vec<Array2<f32>> = vec![ Array2::from_elem( (ny,nx), nodata); n_time_steps];
+    let mut wd:   Vec<Array2<f32>> = vec![ Array2::from_elem( (ny,nx), nodata); n_time_steps];
 
-        match create_nfdrs_inputs( &wx_config, &lf_src, &pos, &ef.base_date, forecast_days, past_days, wx_model, &output_path).await {
-            Ok(cfg_path) => {
-                run_nfdrs( &nfdrs_config.nfdrs_cmd, &cfg_path).await?;
-                let recs: Vec<NfdrsRecord> = parse_nfdrs_records( &output_path, |rec| is_between_inclusive( &rec.date, &start_date, &end_date))?;
+    for j in 0..ny {
+        for i in 0..nx {
+            let grid_point = (j,i); // ndarray uses row major = (row,col)
+            let pos = fw21_grid.geo_pos_at( i, j)?; // we use (col,row)
 
-                for (j,r) in recs.iter().enumerate() {
-                    m1[j].push( r.dfm_1h.get::<percent>());
-                    m10[j].push( r.dfm_10h.get::<percent>());
-                    m100[j].push( r.dfm_100h.get::<percent>());
-                    lh[j].push( r.lfm_herb.get::<percent>());
-                    lw[j].push( r.lfm_woody.get::<percent>());
+            let loc_cls = NfdrsLocationClassification::for_location( &lf_src, &pos).await?;
+            let annual_precip = precip_grid.at( i, j); // note this is (col,row)
+
+            if let Some(fw21) = fw21_grid.at( i, j)? {  // note this is (col,row)
+                let nfdrs_recs = compute_nfdrs_recs( &nfdrs_config, &pos, fw21, annual_precip, &loc_cls, wx_model, &ef.base_date).await?;
+
+                for (k,rec) in nfdrs_recs.iter().enumerate() {
+                    m1[k][grid_point] = rec.dfm_1h.get::<percent>() as f32;
+                    m10[k][grid_point] = rec.dfm_10h.get::<percent>() as f32;
+                    m100[k][grid_point] = rec.dfm_100h.get::<percent>() as f32;
+                    lh[k][grid_point] = rec.lfm_herb.get::<percent>() as f32;
+                    lw[k][grid_point] = rec.lfm_woody.get::<percent>() as f32;
+
+                    ws[k][grid_point] = rec.wind_speed.get::<mile_per_hour>() as f32;
+                    wd[k][grid_point] = rec.wind_azimuth.get::<degree>() as f32;
                 }
             }
-            Err(e) => { // remove this grid point as it does not contribute any data - might be water or developed
-                println!("skipping grid point {} : {}", pos, e);
-                xs.remove(i - dropped);
-                ys.remove(i - dropped);
-                dropped += 1;
-            }
         }
     }
 
-    if xs.is_empty() {
-        return Err( op_failed!("no valid grid data"));
+    { // we need to drop drv before any further await point since it is not Send
+        let drv = get_gtiff_driver();
+        let epsg = fw21_grid.utm_rect.epsg();
+        let copts = get_gtiff_create_opts();
+        let bbox = &fw21_grid.utm_rect;
+        let (w,s,e,n) = (bbox.west, bbox.south, bbox.east, bbox.north);
+
+        check_cache( dir.join("m1.tif"),   |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, m1, &copts))?;
+        check_cache( dir.join("m10.tif"),  |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, m10, &copts))?;
+        check_cache( dir.join("m100.tif"), |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, m100, &copts))?;
+        check_cache( dir.join("lh.tif"),   |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, lh, &copts))?;
+        check_cache( dir.join("lw.tif"),   |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, lw, &copts))?;
+        check_cache( dir.join("ws.tif"),   |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, ws, &copts))?;
+        check_cache( dir.join("wd.tif"),   |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, wd, &copts))?;
     }
 
-    //println!("m1:  {:?}", m1[0]);
-    //println!("m10: {:?}", m10[0]);
-    //println!("lw:  {:?}", lw[0]);
-
-    //--- the invariants for all fuel moisture data sets
-    let bbox = &ef.utm_rect.bbox;
-    let x_width = bbox.width();
-    let y_height = bbox.height();
-    let dpix = config.nfdrs_res_m as f64; /// pixel resolution in m  ?? use same res as wind (multiple of lf_res)
-
-    let xsize = (x_width / dpix).round() as usize;
-    let ysize = (y_height / dpix).round() as usize;
-
-    let drv = get_gtiff_driver();
-    let epsg = ef.utm_rect.epsg();
-    let (w,s,e,n) = (bbox.west, bbox.south, bbox.east, bbox.north);
-    let alg = GdalGridAlgorithmOptions::inv_dist( 2.0, config.fm_raster_m as f64 * 0.5, bbox.width(), -9999.0);
-    //let alg = GdalGridAlgorithmOptions::nearest_neighbor_within( config.bbox_size_m as f64, -9999.0);
-    let copts = get_gtiff_create_opts();
-
-    check_cache( dir.join("m1.tif"), |path|
-        create_grid_ds::<f32,_>(&drv, path, epsg, w, e, s, n, xsize, ysize, &xs, &ys, m1.as_slice(), &alg, &copts)
-    )?;
-
-    check_cache( dir.join("m10.tif"), |path|
-        create_grid_ds::<f32,_>(&drv, &path, epsg, w, e, s, n, xsize, ysize, &xs, &ys, m10.as_slice(), &alg, &copts)
-    )?;
-
-    check_cache( dir.join("m100.tif"), |path|
-        create_grid_ds::<f32,_>(&drv, &path, epsg, w, e, s, n, xsize, ysize, &xs, &ys, m100.as_slice(), &alg, &copts)
-    )?;
-
-    check_cache( dir.join("lh.tif"), |path|
-        create_grid_ds::<f32,_>(&drv, &path, epsg, w, e, s, n, xsize, ysize, &xs, &ys, lh.as_slice(), &alg, &copts)
-    )?;
-
-    check_cache( dir.join("lw.tif"), |path|
-        create_grid_ds::<f32,_>(&drv, &path, epsg, w, e, s, n, xsize, ysize, &xs, &ys, lw.as_slice(), &alg, &copts)
-    )?;
+    if ef.compute_wind {
+        compute_wind( ef, config, &fw21_grid, &dir).await?;
+    }
 
     Ok(())
 }
 
-/* #endregion NFDRS */
-
-/* #region FEMS ***********************************************************************************************************/
-
-// see NFDRS comments (which we prefer for fuel moisture data)
-
-pub async fn create_fems_input (ef: &ElmFire, config: &ElmfireConfig) -> Result<()> {
-    let fems_config: FemsConfig = odin_fems::load_config( &config.fems_config_name)?;
-    let bbox_size = Length::new::<meter>( ef.utm_rect.width()); // we use that as edge length for sim bbox
-    let station_dist = bbox_size * 1.77; // max distance for FEMS station lookup (2/sqrt(2) * 1.5)
-    let geo_center: GeoPoint = ef.utm_rect.center().into();
-
-    let kd_tree = FemsStationKdTree::load_from( &fems_config.station_metadata)?;
-    //println!("{} stations loaded", kd_tree.len());
-
-    let stations = kd_tree.station_distances_within( &geo_center, station_dist);
-    if stations.is_empty() {
-        return Err( op_failed!("no stations found within radius of {} km", station_dist.get::<kilometer>()) )
-    }
-
-    // println!("{} stations found within {} km of {}:", stations.len(), station_dist.get::<kilometer>(), ignition_pos);
-    // for (s,d) in stations.iter() {
-    //     let s = &s.metadata;
-    //     let pos = &s.position;
-    //     println!("    {:8} {:20} [{:.4},{:.4}] : {:.1}km", s.id, s.name, pos.longitude_degrees(), pos.latitude_degrees(), d.get::<kilometer>() );
-    // }
-
-    let mut stations = FemsStore::new( stations.into_iter().map( |(s,d)| s).collect());
-    let client = Client::new();
-
-    stations.retrieve_current_obs( &client, &fems_config.url, &ef.name, ef.n_hours).await?;
-
-    let fems_pixel_res = Length::new::<meter>( config.fems_res_m as f64);
-    let stations: Vec<&FemsStation> = stations.values().collect();
-
-    let dir = ef.dir.join("inputs");
-    let wx_timestamps = ef.get_wx_timestamps();
-    create_fems_grids( &stations, &ef.utm_rect, fems_pixel_res, &wx_timestamps, &dir)?;
-
-    Ok(())
-}
-
-pub fn create_fems_grids (
-    stations: &[&FemsStation],
-    utm_rect: &UtmRect,
-    pixel_res: Length,
-    wx_timestamps: &[i64],
-    dir: &PathBuf
-) -> Result<()>
+async fn get_fw21_grid (
+    wx_config: &OpenMeteoConfig, wx_model: ModelId, dir: &PathBuf,
+    geo_center: &GeoPoint, res: Length, n2: usize,
+    start: &DateTime<Utc>, end: &DateTime<Utc>
+) -> Result<UtmGrid<Fw21Data>>
 {
-    let wx_times: Vec<f64> = wx_timestamps.iter().map(|ts| *ts as f64).collect();
-    let time_steps = wx_times.len();
-    let n_stations = stations.len();
+    let mut grid: UtmGrid<Fw21Data> = UtmGrid::from_center( geo_center, res, n2, n2)?;
 
-    let utm_points: Vec<UtmPoint> = stations.iter().map( |s| {
-        let p = s.position.as_geo_point();
-        geo_to_utm(&p).ok_or( op_failed!("invalid station position"))
-    }).collect::<Result<_>>()?;
-    let (xs,ys) = try_get_xy_vecs( &utm_points, utm_rect.utm_zone)?;
+    // make sure we get all the OpenMeteo data in one query
+    let center_enc = geo_center.encode(4);
+    let path = dir.join( format!("fw21__{}__{}.json", center_enc, ymd_hms_enc( end)));
+    grid.get_cached_hourly_data( wx_config, wx_model, start, end, GridAlgorithm::idw( 1.5, 2.0), &path).await?;
 
-    let create_opts = get_gtiff_create_opts();
-
-    check_cache( dir.join("m1.tif"), |path| {
-        create_fems_grid_ds( &path, &create_opts, &utm_rect, pixel_res, &wx_times, stations, &xs, &ys,
-            |s| s.get_dfm_1h_values().iter().map( |v| v.get::<percent>() as f64).collect())
-    })?;
-
-    check_cache( dir.join("m10.tif"), |path| {
-        create_fems_grid_ds( &path, &create_opts, &utm_rect, pixel_res, &wx_times, stations, &xs, &ys,
-            |s| s.get_dfm_10h_values().iter().map( |v| v.get::<percent>() as f64).collect())
-    })?;
-
-    check_cache( dir.join("m100.tif"), |path| {
-        create_fems_grid_ds( &path, &create_opts, &utm_rect, pixel_res, &wx_times, stations, &xs, &ys,
-            |s| s.get_dfm_100h_values().iter().map( |v| v.get::<percent>() as f64).collect())
-    })?;
-
-    check_cache( dir.join("lh.tif"), |path| {
-        create_fems_grid_ds( &path, &create_opts, &utm_rect, pixel_res, &wx_times, stations, &xs, &ys,
-            |s| s.get_lfm_herb_values().iter().map( |v| v.get::<percent>() as f64).collect())
-    })?;
-
-    check_cache( dir.join("lw.tif"), |path| {
-        create_fems_grid_ds( &path, &create_opts, &utm_rect, pixel_res, &wx_times, stations, &xs, &ys,
-            |s| s.get_lfm_wood_values().iter().map( |v| v.get::<percent>() as f64).collect())
-    })?;
-
-    Ok(())
+    Ok(grid)
 }
 
-/// per data type (e.g. 1h dead fuel moisture) function to create a grid from respective time series of all stations
-/// note that Elmfire expects equidistant time steps between the bands of this grid and the first band might have to be
-/// extrapolated if the leading observation time (which is the last reporting time of the station) is after the initial
-/// time step (15min raster) we request. All following forecast values for the station will be at full hours, i.e. for
-/// dt < 60min intervals we have to interpolate values. Since FEMS variables (mostly dead fuel moisture) don't change
-/// drastically we just use linear interpolation (which also makes extrapolation easier).
-/// e.g. [ 8:22, 9:00, 10:00, .. ] -> [ 8:15, 8:30, 8:45, 9:00, 9:15, 9:30, ..] for a station that reports at h:22
-fn create_fems_grid_ds <P,F> (
-    path: P,
-    create_opts: &RasterCreationOptions,
-    utm_rect: &UtmRect,
-    res: Length,
-    sim_times: &[f64],
-    stations: &[&FemsStation],
-    xs: &[f64], // station position easting values
-    ys: &[f64], // station position northing values
-    get_values: F // data value retriever (e.g. for 1h dead fuel moisture)
-)->Result<()>
-    where P: AsRef<Path>, F: Fn(&FemsStation)->Vec<f64> // caller profided function to retrieve a specific FemsStation obs
+// NOTE - using odin_common::containers::Grid is a workaround for the infamous
+//       "Future not Send.. expected struct `Quantity<..., ..., f64>` found struct `Quantity<..., ..., f64>`"
+// With ndarray v0.17.2 we can't directly use Array2<Length> in the loop and UtmGrid should not have any DeserializeOwned
+// bounds on the type (only on the deserializing methods)
+// TODO - remove workaround if fixed in rustc (https://github.com/rust-lang/rust/issues/162558)
+// and/or ndarray (https://github.com/rust-ndarray/ndarray/issues/1617)
+
+async fn get_annual_precip (
+    wx_config: &OpenMeteoConfig, dir: &PathBuf,
+    grid: &UtmGrid<Fw21Data>, geo_center: &GeoPoint,
+    date: &DateTime<Utc>
+) -> Result<Grid<Length>>
 {
-    let time_steps = sim_times.len();
-    let n_stations = stations.len();
+    let center_enc = geo_center.encode(4);
+    let path = dir.join( format!("annual_precip__{}__{}.json", center_enc, ymd(date)));
 
-    // get interpolated values for each station for this data type
-    let mut station_values: Vec<Vec<f64>> = Vec::with_capacity( n_stations);
-    for station in stations.iter() {
-        let times_obs: Vec<f64> = station.get_nfdrs_obs_dates().iter().map( |d| d.timestamp() as f64).collect();
-        let vs_obs: Vec<f64> = get_values(station);
-        let vs_interp: Vec<f64> = interp_slice( &times_obs, &vs_obs, sim_times, &InterpMode::Extrapolate);
-        station_values.push( vs_interp);
+    let sum_f32 = get_cached_annual_grid_precipitations( wx_config, grid, date, &path).await?;
+    let sum_f64 = sum_f32.map( |l| l.to_f64() ); // NOTE - this has to be the same unit as we use in the compute_nfdrs_recs argument
+
+    Ok( Grid::from_array2(sum_f64) )
+}
+
+/// use forecast ws/wd plus already retrieved dir/dem.tif to compute micro grid wind with WindNinja
+/// since this is only called internally we can safely assume ws,wd have the right time steps and ws in in [mph]
+async fn compute_wind( ef: &ElmFire, config: &ElmfireConfig, fw21_grid: &UtmGrid<Fw21Data>, dir: &PathBuf) ->Result<()> {
+    let wind_config: WindConfig = odin_wind::load_config( &config.wind_config_name)?;
+    let wind_dir = dir.join("wn");
+    ensure_writable_dir( &wind_dir)?;
+    let n_steps = ef.n_hours as usize + 1;
+
+    // extract HRRR conform DS for each hour from fw21_grid (note we don't need unique tif names since we place this into its oen wind_dir)
+    let wx_paths = wn_utm_grid_to_hrrr( &ef.name, &config.wx_model, &fw21_grid, &ef.base_date, n_steps, &wind_dir)?;
+
+    let dem_path = Arc::new( wind_dir.join( format!("{}.tif", ef.name)));
+    create_symlink( Path::new("../dem.tif"), &dem_path.as_ref())?; // no need to copy
+    //std::fs::copy( &dir.join("dem.tif"),  &dem_path.as_ref()).unwrap();
+
+    let region = Arc::new(ef.name.clone());
+    let wx_src = Arc::new( config.wx_model.clone());
+    let mesh_res = config.wind_res_m as f64;
+
+    // WindNinja uses the DEM tif to set the huvw output bbox so we should get it from there. The fw21_grid is a superset of this bbox
+    // the huvw size is not the same as the DEM though (witch likely is of higher resolution) - we have to compute it
+    let dem_ds = open_dataset(dem_path.as_ref())?;
+    let ri = get_raster_info( &dem_ds)?;
+    let bbox = BoundingBox::<f64>::from(&ri);
+    let (w,h) = ((bbox.width() / mesh_res) as usize, (bbox.height() / mesh_res) as usize);
+
+    let wn_out_basename = Arc::new( get_wn_out_basename( &ef.name, ef.base_date.clone(), &bbox, mesh_res, &config.wx_model));
+
+    let ws_path = dir.join("ws.tif");
+    let wd_path = dir.join("wd.tif");
+
+    //rename wx-based ws.tif and wd.tif file (note we use the HRRR files generated from fw21_grid for WindNinja)
+    std::fs::rename( &ws_path, &dir.join("ws_wx.tif"))?;
+    std::fs::rename( &wd_path, &dir.join("wd_wx.tif"))?;
+
+    // create the ws.tif, wd,tif target datasets into which we will collect the WindNinja huvw output
+    let mut ws_ds = create_wn_ds( &ws_path, w, h, n_steps)?;
+    let mut wd_ds = create_wn_ds( &wd_path, w, h, n_steps)?;
+
+    // run WindNinja on all generated HRRR files in wx_paths and stack the output into the new ws/wd datasets reqiored by elmfire
+    for (n, p) in wx_paths.iter().enumerate() {
+        let date = ef.base_date + hours(n as u64);
+        let huvw_path = wn_output_path( &wind_dir, region.as_ref(), &date, mesh_res, wx_src.as_ref());
+
+        let wn_job = WnJob {
+            region: region.clone(),
+            date: date,
+            step: 0, // irrelevant in this context
+            mesh_res: mesh_res, // should be multiple of lf_res_m
+            wind_height: 10.0,
+            wx_src: wx_src.clone(),
+            wx_path: Arc::new(p.clone()),
+            dem_path: dem_path.clone(),
+            wn_out_basename: wn_out_basename.clone()
+        };
+
+        // this might take a moment but since this is not recurring and grids are rather small we await it here
+        // TODO - we could refactor this into its own task to make sure we only execute one WindNinja child proc at a time
+        run_wn( &wind_config.windninja_cmd, &wind_dir, &wn_job).await?;
+
+        process_wn_output( &huvw_path, n+1, &mut ws_ds, &mut wd_ds)?;
     }
-
-    // and turn this into an array of timestep value arrays (containing all stations)
-    let mut ts_values: Vec<Vec<f64>> = Vec::with_capacity(time_steps);
-    for i in 0..time_steps {
-        let mut vs: Vec<f64> = Vec::with_capacity( n_stations);
-        for j in 0..n_stations {
-            vs.push( station_values[j][i])
-        }
-        ts_values.push( vs);
-    }
-
-    let bbox = &utm_rect.bbox;
-    let x_width = bbox.width();
-    let y_height = bbox.height();
-    let dpix = res.get::<meter>();
-    let alg = GdalGridAlgorithmOptions::linear( 50000.0, -9999.0); // use any station in 50km radius (this is the crux!)
-
-    let xsize = (x_width / dpix).round() as usize;
-    let ysize = (y_height / dpix).round() as usize;
-
-    let driver = get_gtiff_driver();
-    let ds = grid::create_grid_ds::<f32,_>(
-        &driver,
-        &path,
-        utm_rect.epsg(),
-        bbox.west, bbox.east,
-        bbox.south, bbox.north,
-        xsize, ysize,
-        &xs, &ys, &ts_values,
-        &alg,
-        create_opts
-    )?;
-
-    //let filename = path.as_ref().file_name().unwrap_or(std::ffi::OsStr::new("?"));
-    //println!("created {}x{} grid {:?} with {} time steps", xsize, ysize, filename, time_steps);
 
     Ok(())
 }
 
-/* #endregion FEMS */
+fn create_wn_ds<P: AsRef<Path>> (path: P, w: usize, h: usize, n_steps: usize)->Result<GdalDataset> {
+    let driver = get_gtiff_driver(); // needs to be non-async scoped as it is not Send
+    Ok( create_dataset( &driver, path, w, h, n_steps, GdalDataType::Float32, Some(get_gtiff_create_opts()))? )
+}
+
+fn process_wn_output<P: AsRef<Path>> (huvw_path: P, band_no: usize, ws_ds: &mut GdalDataset, wd_ds: &mut GdalDataset)->Result<()> {
+    // NOTE - WindNinja huvw has a speed band but it is only horizontal. For fire spread we probably want to use the
+    // 3D windspeed, i.e. we have to read u,v,w components and compute the speed ourselves
+    let huvw_ds = open_dataset(  huvw_path)?;
+
+    if band_no == 1 { // we copy geo_transform and SRS from the WindNinja output
+        copy_proj( &huvw_ds, ws_ds)?;
+        copy_proj( &huvw_ds, wd_ds)?;
+    }
+
+    let n = find_rasterband_index( &huvw_ds, &[("", "name", Some("U"))]).ok_or(op_failed!("no U band"))? as usize;
+    let wn_u: Vec<f32> = get_rasterband_as_vec( &huvw_ds, n)?;
+
+    let n = find_rasterband_index( &huvw_ds, &[("", "name", Some("V"))]).ok_or(op_failed!("no V band"))? as usize;
+    let wn_v: Vec<f32> = get_rasterband_as_vec( &huvw_ds, n)?;
+
+    let n = find_rasterband_index( &huvw_ds, &[("", "name", Some("W"))]).ok_or(op_failed!("no W band"))? as usize;
+    let wn_w: Vec<f32> = get_rasterband_as_vec( &huvw_ds, n)?;
+
+    let n = find_rasterband_index( &huvw_ds, &[("", "name", Some("Direction"))]).ok_or(op_failed!("no Direction band"))? as usize;
+    let wn_d: Vec<f32> = get_rasterband_as_vec( &huvw_ds, n)?;
+
+    let len = wn_u.len();
+    let mut ws: Vec<f32> = Vec::with_capacity(len);
+    let mut wd: Vec<f32> = Vec::with_capacity(len);
+
+    for i in 0..len {
+        let spd = VelocityF32::new::<meter_per_second>( (wn_u[i].powi(2) + wn_v[i].powi(2) + wn_w[i].powi(2)).sqrt());
+        ws.push(  spd.get::<mile_per_hour>());
+        wd.push( wn_d[i])
+    }
+
+    set_rasterband_from_vec( ws_ds, band_no, ws)?;
+    set_rasterband_from_vec( wd_ds, band_no, wd)?;
+
+    Ok(())
+}
+
+/* #endregion  */
 
 /* #region landfire ***********************************************************************************************************/
 
 pub async fn create_landfire_input (ef: &ElmFire, config: &ElmfireConfig)->Result<()> {
     let lf_src: GeoDs = odin_landfire::load_config( &config.lf_src_name)?;
-
-    let srs = GeoDsSrs::from_epsg( ef.utm_rect.epsg()).ok_or( op_failed!("invalid UTM coordinates") )?;
     let lf_pixel_res = Length::new::<meter>( config.lf_res_m as f64);
     let img_type = odin_gdal::geods::GeoDsImgType::TIF;
 
@@ -508,88 +492,3 @@ pub async fn create_landfire_grids (lf_src: &GeoDs, utm_rect: &UtmRect, pixel_re
 }
 
 /* #endregion landfire */
-
-
-/* #region wx ***********************************************************************************************************/
-
-pub async fn create_wx_input (ef: &ElmFire, config: &ElmfireConfig)->Result<()> {
-    let geo_rect = ef.utm_rect.to_geo_rect(odin_common::utm::GeoRectMapping::ExteriorGeo);
-    let wx_config: OpenMeteoConfig = odin_openmeteo::load_config( &config.wx_config_name)?;
-    let pix_res = config.wx_res_m as f64;
-    let raster_m = config.wind_raster_m as f64;
-    let days = ef.wx_forecast_days();
-
-    let vs: Vec<OpenMeteoLocationData<MinimalSfcData>> =
-        OpenMeteoLocationData::get_hourly_bbox_forecasts( &wx_config, &geo_rect, days, 0, &config.wx_model).await?;
-
-    let dir = ef.dir.join("inputs");
-    create_wx_grids( &vs, &ef.utm_rect, raster_m, pix_res, ef.n_hours, &dir)?;
-
-    Ok(())
-}
-
-// note that OpenMeteo grid points are geo (and Gaussian)
-// note also that vs has to be properly aligned according to WX_DT (15min)
-fn create_wx_grids (
-    vs: &[OpenMeteoLocationData<MinimalSfcData>],
-    utm_rect: &UtmRect,
-    raster_m: f64,
-    pix_res_m: f64,
-    n_hours: u32,
-    dir: &PathBuf
-) -> Result<()>
-{
-    let utm_center = utm_rect.center();
-    let geo_bbox = utm_rect.to_geo_rect( odin_common::utm::GeoRectMapping::ExteriorGeo);
-    let utm_zone = utm_rect.utm_zone;
-    let gps = OpenMeteoLocationData::geo_points(&vs);
-    let utm_pos: Vec<UtmPoint> = UtmPoint::from_geo_points_in_zone( &gps, utm_zone)?;
-    let (xs,ys) = try_get_xy_vecs( &utm_pos, utm_zone)?; // x,y UTM locations for each grid point
-    let n_steps = n_hours as usize + 1;
-
-    if vs.is_empty() { return Err( op_failed!("no wx data") ) }
-    let vs_len = vs.len();
-
-    // each row holds values of all grid points for this time step
-    let mut ws_data: Vec<Vec<f64>> = Vec::with_capacity(n_steps);
-    let mut wd_data: Vec<Vec<f64>> = Vec::with_capacity(n_steps);
-
-    for i in 0..n_steps { // save values for each requested time step
-        let mut ws: Vec<f64> = Vec::with_capacity( vs_len); // wind speed (m/s)
-        let mut wd: Vec<f64> = Vec::with_capacity( vs_len); // wind direction (degrees)
-
-        for gp in vs.iter() {
-            let hd = gp.hourly_data.as_ref().ok_or( op_failed!("no hourly data for observation"))?;
-
-            // Elmfire expects wind speed in mph, openmeteo reports it as m/s
-            ws.push( hd.hourly.wind_speed_10m[i] as f64 * 2.23694);
-            wd.push( hd.hourly.wind_direction_10m[i] as f64);
-        }
-
-        ws_data.push(ws);
-        wd_data.push(wd);
-    }
-
-    let driver = get_gtiff_driver();
-    let epsg = utm_zone.epsg();
-    let x_min = utm_rect.west;
-    let x_max = utm_rect.east;
-    let y_min = utm_rect.south;
-    let y_max = utm_rect.north;
-    let x_size = (utm_rect.width() / pix_res_m) as usize;
-    let y_size = (utm_rect.height() / pix_res_m) as usize;
-    let alg = GdalGridAlgorithmOptions::inv_dist( 2.0, raster_m * 0.5, utm_rect.width(), -9999.0);
-    //let alg = GdalGridAlgorithmOptions::nearest_neighbor_within( utm_rect.width(), -9999.0);
-    //let alg = GdalGridAlgorithmOptions::linear( raster_m, -9999.0);
-    let copts = get_gtiff_create_opts();
-
-    check_cache( dir.join("wd.tif"), |path| {
-        create_grid_ds::<f32,_>( &driver, &path, epsg, x_min, x_max, y_min, y_max, x_size, y_size, &xs, &ys, &wd_data, &alg, &copts)
-    })?;
-
-    check_cache( dir.join("ws.tif"), |path| {
-        create_grid_ds::<f32,_>( &driver, &path, epsg, x_min, x_max, y_min, y_max, x_size, y_size, &xs, &ys, &ws_data, &alg, &copts)
-    })?;
-
-    Ok(())
-}

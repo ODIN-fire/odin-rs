@@ -51,7 +51,7 @@ fn test_rect_conversion () {
 }
 
 #[test]
-fn test_point_conversion () {
+fn test_geo_to_utm () {
     let geo_point = GeoPoint::from_lon_lat_degrees( -122.123, 37.234);
     println!("geo: {:?}", geo_point);
     let utm_point: UtmPoint = geo_point.try_into().unwrap();
@@ -64,4 +64,23 @@ fn test_point_conversion () {
     println!(" -> geo: {:?}", gp);
     assert!( (gp.latitude_degrees() - geo_point.latitude_degrees()).abs() < 0.05);
     assert!( (gp.longitude_degrees() - geo_point.longitude_degrees()).abs() < 0.05);
+}
+
+#[test]
+fn test_roundtrip_conversion () {
+    let test_points = [
+        GeoPoint::from_lon_lat_degrees( -122.123, 37.234),  // northern
+        GeoPoint::from_lon_lat_degrees( 148.334111, -23.809749) // southern hemisphere
+    ];
+
+    for geo_point in test_points.into_iter() {
+        println!("geo: {:?}", geo_point);
+        let utm_point: UtmPoint = geo_point.try_into().unwrap();
+        println!("utm: {:?}", utm_point);
+
+        let gp: GeoPoint = utm_point.into();
+        println!(" -> geo: {:?}", gp);
+        assert!( (gp.latitude_degrees() - geo_point.latitude_degrees()).abs() < 0.05);
+        assert!( (gp.longitude_degrees() - geo_point.longitude_degrees()).abs() < 0.05);
+    }
 }

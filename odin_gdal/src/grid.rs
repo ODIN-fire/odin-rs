@@ -20,11 +20,13 @@
 use std::{mem::size_of, path::Path, ptr, fmt::Debug};
 use std::os::raw::{c_void, c_uint, c_double};
 
+use ndarray::Array2;
 use gdal::raster::RasterCreationOptions;
 use gdal::{DriverManager, Driver, raster::{GdalType,Buffer}, Dataset, spatial_ref::SpatialRef};
 use gdal_sys;
 
 use odin_common::num_type::NumericType;
+use crate::create_dataset;
 use crate::errors::{Result, last_gdal_error, misc_error};
 
 /* #region GDALGridAlgorithm structs *************************************************************************/
@@ -183,11 +185,51 @@ impl GDALInverseDistanceToAPowerOptions {
 
 /* #endregion GDALGridAlgorithm structs */
 
+pub fn create_grid_ds_from_raster<T:GdalType + NumericType, P: AsRef<Path>> (
+    driver: &Driver, path: P,
+    epsg: u32,
+    x_min: f64, y_max: f64, // upper left corner
+    x_size: usize, y_size: usize, // dimensions in pixels
+    x_res: f64, y_res: f64, // pixel resolutions
+    raster_values: Vec<Vec<T>>,
+    create_opts: &RasterCreationOptions
+) ->Result<Dataset> {
+    let n_bands = raster_values.len();
+    let mut ds = driver.create_with_band_type_with_options::<T, P>( path, x_size, y_size, n_bands, create_opts)?;
+    ds.set_geo_transform( &[ x_min, x_res, 0.0, y_max, 0.0, -y_res])?;
+
+    let srs = SpatialRef::from_epsg( epsg)?;
+    ds.set_spatial_ref(&srs)?;
+
+    for (i,v) in raster_values.into_iter().enumerate() {
+        let mut buf: Buffer<T> = Buffer::new( (x_size,y_size), v);
+        let mut band = ds.rasterband(i+1)?;
+        band.write( (0,0), (x_size, y_size), &mut buf)?;
+    }
+
+    ds.flush_cache();
+
+    Ok(ds)
+}
+
+pub fn create_grid_ds_from_array2<T:GdalType + NumericType, P: AsRef<Path>> (
+    driver: &Driver, path: P,
+    epsg: u32,
+    x_min: f64, y_max: f64, // upper left corner
+    x_size: usize, y_size: usize, // dimensions in pixels
+    x_res: f64, y_res: f64, // pixel resolutions
+    raster_values: Vec<Array2<T>>,
+    create_opts: &RasterCreationOptions
+) ->Result<Dataset> {
+    let rvs: Vec<Vec<T>> = raster_values.into_iter().map( |arr2| arr2.into_raw_vec_and_offset().0).collect();
+    create_grid_ds_from_raster( driver, path, epsg, x_min, y_max, x_size, y_size, x_res, y_res, rvs, create_opts)
+}
+
 /// create a dataset that is initialized by computing pixel values from given point/value sets. All sets use the
 /// same x_coord,y_coord positions but each set can have different values for these positions
 /// the number of bands in the dataset if given by the number of value sets.
 /// the number of xy_values for each band has to match the length of the x_coord,y_coord slices
-pub fn create_grid_ds<T:GdalType + NumericType, P: AsRef<Path>> (
+pub fn create_grid_ds_from_scatter<T:GdalType + NumericType, P: AsRef<Path>> (
     driver: &Driver, path: P,
     epsg: u32,
     x_min: f64, x_max: f64,
@@ -288,6 +330,38 @@ pub fn create_const_grid_ds<T:GdalType + NumericType, P: AsRef<Path>> (
         let mut band = ds.rasterband( i+1)?;
         band.fill( init_vals[i], Some(no_data))?;
     }
+
+    Ok(ds)
+}
+
+
+pub fn resample_ds<T,P> (driver: &Driver, path: P, src_ds: &Dataset, x_scale: f64, y_scale: f64, create_opts: Option<RasterCreationOptions>)->Result<Dataset>
+    where T:GdalType + NumericType, P: AsRef<Path>
+{
+    let (sw,sh) = src_ds.raster_size();
+    let dw = (sw as f64 * x_scale) as usize;
+    let dh = (sh as f64 * y_scale) as usize;
+    let n_bands = src_ds.raster_count();
+
+    let data_type = src_ds.rasterband(1)?.band_type(); // src and dst need to be homogenous
+    let mut ds = create_dataset(driver, path, dw, dh, n_bands, data_type, create_opts)?;
+
+    let mut geo_transform = src_ds.geo_transform()?;
+    geo_transform[1] /= x_scale;
+    geo_transform[5] /= y_scale;
+    ds.set_geo_transform(&geo_transform)?;
+
+    ds.set_projection(src_ds.projection().as_str())?;
+
+    for i in 0..n_bands {
+        let src_band = src_ds.rasterband(i+1)?;
+        let mut buf: Buffer<T> = src_band.read_as( (0,0), (sw,sh), (dw,dh), Some(gdal::raster::ResampleAlg::Bilinear))?;
+
+        let mut dst_band = ds.rasterband(i+1)?;
+        dst_band.write( (0,0), (dw,dh), &mut buf)?;
+    }
+
+    ds.flush_cache();
 
     Ok(ds)
 }

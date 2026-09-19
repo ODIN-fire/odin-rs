@@ -84,23 +84,31 @@ impl EvtCategories {
         Self::load_from( &path)
     }
 
-    pub fn is_herb (&self, v: usize)->bool { self.herb_set.contains(v) }
-    pub fn is_shrub (&self, v: usize)->bool { self.shrub_set.contains(v) }
-    pub fn is_tree (&self, v: usize)->bool { self.tree_set.contains(v) }
-    pub fn is_sparse (&self, v: usize)->bool { self.sparse_set.contains(v) }
-    pub fn is_agriculture (&self, v: usize)->bool { self.agriculture_set.contains(v) }
-    pub fn is_developed (&self, v: usize)->bool { self.developed_set.contains(v) }
-    pub fn is_water (&self, v: usize)->bool { self.water_set.contains(v) }
-    pub fn is_barren (&self, v: usize)->bool { self.barren_set.contains(v) }
-    pub fn is_snow_ice (&self, v: usize)->bool { self.snow_ice_set.contains(v) }
-    pub fn is_unknown (&self, v: usize)->bool { self.unknown_set.contains(v) }
+    pub fn is_herb (&self, v: i16)->bool        { if v < 0 { false } else { self.herb_set.contains( v as usize) } }
+    pub fn is_shrub (&self, v: i16)->bool       { if v < 0 { false } else { self.shrub_set.contains( v as usize) } }
+    pub fn is_tree (&self, v: i16)->bool        { if v < 0 { false } else { self.tree_set.contains( v as usize) } }
+    pub fn is_sparse (&self, v: i16)->bool      { if v < 0 { false } else { self.sparse_set.contains( v as usize) } }
+    pub fn is_agriculture (&self, v: i16)->bool { if v < 0 { false } else { self.agriculture_set.contains( v as usize) } }
+    pub fn is_developed (&self, v: i16)->bool   { if v < 0 { false } else { self.developed_set.contains( v as usize) } }
+    pub fn is_water (&self, v: i16)->bool       { if v < 0 { false } else { self.water_set.contains( v as usize) } }
+    pub fn is_barren (&self, v: i16)->bool      { if v < 0 { false } else { self.barren_set.contains( v as usize) } }
+    pub fn is_snow_ice (&self, v: i16)->bool    { if v < 0 { false } else { self.snow_ice_set.contains( v as usize) } }
+    pub fn is_unknown (&self, v: i16)->bool     { if v < 0 { false } else { self.unknown_set.contains( v as usize) } }
 
-    pub fn is_tree_dominated (&self, v: usize)->bool { self.tree_dominated.contains(v) }
-    pub fn is_shrub_dominated (&self, v: usize)->bool { self.shrub_dominated.contains(v) }
-    pub fn is_herb_dominated (&self, v: usize)->bool { self.herb_dominated.contains(v) }
+    pub fn is_tree_dominated (&self, v: i16)->bool  { if v < 0 { false } else { self.tree_dominated.contains( v as usize) } }
+    pub fn is_shrub_dominated (&self, v: i16)->bool { if v < 0 { false } else { self.shrub_dominated.contains( v as usize) } }
+    pub fn is_herb_dominated (&self, v: i16)->bool  { if v < 0 { false } else { self.herb_dominated.contains( v as usize) } }
 
-    pub fn is_fuel (&self, v: usize)->bool {
-        ! (self.is_water(v) || self.is_snow_ice(v) || self.is_barren(v) || self.is_developed(v) )
+    /// TODO - should we include is_developed() here ? Structures can burn too
+    pub fn is_fuel (&self, v: i16)->bool {
+        if v < 0 {
+            false
+
+        } else {
+            let v = v as usize;
+            !( self.water_set.contains( v) || self.snow_ice_set.contains( v) || self.barren_set.contains( v) )
+            // developed_set(v) could still burn
+        }
     }
 
     pub fn print_stats (&self) {

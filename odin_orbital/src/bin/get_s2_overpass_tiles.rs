@@ -14,7 +14,7 @@
 #![allow(unused)]
 
 use std::{fs::{File},io::Read};
-use kiddo::{KdTree, NearestNeighbour, SquaredEuclidean};
+use kiddo::{KdTree, SquaredEuclidean};
 use rkyv::{ from_bytes, {rancor::Error as RkyvError}};
 use ron;
 use uom::si::{f64::Length,length::kilometer};

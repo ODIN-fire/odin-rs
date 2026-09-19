@@ -2,7 +2,7 @@ use std::sync::Arc;
 use odin_common::{define_cli, geo::GeoRect, datetime::{hours}, vec_boxed};
 use odin_actor::prelude::*;
 use odin_wx::{WxService,WxFileAvailable};
-use odin_openmeteo::{load_config, wx_service::OpenMeteoService, actor::OpenMeteoActor, OpenMeteoConfig};
+use odin_openmeteo::{load_config, wx_service::OpenMeteoService, actor::OpenMeteoActor};
 
 define_cli! { ARGS [about="OpenMeteo download example using OpenMeteoActor"] =
     region: String [help="name of geo region to retrieve wx forecasts for"],
@@ -53,9 +53,8 @@ impl_actor! { match msg for Actor<OpenMeteoMonitor,OpenMeteoMonitorMsg> as
 run_actor_system!( actor_system => {
     let pre_hmon = PreActorHandle::new( &actor_system, "monitor", 8);
 
-    let config: OpenMeteoConfig = load_config( "openmeteo.ron")?;
     let himporter = spawn_actor!( actor_system, "importer", OpenMeteoActor::new(
-        config,
+        load_config( "openmeteo.ron")?,
         data_action!( let hmon: ActorHandle<OpenMeteoMonitorMsg> = pre_hmon.to_actor_handle() => |data: WxFileAvailable| {
            hmon.send_msg( data.clone()).await?;
            Ok(())

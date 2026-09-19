@@ -12,7 +12,7 @@
  * and limitations under the License.
  */
 
-use std::{f64::{consts::PI, NAN}, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign}};
+use std::{f64::{consts::PI}, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign}};
 use nalgebra::{OMatrix,base::{Matrix,ArrayStorage,dimension::{Const,Dyn}}};
 use serde::{Serialize,Deserialize,ser::{Serializer,SerializeStruct},de::Deserializer};
 use crate::geo_constants::{
@@ -62,11 +62,11 @@ impl Cartesian3 {
     }
 
     pub fn undefined ()->Cartesian3 {
-        Cartesian3{ x: NAN, y: NAN, z: NAN }
+        Cartesian3{ x: f64::NAN, y: f64::NAN, z: f64::NAN }
     }
 
     pub fn set_undefined (&mut self) {
-        self.x = NAN; self.y = NAN; self.z = NAN;
+        self.x = f64::NAN; self.y = f64::NAN; self.z = f64::NAN;
     }
 
     #[inline]

@@ -60,13 +60,15 @@ use odin_common::{
     json_writer::{JsonWritable, JsonWriter, NumFormat},
     utm::{UtmPoint, UtmRect, geo_to_utm, try_geo_to_utm_zone},
 };
-use odin_gdal;
-use odin_fems::FemsConfig;
+use odin_gdal::geods::GeoDs;
 use odin_openmeteo::get_fc_days;
+use odin_landfire::{evt_cats::{EVT_CATEGORIES, EvtCategories}, get_evt_values_at_utm_points};
 use odin_server::{spa::SpaService,ws_service::ws_msg_from_json};
 
+use static_assertions::assert_impl_all;
+
 pub mod input;
-use input::{create_internal_input, create_fems_input, create_landfire_input, create_wx_input};
+use input::{create_fixed_input, create_internal_input, create_landfire_input, create_wx_based_input};
 
 pub mod actor;
 pub mod service;
@@ -75,8 +77,6 @@ pub mod fixed;
 
 pub mod errors;
 use errors::{OdinElmfireError,Result,op_failed};
-
-use crate::input::{create_fixed_input, create_nfdrs_input};
 
 lazy_static! {
     pub static ref CACHE_DIR: PathBuf = { pkg_cache_dir!() };
@@ -108,20 +108,17 @@ struct ElmfireConfig {
     lf_src_name: String,       // filename of odin_landfire GeoDs source to use (->odin_gdalgdal::GeoDs)
     lf_res_m: u32,             // landfire pixel resolution in meters
 
-    fems_config_name: String,  // filename of odin_fems config to use (->odin_fems::FemsConfig)
-    fems_res_m: u32,           // FEMS pixel resolution in meters (should be multiple of lf_res_meters)
-
     nfdrs_config_name: String,
     nfdrs_past_days: u32,     // number of past days to retrieve to compute (accumulated) fuel moisture (>100h)
-    nfdrs_res_m: u32,         // pixel resolution in meter for fuel moisture data sets
 
     wx_config_name: String,    // name of odin_openmeteo config file to use
-    wx_res_m: u32,             // pixel resolution in meter for generated wx data sets
+    wx_res_m: u32,             // pixel resolution in meter for generated wx data sets (note this does not have to be the native wx_model resolution)
     wx_model: String,
 
-    bbox_size_m: u32,         // edge size of UTM bounding box in meter
-    wind_raster_m: u32,       // raster size in meter for retrieving wind data
-    fm_raster_m: u32,         // raster size in meter for retrieving/calculating fuel moisture data
+    bbox_size_m: u32,         // edge size of UTM bounding box in meter (should be even multiple of wx_res_m)
+
+    wind_config_name: String, // WindNinja config name - used if we request micro grid wind instead of wx forecast
+    wind_res_m: u32,          // should be multiple of lf_res_m (we specify it here separately)
 
     input_dt: Duration,       // meteorologicel time step length
     elmfire_cmd: EnvPathBuf   // the Elmfire executable
@@ -197,6 +194,8 @@ pub struct ElmfireOutput {
     pub files: Vec<String>, // filenames of generated images and geojsons
     pub geo_rect: GeoRect // wgs84 bounding box of files (if any)
 }
+
+assert_impl_all!( ElmfireOutput : Send,Sync);
 
 /// those we read from the Elmfire generated acres*.csv file
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -276,23 +275,29 @@ pub struct ElmFire {
 
     pub geo_center: GeoPoint,
     pub utm_rect: UtmRect,
-    pub base_date: DateTime<Utc>, // this is the base date for the Elmfire run (full hour)
-    pub start_date: DateTime<Utc>,
+    pub base_date: DateTime<Utc>, // this is the base date for the Elmfire run (full hour, likely before start_date)
+    pub start_date: DateTime<Utc>, // of the first ignition
 
-    pub fixed_inputs: Option<Vec<FixedInputStep>>,
+    pub compute_wind: bool,  // do we use microgrid (computed) wind or just plain wx forecasts?
+    pub fixed_inputs: Option<Vec<FixedInputStep>>, // if set use provided (fixed) wind- and fuel-moisture input
     pub spotting: Option<String>,
 
     pub dir: PathBuf, // where we keep inputs and outputs of this run
 }
 
+assert_impl_all!( ElmFire: Send, Sync );
+
 impl ElmFire {
+
     pub fn new (
         name: String,
         ignition: Ignition,
         utm_rect: UtmRect,
         n_hours: u32,
+        compute_wind: bool,
         fixed_inputs: Option<Vec<FixedInputStep>>,
         spotting: Option<String>
+
     )->Result<Self>
     {
         let start_date = ignition.first_date();
@@ -303,7 +308,7 @@ impl ElmFire {
         let dir = CACHE_DIR.join( &id);
         if ignition.num_ignitions() < 1 { return Err( op_failed!("no ignitions")) }
 
-        Ok( ElmFire { id, name, ignition, n_hours, geo_center, utm_rect, base_date, start_date, fixed_inputs, spotting, dir } )
+        Ok( ElmFire { id, name, ignition, n_hours, geo_center, utm_rect, base_date, start_date, compute_wind, fixed_inputs, spotting, dir } )
     }
 
     pub fn from_point_ignition (
@@ -312,6 +317,7 @@ impl ElmFire {
         geo_point: GeoPoint,
         bbox_size: Length,
         n_hours: u32,
+        compute_wind: bool,
         fixed_inputs: Option<Vec<FixedInputStep>>,
         spotting: Option<String>
     ) ->Result<Self>
@@ -319,7 +325,7 @@ impl ElmFire {
         let utm_rect = get_utm_rect_around_point( &geo_point, bbox_size / 2.0)?;
         let ignition = Ignition::SinglePoint(IgnitionPoint { position: geo_point, date });
 
-        Self::new( name, ignition, utm_rect, n_hours, fixed_inputs, spotting)
+        Self::new( name, ignition, utm_rect, n_hours, compute_wind, fixed_inputs, spotting)
     }
 
     pub fn from_point_ignitions (
@@ -327,6 +333,7 @@ impl ElmFire {
         ips: Vec<IgnitionPoint>,
         bbox_size: Length,
         n_hours: u32,
+        compute_wind: bool,
         fixed_inputs: Option<Vec<FixedInputStep>>,
         spotting: Option<String>
     ) ->Result<Self>
@@ -335,7 +342,7 @@ impl ElmFire {
         let geo_point = ignition.center();
         let utm_rect = get_utm_rect_around_point( &geo_point, bbox_size / 2.0)?;
 
-        Self::new( name, ignition, utm_rect, n_hours, fixed_inputs, spotting)
+        Self::new( name, ignition, utm_rect, n_hours, compute_wind, fixed_inputs, spotting)
     }
 
     //.. and possibly more specialized constructors
@@ -369,31 +376,62 @@ impl ElmFire {
     pub async fn create_inputs (&self, config: &ElmfireConfig)->Result<PathBuf> {
         self.prepare_run_dir()?;
 
+        // TODO - this should support existing fire perimeters
         create_internal_input( &self, config)?;
+
+        // this needs to be called before creating wx inputs since we need the DEM dataset if wind is computed
         create_landfire_input( &self, config).await?;
 
         if let Some(steps) = &self.fixed_inputs { // run (mostly) on provided inputs
             create_fixed_input( &self, config, steps)?;
 
         } else { // acquire live data from external sources
-            //create_fems_input( &self, config).await?;
-            create_nfdrs_input( &self, config).await?;
-            create_wx_input( &self, &config).await?;
+            create_wx_based_input( &self, config).await?; // this includes wind and computed (NFDRS) fuel moisture
         }
 
-        self.create_datafile(config)
+        let ignitions = self.flammable_ignition_points(config).await?;
+        self.create_datafile(config, &ignitions)
     }
 
-    fn create_datafile (&self, config: &ElmfireConfig)->Result<PathBuf> {
+    /// make sure we check if the ignition points are flammable and if not if any adjacent landfire.gov pixels are
+    /// or otherwise we risk to lose ignitions around water body boundaries and Elmfire just tells us there is no spread
+    async fn flammable_ignition_points (&self, config: &ElmfireConfig)->Result<Vec<(i64,f64,f64)>> {
+        let lf_src: GeoDs = odin_landfire::load_config( &config.lf_src_name)?;
+        let d = config.lf_res_m as f64;
+
+        let mut ignitions: Vec<(i64,f64,f64)> = Vec::new();
+
+        for ip in self.ignition.iter() {
+            if let Ok(utm_pos) = try_geo_to_utm_zone( &ip.position, self.utm_rect.utm_zone) {
+                // check if this or any of the adjacent pixels is flammable. If so use the first one that is as the ignition point
+                let pts = [
+                    utm_pos,
+                    utm_pos.add_delta(   -d, 0.0),
+                    utm_pos.add_delta(  0.0,  -d),
+                    utm_pos.add_delta(    d, 0.0),
+                    utm_pos.add_delta(  0.0,   d),
+                    utm_pos.add_delta(   -d,  -d),
+                    utm_pos.add_delta(    d,  -d),
+                    utm_pos.add_delta(    d,   d),
+                    utm_pos.add_delta(   -d,   d)
+                ];
+
+                let evts = get_evt_values_at_utm_points(&lf_src, &pts).await?;
+
+                if let Some(idx) = evts.iter().position( |evt| EVT_CATEGORIES.is_fuel(*evt)) { // use the first point that is fuel
+                    let t_offset = self.secs_from_base( ip.date);
+                    ignitions.push( (t_offset, pts[idx].easting.round(), pts[idx].northing.round()))
+                }
+            }
+        }
+
+        Ok( ignitions )
+    }
+
+    fn create_datafile (&self, config: &ElmfireConfig, ignitions: &[(i64,f64,f64)])->Result<PathBuf> {
         let input_dir = self.dir.join("inputs");
         let output_dir = self.get_output_dir();
         let scratch_dir = self.dir.join("scratch");
-
-        let ignitions: Vec<(i64,f64,f64)> = self.ignition.iter().map( |ip| {
-            try_geo_to_utm_zone( &ip.position, self.utm_rect.utm_zone)
-                .map_err( |e| op_failed!("invalid ignition point location"))
-                .and_then( |p| Ok( (self.secs_from_base( ip.date), p.easting.round(), p.northing.round()) ) )
-        }).collect::<Result<Vec<(i64,f64,f64)>>>()?;
 
         let contents = ElmfireDataTemplate {
             input_dir: path_as_str( &input_dir)?,
@@ -729,6 +767,8 @@ pub struct ElmfireRun {
     pub fire: Arc<ElmFire>, // needs to be Arc so that we can easily clone
     pub result: Option<StdResult<ElmfireOutput,String>> // not set before the run is done but should also preserve failure
 }
+
+assert_impl_all!( ElmfireRun: Send, Sync);
 
 impl ElmfireRun {
 

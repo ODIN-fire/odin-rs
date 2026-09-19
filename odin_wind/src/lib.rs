@@ -16,23 +16,23 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs::File, io::{BufWriter,Write}, net::SocketAddr,
-    path::{Path,PathBuf}, sync::Arc, time::Duration
+    path::{Path,PathBuf}, sync::Arc, time::Duration, ffi::OsStr,
 };
 use axum::Json;
-use odin_wx::WxDataSetRequest;
+use tokio::process::Command;
 use serde::{Serialize,Deserialize};
 use chrono::{DateTime,Utc, Datelike, Timelike};
+use lazy_static::lazy_static;
+
+use odin_macro::public_struct;
 use odin_build::{define_load_asset, define_load_config, pkg_cache_dir};
 use odin_common::{
-    cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque, datetime,
-    fs::{path_str_to_fname, replace_env_var_path, replace_filename}, geo::GeoRect,
-    json_writer::{JsonWritable,JsonWriter}, push_all_str,
-    ron::{TypedCompactRon, from_typed_compact_ron, to_typed_compact_ron},
-    sin, cos, atan, atan2, sqrt, strings::extract_json_payload_object, utm::UtmRect, BoundingBox
+    BoundingBox, atan, atan2, cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque, cos, datetime, fs::{EnvPathBuf, odin_data_filename, path_str_to_fname, replace_env_var_path, replace_filename }, geo::GeoRect, json_writer::{JsonWritable,JsonWriter}, push_all_str, ron::{TypedCompactRon, from_typed_compact_ron, to_typed_compact_ron}, sin, sqrt, strings::extract_json_payload_object, utm::UtmRect
 };
 use odin_action::DynDataRefAction;
+use odin_actor::{info,debug};
+use odin_wx::WxDataSetRequest;
 use odin_dem::DemSource;
-use lazy_static::lazy_static;
 use odin_gdal::{{gdal::{Dataset,raster::RasterBand}}, contour::ContourBuilder, read_row};
 
 //mod fetchdem;
@@ -40,7 +40,7 @@ pub mod actor;
 pub use actor::{WindActor,WindActorMsg,server_subscribe_action, server_update_action};
 
 pub mod errors;
-use errors::Result;
+use errors::{Result,OdinWindError};
 
 use crate::errors::op_failed;
 pub mod wind_service;
@@ -59,15 +59,15 @@ define_load_asset!{}
 
 #[derive(Serialize,Deserialize,Debug)]
 pub struct WindConfig {
-    fc_duration: Duration, // the duration for which we want to compute forecasts
-    max_age: Duration, // how long to keep cached data files
-    max_forecasts: usize, // max number of forecasts to keep for each region (in ringbuffer)
-    windninja_cmd: String, // pathname for windninja executable
-    mesh_res: f64, // WindNinja mesh resolution in meters
-    wind_height: f64, // above ground in meters
+    pub fc_duration: Duration, // the duration for which we want to compute forecasts
+    pub max_age: Duration, // how long to keep cached data files
+    pub max_forecasts: usize, // max number of forecasts to keep for each region (in ringbuffer)
+    pub windninja_cmd: EnvPathBuf, // pathname for windninja executable
+    pub mesh_res: f64, // WindNinja mesh resolution in meters
+    pub wind_height: f64, // above ground in meters
 
-    dem: DemSource, // where to get the DEM grid from
-    dem_res: f64, // dem pixel sizes in meters
+    pub dem: DemSource, // where to get the DEM grid from
+    pub dem_res: f64, // dem pixel sizes in meters
 }
 
 #[derive(Debug,Clone,Serialize,Deserialize)]
@@ -126,6 +126,7 @@ pub struct RemoveWindClientResponse {
 /// this is an aggregate of all the data we need to feed into WindNinja. It currently has a lot of overlap with Forecast (which is
 /// supposed to capture the *result* of a WindNinja run) but that might change. Since we turn WnJobs into Forecasts the overlap is acceptable
 #[derive(Debug)]
+#[public_struct]
 struct WnJob {
     region: Arc<String>, // our region name
     date: DateTime<Utc>, // the hour for which this simulation is (base + step)
@@ -236,16 +237,30 @@ pub fn wx_80_grid_suffix ()->&'static str { "__80__grid.csv" }
 pub fn wx_80_vector_suffix ()->&'static str { "__80__vector.csv" }
 pub fn wx_80_contour_suffix ()->&'static str { "__80__contour.json" }
 
+/// the full output pathname (including file) for a WindNinja *_huvw.tif output file
+/// Note that WindNinja has a different naming convention than ODIN, e.g.: BigSur_07-10-2025_1900_150m_hrrr_huvw.tif
+/// (it does not capture the forecast step, i.e. we could overwrite a more actual forecast)
+pub fn wn_output_path (dir: &PathBuf, region: &str, date: &DateTime<Utc>, mesh_res: f64, wx_model: &str) -> PathBuf {
+    let fname = format!("{}_{:02}-{:02}-{:4}_{:02}{:02}_{:.0}m_{}_huvw.tif",
+                        path_str_to_fname( region),
+                        date.month(), date.day(), date.year(), date.hour(), date.minute(),
+                        mesh_res, wx_model);
+    dir.join( fname)
+}
+
+/// the ODIN forecast step output basename (without path and filename extension)
+/// this is the common prefix for all files derived from the WindNinja output
+pub fn get_wn_out_basename (region: &str, date: DateTime<Utc>, bbox: &BoundingBox<f64>, mesh_res: f64, wx_model: &str) -> String {
+    let mr = format!("{:.0}m", mesh_res);
+    let attrs = &[ mr.as_str(), wx_model, "huvw" ];
+    odin_data_filename( region, Some(date), attrs, None)
+}
+
 impl Forecast {
 
-    /// the WindNinja output filename
-    /// Note that WindNinja has a different naming convention: BigSur_07-10-2025_1900_150m_huvw.tif
-    /// (it does not capture the forecast step, i.e. we could overwrite a more actual forecast)
+    /// the WindNinja output filename for this forecast
     pub fn get_wn_output_path (&self) -> PathBuf {
-        let d = &self.date;
-        let fname = format!("{}_{:02}-{:02}-{:4}_{:02}{:02}_{:.0}m_{}_huvw.tif",
-            path_str_to_fname( self.region.as_str()), d.month(), d.day(), d.year(), d.hour(), d.minute(), self.mesh_res, self.wx_model.as_str());
-        pkg_cache_dir!().join( fname)
+        wn_output_path( &PKG_CACHE_DIR, self.region.as_str(), &self.date, self.mesh_res, self.wx_model.as_str())
     }
 
     // TODO is the wx_src part of the base name or do we have to mix it in explicitly?
@@ -557,4 +572,74 @@ pub fn write_windspeed_contour<P> (ds: &Dataset, path: P, band: usize) -> Result
     // compress here
 
     Ok(())
+}
+
+//--- single step WindNinja execution
+
+pub async fn run_wn<S: AsRef<OsStr>> (windninja_cmd: S, cache_dir: &PathBuf, wn_job: &WnJob) -> Result<()> {
+    let date = &wn_job.date;
+    info!("running WindNinja on forecast file {:?} for time: {}", wn_job.wx_path, date);
+
+    let huvw_suffix = format!("_{}_huvw", wn_job.wx_src); // we have to preserve the wx model to be able to run several of them
+
+    let mut cmd = Command::new( windninja_cmd);
+    cmd
+        .arg( "--mesh_resolution").arg(wn_job.mesh_res.to_string())
+        .arg( "--units_mesh_resolution").arg("m")
+        .arg( "--output_wind_height").arg(wn_job.wind_height.to_string())
+        .arg( "--units_output_wind_height").arg("m")
+        .arg( "--elevation_file").arg( wn_job.dem_path.as_os_str())
+        .arg( "--vegetation").arg("trees")  // FIXME - this should be computed from landfire.gov (grass,brush,trees)
+        .arg( "--initialization_method").arg("wxModelInitialization")
+        .arg( "--time_zone").arg("UTC")
+        .arg( "--forecast_filename").arg( wn_job.wx_path.as_os_str())  // wx model file name
+        .arg( "--forecast_time").arg( &wn_forecast_time(date)) // datetime string (UTC)
+        .arg( "--start_year").arg( date.year().to_string())
+        .arg( "--start_month").arg( date.month().to_string())
+        .arg( "--start_day").arg( date.day().to_string())
+        .arg( "--start_hour").arg( date.hour().to_string())
+        .arg( "--stop_year").arg( date.year().to_string())
+        .arg( "--stop_month").arg( date.month().to_string())
+        .arg( "--stop_day").arg( date.day().to_string())
+        .arg( "--stop_hour").arg( date.hour().to_string())
+        .arg( "--write_goog_output").arg( "false")
+        .arg( "--write_shapefile_output").arg( "false")
+        .arg( "--write_pdf_output").arg( "false")
+        .arg( "--write_farsite_atm").arg( "false")
+        .arg( "--write_wx_model_goog_output").arg( "false")
+        .arg( "--write_wx_model_shapefile_output").arg( "false")
+        .arg( "--write_wx_model_ascii_output").arg( "false")
+        .arg( "--write_wx_station_kml").arg( "false")
+        .arg( "--huvw_suffix").arg( huvw_suffix)
+        .arg( "--write_huvw_output").arg( "true")
+        //.arg( "--write_huvw_0_output").arg( "true") // this only makes sense if we need the same grid points (e.g. for diffs)
+        .arg( "--diurnal_winds").arg( "true")
+        .arg( "--output_path").arg( cache_dir.as_os_str());
+
+    //println!("@@--exec WN\n{:?}\n@@--", cmd);
+
+    execute_cmd( &mut cmd).await
+}
+
+/// note this is for WindNinja, which implicitly assumes UTC (no zone)
+fn wn_forecast_time (date: &DateTime<Utc>)->String {
+    format!("{:4}{:02}{:02}T{:02}0000", date.year(), date.month(), date.day(), date.hour())
+}
+
+async fn execute_cmd( cmd: &mut Command) -> Result<()> {
+    debug!("executing {cmd:?}");
+    cmd.kill_on_drop(true);
+
+    match cmd.spawn() {
+        Ok(mut child) => {
+            match child.wait().await {
+                Ok(status) => {
+                    info!("{:?} completed with status {}", cmd.as_std().get_program(), status);
+                    Ok(())
+                }
+                Err(e) => Err( OdinWindError::ExecError(e.to_string()))
+            }
+        }
+        Err(e) => Err( OdinWindError::ExecError(e.to_string()))
+    }
 }

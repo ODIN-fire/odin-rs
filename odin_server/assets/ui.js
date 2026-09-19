@@ -24,14 +24,16 @@ var loadFunctions = [];
 var unloadFunctions = [];
 var postLoadFunctions = [];  // called after all loadFunctions have been executed
 
-window.addEventListener('load', e => {
+document.addEventListener('load', e => {
     loadFunctions.forEach(f => f());
     postLoadFunctions.forEach(f => f());
 });
 
-window.addEventListener('unload', e => {
-    loadFunctions.forEach(f => f());
-    console.log("modules terminated.");
+document.addEventListener('visibilitychange', e => {
+    if (document.visibilityState === 'hidden') {
+        loadFunctions.forEach(f => f());
+        console.log("modules terminated.");
+    }
 });
 
 export function registerLoadFunction(func) {
@@ -45,15 +47,6 @@ export function registerUnloadFunction(func) {
 export function registerPostLoadFunction(func) {
     postLoadFunctions.push(func);
 }
-
-// FIXME - we don't support server-side generated elements anymore
-// this has to be the first moduleInitializer so that all modules can rely on expanded elements
-//registerLoadFunction(function initialize() {
-//    initializeIcons();
-//    initializeWindows();
-
-//    _initializeMenus(); /* has to be last in case widgets add menus */
-//});
 
 var themeChangeHandlers = [];
 
@@ -186,7 +179,7 @@ export function updateMoveableCanvas (o) {
 }
 
 export function getMoveableCanvas (o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         if (e.classList.contains("ui_moveable_canvas")) return e;
     }
@@ -235,26 +228,21 @@ export function initializeWindow(e) {
     return e;
 }
 
-function initializeRecursive (e) {
-    switch (_getUiClass(e)) {
-        case "ui_panel": initializePanel(e); break;
-        case "ui_container": initializeContainer(e); break;
-        case "ui_checkbox": initializeCheckBox(e); break;
-        case "ui_radio":  initializeRadio(e); break;
-        case "ui_choice": initializeChoice(e); break;
-        case "ui_slider": initializeSlider(e); break;
-        case "ui_list": initializeList(e); break;
-        case "ui_field": initializeField(e); break;
-        case "ui_tab_container_wrapper": initializeTabbedContainer(e); break;
-        case "ui_listcontrols": initializeListControls(e); break;
-        case "ui_clock": initializeClock(e); break;
-        case "ui_timer": initializeTimer(e); break;
-        case "ui_kvtable": initializeKvTable(e); break;
-        case "ui_menuitem": initializeMenuItem(e); break;
-        case "ui_progress_bar": initializeProgressBar(e); break;
-        case "ui_dtg_entry": initializeDTGEntry(e); break;
-        case "ui_loc_entry": initializeLocationEntry(e); break;
-        // default does not need initialization
+// we use a map ui_class -> initializeFunc so that we can extend ui components without a single bottleneck function (and outside ui.js)
+var uiClassInitializers = new Map();
+
+export function registerUiClassInitializer(uiClass, f) {
+    uiClassInitializers.set(uiClass, f);
+}
+
+function initializeRecursive(e) {
+    let uiCls = _getUiClass(e);
+
+    if (uiCls) {
+        let initializer = uiClassInitializers.get(uiCls);
+        if (initializer) {
+            initializer(e);
+        }
     }
 
     for (const c of _getChildren(e)) initializeRecursive(c);
@@ -295,6 +283,15 @@ function createWindowComponents(e, title, isPermanent, icon) {
     cb.setAttribute("tabindex", "-1");
     tb.appendChild(cb);
 
+    // titlebar shortcuts
+    tb.addEventListener("mouseup", (event) => {
+        if (event.shiftKey) {
+            moveWindowLeft(e);
+        } else if (event.altKey) {
+            closeWindow(e);
+        }
+    });
+
     let wndContent = createElement("DIV", "ui_window_content");
     _moveChildElements(e, wndContent);
 
@@ -314,14 +311,6 @@ function setWindowEventHandlers(e) {
     e.onmousedown = function (event) {
         raiseWindowToTop(e);
     };
-
-    e.onmouseup = function (event) {
-        if (event.shiftKey) {
-            moveWindowLeft(e);
-        } else if (event.altKey) {
-            closeWindow(e);
-        }
-    }
 }
 
 function makeWindowDraggable(e) {
@@ -453,7 +442,7 @@ export function removeWindow(o) {
 }
 
 export function toggleWindow(event, o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         if (!_containsClass(e, "show")) {
             if (window.getComputedStyle(e).left == 'auto') { // no placement specified in CSS
@@ -524,7 +513,7 @@ export function moveWindowLeft(o) {
 }
 
 export function placeWindow (o, x, y) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         let w = e.offsetWidth;
         let h = e.offsetHeight;
@@ -593,7 +582,7 @@ export function addWindowContent(o, ce) {
 }
 
 export function getWindow(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         return _nearestElementWithClass(e, "ui_window");
     } else {
@@ -664,6 +653,8 @@ function initializeTabbedContainer (e) {
 
     return e;
 }
+registerUiClassInitializer("ui_tab_container_wrapper", initializeTabbedContainer);
+
 
 function clickTab(event) {
     let tab = event.target;
@@ -693,7 +684,7 @@ export function getShowingTabName (o) {
 }
 
 export function getTabbedContainer(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         return _nearestElementWithClass(e, "ui_tab_container_wrapper");
     } else {
@@ -746,6 +737,7 @@ function initializeContainer (e) {
         cwe.appendChild(e);
     }
 }
+registerUiClassInitializer("ui_container", initializeContainer);
 
 //--- panels
 
@@ -767,7 +759,6 @@ export function Panel (title, isExpanded=false, eid=null, cb) {
         return e;
     }
 }
-
 
 function initializePanel (e) {
     let isExpanded = e.classList.contains("expanded");
@@ -792,6 +783,8 @@ function initializePanel (e) {
 
     if (!isExpanded) e.style.maxHeight = 0; // make sure setting content does not show
 }
+registerUiClassInitializer("ui_panel", initializePanel);
+
 
 function expandComplete(event) {
     let panel = event.target;
@@ -839,7 +832,7 @@ export function togglePanelExpansion(event) {
 }
 
 export function getPanel(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         if (e.classList.contains("ui_panel")) {
             return e;
@@ -949,7 +942,7 @@ export function Button (text, action, minWidth=null, eid=null) {
 }
 
 export function setInputDisabled(o, isDisabled) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         if (e.tagName == "INPUT") { // buttons
             e.disabled = isDisabled;
@@ -973,7 +966,7 @@ export function setButtonActive(o, isActive) {
 }
 
 export function getButton (o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         let eCls = e.classList;
         if (eCls.contains("ui_button")) return e;
@@ -1024,7 +1017,7 @@ export function VarText (text=null, eid=null, minWidth=0, maxWidth=0, opts={}) {
 }
 
 export function getVarText(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e && e.classList.contains("ui_text")) {
         return e;
     }
@@ -1158,6 +1151,7 @@ function initializeField (e) {
         }
     }
 }
+registerUiClassInitializer("ui_field", initializeField);
 
 function _checkKeyEvent(event) {
     if (event.key == "Enter") {
@@ -1239,7 +1233,7 @@ export function triggerFieldChange(o) {
 }
 
 export function getField(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e && e.classList.contains("ui_field")) {
         if (e.tagName == "INPUT") return e;
         else if (e.tagName == "DIV") return e.lastElementChild;
@@ -1326,6 +1320,7 @@ function initializeDTGEntry(e) {
         e.appendChild(wrapper);
     }
 }
+registerUiClassInitializer("ui_dtg_entry", initializeDTGEntry);
 
 function setDtgFieldAttrs(e, placeholder, length, max=null) {
     e.setAttribute("placeholder", placeholder);
@@ -1348,7 +1343,7 @@ function setDtgFieldAttrs(e, placeholder, length, max=null) {
 }
 
 export function getDTGEntry(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e && e.classList.contains("ui_dtg_entry")) {
         return e;
     }
@@ -1471,6 +1466,7 @@ function initializeLocationEntry(e) {
         e.appendChild(wrapper);
     }
 }
+registerUiClassInitializer("ui_loc_entry", initializeLocationEntry);
 
 function setLocFieldAttrs(e, placeholder, length, min, max) {
     e.setAttribute("placeholder", placeholder);
@@ -1491,7 +1487,7 @@ function setLocFieldAttrs(e, placeholder, length, min, max) {
 }
 
 export function getLocationEntry(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e && e.classList.contains("ui_loc_entry")) {
         return e;
     }
@@ -1556,7 +1552,7 @@ export function clearTextContent(o) {
 }
 
 export function getText(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e && e.classList.contains("ui_text")) {
         return e;
     }
@@ -1564,7 +1560,7 @@ export function getText(o) {
 }
 
 export function getTextArea(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e && e.classList.contains("ui_textarea")) {
         return e;
     }
@@ -1592,7 +1588,13 @@ export function getTextAreaContent(o) {
     }
 }
 
-
+// this is a more general version for anything that has a 'value' property
+export function setValue(o, text) {
+    let e = elementOf(o);
+    if ('value' in e) {
+        e.value = text;
+    }
+}
 
 //--- time & date widgets
 
@@ -1679,6 +1681,7 @@ function initializeTimer(e) {
         _addTimerClient(tc);
     }
 }
+registerUiClassInitializer("ui_timer", initializeTimer);
 
 function _updateTimer(e, t) {
     if (e._uiT0 == 0) e._uiT0 = t;
@@ -1702,7 +1705,7 @@ function _updateTimer(e, t) {
 }
 
 export function getTimer(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e && e.tagName == "DIV") {
         if (e.classList.contains("ui_timer_value")) return e;
         else if (e.classList.contains("ui_timer")) return _firstChildWithClass("ui_timer_value");
@@ -1773,6 +1776,7 @@ function initializeClock(e) {
         _addTimerClient(tc);
     }
 }
+registerUiClassInitializer( "ui_clock", initializeClock);
 
 
 function _updateClock(e, t) {
@@ -1868,7 +1872,7 @@ export function setClock(o, dateSpec, timeScale, notifyClockMonitors=false) {
 }
 
 export function getClock(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e && e.tagName == "DIV") {
         if (e.classList.contains("ui_clock_wrapper")) return e;
         else if (e.classList.contains("ui_clock")) return _firstChildWithClass(e, "ui_clock_wrapper");
@@ -1993,6 +1997,7 @@ function initializeSlider (e) {
         }
     }
 }
+registerUiClassInitializer("ui_slider", initializeSlider);
 
 // slider callbacks
 
@@ -2156,7 +2161,7 @@ export function getSliderValue(o) {
 }
 
 export function getSlider(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e && e.tagName == "DIV") {
         if (e.classList.contains("ui_slider_track")) return e;
         else if (e.classList.contains("ui_slider")) return _firstChildWithClass(e, "ui_slider_track");
@@ -2204,6 +2209,7 @@ function initializeChoice (e) {
         e.appendChild(field);
     }
 }
+registerUiClassInitializer("ui_choice", initializeChoice);
 
 export function isChoiceDisabled(o) {
     return _isDisabled(getChoice(o));
@@ -2308,7 +2314,7 @@ export function getSelectedChoiceValue(o) {
 }
 
 export function getChoice(o) { // TODO - do we really want the ui_choice_value?
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         if (e.classList.contains("ui_choice_value")) return e;
         else if (e.classList.contains("ui_choice")) return _firstChildWithClass(e, 'ui_choice_value');
@@ -2344,6 +2350,8 @@ function initializeCheckBox(e) {
         e.setAttribute("tabindex", "0");
     }
 }
+registerUiClassInitializer( "ui_checkbox", initializeCheckBox);
+
 
 function _addCheckBoxComponents(e, labelText) {
     let btn = createElement("DIV", "ui_checkbox_button");
@@ -2414,7 +2422,7 @@ export function getCheckBoxLabel (o) {
 }
 
 export function getCheckBox(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         let eCls = e.classList;
         if (eCls.contains("ui_checkbox")) return e;
@@ -2425,7 +2433,7 @@ export function getCheckBox(o) {
 }
 
 export function isCheckbox(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     return (e && e.classList.contains("ui_checkbox"));
 }
 
@@ -2456,6 +2464,7 @@ function initializeRadio (e) {
         e.setAttribute("tabindex", "0");
     }
 }
+registerUiClassInitializer("ui_radio", initializeRadio);
 
 function _addRadioComponents(e, labelText) {
     let btn = createElement("DIV", "ui_radio_button");
@@ -2525,7 +2534,7 @@ export function isRadioSelected(o) {
 }
 
 export function getRadio(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         let eCls = e.classList;
         if (eCls.contains("ui_radio")) return e;
@@ -2541,12 +2550,12 @@ export function getRadioLabel(o) {
 }
 
 export function isRadio(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     return (e && e.classList.contains("ui_radio"));
 }
 
 export function clearRadioGroup(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     let n = 0;
     while (n == 0 && e) {
         for (let r of e.getElementsByClassName("ui_radio")) {
@@ -2566,12 +2575,12 @@ export function getSelector(o) {
 }
 
 export function isSelector(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     return (e && (e.classList.contains("ui_checkbox") || e.classList.contains("ui_radio")));
 }
 
 export function isSelectorSet(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         if (e.classList.contains("ui_checkbox")) return e.classList.contains("checked");
         else if (e.classList.contains("ui_radio")) return e.classList.contains("selected");
@@ -2580,7 +2589,7 @@ export function isSelectorSet(o) {
 }
 
 export function setSelector(o, newState) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         if (e.classList.contains("ui_checkbox")) {
             setCheckBox(e, newState);
@@ -2625,9 +2634,10 @@ function initializeKvTable (e) {
         e.style.maxHeight = `calc(${nRows} * (${itemHeight} + ${itemPadding}))`; // does not include padding, borders or margin
     }
 }
+registerUiClassInitializer("ui_kvtable", initializeKvTable);
 
 export function getKvTable(o) {
-    return _nearestElementWithClass(_elementOf(o), "ui_kvtable");
+    return _nearestElementWithClass(elementOf(o), "ui_kvtable");
 }
 
 export function setKvList (o, kvList, createValueElement = undefined) {
@@ -2737,6 +2747,7 @@ function initializeList (e) {
         addListWrapper(e); // reparent
     }
 }
+registerUiClassInitializer("ui_list", initializeList);
 
 function listKeyDownHandler(event) {
     let list = getList(event.target);
@@ -2812,8 +2823,71 @@ export function setListItemDisplayColumns(o, listAttrs, colSpecs) {
     }
 }
 
-function editSubItem(e) {
-    console.log("@@@ edit item: ", e.target);
+export function editListItemField (e, changeAction) {
+    if (_containsClass(e, "ui_list_subitem")) {
+        const controller = new AbortController();
+        const { signal } = controller;
+
+        let input = createElement("INPUT", "ui_list_subitem input");
+        input.type = 'text';
+        input.value = e.innerText;
+
+        if (_containsClass(e, "fixed")) _addClass(input, "fixed");
+        if (_containsClass(e, "align_right")) _addClass(input, "align_right");
+        if (_containsClass(e, "num")) _addClass(input, "num");
+        //..and perhaps more
+
+        function removeInput() {
+            if (_containsClass(e, "active") && Object.is(e.lastElementChild, input)) {
+                _removeClass(e, "active");
+                controller.abort();
+                //input.style.display = "none";
+                e.removeChild(input);
+            }
+        }
+
+        //function captureClicks(event) {
+        //    if (Object.is(event.target, e) || Object.is(event.target,input)) {
+        //        // nothing - we are already active
+        //    } else {
+        //        removeInput();
+        //        document.removeEventListener("click", captureClicks);
+        //    }
+        //}
+        //document.addEventListener("click", captureClicks);
+
+        input.addEventListener("focus", () => {
+            input.select();
+        });
+        input.addEventListener("blur", () => { // TODO - do we really want this?
+            removeInput();
+        });
+
+        input.addEventListener("keydown", (event) => {
+            event.stopPropagation();
+            if (event.key === 'Escape') {
+                removeInput();
+            }
+        }, { signal });
+
+        input.addEventListener("change", (event) => {
+            let item = e.parentNode._uiItem;
+            let newValue = input.value;
+
+            changeAction(item, newValue);
+
+            removeInput();
+
+            let list = getList(e.parentNode);
+            if (list) {
+                updateListItem( list, item)
+            }
+        }, { signal });
+
+        _addClass(e, "active");
+        e.appendChild(input);
+        input.focus();
+    }
 }
 
 function createSubitemHeader(header, cs, w) {
@@ -2911,7 +2985,11 @@ function _cloneRowPrototype(proto) {
 
         if (pe._uiEditFunc) {
             ce._uiEditFunc = pe._uiEditFunc;
-            ce.addEventListener("click", ce._uiEditFunc);
+            ce.addEventListener("dblclick", (event) => {
+                if (event.shiftKey) {
+                    ce._uiEditFunc(event);
+                }
+            });
         }
     }
     return e;
@@ -3609,7 +3687,7 @@ export function clearList(o) {
 }
 
 export function getList(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         let eCls = e.classList;
         if (eCls.contains("ui_list")) return e;
@@ -3652,6 +3730,8 @@ function initializeListControls(e) {
         }
     }
 }
+registerUiClassInitializer("ui_listcontrols", initializeListControls);
+
 
 function createListControlButton ( text, onClickAction) {
     return Button(text,onClickAction);
@@ -3771,6 +3851,7 @@ function initializeMenuItem(e) {
         e.onclick = null;
     }
 }
+registerUiClassInitializer("ui_menuitem", initializeMenuItem);
 
 function _windowPopupHandler(event) {
     for (let p of _uiActivePopupMenus) {
@@ -3825,7 +3906,7 @@ main.exportFuncToMain(popupMenu);
 
 
 export function getPopupMenu(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         let eCls = e.classList;
         if (eCls.contains("ui_popup_menu")) return e;
@@ -3836,7 +3917,7 @@ export function getPopupMenu(o) {
 }
 
 export function getMenuItem(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e) {
         let eCls = e.classList;
         if (eCls.contains("ui_menuitem")) return e;
@@ -3927,6 +4008,7 @@ function initializeProgressBar(e) {
         addProgressBarComponents(e);
     }
 }
+registerUiClassInitializer("ui_progress_bar", initializeProgressBar);
 
 export function setProgress2Bar (o, percent0=0, percent1=0) {
     let e = getProgressBar(o);
@@ -3944,7 +4026,7 @@ export function setProgress2Bar (o, percent0=0, percent1=0) {
 }
 
 export function getProgressBar(o) {
-    let e = _elementOf(o);
+    let e = elementOf(o);
     if (e && e.tagName == "DIV") {
         if (e.classList.contains("ui_progress_bar")) return e;
         else if (e.classList.contains("ui_progress_0")) return e.parentElement;
@@ -4024,7 +4106,7 @@ export function isShowing(e) {
 
 //--- general utility functions
 
-function _elementOf(o) {
+export function elementOf(o) {
     if (typeof o === 'string' || o instanceof String) {
         return document.getElementById(o);
     } else if (o instanceof HTMLElement) {

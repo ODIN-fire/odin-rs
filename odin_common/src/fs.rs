@@ -599,6 +599,23 @@ pub fn replace_filename<P> (path: &mut PathBuf, filename: P) where P: AsRef<Path
     path.push( PathBuf::from(filename.as_ref()));
 }
 
+/// due to Windows specifics there is no general function to create symlinks (Windows differentiates between)
+pub fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(original: P, link: Q) -> Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(original, link)
+    }
+    #[cfg(windows)]
+    {
+        if original.as_ref().is_dir() {
+             std::os::windows::fs::symlink_dir(original, link)
+         } else {
+             std::os::windows::fs::symlink_file(original, link)
+         }
+    }
+}
+
+
 /* #region file compression *************************************************************************/
 
 use flate2::{Compression, write::GzEncoder};

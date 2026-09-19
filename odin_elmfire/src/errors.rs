@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use thiserror::Error;
+use strum;
 use odin_build;
 use odin_openmeteo;
 
@@ -34,6 +35,9 @@ pub enum OdinElmfireError {
 
     #[error("DEM error {0}")]
     DemError( #[from] odin_dem::errors::OdinDemError),
+
+    #[error("wind error {0}")]
+    WindError( #[from] odin_wind::errors::OdinWindError),
 
     #[error("action failure {0}")]
     ActionFailure(String), // ActionFailure cannot impl std::error::Error
@@ -70,6 +74,9 @@ pub enum OdinElmfireError {
 
     #[error("config chrono error {0}")]
     ChronoError( #[from] chrono::OutOfRangeError),
+
+    #[error("strum error {0}")]
+    StrumError( #[from] strum::ParseError),
 
     #[error("chrono parse error {0}")]
     ChronoParseError( #[from] chrono::ParseError),

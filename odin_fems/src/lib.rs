@@ -40,7 +40,7 @@ use uom::si::{
     heat_flux_density::watt_per_square_meter,
 };
 use itertools::izip;
-use kiddo::{immutable::float::kdtree::ImmutableKdTree,SquaredEuclidean};
+use kiddo::{ImmutableKdTree,SquaredEuclidean};
 use rkyv::{Serialize as RkyvSerialize, Deserialize as RkyvDeserialize, rancor::Error as RkyvError, Archive};
 
 use odin_macro::public_struct;
@@ -267,7 +267,7 @@ impl FemsStore {
 /// a structure that can be used to efficiently look up nearest FemsStations based on location
 #[derive(Serialize,Deserialize, Archive,RkyvSerialize,RkyvDeserialize)]
 pub struct FemsStationKdTree {
-    kd_tree: ImmutableKdTree<f64,u32,3,32>, // this stores index values into the stations list
+    kd_tree: ImmutableKdTree<f64,3>, // this stores index values into the stations list
     stations: Vec<FemsStationMetaData> // this has to be invariant
 }
 
@@ -281,7 +281,7 @@ impl FemsStationKdTree {
             [ecef.x, ecef.y, ecef.z]
         }).collect();
 
-        let kd_tree: ImmutableKdTree<f64,u32,3,32> = ImmutableKdTree::new_from_slice(&ecefs);
+        let kd_tree: ImmutableKdTree<f64,3> = ImmutableKdTree::new_from_slice(&ecefs).unwrap();  // safe to unwrap since we created the slice
         let stations: Vec<FemsStationMetaData> = stations.iter().map( |s| s.metadata.clone()).collect();
 
         FemsStationKdTree { kd_tree, stations }
@@ -292,7 +292,12 @@ impl FemsStationKdTree {
         let ecef: Cartesian3 = pos.into();
         let max_stations = self.stations.len();
 
-        let nns = self.kd_tree.nearest_n_within::<SquaredEuclidean>(&[ecef.x,ecef.y,ecef.z], dist, NonZero::new(max_stations).unwrap(), false);
+        //let nns = self.kd_tree.best_n_within::<SquaredEuclidean>(&[ecef.x,ecef.y,ecef.z], dist, NonZero::new(max_stations).unwrap(), false);
+        let nns = self.kd_tree
+            .query( &[ecef.x,ecef.y,ecef.z])
+            .within::<SquaredEuclidean<f64>>( dist)
+            .execute();
+
         nns.into_iter().map( |nn| self.stations[nn.item as usize].id).collect()
     }
 
@@ -301,7 +306,12 @@ impl FemsStationKdTree {
         let ecef: Cartesian3 = pos.into();
         let max_stations = self.stations.len();
 
-        let nns = self.kd_tree.nearest_n_within::<SquaredEuclidean>(&[ecef.x,ecef.y,ecef.z], dist, NonZero::new(max_stations).unwrap(), false);
+        //let nns = self.kd_tree.best_n_within::<SquaredEuclidean>(&[ecef.x,ecef.y,ecef.z], dist, NonZero::new(max_stations).unwrap(), false);
+        let nns = self.kd_tree
+            .query( &[ecef.x,ecef.y,ecef.z])
+            .within::<SquaredEuclidean<f64>>( dist)
+            .execute();
+
         nns.into_iter().map( |nn| FemsStation::new( self.stations[nn.item as usize].clone())).collect()
     }
 
@@ -310,7 +320,12 @@ impl FemsStationKdTree {
         let ecef: Cartesian3 = pos.into();
         let max_stations = self.stations.len();
 
-        let nns = self.kd_tree.nearest_n_within::<SquaredEuclidean>(&[ecef.x,ecef.y,ecef.z], dist, NonZero::new(max_stations).unwrap(), false);
+        //let nns = self.kd_tree.best_n_within::<SquaredEuclidean>(&[ecef.x,ecef.y,ecef.z], dist, NonZero::new(max_stations).unwrap(), false);
+        let nns = self.kd_tree
+            .query( &[ecef.x,ecef.y,ecef.z])
+            .within::<SquaredEuclidean<f64>>( dist)
+            .execute();
+
         nns.into_iter().map( |nn| (FemsStation::new( self.stations[nn.item as usize].clone()), Length::new::<meter>(nn.distance.sqrt()))).collect()
     }
 

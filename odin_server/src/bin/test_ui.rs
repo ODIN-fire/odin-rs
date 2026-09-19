@@ -1,4 +1,4 @@
-use odin_server::prelude::*;
+use odin_server::{code_service::CodeService, prelude::*};
 use odin_actor::prelude::*;
 use async_trait::async_trait;
 
@@ -10,6 +10,7 @@ impl SpaService for TestUiService {
     fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
         spa_builder
             .add( build_service!( => UiService::new()))
+            .add( build_service!( => CodeService::new()))
     }
 
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {

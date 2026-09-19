@@ -53,7 +53,7 @@ async fn main ()->Result<()> {
     Ok(())
 }
 
-fn show_cats_at (cats: &EvtCategories, pos: &GeoPoint, v: usize) {
+fn show_cats_at (cats: &EvtCategories, pos: &GeoPoint, v: i16) {
     println!("EVT index value: {}", v);
 
     if cats.is_tree( v) { println!("tree") }

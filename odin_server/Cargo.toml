@@ -81,5 +81,11 @@ settings_icon_svg = { file = "settings_icon.svg"}
 
 
 [features]
+
 trace_server = []
 embedded_resources = []
+
+code_input_proxy = []
+code_input_asset = []
+
+default = ["code_input_proxy"]

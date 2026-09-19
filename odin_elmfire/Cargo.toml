@@ -17,6 +17,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 gdal = { workspace = true }
+wkt = { workspace = true }
 async-trait = { workspace = true }
 uom = { workspace = true }
 interp = { workspace = true }
@@ -24,6 +25,10 @@ askama = { workspace = true }
 regex = { workspace = true }
 derive_more = { workspace = true }
 csv = { workspace = true }
+strum = { workspace = true }
+ndarray = { workspace = true }
+
+static_assertions = "1.1"
 
 # workspace dependencies
 odin_common = { workspace = true }

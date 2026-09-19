@@ -27,7 +27,6 @@ use odin_common::{
 use odin_elmfire::{
     CACHE_DIR, DATA_DIR, load_config, ElmfireConfig, ElmFire, get_fixed_steps, get_utm_rect_around_point,
     errors::OdinElmfireError,
-    input::{create_fems_input, create_landfire_input, create_wx_input},
     fixed::parse_file
 };
 
@@ -37,6 +36,7 @@ define_cli! { ARGS [about="create live weather and fuel input files and run Elmf
     dry_run: bool [help="dry run: create inputs but do not execute Elmfire", long],
     date:  DateTime<Utc> [help="simulation start date (default: now)", long, default_value_t=default_date(), value_parser=parse_utc_datetime],
 
+    compute_wind: bool [help="compute micro-grid wind using WindNinja", long],
     spotting: Option<String> [help="filename of spotting settings to use", long],
 
     name: String [help="name of incident"],
@@ -58,7 +58,8 @@ async fn main ()->Result<()> {
     let spotting = ARGS.spotting.as_ref().map(|p| filepath_contents_as_string(Path::new(p))).and_then(|res| res.ok());
     let fixed_inputs = parse_file( &ARGS.fixed, n_hours as usize + 1)?;
 
-    let mut ef = ElmFire::from_point_ignition( ARGS.name.clone(), ARGS.date, geo_center, bbox_size, n_hours, Some(fixed_inputs), spotting)?;
+    let mut ef = ElmFire::from_point_ignition(
+        ARGS.name.clone(), ARGS.date, geo_center, bbox_size, n_hours, ARGS.compute_wind, Some(fixed_inputs), spotting)?;
     let data_file_path = ef.create_inputs( &config).await?;
 
     if !ARGS.dry_run {

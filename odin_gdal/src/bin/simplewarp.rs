@@ -15,7 +15,7 @@
 use std::path::Path;
 use gdal::{Dataset, spatial_ref::SpatialRef};
 use odin_common::define_cli;
-use odin_gdal::{GdalDataType, get_driver_name_from_filename, to_csl_string_list, warp::{MetaEntry, ResampleAlg, SimpleWarpBuilder}};
+use odin_gdal::{GdalDataType, get_driver_name_for_filename, to_csl_string_list, warp::{MetaEntry, ResampleAlg, SimpleWarpBuilder}};
 use anyhow::{Result, anyhow};
 
 define_cli! { ARGS [about="simple GDAL warper"] =
@@ -54,7 +54,7 @@ fn main () -> Result<()> {
     let tgt_format: &str = if let Some(ref fmt) = ARGS.t_format {
         fmt.as_str()
     } else {
-        if let Some(driver_name) = get_driver_name_from_filename(ARGS.tgt_filename.as_str()) {
+        if let Some(driver_name) = get_driver_name_for_filename(ARGS.tgt_filename.as_str()) {
             driver_name
         } else {
             "GTiff" // our last fallback

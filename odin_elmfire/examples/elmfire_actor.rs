@@ -68,6 +68,7 @@ run_actor_system!( actor_system => {
         GeoPoint::from_lon_lat_degrees(-120.2810, 37.4400),
         bbox_size,
         n_hours as u32,
+        false, // we don't use microgrid wind
         Some(fixed_inputs),
         None
     )?;

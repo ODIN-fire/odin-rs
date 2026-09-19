@@ -237,10 +237,47 @@ export class GeoLineString {
         return new GeoLineString( roundedPoints);
     }
 
+    nPoints() {
+        return points.length;
+    }
+
+    toWkt() {
+        let pts = this.points;
+        let wkt = "linestring (";
+        for (let i = 0; i < pts.length; i++) {
+            if (i > 0) wkt += ',';
+            wkt += '\n  ';
+            wkt += `${pts[i].lon.toFixed(5)} ${pts[i].lat.toFixed(5)}`;
+        }
+        wkt += '\n)';
+
+        return wkt;
+    }
+
     static checkType (o) {
         return (
             (Array.isArray(o.points) && o.points.every( p=> GeoPoint.checkType(p)))
         )
+    }
+
+    static fromWkt(wkt) {
+        const wrapperRegex = /linestring\s*\(([^)]+)\)/i;
+        const match = wkt.match(wrapperRegex);
+        if (!match) return null;
+
+        const coordinateString = match[1].trim();
+        const coordinateRegex = /(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g;
+        const points = [];
+        let coordMatch;
+
+        while ((coordMatch = coordinateRegex.exec(coordinateString)) !== null) {
+            points.push({
+                lon: parseFloat(coordMatch[1]),
+                lat: parseFloat(coordMatch[2])
+            });
+        }
+
+        return new GeoLineString(points);
     }
 
     static template = '{\n  "points": [\n    {"lon": 0.0, "lat": 0.0},\n    {"lon": 0.0, "lat": 0.0},\n    {"lon": 0.0, "lat": 0.0}\n  ]\n}'

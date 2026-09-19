@@ -22,7 +22,7 @@ use gdal_sys::{GDALProgressFunc, GDALTermProgress};
 use gdal_sys::OGRFieldType::OFTInteger;
 use gdal_sys::{GDALDatasetH, OGRDataSourceH, GDALContourGenerateEx, CSLConstList, GDALGetRasterBand, OGR_DS_CreateLayer, OGRLayerH, OGRwkbGeometryType, OGR_L_GetLayerDefn};
 use libc::{c_double, c_int, c_uint};
-use crate::get_driver_name_from_filename;
+use crate::get_driver_name_for_filename;
 use crate::errors::{Result, last_gdal_error, misc_error, OdinGdalError, reset_last_gdal_error};
 
 pub struct ContourBuilder <'a> {
@@ -124,7 +124,7 @@ impl <'a> ContourBuilder<'a> {
         unsafe{
             // create target dataset
             // 1. get driver from file
-            let tgt_format: &str = if let Some(driver_name) = get_driver_name_from_filename(self.tgt_filename.as_c_str().to_str().unwrap()) { // self.tgt_filename checked during new
+            let tgt_format: &str = if let Some(driver_name) = get_driver_name_for_filename(self.tgt_filename.as_c_str().to_str().unwrap()) { // self.tgt_filename checked during new
                 driver_name
             } else {
                 "GeoJSON" // our last fallback

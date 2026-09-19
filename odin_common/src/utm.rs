@@ -19,9 +19,10 @@ use serde::{Deserialize, Serialize};
 use uom::si::f64::{Length};
 use uom::si::length::{meter,foot};
 use num::{Num, ToPrimitive, traits, zero};
+use ndarray::prelude::*;
 
 use crate::{
-    angle, define_error, BoundingBox, sin, sinh, asin, atan, atanh, cos, cosh, sqrt,
+    angle, define_error, BoundingBox, sin, sinh, asin, atan, atan2, atanh, cos, cosh, sqrt,
     datetime,
     geo::{self, GeoPoint, GeoRect}
 };
@@ -95,6 +96,21 @@ impl UtmRect {
         UtmRect { bbox, utm_zone }
     }
 
+    /// a constructor variant that represents the hull of a matrix of cells with size 'res' around a given center point
+    /// nx2, ny2 are measured from (but not including) the center row, column, i.e. both dimensions are odd numbers (2*nx2 + 1) x (2*ny2 + 1)
+    pub fn from_centered_matrix (center: &UtmPoint, res: f64, nx2: usize, ny2: usize)->UtmRect {
+        let dw = (nx2 as f64 + 0.5) * res;
+        let dh = (ny2 as f64 + 0.5) * res;
+        let west = center.easting - dw;
+        let east = center.easting + dw;
+        let north = center.northing + dh;
+        let south = center.northing - dh;
+        let utm_zone = center.utm_zone;
+
+        let bbox = BoundingBox { west, south, east, north };
+        UtmRect { bbox, utm_zone }
+    }
+
     pub fn epsg (&self)->u32 {
        self.utm_zone.epsg()
     }
@@ -106,7 +122,7 @@ impl UtmRect {
         self.bbox.north = self.bbox.north.round();
     }
 
-    pub fn rounded (self)->Self {
+    pub fn rounded (&self)->Self {
         Self::from_wsen_meters(
             self.bbox.west.round(),
             self.bbox.south.round(),
@@ -137,6 +153,7 @@ impl UtmRect {
 
     #[inline] pub fn width (&self)->f64 { self.bbox.east - self.bbox.west }
     #[inline] pub fn height (&self)->f64 { self.bbox.north - self.bbox.south }
+    #[inline] pub fn dimensions (&self)->(f64,f64) { (self.width(), self.height()) }
 
     #[inline] pub fn x_min (&self)->f64 { self.bbox.west }
     #[inline] pub fn x_max (&self)->f64 { self.bbox.east }
@@ -216,8 +233,8 @@ impl UtmRect {
 
         let w = match rect_mapping {
             GeoRectMapping::Median      => (sw.longitude_degrees() + nw.longitude_degrees()) / 2.0,
-            GeoRectMapping::ExteriorGeo => sw.longitude_degrees().max( nw.longitude_degrees()),
-            GeoRectMapping::InteriorGeo => sw.longitude_degrees().min( nw.longitude_degrees())
+            GeoRectMapping::ExteriorGeo => sw.longitude_degrees().min( nw.longitude_degrees()),
+            GeoRectMapping::InteriorGeo => sw.longitude_degrees().max( nw.longitude_degrees())
         };
         let clon = center.longitude_degrees();
         let dw = clon - w;
@@ -228,6 +245,102 @@ impl UtmRect {
             clon + dw,
             nw.latitude_degrees()
         )
+    }
+
+    // this is guaranteed to return odd numbers so that we we have the same extend from the center column,row in each direction
+    pub fn get_centered_grid_dimensions (&self, res: f64, exterior: bool)->(usize,usize) {
+        self.bbox.get_centered_grid_dimensions(res, exterior)
+    }
+
+    /// nx2 and ny2 are the number grid steps in each x,y direction
+    /// note this returns elements in row-major order, i.e. (0,0) is the NW corner
+    pub fn get_centered_geo_grid_points (&self, res: f64, nx2: usize, ny2: usize)->Vec<GeoPoint> {
+        let center = self.center();
+        let utm_zone = self.utm_zone;
+
+        let mut gps: Vec<GeoPoint> = Vec::with_capacity((nx2*ny2*4) as usize );
+
+        for j in -(ny2 as isize)..(ny2 as isize + 1) {
+            let northing = center.northing - (j as f64 * res);
+            for i in -(nx2 as isize)..(nx2 as isize +1) {
+                let easting = center.easting + (i as f64 * res);
+                let p = UtmPoint{easting,northing,utm_zone};
+                let gp: GeoPoint = p.into();
+                gps.push( gp);
+            }
+        }
+
+        gps
+    }
+
+    pub fn get_centered_geo_grid (&self, res: f64, exterior: bool)->Array2<GeoPoint> {
+        let center = self.center();
+        let utm_zone = self.utm_zone;
+        let (nx,ny) = self.get_centered_grid_dimensions(res, exterior);
+        let gps = self.get_centered_geo_grid_points( res, nx/2, ny/2);
+
+        // safe to unwrap as we know gps has enough elements
+        Array::from_shape_vec( (nx,ny), gps).unwrap()
+    }
+
+    /// Note that (0,0) is the NW corner cell, i.e. we count row indices south-wards and column indices east-wards
+    pub fn get_grid_cell_indices (&self, nx: usize, ny: usize, p: &UtmPoint)->Option<(usize,usize)>{
+        if p.utm_zone != self.utm_zone {
+            p.map_to_zone( self.utm_zone).and_then(|p| self.get_grid_cell_indices( nx, ny, &p))
+        } else {
+            if p.easting < self.west { return None }
+            if p.easting > self.east { return None } // outside horizontal range
+            if p.northing < self.south { return None }
+            if p.northing > self.north { return None } // outside vertical range
+
+            let res_x = self.width() / (nx as f64);
+            let res_y = self.height() / (ny as f64);
+
+            let i = ((p.easting - self.west) / res_x).floor() as usize;
+            let j = ((self.north - p.northing) / res_y).floor() as usize;
+
+            Some( (i,j) )
+        }
+    }
+
+    pub fn get_clipped_grid_cell_indices (&self, nx: usize, ny: usize, p: &UtmPoint)->Option<(usize,usize)> {
+        if p.utm_zone != self.utm_zone {
+            p.map_to_zone( self.utm_zone).and_then(|p| self.get_clipped_grid_cell_indices( nx, ny, &p))
+        } else {
+            let res_x = self.width() / (nx as f64);
+            let res_y = self.height() / (ny as f64);
+
+            let i = ((p.easting - self.west) / res_x).floor() as isize;
+            let i = i.max(0).min(nx as isize -1) as usize;
+
+            let j = ((self.north - p.northing) / res_y).floor() as isize;
+            let j = j.max(0).min(ny as isize -1) as usize;
+
+            Some( (i,j) )
+        }
+    }
+
+    pub fn get_cell_points (&self, nx: usize, ny: usize)->Vec<UtmPoint> {
+        let res_x = self.width() / (nx as f64);
+        let res_y = self.height() / (ny as f64);
+        let res_x2 = res_x / 2.0;
+        let res_y2 = res_y / 2.0;
+        let utm_zone = self.utm_zone;
+
+        let mut cps: Vec<UtmPoint> = Vec::with_capacity(nx * ny);
+        for j in 0..ny {
+            for i in 0..nx {
+                let northing = self.north - (j as f64)*res_y - res_y2;
+                let easting = self.west + (i as f64)*res_x + res_x2;
+
+                let p = UtmPoint{easting,northing,utm_zone};
+                print!("  {:.0},{:.0}  ", p.easting, p.northing);
+                cps.push( p);
+            }
+            println!();
+        }
+
+        cps
     }
 }
 
@@ -247,6 +360,7 @@ impl From<UtmRect> for GeoRect {
 }
 */
 
+#[derive(Clone, Copy)]
 pub enum GeoRectMapping {
     Median,  // average width
     ExteriorGeo,  // greater width (geo is hull, i.e. UtmRect will be fully inside GeoRect)
@@ -257,8 +371,6 @@ impl Deref for UtmRect {
     type Target = BoundingBox<f64>;
     fn deref (&self)->&Self::Target { &self.bbox }
 }
-
-
 
 // we can't impl From<GeoRect> since UTM is only defined between [-80,84] deg latitude, i.e. the conversion can fail
 
@@ -274,8 +386,12 @@ impl UtmPoint {
     #[inline] pub fn y(&self)->f64 { self.northing }
 
     pub fn map_to_zone (&self, new_zone: UtmZone)->Option<UtmPoint> {
-        let geo = utm_to_geo( &self);
-        geo_to_utm( &geo)
+        if self.utm_zone == new_zone {
+            Some( self.clone() )
+        } else {
+            let geo = utm_to_geo( &self);
+            geo_to_utm_zone( &geo, new_zone)
+        }
     }
 
     pub fn round (&mut self) {
@@ -329,6 +445,14 @@ impl UtmPoint {
 
     pub fn from_geo_points_in_zone( gps: &[GeoPoint], utm_zone: UtmZone)->std::result::Result<Vec<UtmPoint>,OdinUtmError> {
         gps.iter().map( |p| try_geo_to_utm_zone( &p, utm_zone)).collect()
+    }
+
+    pub fn add_delta (&self, delta_easting: f64, delta_northing: f64)->Self {
+        UtmPoint{
+            easting: self.easting + delta_easting,
+            northing: self.northing + delta_northing,
+            utm_zone: self.utm_zone
+        }
     }
 }
 
@@ -513,7 +637,7 @@ pub fn utm_to_geo (utm: &UtmPoint) -> GeoPoint {
 
     let φ = χ + (δ1*sin(2.0*χ)) + (δ2*sin(4.0*χ)) + (δ3*sin(6.0*χ));
     let λ0 = (utm_zone.zone as i64 * 6 - 183).to_f64().unwrap().to_radians();
-    let λ = λ0 + atan( sinh(ηʹ)/cos(ξʹ));
+    let λ = λ0 + atan2(sinh(ηʹ), cos(ξʹ));
 
     let lat_deg = φ.to_degrees();
     let lon_deg = λ.to_degrees();

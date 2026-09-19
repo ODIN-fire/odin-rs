@@ -40,6 +40,12 @@ pub enum OdinOpenMeteoError {
     #[error("net error {0}")]
     NetError( #[from] odin_common::net::OdinNetError),
 
+    #[error("num error {0}")]
+    NumError( #[from] odin_common::num_type::OdinNumError),
+
+    #[error("utm error {0}")]
+    UtmError( #[from] odin_common::utm::OdinUtmError),
+
     #[error("actor error {0}")]
     ActorError( #[from] odin_actor::errors::OdinActorError),
 
@@ -58,6 +64,9 @@ pub enum OdinOpenMeteoError {
     #[error("chrono parse error {0}")]
     ChronoParseError( #[from] chrono::ParseError),
 
+    #[error("KD-Tree construction error {0}")]
+    KdTreeConstructionError( #[from] kiddo::kd_tree::ConstructionError),
+
     #[error("GDAL error {0}")]
     GdalError( #[from] gdal::errors::GdalError),
 
@@ -69,6 +78,9 @@ pub enum OdinOpenMeteoError {
 
     #[error("ODIN job error {0}")]
     OdinJobError( #[from] odin_job::OdinJobError),
+
+    #[error("index out of bounds error: {0}")]
+    IndexOutOfBoundsError(String),
 
     #[error("operation failed {0}")]
     OpFailedError(String)

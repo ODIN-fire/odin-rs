@@ -13,13 +13,13 @@
  */
 #![allow(unused)]
 
-use std::fs;
-use kiddo::{KdTree, NearestNeighbour, SquaredEuclidean};
+use std::{fs,num::NonZero};
+use kiddo::{KdTree, dist::SquaredEuclidean};
 use rkyv::{ from_bytes, {rancor::Error as RkyvError}};
 use anyhow::{anyhow,Result};
 
 use odin_common::{define_cli,cartographic::Cartographic,cartesian3::Cartesian3};
-use odin_orbital::copernicus::{tile_dec};
+use odin_orbital::copernicus::{TileKdTree,tile_dec};
 
 define_cli! { ARGS [about="get Sentinel-2 tile ids for given longitude and latitude"] =
     input: String [help="filename for (rkyv) serialized kd-tree input"],
@@ -30,7 +30,7 @@ define_cli! { ARGS [about="get Sentinel-2 tile ids for given longitude and latit
 
 fn main()->Result<()> {
     let bytes = fs::read( &ARGS.input)?;
-    let kdtree = from_bytes::<KdTree<f64,3>,RkyvError>(&bytes)?;
+    let kdtree = from_bytes::<TileKdTree,RkyvError>(&bytes)?;
 
     let geo = Cartographic::from_degrees( ARGS.lon, ARGS.lat, 0.0);
     let ecef: Cartesian3 = geo.into();
@@ -38,14 +38,24 @@ fn main()->Result<()> {
     if let Some(radius) = ARGS.radius {
         let dist = (radius * 1000.0).powi(2);
         println!("tiles within {} km of lon={}, lat={}:", radius, ARGS.lon, ARGS.lat);
-        for nn in kdtree.best_n_within::<SquaredEuclidean>( &[ecef.x, ecef.y, ecef.z], dist, 64) {
+
+        let nearest = kdtree
+            .query( &[ecef.x, ecef.y, ecef.z])
+            .best_n_within::<SquaredEuclidean<f64>>( dist, NonZero::new(64 as usize).unwrap())
+            .execute();
+
+        for nn in nearest.iter() {
             let tile_id = tile_dec(nn.item);
             println!("  {}", tile_id);
         }
 
     } else {
-        let nn = kdtree.nearest_one::<SquaredEuclidean>( &[ecef.x, ecef.y, ecef.z]);
-        let tile_id = tile_dec(nn.item);
+        let nearest = kdtree
+            .query( &[ecef.x, ecef.y, ecef.z])
+            .nearest_one::<SquaredEuclidean<f64>>()
+            .execute();
+
+        let tile_id = tile_dec(nearest.item);
         println!("result for lon={}, lat={} : {}", ARGS.lon, ARGS.lat, tile_id);
     }
 

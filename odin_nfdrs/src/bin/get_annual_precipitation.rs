@@ -22,8 +22,7 @@ use chrono::{DateTime,Utc};
 use anyhow::{Result,anyhow};
 
 use odin_common::{define_cli, datetime::days, geo::GeoPoint};
-use odin_openmeteo;
-use odin_nfdrs::get_annual_precipitation;
+use odin_openmeteo::queries::get_annual_precipitation;
 
 define_cli! { ARGS [about="retrieve 15min forecasts"] =
    config: String [help="filename of OpenMeteo config file", long, default_value="openmeteo.ron"],

@@ -59,7 +59,7 @@ impl ElmfireStore {
 define_actor_msg_set! { pub ElmfireActorMsg = ExecSnapshotAction | ElmFire | RequestFinished }
 
 pub struct ElmfireActor <U>
-    where U: DataRefAction<ElmfireRun>
+    where U: DataRefAction<ElmfireRun> + Send + Sync
 {
     config: Arc<ElmfireConfig>,
     store: ElmfireStore,       // our internal store
@@ -68,7 +68,7 @@ pub struct ElmfireActor <U>
 }
 
 impl <U> ElmfireActor <U>
-    where U: DataRefAction<ElmfireRun>
+    where U: DataRefAction<ElmfireRun> + Send + Sync
 {
     pub fn new (config: ElmfireConfig, update_action: U)->Self {
         let mut store: ElmfireStore = ElmfireStore(HashMap::new());
@@ -95,11 +95,13 @@ impl <U> ElmfireActor <U>
 
             // we don't await completion of the (possibly lengthy) run here so that we stay responsive
             let config = self.config.clone();
+
             spawn( "elmfire executor", async move {
                 info!("executing {}", id);
                 let result = run.fire.execute( config.as_ref()).await.map_err( |e| e.to_string());
                 hself.send_msg( RequestFinished{ id, result }).await;
             });
+
             Ok(())
         }
     }
@@ -141,7 +143,7 @@ fn reset_store (store: &mut ElmfireStore) {
 }
 
 impl_actor! { match msg for Actor<ElmfireActor<U>, ElmfireActorMsg>
-    where U: DataRefAction<ElmfireRun> + Sync
+    where U: DataRefAction<ElmfireRun> + Send + Sync
     as
 
     ExecSnapshotAction => cont! {

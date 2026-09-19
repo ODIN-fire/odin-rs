@@ -80,7 +80,9 @@ fn get_stored_list_ws_msg (list: &[String], msg_type: &'static str)->String {
 impl SpaService for ElmfireService {
 
     fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
-        spa_builder.add( build_service!( => ImgLayerService::new()))
+        spa_builder
+            .add( build_service!( => CodeService::new()))
+            .add( build_service!( => ImgLayerService::new()))
     }
 
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {
@@ -227,6 +229,7 @@ struct ElmfireRequest {
     n_hours: u32,
     size: f64,
     ignitions: Vec<IgnitionSpec>,
+    compute_wind: bool, // compute micro-grid wind
     fixed: Option<String>, // use fixed wx and fuel
     spotting: Option<String>
 }
@@ -244,7 +247,7 @@ impl TryFrom<ElmfireRequest> for ElmFire {
         };
         let spotting = req.spotting;
 
-        ElmFire::from_point_ignitions( req.name, ips, bbox_size, req.n_hours, fixed_input, spotting)
+        ElmFire::from_point_ignitions( req.name, ips, bbox_size, req.n_hours, req.compute_wind, fixed_input, spotting)
     }
 }
 

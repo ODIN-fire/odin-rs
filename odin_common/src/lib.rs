@@ -13,10 +13,11 @@
  */
 #![allow(unused,uncommon_codepoints)]
 
-use std::{f64::consts::{PI as STD_PI}, fmt, ops::Range};
+use std::{f64::consts::{PI as STD_PI}, fmt, ops::Range, fmt::Debug};
 
 use serde::{Serialize,Deserialize};
 use num::{Num,ToPrimitive};
+use ndarray::Array2;
 
 pub mod strings;
 pub mod collections;
@@ -87,7 +88,7 @@ pub struct BoundingBox <T: Num> {
     pub north: T
 }
 
-impl <T: Num + Copy + ToPrimitive> BoundingBox<T> {
+impl <T: Num + Copy + ToPrimitive + From<f64> + Debug> BoundingBox<T> {
     pub fn new(west: T, south: T, east: T, north: T)->Self {
         BoundingBox{ west, south, east, north}
     }
@@ -116,6 +117,40 @@ impl <T: Num + Copy + ToPrimitive> BoundingBox<T> {
 
     #[inline] pub fn width (&self)->T { self.east - self.west }
     #[inline] pub fn height (&self)->T { self.north - self.south }
+    #[inline] pub fn size (&self)->(T,T) { (self.width(), self.height()) }
+
+    pub fn centered_grid (&self, res: T, exterior: bool)->Array2<(T,T)> {
+        let center = self.center();
+        let (nx,ny) = self.get_centered_grid_dimensions(res, exterior);
+        let d = res.to_f64().unwrap();
+        let left = center.0 - (nx/2) as f64 * d;
+        let top = center.1 + (ny/2) as f64 * d;
+
+        let mut v: Vec<(T,T)> = Vec::with_capacity( nx * ny);
+
+        for j in 0..ny {
+            let y = top - (j as f64) * d;
+            for i in 0..nx {
+                let x = left + (i as f64) * d;
+                v.push( (x.into(), y.into()) );
+            }
+        }
+
+        Array2::from_shape_vec( (nx,ny), v).unwrap()
+    }
+
+    /// this always returns odd numbers so that we have the same number of cells from the center in each direction
+    pub fn get_centered_grid_dimensions (&self, res: T, exterior: bool)->(usize,usize) {
+        let r = res.to_f64().unwrap();
+        let xr2 = self.width().to_f64().unwrap() / (2.0 * r);
+        let yr2 = self.height().to_f64().unwrap() / (2.0 * r);
+
+        if exterior {
+            (2 * (xr2.ceil() as usize) + 1, 2 * (yr2.ceil() as usize) + 1)
+        } else {
+            (2 * (xr2.floor() as usize) + 1, 2 * (yr2.floor() as usize) + 1)
+        }
+    }
 }
 
 /// a simple incremental min/max/avg accumulator
@@ -216,4 +251,63 @@ pub fn round_to_decimals(val: f64, decimals: i32) -> f64 {
 #[inline]
 pub fn as_min_max<T> (r: Range<T>)->(T,T) {
     (r.start, r.end)
+}
+
+/// return the common prefix of two slices of comparable+clonable elements as a Vec
+pub fn common_prefix<T: PartialEq+Clone> (a: &[T], b: &[T])->Vec<T> {
+    a.iter()
+        .zip(b.iter())
+        .take_while(|(x, y)| x == y)
+        .map(|(x, _)| x.clone())
+        .collect()
+}
+
+/// compute the sum of inverse distance weighted elements
+/// both distance and accumulation functions are provided as parameters to make the target type T generic
+/// note that the 'dist' function is abstract and it is Ok to use squared euclidean. The 'q' exponent can
+/// be used to emphasize distance differences
+pub fn  inverse_distance_weighted<T,F,G> (v0: &mut T, vs: &[T], q: i32, dist: F, acc: G)
+    where F: Fn(&T,&T)->f64, G: Fn(&mut T,&T,f64)
+{
+    let len = vs.len();
+    let mut ds: Vec<f64> = vs.iter().map( |v| dist( v0, v).powi(-q)).collect();
+    let sum: f64 = ds.iter().sum();
+
+    for i in 0..len {
+        ds[i] = ds[i] / sum
+    }
+
+    for i in 0..len {
+        acc( v0, &vs[i], ds[i])
+    }
+}
+
+#[inline]
+pub fn accumulate_weighted_f64 (acc: &f64, next: &f64, w: f64)->f64 {
+    acc + next * w
+}
+
+#[inline]
+pub fn accumulate_weighted_f32 (acc: &f32, next: &f32, w: f32)->f32 {
+    acc + next * w
+}
+
+#[inline]
+pub fn average_f64 (last_avg: f64, next: f64, n: usize)->f64 {
+    last_avg + (next - last_avg)/(n as f64)
+}
+
+#[inline]
+pub fn average_f32 (last_avg: f32, next: f32, n: usize)->f32 {
+    last_avg + (next - last_avg)/(n as f32)
+}
+
+#[inline]
+pub fn interpolate_f64 (a: f64, b: f64, r: f64)->f64 {
+    a + (b - a) * r
+}
+
+#[inline]
+pub fn interpolate_f32 (a: f32, b: f32, r: f32)->f32 {
+    a + (b - a) * r
 }

@@ -15,36 +15,48 @@
 
 use std::{
     time::Duration, fmt::Debug,
-    path::{Path,PathBuf}, ops::Range,
-    io::{Read,BufReader}, fs::{File},
+    path::{Path,PathBuf},
+    io::{Read,BufReader},
+    fs::{File},
     collections::HashMap,
     hash::{Hash,DefaultHasher,Hasher},
-    ops::Deref,
+    ops::{Deref,Range},
     fs
 };
 use chrono::{DateTime,Utc,Datelike,Timelike,NaiveDate,NaiveTime, NaiveDateTime};
-use serde::{Deserialize,Serialize, de::{Deserialize as DeserializeTrait}};
+use serde::{Deserialize,Serialize, de::{Deserialize as DeserializeTrait, DeserializeOwned}};
 use serde_json;
 use gdal::{Metadata, raster::{GdalType, RasterCreationOptions}};
 use lazy_static::lazy_static;
 use regex::Regex;
+use uom::si::length::{meter};
+use uom::si::f64::Length;
+use ndarray::prelude::*;
 
 use odin_build::define_load_config;
 use odin_macro::public_struct;
 
 use odin_common::{
-    fs::{odin_data_filename,ensure_writable_dir, filepath_contents_as_string},
+    datetime::{as_days, as_minutes,ymd, days},
+    collections::get_cond_range,
+    strings::{format_float},
+    fs::{ensure_writable_dir, filepath_contents_as_string, odin_data_filename},
     geo::{GeoPoint, GeoRect},
-    num_type::NumericType,
-    sliced, utm,
-    datetime::{as_days, as_minutes},
+    net::{get_deserialized_json_response,get_deserialized_cached_json_response},
+    num_type::{NumericType,average}, sliced,
+    utm::{self, UtmRect}
 };
-use odin_gdal::{Dataset, get_driver_by_name, get_driver_name_for_extension, grid::{self, GdalGridAlgorithmOptions, create_grid_ds}, is_gtiff_driver, set_band_meta};
+use odin_gdal::{
+    Dataset as GdalDataset, get_driver_for_extension, is_gtiff_driver, set_band_meta,
+    grid::{self as gdal_grid, GdalGridAlgorithmOptions, create_grid_ds_from_scatter}
+};
 use odin_wx::{WxService,WxDataSetRequest,WxFileAvailable,AddDataSet,RemoveDataSet};
 
 pub mod wx_service;
 pub mod dataset;
+use dataset::PrecipitationSum;
 
+pub mod queries;
 pub mod ids;
 use ids::{FieldId,ModelId};
 
@@ -56,19 +68,10 @@ pub use actor::OpenMeteoActor;
 pub use actor::OpenMeteoActorMsg;
 
 pub mod convert;
+pub mod grid;
 
 use crate::errors::OdinOpenMeteoError;
 pub type Result<T> = std::result::Result<T,errors::OdinOpenMeteoError>;
-
-pub const NOAA_HRRR_MODEL: &'static str = "gfs_hrrr";
-pub const ECMWF_IFS_MODEL: &'static str = "ecmwf_ifs";
-//... and more to follow
-
-/// the Dataset metainfo key for the forecast time
-pub const FORECAST_EPOCH: &'static str = "forecast_epoch";
-
-/// the Dataset metainfo key for the forecast time step (usually number of hours since base time)
-pub const FORECAST_STEP: &'static str = "forecast_step";
 
 lazy_static! {
     static ref TIMES_RE: Regex = Regex::new( r#""time":\[(.*?)\]"#).unwrap();
@@ -81,6 +84,8 @@ lazy_static! {
 }
 
 define_load_config!{}
+
+pub const MAX_POINTS: usize = 1000; // maximum number of points allowed in one query (see https://open-meteo.com/en/docs/gfs-ap)
 
 #[derive(Deserialize,Debug)]
 pub struct OpenMeteoConfig {
@@ -99,80 +104,6 @@ pub struct OpenMeteoConfig {
 pub enum OpenMeteoTemporal {
     Current, Minutely, Hourly, Daily
 }
-
-/* #region URL composition ***************************************************************************************************/
-
-pub fn forecast_url (config: &OpenMeteoConfig, query: &str)->String {
-    format!("{}?{}", config.forecast_url, query)
-}
-
-pub fn archive_url (config: &OpenMeteoConfig, query: &str)->String {
-    format!("{}?{}", config.archive_url, query)
-}
-
-pub fn meta_url (config: &OpenMeteoConfig, model_name: &str)->String {
-    format!("{}/{}/static/meta.json", config.meta_url, model_name)
-}
-
-pub fn url_query_minutely_bbox<T:OpenMeteoDataSet> (bbox: &GeoRect, fc_duration: Duration, model: &str)->String {
-    let fc_steps = ((as_minutes( fc_duration) / 15.0).round() as u32).min(32); // max 8h
-    format!("models={}&bounding_box={},{},{},{}&cell_selection=nearest&wind_speed_unit=ms&forecast_minutely_15={}&minutely_15={}",
-        model,
-        bbox.south().degrees(), bbox.west().degrees(), bbox.north().degrees(), bbox.east().degrees(),
-        fc_steps,
-        T::fields_query()
-    )
-}
-
-// https://api.open-meteo.com/v1/forecast?
-//    latitude=37.142&longitude=-121.2&hourly=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,wind_direction_10m,shortwave_radiation,snow_depth&models=gfs_hrrr&forecast_days=1&wind_speed_unit=mph&temperature_unit=fahrenheit&precipitation_unit=inch"
-
-pub fn url_query_hourly_point<T:OpenMeteoDataSet> (pos: &GeoPoint, days: u32, past_days: u32, model: &str)->String {
-    format!("latitude={}&longitude={}&models={}&forecast_days={}&past_days={}&hourly={}",
-        pos.latitude_degrees(), pos.longitude_degrees(), model, days, past_days, T::fields_query())
-}
-
-pub fn url_query_hourly_points<T:OpenMeteoDataSet> (pos: &[GeoPoint], days: u32, past_days: u32, model: &str)->String {
-    let lats = pos.iter().map( |p| p.latitude_degrees().to_string()).collect::<Vec<String>>().join(",");
-    let lons = pos.iter().map( |p| p.longitude_degrees().to_string()).collect::<Vec<String>>().join(",");
-
-    format!("latitude={}&longitude={}&models={}&forecast_days={}&past_days={}&hourly={}",
-        lats, lons, model, days, past_days, T::fields_query())
-}
-
-pub fn url_query_hourly_bbox<T:OpenMeteoDataSet> (bbox: &GeoRect, days: u32, past_days: u32, model: &str)->String {
-    format!("models={}&bounding_box={},{},{},{}&forecast_days={}&past_days={}&cell_selection=nearest&wind_speed_unit=ms&hourly={}",
-        model,
-        bbox.south().degrees(), bbox.west().degrees(), bbox.north().degrees(), bbox.east().degrees(),
-        days, past_days,
-        T::fields_query()
-    )
-}
-
-// https://archive-api.open-meteo.com/v1/archive?
-//   latitude=37.142&longitude=-121.2&start_date=2025-07-01&end_date=2026-06-30&daily=precipitation_sum&precipitation_unit=inch
-
-pub fn url_query_daily_point<T:OpenMeteoDataSet> (pos: &GeoPoint, start: &DateTime<Utc>, end: &DateTime<Utc>)->String {
-    let start_date = start.format("%Y-%m-%d");
-    let end_date = end.format("%Y-%m-%d");
-
-    format!("latitude={}&longitude={}&start_date={}&end_date={}&daily={}",
-        pos.latitude_degrees(), pos.longitude_degrees(), start_date, end_date, T::fields_query())
-}
-
-pub fn url_query_daily_points<T:OpenMeteoDataSet> (pos: &[&GeoPoint], start: &DateTime<Utc>, end: &DateTime<Utc>)->String {
-    let start_date = start.format("%Y-%m-%d");
-    let end_date = end.format("%Y-%m-%d");
-
-    let lats = pos.iter().map( |p| p.latitude_degrees().to_string()).collect::<Vec<String>>().join(",");
-    let lons = pos.iter().map( |p| p.longitude_degrees().to_string()).collect::<Vec<String>>().join(",");
-
-    format!("latitude={}&longitude={}&start_date={}&end_date={}&daily={}",
-        lats, lons, start_date, end_date, T::fields_query())
-}
-
-/* #endregion URL composition */
-
 
 /// the OpenMeteo response to metadata queries (see https://open-meteo.com/en/docs/model-updates)
 /// projected next update is scheduled at t + dt
@@ -216,152 +147,271 @@ impl OpenMeteoMetadata {
     }
 }
 
+/*
+ * the new type system for Open-Meteo data is centered around the requested time-resolution. While we could theoretically
+ * combine several of these in a single query (e.g. current observation and hourly forecasts) this is not the typical
+ * use (either minutely or hourly forecasts, daily history or current snapshot) and would make the type system more
+ * complicated (different variadic data set types for different time scales), harder/more expensive to use (check for optional timestep data)
+ * and less safe (e.g. operations such as IDW that only work for homogenous data set types we can't check at compile time).
+ * By using time-resolution based queries we can test once (upfront) if we got the requested data instead of checking on every access
+ */
 
-/// common interface for current/hourly/minutely_15 data records
-/// this is the main abstraction for a specific set of fields to retrieve
-/// note this does NOT imply the temporal category (current/minutely/hourly/daily) of how this data set is used
-pub trait OpenMeteoDataSet {
+/// the base trait for Open-Meteo data sets
+pub trait DataSet {
     // we prefer the query strings over a list of FieldIds since query params might differ. Used only to construct request URLs
-    fn fields_query ()->&'static str;
-    fn units_query ()->&'static str {
-        "wind_speed_unit=ms" // per default precipitation is in [mm], temperature in [°C] and there are no query params to set defaults
+    fn fields ()->&'static str;
+    fn units ()->&'static str {
+        ""
+        //"&temperature_unit=celsius&windspeed_unit=ms&precipitation_unit=mm"
     }
     fn dataset_name ()->&'static str;
-    fn time_iter (&self)-> impl Iterator<Item=&String>;
-    fn n_time_steps (&self)->usize;
-    fn nth_time_step (&self, i: usize)->Result<DateTime<Utc>>;
 
-    fn time_steps (&self)->Result<Vec<DateTime<Utc>>> {
-        self.time_iter().map( |ts| utc_from_timespec(ts.as_str())).collect()
+    // methods that can be used to construct new or modify existing dataset instances from spatial relatives.
+    // We need those since OpenMeteo is a multi-model database and we cannot rely on regular grid data to be returned
+    // (even if we ask for specific grid positions as location lists)
+
+    /// inverse distance weighted mutation. Each element pair consists of the normalized weight and the corresponding dataset item
+    /// own fields are computed by summation of the pair products: sum(ds[i].0 * ds[i].1)
+    /// Note this requires a neutral (zero'ed) ctor
+    fn idw (&mut self, ds: &[(f64,&Self)]);
+
+    /// ctor to interpolate linearly between a and b with ratio d
+    fn interpolate (a: &Self, b: &Self, d: f64)->Self;
+
+    /// incremental average mutation
+    fn average (&mut self, next: &Self, n: usize);
+
+    /// drop all time points outside given interval. This modifies the receiver
+    fn filter_time_steps (&mut self, start: &DateTime<Utc>, end: &DateTime<Utc>);
+}
+
+/// a DataSet that contains data for a list of time steps. Used for forecasts and historical queries
+pub trait VecDataSet : DataSet {
+    fn times(&self)->&[DateTime<Utc>];
+
+    /// constructor for instance that is zero except of time field (seed for IDW accumulation)
+    fn new (times: Vec<DateTime<Utc>>)->Self;
+
+    fn n_time_steps (&self)->usize {
+        self.times().len()
+    }
+
+    fn nth_time_step (&self, n: usize)->Result<DateTime<Utc>> {
+        Ok( self.times().get(n).ok_or( op_failed!("no such timestep"))?.clone() )
+    }
+
+    fn time_step_index (&self, date: &DateTime<Utc>)->Option<usize> {
+        self.times().iter().position(|d| d == date)
     }
 }
 
-/// struct for OpenMeteo response records, which are normally list of OpenMeteo records that
-/// depending on dataset specific query parameters contain current (single time point) or
-/// minutely/hourly/daily (multi-time point) values.
-/// Note this is structured so that we can use a single generic struct for serialization of
-/// all types of location datasets, which means we heavily rely on flattening fields in serde
+/// an DataSet that only has data for one time point. Used for current queries
+pub trait ScalarDataSet : DataSet {
+    fn time (&self)->DateTime<Utc>;
+    fn new (time: DateTime<Utc>)->Self;
+}
+
+//--- the types we deserialize from time-resolution specific query results
+
+/// result data for 15min queries
 #[derive(Deserialize,Debug)]
 #[public_struct]
-struct OpenMeteoLocationData<T> where T: OpenMeteoDataSet {
+struct MinutelyLocationData<T> where T: VecDataSet {
     #[serde(flatten)]
-    metadata: LocationMetaData,
+    meta_data: LocationMetaData,
 
-    #[serde(flatten)]
-    current_data: Option<CurrentData<T>>,
-
-    #[serde(flatten)]
-    minutely_data: Option<MinutelyData<T>>,
-
-    #[serde(flatten)]
-    hourly_data: Option<HourlyData<T>>,
-
-    #[serde(flatten)]
-    daily_data: Option<DailyData<T>>
+    minutely_15_units: HashMap<String,String>,
+    minutely_15: T
 }
 
-impl <T> OpenMeteoLocationData<T> where T: OpenMeteoDataSet + for <'a> Deserialize<'a> {
-    fn filename (bbox: &GeoRect, date: DateTime<Utc>, fc_duration: Duration, model: &str)->String {
-        let steps = ((as_minutes(fc_duration) / 15.0) as u32).to_string();
-        odin_data_filename( &bbox.encode(), Some(date), &[ &steps, T::dataset_name()], Some("json"))
+impl<T> LocationData<T> for MinutelyLocationData<T> where T: VecDataSet {
+    fn meta_data (&self)->&LocationMetaData { &self.meta_data }
+    fn fields_type ()->&'static str { "minutely_15" }
+    fn time_steps (&self)->Vec<DateTime<Utc>> { self.minutely_15.times().to_vec() }
+}
+
+/// result data for hourly queries
+#[derive(Deserialize,Debug)]
+#[public_struct]
+struct HourlyLocationData<T> where T: VecDataSet {
+    #[serde(flatten)]
+    meta_data: LocationMetaData,
+
+    hourly_units: HashMap<String,String>,
+    hourly: T
+}
+
+impl<T> LocationData<T> for HourlyLocationData<T> where T: VecDataSet  {
+    fn meta_data (&self)->&LocationMetaData { &self.meta_data }
+    fn fields_type ()->&'static str { "hourly" }
+    fn time_steps (&self)->Vec<DateTime<Utc>> { self.hourly.times().to_vec() }
+}
+
+/// result data for daily queries
+#[derive(Deserialize,Debug)]
+#[public_struct]
+struct DailyLocationData<T> where T: VecDataSet {
+    #[serde(flatten)]
+    meta_data: LocationMetaData,
+
+    daily_units: HashMap<String,String>,
+    daily: T
+}
+
+impl<T> LocationData<T> for DailyLocationData<T> where T: VecDataSet {
+    fn meta_data (&self)->&LocationMetaData { &self.meta_data }
+    fn fields_type ()->&'static str { "daily" }
+    fn time_steps (&self)->Vec<DateTime<Utc>> { self.daily.times().to_vec() }
+}
+
+/// result data for current time queries
+#[derive(Deserialize,Debug)]
+#[public_struct]
+struct CurrentLocationData<T> where T: ScalarDataSet {
+    #[serde(flatten)]
+    meta_data: LocationMetaData,
+
+    current_units: HashMap<String,String>,
+    current: T
+}
+
+impl<T> LocationData<T> for CurrentLocationData<T> where T: ScalarDataSet {
+    fn meta_data (&self)->&LocationMetaData { &self.meta_data }
+    fn fields_type ()->&'static str { "current" }
+    fn time_steps (&self)->Vec<DateTime<Utc>> { vec![self.current.time()] }
+}
+
+//--- the low level explicit parameter URL ctors
+
+pub fn get_bbox_query (
+    model: &str,
+    units: &str,
+    field_type: &str, fields: &str,
+    start: &DateTime<Utc>, end: &DateTime<Utc>,
+    bbox: &GeoRect
+) -> String {
+    format!("models={}{}&{}={}&start_date={}&end_date={}&bounding_box={}",
+        model, units,
+        field_type, fields,
+        ymd(start), ymd(end),
+        format_bbox( bbox)
+    )
+}
+
+fn format_bbox (geo_rect: &GeoRect)->String {
+    format!( "{},{},{},{}",
+        format_float( geo_rect.south().degrees(), 4),
+        format_float( geo_rect.west().degrees(), 4),
+        format_float( geo_rect.north().degrees(), 4),
+        format_float( geo_rect.east().degrees(), 4)
+    )
+}
+
+pub fn get_points_query (
+    model: &str,
+    units: &str,
+    field_type: &str, fields: &str,
+    start: &DateTime<Utc>, end: &DateTime<Utc>,
+    pts: &[GeoPoint]
+) -> String {
+    format!("models={}{}&{}={}&start_date={}&end_date={}&&latitude={}&longitude={}",
+        model, units,
+        field_type, fields,
+        ymd(start), ymd(end),
+        format_latitudes(pts), format_longitudes(pts)
+    )
+}
+
+fn format_latitudes (pts: &[GeoPoint])->String {
+    pts.iter().map( |p| format_float( p.latitude_degrees(), 4)).collect::<Vec<String>>().join(",")
+}
+
+fn format_longitudes (pts: &[GeoPoint])->String {
+    pts.iter().map( |p| format_float( p.longitude_degrees(), 4)).collect::<Vec<String>>().join(",")
+}
+
+pub fn get_point_query (
+    model: &str,
+    units: &str,
+    field_type: &str, fields: &str,
+    start: &DateTime<Utc>, end: &DateTime<Utc>,
+    p: &GeoPoint
+) -> String {
+    format!("models={}{}&{}={}&start_date={}&end_date={}&&latitude={}&longitude={}",
+        model, units,
+        field_type, fields,
+        ymd(start), ymd(end),
+        format_float( p.latitude_degrees(), 4), format_float( p.longitude_degrees(), 4)
+    )
+}
+
+pub fn get_forecast_url (config: &OpenMeteoConfig, query: &str)->String {
+    get_url( &config.forecast_url, query)
+}
+
+pub fn get_archive_url (config: &OpenMeteoConfig, query: &str)->String {
+    get_url( &config.archive_url, query)
+}
+
+pub fn get_url (base_url: &str, query: &str)->String {
+    format!("{}?{}", base_url, query)
+}
+
+pub fn get_meta_url (base_url: &str, model_name: &str)->String {
+    format!("{}/{}/static/meta.json", base_url, model_name)
+}
+
+/// common interface for all location data
+pub trait LocationData<T> where T: DataSet, Self: Sized {
+
+    fn meta_data (&self)->&LocationMetaData;
+    fn fields_type ()->&'static str;
+    fn time_steps (&self)->Vec<DateTime<Utc>>;
+
+    //--- query construction
+
+    fn get_bbox_query (model: ModelId, start: &DateTime<Utc>, end: &DateTime<Utc>, bbox: &GeoRect)->String {
+        get_bbox_query( model.into(), T::units(), Self::fields_type(), T::fields(), start, end, bbox)
     }
 
-    pub fn parse_path<P> (path: P)->Result<Vec<Self>> where P: AsRef<Path> {
-        let file = File::open(path)?;
-        let br = BufReader::new(file);
-        Ok( serde_json::from_reader(br)? )
+    fn get_points_query (model: ModelId, start: &DateTime<Utc>, end: &DateTime<Utc>, pts: &[GeoPoint])->String {
+        get_points_query( model.into(), T::units(), Self::fields_type(), T::fields(), start, end, pts)
     }
 
-    pub async fn get_daily_point_archive (config: &OpenMeteoConfig, pos: &GeoPoint, start: &DateTime<Utc>, end: &DateTime<Utc>)->Result<Self> {
-        let query = url_query_daily_point::<T>(pos, start, end);
-        let url = archive_url(config, &query);
-
-        let body = reqwest::get(url).await?.text().await?;
-
-        Ok ( serde_json::from_str( &body)? )
+    fn get_point_query (model: ModelId, start: &DateTime<Utc>, end: &DateTime<Utc>, pt: &GeoPoint)->String {
+        get_point_query( model.into(), T::units(), Self::fields_type(), T::fields(), start, end, pt)
     }
 
-    pub async fn get_cached_daily_point_archive (config: &OpenMeteoConfig, pos: &GeoPoint, start: &DateTime<Utc>, end: &DateTime<Utc>, path: impl AsRef<Path>)->Result<Self> {
-        if path.as_ref().is_file() {
-            let data = filepath_contents_as_string(&path)?;
-            Ok ( serde_json::from_str( &data)? )
+    //--- misc helpers
 
-        } else {
-            let query = url_query_daily_point::<T>(pos, start, end);
-            let url = archive_url(config, &query);
-            let body = reqwest::get(url).await?.text().await?;
-            std::fs::write( path, &body)?;
-            Ok ( serde_json::from_str( &body)? )
-        }
-    }
-
-    pub async fn get_minutely_bbox_forecasts (config: &OpenMeteoConfig, bbox: &GeoRect, fc_duration: Duration, model: &str)->Result<Vec<Self>> {
-        let query = url_query_minutely_bbox::<T>( bbox, fc_duration, model); // static query params are associated to T
-        let url = forecast_url(config, &query);
-        let body = reqwest::get(url).await?.text().await?;
-        Ok ( serde_json::from_str( &body)? )
-    }
-
-    pub async fn get_hourly_bbox_forecasts (config: &OpenMeteoConfig, bbox: &GeoRect, days: u32, past_days: u32, model: &str)->Result<Vec<Self>> {
-        let query = url_query_hourly_bbox::<T>( bbox, days, past_days, model); // static query params are associated to T
-        let url = forecast_url(config, &query);
-        let body = reqwest::get(url).await?.text().await?;
-        Ok ( serde_json::from_str( &body)? )
-    }
-
-    pub async fn get_hourly_point_forecasts (config: &OpenMeteoConfig, pos: &GeoPoint, days: u32, past_days: u32, model: &str)->Result<Self> {
-        let query = url_query_hourly_point::<T>( pos, days, past_days, model); // static query params are associated to T
-        let url = forecast_url(config, &query);
-        let body = reqwest::get(url).await?.text().await?;
-        Ok ( serde_json::from_str( &body)? )
-    }
-
-    pub async fn get_cached_hourly_point_forecasts (config: &OpenMeteoConfig, pos: &GeoPoint, days: u32, past_days: u32, model: &str, path: impl AsRef<Path>)->Result<Self> {
-        if path.as_ref().is_file() {
-            let data = filepath_contents_as_string(&path)?;
-            Ok ( serde_json::from_str( &data)? )
-
-        } else {
-            let query = url_query_hourly_point::<T>( pos, days, past_days, model); // static query params are associated to T
-            let url = forecast_url(config, &query);
-            let body = reqwest::get(url).await?.text().await?;
-            std::fs::write( path, &body)?;
-            Ok ( serde_json::from_str( &body)? )
-        }
-    }
-
-    pub async fn get_hourly_point_list_forecasts (config: &OpenMeteoConfig, pos: &[GeoPoint], days: u32, past_days: u32, model: &str)->Result<Vec<Self>> {
-        let query = url_query_hourly_points::<T>( pos, days, past_days, model); // static query params are associated to T
-        let url = forecast_url(config, &query);
-        let body = reqwest::get(url).await?.text().await?;
-
-        Ok ( serde_json::from_str( &body)? )
-    }
-
-    pub fn current_time (&self)->Option<DateTime<Utc>> {
-        self.current_data.as_ref().and_then( |cd| cd.current.nth_time_step(0).ok()) // there always is one value
-    }
-
-    pub fn minutely_times (&self)->Option<Vec<DateTime<Utc>>> {
-        self.minutely_data.as_ref().and_then( |md| md.minutely_15.time_steps().ok())
-    }
-
-    pub fn hourly_times (&self)->Option<Vec<DateTime<Utc>>> {
-        self.hourly_data.as_ref().and_then( |hd| hd.hourly.time_steps().ok())
-    }
-
-    pub fn daily_times (&self)->Option<Vec<DateTime<Utc>>> {
-        self.daily_data.as_ref().and_then( |hd| hd.daily.time_steps().ok())
-    }
-
-    /// get all positions of a slice of OpenMeteoLocationData values as an vec of GeoPoints
-    pub fn geo_points (lds: &[Self])->Vec<GeoPoint> {
-        lds.iter().map( |ld| GeoPoint::from_lon_lat_degrees( ld.metadata.longitude as f64, ld.metadata.latitude as f64)).collect()
+    /// get all positions of a slice of LocationData instances as an vec of GeoPoints
+    fn geo_points (lds: &[Self])->Vec<GeoPoint> {
+        lds.iter().map( |ld| {
+            let meta_data = ld.meta_data();
+            GeoPoint::from_lon_lat_degrees( meta_data.longitude as f64, meta_data.latitude as f64)
+        }).collect()
     }
 }
 
-/// factored out part of OpenMeteoLocationData that is independent of OpenMeteoDataSet type
-/// (this will get flattened when deserializing)
+pub fn parse_location_data<T,L,P> (path: P)->Result<Vec<L>>
+    where P: AsRef<Path>, T: DataSet + DeserializeOwned, L: LocationData<T> + DeserializeOwned
+{
+    let file = File::open(path)?;
+    let br = BufReader::new(file);
+    Ok( serde_json::from_reader(br)? )
+}
+
+pub async fn get_json_response<T> (url: &str)->Result<Vec<T>> where T: Sized + for <'a> Deserialize<'a> {
+    Ok( get_deserialized_json_response(url).await? )
+}
+
+pub async fn get_cached_json_response<T,P> (url: &str, path: P)->Result<Vec<T>> where T: Sized + for <'a> Deserialize<'a>, P: AsRef<Path> {
+    Ok( get_deserialized_cached_json_response(url, path).await? )
+}
+
+
+/// factored out part of LocationData that is independent of timestep resolution
+/// (this is flattened in deserialization input)
 #[derive(Deserialize,Debug)]
 #[public_struct]
 struct LocationMetaData {
@@ -373,151 +423,10 @@ struct LocationMetaData {
     timezone_abbreviation: String,
 }
 
-
-//--- those structs are flattened aggregates for optional current/minutely/hourly/daily values
-
-#[derive(Deserialize,Debug)]
-#[public_struct]
-struct CurrentData<T> {
-    current_units: HashMap<String,String>,
-    current: T,
-}
-
-impl <T> Deref for CurrentData<T> where T: OpenMeteoDataSet {
-    type Target = T;
-    fn deref(&self) -> &Self::Target { &self.current }
-}
-
-#[derive(Deserialize,Debug)]
-#[public_struct]
-struct DailyData<T> {
-    daily_units: HashMap<String,String>,
-    daily: T,
-}
-
-impl <T> Deref for DailyData<T> where T: OpenMeteoDataSet {
-    type Target = T;
-    fn deref(&self) -> &Self::Target { &self.daily }
-}
-
-#[derive(Deserialize,Debug)]
-#[public_struct]
-struct HourlyData<T> {
-    hourly_units: HashMap<String,String>,
-    hourly: T,
-}
-
-impl <T> Deref for HourlyData<T> where T: OpenMeteoDataSet {
-    type Target = T;
-    fn deref(&self) -> &Self::Target { &self.hourly }
-}
-
-#[derive(Deserialize,Debug)]
-#[public_struct]
-struct MinutelyData<T> {
-    minutely_15_units: HashMap<String,String>,
-    minutely_15: T,
-}
-
-impl <T> Deref for MinutelyData<T> where T: OpenMeteoDataSet {
-    type Target = T;
-    fn deref(&self) -> &Self::Target { &self.minutely_15 }
-}
-
-
-/// turn a set of homogenous OpenMeteoLocationData records into a list of GDAL Datasets with one instance per
-/// time point. This essentially creates geographic grids with single time points out of a list of locations that all
-/// have the same OpenMeteoDataSet data with the same list of time points
-pub fn create_datasets<T,P,U,F> (
-    req: &WxDataSetRequest,
-    data: &[OpenMeteoLocationData<T>],
-    temp_cat: OpenMeteoTemporal, // do we want current, minutely, hourly or daily data
-    time_interval: Range<usize>,
-    alg: &GdalGridAlgorithmOptions,
-    tgt_dir: P,
-    file_ext: &str,
-    create_opts: &RasterCreationOptions,
-    n_tgt_bands: usize, // we might need additional ones for computed values
-    x_res: f64,
-    y_res: f64,
-    mut push_timestep: F
-)->Result<Vec<Dataset>>
-    where
-        T: OpenMeteoDataSet + for <'a> Deserialize<'a>,
-        P: AsRef<Path>,
-        U: GdalType + NumericType,
-        F: FnMut(&OpenMeteoLocationData<T>,usize,&mut Vec<Vec<f64>>),
-{
-    if data.is_empty() { return Ok( Vec::with_capacity(0)) }
-    let ref_data = &data[0];
-
-    //let time_steps = data[0].time_steps(); // they are all the same between data points
-    let time_steps = match temp_cat {
-        OpenMeteoTemporal::Current => vec![ ref_data.current_time().ok_or( op_failed!("no current time fields"))?],
-        OpenMeteoTemporal::Minutely => ref_data.minutely_times().ok_or( op_failed!("no minutely time fields"))?,
-        OpenMeteoTemporal::Hourly => ref_data.hourly_times().ok_or( op_failed!("no minutely time fields"))?,
-        OpenMeteoTemporal::Daily => ref_data.daily_times().ok_or( op_failed!("no daily time fields"))?,
-    };
-
-    if time_steps.is_empty() { return Ok( Vec::with_capacity(0)) }
-    let basedate = time_steps[0]; // TODO - is this always true or should we pass this in?
-
-    let driver_name = get_driver_name_for_extension( file_ext).ok_or( op_failed!("unknown file extension"))?;
-    let raster_driver = get_driver_by_name(driver_name).ok_or( op_failed!("unsupported raster driver"))?;
-
-    let [west,south,east,north] = req.bbox.to_wsen_degrees();
-
-    let x_size = ((east - west) / x_res) as usize;
-    let y_size = ((north - south) / y_res) as usize;
-
-    let x_coords: Vec<f64> = data.iter().map( |d| d.metadata.longitude as f64).collect();
-    let y_coords: Vec<f64> = data.iter().map( |d| d.metadata.latitude as f64).collect();
-
-    let n_pos = x_coords.len();
-
-    // the intermediate representation of values
-    let mut tgt_vs: Vec<Vec<f64>> = vec![ Vec::with_capacity(n_pos); n_tgt_bands];
-    let mut ts = 0;
-    let mut result = Vec::new();
-
-    for date in time_steps[time_interval].iter() {
-        for v in &mut tgt_vs { v.clear(); }
-
-        for d in data {
-            push_timestep( d, ts, &mut tgt_vs); // the passed-in closure that pushes the fields we are interested in
-        }
-
-        let step = (*date - basedate).num_hours().to_string();
-        //let fname = odin_data_filename( &req.region, Some(basedate), &[ &step, req.model_name.as_str(), req.dataset_name.as_str()], Some(file_ext));
-        let fname = odin_data_filename( &req.region, Some(basedate), &[ &step, req.model_name.as_str()], Some(file_ext));
-        let path = tgt_dir.as_ref().to_path_buf().join( fname);
-        let create_opts = if is_gtiff_driver(&raster_driver) {
-            RasterCreationOptions::from_iter( ["COMPRESS=DEFLATE", "PREDICTOR=2"])
-        } else {
-            RasterCreationOptions::new()
-        };
-
-        let mut ds = create_grid_ds::<U,_>(
-            &raster_driver, &path,
-            4326, west, east, south, north,
-            x_size, y_size,
-            &x_coords, &y_coords,
-            &tgt_vs,
-            alg,
-            &create_opts
-        )?;
-
-        // GDAL automatically sets the filename as the description metainfo
-        // we do add the forecast date here
-        //ds.set_description( &path);
-        ds.set_metadata_item( FORECAST_EPOCH, &date.timestamp().to_string(), "");
-        ds.set_metadata_item( FORECAST_STEP, &ts.to_string(), "");
-
-        result.push(ds);
-        ts += 1;
+impl LocationMetaData {
+    pub fn geo_pos(&self)->GeoPoint {
+        GeoPoint::from_lon_lat_degrees( self.longitude, self.latitude)
     }
-
-    Ok( result )
 }
 
 /* #region helper funcs  *********************************************************************************************************/
@@ -554,5 +463,46 @@ pub fn get_fc_days (now: &DateTime<Utc>, dur: Duration)->u32 {
 
     ((h_now + n_hours) / 24) + 1
 }
+
+/// 0-based index for hourly observations starting at current time
+/// open-meteo returns hourly data as full UTC days
+pub fn start_step (now: &DateTime<Utc>)->usize {
+    now.hour() as usize
+}
+
+pub fn get_time_step_range<T: VecDataSet> (arr: &Array2<Option<T>>, start: &DateTime<Utc>, n_steps: usize) -> Result<Range<usize>> {
+    let times = get_time_steps( arr)?;
+    let i0 = get_start_step( start, times)?;
+    let i1 = (i0 + n_steps).min( times.len());
+
+    Ok( i0..i1 )
+}
+
+/// get the times slice of the first set grid cell value (all cells are supposed to have the same time value)
+fn get_time_steps<T: VecDataSet> (arr: &Array2<Option<T>>)->Result<&[DateTime<Utc>]> {
+    if let Some(o) = arr.iter().find( |p| p.is_some()) {
+        Ok( o.as_ref().unwrap().times() )
+    } else {
+        Err( op_failed!("no grid data"))
+    }
+}
+
+fn get_start_step (start: &DateTime<Utc>, times: &[DateTime<Utc>])->Result<usize> {
+    let mut i: usize = 0;
+    let len = times.len();
+
+    while i < len {
+        if times[i] == *start {
+            return Ok(i)
+        }
+        if times[i] > *start {
+            if i > 0 { return Ok(i-1) } else { return Err( op_failed!("start not covered") ) }
+        }
+        i += 1;
+    }
+
+    Err( op_failed!("start not covered") )
+}
+
 
 /* #endregion helper funcs */

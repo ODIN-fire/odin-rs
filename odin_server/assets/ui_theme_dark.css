@@ -17,7 +17,9 @@
     --disabled-color: rgba(200, 200, 200, 0.297);
     --background: rgb(42, 42, 64);
     --data-background: rgb(20, 20, 20);
-    --selection-background: rgb(24, 24, 140);
+    --selection-background: rgb(24, 24, 120);
+    --text-selection-color: rgb(255,255,0);
+    --text-selection-background: rgb(80,80,140);
     --hover-background: rgb(84, 84, 160);
     --font-size: 11pt;
     --font-size-small: 10pt;
@@ -39,8 +41,11 @@
     --padding: 5px;
     --margin: 3px;
     --gap: 3px;
+    --focus-border-color: rgb(0,200,200);
+    --focus-border: var(--border-width) solid var(--focus-border-color);
     --focus-color: rgb(130, 130, 0);
-    --focus-outline: 1px solid var(--focus-color);
+    /*--focus-outline: 1px solid var(--focus-color);*/
+    --focus-outline: none;
     /* icons (toplevel buttons with variable stroke/fill color SVGs and explicit 'on' state) */
     /*   background used for transparent image parts, color for image stroke and fill-color for image fill */
     --icon-size: 32px;
@@ -199,6 +204,19 @@
     --document-background: black;
     /* scale */
     --scale-color: rgb(0, 255, 0);
+
+    /* code & editor */
+    --caret-color: rgb(255,255,0);
+    --caret-shape: bar;
+    --token-comment-color: grey;
+    --token-string-color: #7fbf9c;
+    --token-num-color: cyan;
+    --token-boolean-color: #d97b8e;
+    --token-delim-color: #e8a33d;
+    --token-var-color: #f0d9a6;
+    --token-op-color: #6d7f99;
+    --token-const-color: #40a040;
+    --token-key-color: #e8a33d;
 }
 
 input[type="date"],

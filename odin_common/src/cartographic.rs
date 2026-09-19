@@ -12,7 +12,6 @@
  * and limitations under the License.
  */
 
-use std::f64::{self, NAN};
 
 /// cartographic coordinates.
 /// note this overlaps with geo.rs (esp GeoPoint3) but Cartographic is mostly intended as an

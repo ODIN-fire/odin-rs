@@ -20,7 +20,7 @@ use regex::Regex;
 use lazy_static::lazy_static;
 use serde::{de::DeserializeOwned,Serialize,Deserialize};
 
-use crate::{define_error, fs::{self, file_length, get_filename_extension}, if_let};
+use crate::{define_error, fs::{self, file_length, get_filename_extension, filepath_contents_as_string}, if_let};
 
 const SCHEME: usize = 1;
 const USR: usize = 2;
@@ -326,4 +326,25 @@ pub async fn from_json<T> (response: Response)->Result<T> where T: DeserializeOw
         println!("{}",String::from_utf8(bytes.to_vec()).unwrap());
         OdinNetError::ParseError(e.to_string())
     })
+}
+
+pub async fn get_deserialized_json_response<T> (url: &str)->Result<T>
+    where T: DeserializeOwned
+{
+    let body = reqwest::get(url).await?.text().await?;
+    Ok ( serde_json::from_str( &body).map_err(|e| OdinNetError::ParseError(e.to_string()))? )
+}
+
+pub async fn get_deserialized_cached_json_response<T,P> (url: &str, path: P)->Result<T>
+    where T: DeserializeOwned, P: AsRef<Path>
+{
+    if path.as_ref().is_file() {
+        let data = filepath_contents_as_string(&path)?;
+        Ok ( serde_json::from_str( &data).map_err(|e| OdinNetError::ParseError(e.to_string()))? )
+
+    } else {
+        let body = reqwest::get(url).await?.text().await?;
+        std::fs::write( path, &body)?;
+        Ok ( serde_json::from_str( &body).map_err(|e| OdinNetError::ParseError(e.to_string()))? )
+    }
 }

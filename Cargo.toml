@@ -112,7 +112,7 @@ serde_repr = { version = "0.1" }
 serde_with = { version = "3.21" }
 ron = { version = "0.12" }
 csv = { version = "1.4" }
-uom = { version = "0.38", features = ["serde", "f32", "i64"] }
+uom = { version = "0.38", features = ["serde", "f32", "i64", "autoconvert"] }
 num = { version = "0.4.3" }
 chrono = { version = "0.4", features = ["serde", "rkyv-64", "rkyv-validation"] }
 chrono-tz = { version = "0.10", features = ["serde"] }
@@ -136,6 +136,7 @@ gdal-sys = { git = "https://github.com/georust/gdal.git", features = ["bindgen"]
 geo = { version = "0.33" }
 geo-types = { version = "0.7" }
 geojson = { version = "1.0", features = ["geo-types"] }
+wkt = { version = "0.14", features = ["serde"] }
 nalgebra = { version = "0.35"}
 lazy_static = { version = "1.5" }
 paste = { version ="1.0" }
@@ -162,7 +163,7 @@ rand = { version = "0.10" }
 zip = { version = "8.6"}
 image = { version = "0.25" }
 imageproc = { version = "0.27" }
-kiddo = { version = "5.3", features = ["serde", "rkyv_08"] }
+kiddo = { version = "6.0", features = ["serde", "rkyv_08"] }
 
 rkyv = { version = "0.8", features = ["bytecheck"]}  # use carefully as many crates don't support 0.8 yet (chrono, minify-html)
 bytecheck = { version = "0.8" }

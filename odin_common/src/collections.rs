@@ -19,6 +19,8 @@ use std::collections::{HashMap,VecDeque};
 
 use hashbrown::hash_map::{HashMap as HbHashMap, RawEntryMut};
 
+use ndarray::Array2;
+
 
 pub fn new_vec<T> ()->Vec<T> {
     Vec::new()
@@ -370,4 +372,59 @@ pub async fn process_async<I,T,U,F> (mut it: I, arg: U, mut f: F) where I: Itera
             }
         }
     }
+}
+
+
+/// remove all elements from Vec for which pred(&e) holds
+/// this is basically a in-situ filter without iterator and allocation
+pub fn remove_elements<T,F> (v: &mut Vec<T>, pred: F) where F: Fn(&T)->bool {
+    let mut i=0;
+    while i < v.len() {
+        if pred(&v[i]) {
+            v.remove(i);
+        }
+        i += 1;
+    }
+}
+
+// find the first and last index into a slice for which the given property holds.
+// return None if no such pair of indices exist
+pub fn get_cond_range<T,P> (v: &[T], p: P)-> Option<(usize,usize)> where P: Fn(&T)->bool {
+    if let Some(i0) = v.iter().position(|t| p(t))
+    && let Some(i1) = v.iter().rposition(|t| p(t)) {
+        Some( (i0,i1) )
+    } else {
+        None
+    }
+}
+
+/// note that ranges are inclusive, i.e. i1 < v.len()
+pub fn shrink_vec_to_range<T> (v: &mut Vec<T>, i0: usize, i1: usize) {
+    if i1 >= i0 {
+        if i1 < v.len()-1 {
+            v.truncate( i1+1); // remove tail (efficient)
+        }
+        if i0 > 0 {
+            v.drain(..i0); // remove head - this is not efficient
+        }
+    }
+}
+
+
+/// Isolates ndarray's generic Index/IndexMut resolution behind ordinary
+/// (non-generic-container-facing) method calls, so an enclosing async fn's
+/// Send-computation never has to resolve them itself.
+/// This is a workaround for the imfamous "Future not Send.." E0308 that happens
+/// when using Array2 with a uom Quantity as element type from within an async body
+/// (see rust-lang/rust issue #162558)
+pub struct Grid<T>(Array2<T>);
+
+impl<T: Copy> Grid<T> {
+    pub fn from_array2 (arr2: Array2<T>) -> Self { Grid(arr2) }
+    pub fn from_elem(shape: (usize, usize), elem: T) -> Self { Grid(Array2::from_elem(shape, elem)) }
+    pub fn dim(&self) -> (usize, usize) { self.0.dim() }
+
+    // note we use x,y index order here (column major) but ndarray is row major
+    pub fn at(&self, col: usize, row: usize) -> T { self.0[(row, col)] }
+    pub fn set(&mut self, col: usize, row: usize, value: T) { self.0[(row, col)] = value; }
 }

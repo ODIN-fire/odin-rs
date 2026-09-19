@@ -7,10 +7,6 @@ edition = "2024"
 #name = "get_openmet"
 #path = "src/bin/get_openmet.rs"
 
-[[bin]]
-name = "basic_ecmwf_grid"
-path = "src/bin/basic_ecmwf_grid.rs"
-
 
 [dependencies]
 lazy_static = { workspace = true }
@@ -30,6 +26,10 @@ serde_json = { workspace = true }
 ron = { workspace = true }
 thiserror = { workspace = true }
 strum = { workspace = true }
+ndarray = { workspace = true }
+uom = { workspace = true }
+kiddo = { workspace = true }
+paste = { workspace = true }
 
 # workspace dependencies
 odin_common = { workspace = true }

@@ -1,24 +1,21 @@
 // sample Elmfire RON config
 
 ElmfireConfig (
-    lf_src_name: "lf_2025_conus.ron",      // filename of odin_landfire source to use (->odin_gdalgdal::GeoDs)
-    lf_res_m: 30,                          // landfire pixel resolution in meters
+    lf_src_name: "lf_2025_conus.ron",         // filename of odin_landfire source to use (->odin_gdalgdal::GeoDs)
+    lf_res_m: 30,                             // landfire pixel resolution in meters
 
-    fems_config_name: "fems.ron",          // filename of odin_fems config to use (->odin_fems::FemsConfig)
-    fems_res_m: 150,                       // FEMS pixel resolution in meters (should be multiple of lf_res_meters)
-
-    nfdrs_config_name: "nfdrs.ron",
-    nfdrs_past_days: 6,                      // history length for fuel moisture computation (>100h)
-    nfdrs_res_m: 150,                        // meters per pixel for Elmfire fuel moisture input datasets
+    nfdrs_config_name: "nfdrs.ron",           // odin_nfdre::NfdrsConfig filename (loaded through odin_nfdrs)
+    nfdrs_past_days: 6,                       // history length for fuel moisture computation (>100h)
 
     wx_config_name: "openmeteo.ron",
-    wx_res_m: 150,                           // meters per pixel for Elmfire wind input datasets
-    wx_model: "gfs_hrrr",                    // the weather model to use
+    wx_res_m: 3000,                           // meters per pixel for Elmfire wind input datasets (does not have to be native wx_model resolution)
+    wx_model: "ncep_hrrr_conus",              // the weather model to use
 
-    bbox_size_m: 30000,                      // edge size of UTM bounding box for simulation in kilometer
-    wind_raster_m: 3000,                     // wind speed/dir computation raster (HRRR resolution is 3km -> wx_model dependent)
-    fm_raster_m: 7000,                       // fuel moisture computation raster (less location specific than wind)
+    bbox_size_m: 24000,                       // edge size of UTM bounding box for simulation in meters (should be even multiple of wx_res_m)
+
+    wind_config_name: "wind.ron",             // odin_wind::WindConfig filename (loaded through odin_wind) in case we compute wind
+    wind_res_m: 150,                          // micro-grid wind resolution in meter (only used if wind_config_name is set)
 
     input_dt: Duration(secs: 3600, nanos:0),  // the time step for timed input data bands (1h increments)
-    elmfire_cmd: "elmfire",
+    elmfire_cmd: "elmfire",                   // has to be in the $PATH if not absolute (e.g. using $ODIN_ROOT)
 )

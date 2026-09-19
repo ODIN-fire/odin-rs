@@ -20,6 +20,8 @@ import { config } from "./odin_elmfire_config.js";
 import * as util from "../odin_server/ui_util.js";
 import * as data from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
+import * as code from "../odin_server/ui_code_input.js";
+import * as edit from "../odin_cesium/editor.js";
 import * as ws from "../odin_server/ws.js";
 import * as main from "../odin_server/main.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
@@ -108,6 +110,14 @@ class FireEntry {
     }
 }
 
+class Ignition {
+    constructor(date, lon, lat) {
+        this.date = date;
+        this.lon = lon;
+        this.lat = lat;
+    }
+}
+
 /* #endregion ElmfireEntry */
 
 var toaRender = { ...config.toaRender };
@@ -123,30 +133,35 @@ var fixedListView = undefined;
 var fixedSrc = undefined;
 var spottingListView = undefined;
 var spottingSrc = undefined;
+var barrierSrc = undefined;
 
 var nameEntry = undefined;
 var nHoursEntry = undefined;
-var sizeEntry = undefined;
+var sizeEntry = undefined; // for simulation area
+var barrierWidthEntry = undefined;
 var statsView = undefined;
 
 var fireEntries = new Map();  // id -> FireEntry
 var selectedEntry = undefined;
 
+var ignitions = [];
+
 var fixedList = [];
 var spottingList = [];
-
 
 createIcon();
 createWindow();
 
 initFireView();
 initAreaView();
+initIgnitionView();
 
 initFixedListView();
 initSpottingListView();
 
-ui.setChoiceItems(nHoursEntry, [4, 5, 6, 7, 8], 2);
-ui.setChoiceItems(sizeEntry, [30, 42, 60], 0);
+ui.setChoiceItems(nHoursEntry, [3, 4, 5, 6, 7, 8], 1);
+ui.setChoiceItems(sizeEntry, [24, 30, 42, 60], 0);
+ui.setChoiceItems(barrierWidthEntry, [10, 20, 30, 40, 50, 60], 2);
 
 var dataSource = odinCesium.createDataSource("elmfire", config.layer.show);
 
@@ -223,64 +238,69 @@ function createWindow() {
         ui.Panel("simulations", true)(
             (fireView = ui.List("elmfire.fires", 5, selectEntry, null, null, zoomToSelection)),
             ui.RowContainer("end")(
-                (statsView = ui.KvTable("elmfire.stats", 8, "20rem", "20rem")),
+                (statsView = ui.KvTable("elmfire.stats", 8, "21rem", "21rem")),
                 (areaView = ui.List("elmfire.area", 8))
             )
         ),
         ui.Panel("new simulation", false)(
             ui.RowContainer()(
-                (nameEntry = ui.TextInput("name", "elmfire.name", "10rem", { placeHolder: "event name" })),
-                ui.HorizontalSpacer(1),
-                (nHoursEntry = ui.Choice("forecast [h]", "elmfire.nHours", null, "3rem")),
-                ui.HorizontalSpacer(1),
-                (sizeEntry = ui.Choice("size [km]", "elmfire.size", null, "3rem")),
+                (nameEntry = ui.TextInput("name", "elmfire.name", "11rem", { placeHolder: "event name" })),
                 ui.HorizontalSpacer(2),
                 ui.Button("run", sendRequest, "4rem")
             ),
             ui.RowContainer()(
-                ui.LocationEntry("ign 1", "elmfire.ign1.loc", pickIgn1),
-                ui.DTGEntry(null, "elmfire.ign1.date"),
-                ui.Button("pick", pickIgn1, btnWidth)
+                (nHoursEntry = ui.Choice("hours", "elmfire.nHours", null, "3rem")),
+                ui.HorizontalSpacer(1),
+                (sizeEntry = ui.Choice("size [mi]", "elmfire.size", null, "3rem")),
+                ui.HorizontalSpacer(1),
+                ui.CheckBox( "comp wind", null, "elmfire.computeWind")
             ),
-            ui.RowContainer()(
-                ui.LocationEntry("ign 2", "elmfire.ign2.loc", pickIgn2),
-                ui.DTGEntry(null, "elmfire.ign2.date"),
-                ui.Button("pick", pickIgn2, btnWidth)
+
+            ui.RowContainer("end")(
+                (ignitionView = ui.List("elmfire.ignitions", 4)),
+                ui.Button("del", delIgnition, "4rem"),
+                ui.Button("new..", newIgnition, "4rem")
             ),
+
             ui.VerticalSpacer(0.3),
             ui.TabbedContainer()(
                 ui.Tab("fixed wx", true)(
-                    (fixedSrc = ui.TextArea("elmfire.fixedSrc", "38rem", "8lh", { isFixed: true })),
                     ui.RowContainer("start")(
-                        ui.ColumnContainer("start")(
+                        (fixedSrc = code.CodeInput("elmfire.fixedSrc", "nml-highlight", "fortran-namelist", "29rem", "11lh")),
+                        //(fixedSrc = ui.TextArea("elmfire.fixedSrc", "38rem", "8lh", { isFixed: true })),
+                        ui.ColumnContainer()(
+                            ui.CheckBox("use fixed wx", null, "elmfire.useFixed"),
+                            ui.TextInput(null, "elmfire.fixedName", "8rem"),
                             ui.RowContainer()(
-                                ui.TextInput("set name", "elmfire.fixedName", "10rem"),
+                                ui.Button("del", delFixed, "4rem"),
                                 ui.Button("save", storeFixed, "4rem")
                             ),
-                            ui.CheckBox("use fixed wx", null, "elmfire.useFixed")
-                        ),
-                        ui.HorizontalSpacer(3),
-                        ui.ColumnContainer()(
-                            ui.Button("del", delFixed, "4rem")
-                        ),
-                        (fixedListView = ui.List("elmfire.fixedSets", 6, selectFixed))
+                            (fixedListView = ui.List("elmfire.fixedSets", 4, selectFixed))
+                        )
                     )
                 ),
                 ui.Tab("spotting", false)(
-                    (spottingSrc = ui.TextArea("elmfire.spottingSrc", "38rem", "8lh", { isFixed: true })),
                     ui.RowContainer("start")(
-                        ui.ColumnContainer("start")(
+                        (spottingSrc = code.CodeInput("elmfire.spottingSrc", "nml-highlight", "fortran-namelist", "29rem", "11lh")),
+                        ui.ColumnContainer()(
+                            ui.CheckBox("use spotting", null, "elmfire.useSpotting"),
+                            ui.TextInput(null, "elmfire.spottingName", "8rem"),
                             ui.RowContainer()(
-                                ui.TextInput("set name", "elmfire.spottingName", "10rem"),
+                                ui.Button("del", delSpotting, "4rem"),
                                 ui.Button("save", storeSpotting, "4rem")
                             ),
-                            ui.CheckBox("use spotting", null, "elmfire.useSpotting")
-                        ),
-                        ui.HorizontalSpacer(3),
+                            (spottingListView = ui.List("elmfire.spottingSets", 4, selectSpotting))
+                        )
+                    )
+                ),
+                ui.Tab("barrier", false)(
+                    ui.RowContainer("start")(
+                        (barrierSrc = code.CodeInput("elmfire.barrierSrc", "wkt-highlight", "WKT", "29rem", "11lh")),
                         ui.ColumnContainer()(
-                            ui.Button("del", delSpotting, "4rem")
-                        ),
-                        (spottingListView = ui.List("elmfire.spottingSets", 6, selectSpotting))
+                            ui.CheckBox("use barrier", null, "elmfire.useBarrier"),
+                            (barrierWidthEntry = ui.Choice("width", "elmfire.barrier_width", null, "3rem")),
+                            ui.Button("edit..", editBarrier, "4rem")
+                        )
                     )
                 )
             )
@@ -332,15 +352,24 @@ function areaItemDt(e) {
     }
 }
 
+function initIgnitionView() {
+    ui.setListItemDisplayColumns(ignitionView, ["fit", "header"], [
+        { name: "lon", tip: "longitude [deg]", width: "7rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.lon, 4), edit: editLon },
+        { name: "lat", tip: "latitude [deg]", width: "6rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.lat, 4), edit: editLat },
+        { name: "date", tip: "local date of ignition", width: "11rem", attrs:["fixed", "alignRight"], map: e=> util.toLocalDateHMTimeString(e.date), edit: editDate }
+    ]);
+}
+
+
 function initFixedListView() {
     ui.setListItemDisplayColumns(fixedListView, ["fit"], [
-        { name: "", tip: "", width: "10rem", attrs: [], map: e => util.maxString(e, 12) }
+        { name: "", tip: "", width: "7rem", attrs: [], map: e => util.maxString(e, 12) }
     ]);
 }
 
 function initSpottingListView() {
     ui.setListItemDisplayColumns(spottingListView, ["fit"], [
-        { name: "", tip: "", width: "10rem", attrs: [], map: e => util.maxString(e, 12) }
+        { name: "", tip: "", width: "7rem", attrs: [], map: e => util.maxString(e, 12) }
     ]);
 }
 
@@ -511,35 +540,68 @@ function toggleShowWind(e) { }
 
 //--- button click handlers
 
-function pickIgn1() {
-    pickIgn(1);
-}
-
-function pickIgn2() {
-    pickIgn(2);
-}
-
-function pickIgn(i) {
-    odinCesium.enterGeoPoint( (cp) => {
+function newIgnition() {
+    odinCesium.enterGeoPoint((cp) => {
         if (cp) {
-            ui.setLocation(`elmfire.ign${i}.loc`, { lon: util.f_4.format(cp.lon), lat: util.f_4.format(cp.lat) });
-            ui.setDTGEntryDate(`elmfire.ign${i}.date`, Date.now());
+            let ign = new Ignition(Date.now(), cp.lon, cp.lat);
+            ignitions.push(ign);
+            ui.setListItems(ignitionView, ignitions);
         }
     });
 }
 
-function getIgnitions() {
-    let ignitions = [];
-    for (let i = 1; i < 3; i++) {
-        let loc = ui.getLocation(`elmfire.ign${i}.loc`);
-        let date = ui.getDTGEntryDate(`elmfire.ign${i}.date`);
+function delIgnition() {
+}
 
-        if (loc && date) {
-            ignitions.push( {date: date.getTime(), lon: loc.lon, lat: loc.lat} )
+
+function editDate(event) {
+    ui.editListItemField(event.target, (item, newValue) => {
+        let newDate = util.parseDtg(newValue);
+        if (!isNaN(newDate)) {
+            item.date = newDate;
+        } else {
+            ui.beep();
+            alert("invalid date input - enter 'mm/dd/yy HH:MM:SS");
         }
-    }
+    });
+}
 
-    return ignitions;
+function editLon(event) {
+    ui.editListItemField(event.target, (item, newValue) => {
+        let newVal = util.parseLongitude(newValue);
+        if (!isNaN(newVal)) {
+            item.lon = newVal;
+        } else {
+            ui.beep();
+            alert("invalid longitude input - enter float value");
+        }
+    });
+}
+
+function editLat(event) {
+    ui.editListItemField(event.target, (item, newValue) => {
+        let newVal = util.parseLatitude(newValue);
+        if (!isNaN(newVal)) {
+            item.lat = newVal;
+        } else {
+            ui.beep();
+            alert("invalid latitude input - enter float value");
+        }
+    });
+}
+
+function editBarrier() {
+    let src = barrierSrc.value;
+    let gls = (src) ? main.GeoLineString.fromWkt(src) : null;
+
+    edit.editGeoLineString( gls, (gls) => {
+        if (gls) {
+            let wkt = gls.toWkt();
+            if (wkt) {
+                barrierSrc.value = wkt;
+            }
+        }
+    });
 }
 
 function sendRequest() {
@@ -548,13 +610,13 @@ function sendRequest() {
     let size = ui.getSelectedChoiceValue("elmfire.size");
     let useFixed = ui.isCheckBoxSelected("elmfire.useFixed");
     let useSpotting = ui.isCheckBoxSelected("elmfire.useSpotting");
+    let computeWind = ui.isCheckBoxSelected("elmfire.computeWind");
 
     if (name == "") {
         alert("no name input specified");
         return;
     }
 
-    let ignitions = getIgnitions();
     if (ignitions.length == 0) {
         alert("no ignitions specified");
         return;
@@ -562,8 +624,12 @@ function sendRequest() {
 
     let elmfire = { name, nHours, size, ignitions };
 
+    if (computeWind) {
+        elmfire.computeWind = computeWind;
+    }
+
     if (useFixed) {
-        let fixed = ui.getTextAreaContent(fixedSrc);
+        let fixed = code.getCode(fixedSrc);
         if (fixed.length == 0) {
             alert("no fixed source entered");
             return;
@@ -574,7 +640,7 @@ function sendRequest() {
     }
 
     if (useSpotting) {
-        let spotting = ui.getTextAreaContent(spottingSrc);
+        let spotting = code.getCode(spottingSrc);
         if (spotting.length == 0) {
             alert("no spotting source entered");
             return;
@@ -756,7 +822,9 @@ async function loadSpec(specType, name, tgtTextArea) {
             let txt = response.text();
             if (txt) {
                 txt.then((src) => {
-                    ui.setTextAreaContent(tgtTextArea, src);
+                    //ui.setTextAreaContent(tgtTextArea, src);
+                    //code.setCode(tgtTextArea, src);
+                    ui.setValue(tgtTextArea, src); // works for both code-input and textarea
                 });
             }
         } else console.log("request failed: ", url);

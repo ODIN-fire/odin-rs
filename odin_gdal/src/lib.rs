@@ -53,12 +53,7 @@ use geo::{Coord, Rect};
 
 use odin_build::{pkg_cache_dir,define_load_config};
 use odin_common::{
-    BoundingBox,
-    geo::{GeoRect,GeoPoint},
-    utm::{UtmZone,naive_utm_zone, geo_to_utm_zone, utm_zone},
-    fs::{existing_non_empty_file_from_path,get_filename_extension},
-    macros::if_let,
-    ranges::LinearRange
+    BoundingBox, fs::{existing_non_empty_file_from_path,get_filename_extension}, geo::{GeoPoint, GeoRect}, macros::if_let, num_type::NumericType, ranges::LinearRange, utm::{UtmZone, geo_to_utm_zone, naive_utm_zone, utm_zone}
 };
 use crate::errors::{Result,misc_error, last_gdal_error, OdinGdalError, gdal_error, map_gdal_error, op_failed};
 
@@ -113,7 +108,7 @@ extern "C" fn _initialize_gdal() {
 fn no_error_output (cpl_et: CplErrType, ec: i32, msg: &str) {}
 
 /// Note that filename extension has to be lower case
-pub fn get_driver_name_from_filename (filename: &str) -> Option<&'static str> {
+pub fn get_driver_name_for_filename (filename: &str) -> Option<&'static str> {
     get_filename_extension(filename).and_then( |ext| EXT_MAP.get( ext)).map(|v| &**v)
 }
 
@@ -131,7 +126,7 @@ pub fn get_extension_for_driver_name( driver_name: &str)->Option<&'static str> {
 }
 
 pub fn get_gtiff_driver ()->gdal::Driver {
-    // GTiff is a builtin GDAL driver
+    // safe to unwrap - GTiff is a builtin GDAL driver
     DriverManager::get_driver_by_name("GTiff").unwrap()
 }
 
@@ -148,6 +143,10 @@ pub fn get_driver_from_filename (filename: &str) -> Option<gdal::Driver> {
     get_filename_extension(filename)
         .and_then( |ext| EXT_MAP.get( ext))
         .and_then( |n| DriverManager::get_driver_by_name(&**n).ok())
+}
+
+pub fn get_driver_for_extension (ext: &str) -> Option<gdal::Driver> {
+    get_driver_name_for_extension(ext).and_then(|n| get_driver_by_name(n))
 }
 
 pub fn get_driver_by_name (driver_name: &str)->Option<gdal::Driver> {
@@ -248,6 +247,14 @@ pub fn to_csl_string_list (strings: &Vec<String>) -> Result<Option<CslStringList
         Ok(Some(co_list))
     } else {
         Ok(None)
+    }
+}
+
+pub fn get_default_create_opts_from_filename (filename: &str)->RasterCreationOptions {
+    if filename.ends_with(".tif") || filename.ends_with(".gtiff") {
+        get_gtiff_create_opts()
+    } else {
+        no_create_opts()
     }
 }
 
@@ -567,6 +574,46 @@ pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: usize, sub_no_data:
     Ok(result)
 }
 
+/// retrieve the whole data of a Rasterband as a contiguous Vec<T>
+pub fn get_rasterband_as_vec<T> (ds: &Dataset, band_index: usize)->Result<Vec<T>> where T: GdalValueType {
+    let band = ds.rasterband(band_index)?;
+    let size = band.size();
+    let buf: Buffer<T> = band.read_as( (0,0), size, size, None)?;
+    let (_shape, vs) = buf.into_shape_and_vec();
+    Ok( vs )
+}
+
+// retrieve the whole Rasterband data and store it in a pre-allocated slice
+// Note it is the callers responsibility to ensure the slice has the right len
+pub fn read_rasterband_into_slice<T> (ds: &Dataset, band_index: usize, vs: &mut [T])->Result<()> where T: GdalValueType {
+    let band = ds.rasterband(band_index)?;
+    let size = band.size();
+    if vs.len() != size.0 * size.1 {
+        return Err( op_failed!("incompatible slice len for band (expected {}, found {})", size.0 * size.1, vs.len()))
+    }
+
+    band.read_into_slice((0,0), size, size, vs, None)?;
+
+    Ok(())
+}
+
+/// set the whole Rasterband data from a contiguous Vec<T>
+/// Note it is the callers responsibility to ensure the right order (row major) in vec
+pub fn set_rasterband_from_vec<T> (ds: &mut Dataset, band_index: usize, vs: Vec<T>) ->Result<()> where T: GdalValueType {
+    let mut band = ds.rasterband( band_index)?;
+    let size = ds.raster_size(); // note the band might not be set yet, which means band.size() might be the default value
+
+    if vs.len() != size.0 * size.1 {
+        return Err( op_failed!("incompatible vec size for band (expected {}, found {})", size.0 * size.1, vs.len()))
+    }
+
+    let shape = (size.1, size.0); // size is (col,row), ndarray shape is (row,col)
+    let mut buffer = Buffer::new( shape, vs);
+    band.write( (0,0), size, &mut buffer)?;
+    //ds.flush_cache();
+
+    Ok(())
+}
 
 pub fn get_vec_f64<T> (ds: &Dataset, band_index: usize)->Result<Vec<f64>>
     where T: GdalValueType + Into<f64>
@@ -761,36 +808,29 @@ pub fn create_dataset<P> (driver: &Driver, path: P, width: usize, height: usize,
     where P: AsRef<Path>
 {
     use GdalDataType::*;
-    if let Some(co) = co {
-        match data_type {
-            UInt8   => Ok( driver.create_with_band_type_with_options::<u8,P>(path, width, height, n_bands, &co)? ),
-            UInt16  => Ok( driver.create_with_band_type_with_options::<u16,P>(path, width, height, n_bands, &co)? ),
-            UInt32  => Ok( driver.create_with_band_type_with_options::<u32,P>(path, width, height, n_bands, &co)? ),
-            UInt64  => Ok( driver.create_with_band_type_with_options::<u64,P>(path, width, height, n_bands, &co)? ),
-            Int8    => Ok( driver.create_with_band_type_with_options::<i8,P>(path, width, height, n_bands, &co)? ),
-            Int16   => Ok( driver.create_with_band_type_with_options::<i16,P>(path, width, height, n_bands, &co)? ),
-            Int32   => Ok( driver.create_with_band_type_with_options::<i32,P>(path, width, height, n_bands, &co)? ),
-            Int64   => Ok( driver.create_with_band_type_with_options::<i64,P>(path, width, height, n_bands, &co)? ),
-            Float32 => Ok( driver.create_with_band_type_with_options::<f32,P>(path, width, height, n_bands, &co)? ),
-            Float64 => Ok( driver.create_with_band_type_with_options::<f64,P>(path, width, height, n_bands, &co)? ),
-            _ => Err( OdinGdalError::MiscError("unsupported GDAL data type".into()))
-        }
 
-    } else {
-        match data_type {
-            UInt8   => Ok( driver.create_with_band_type::<u8,P>(path, width, height, n_bands)? ),
-            UInt16  => Ok( driver.create_with_band_type::<u16,P>(path, width, height, n_bands)? ),
-            UInt32  => Ok( driver.create_with_band_type::<u32,P>(path, width, height, n_bands)? ),
-            UInt64  => Ok( driver.create_with_band_type::<u64,P>(path, width, height, n_bands)? ),
-            Int8    => Ok( driver.create_with_band_type::<i8,P>(path, width, height, n_bands)? ),
-            Int16   => Ok( driver.create_with_band_type::<i16,P>(path, width, height, n_bands)? ),
-            Int32   => Ok( driver.create_with_band_type::<i32,P>(path, width, height, n_bands)? ),
-            Int64   => Ok( driver.create_with_band_type::<i64,P>(path, width, height, n_bands)? ),
-            Float32 => Ok( driver.create_with_band_type::<f32,P>(path, width, height, n_bands)? ),
-            Float64 => Ok( driver.create_with_band_type::<f64,P>(path, width, height, n_bands)? ),
-            _ => Err( OdinGdalError::MiscError("unsupported GDAL data type".into()))
-        }
+    let co = match co {
+        Some(co) => co,
+        None => no_create_opts()
+    };
+
+    match data_type {
+        UInt8   => Ok( driver.create_with_band_type_with_options::<u8,P>(path, width, height, n_bands, &co)? ),
+        UInt16  => Ok( driver.create_with_band_type_with_options::<u16,P>(path, width, height, n_bands, &co)? ),
+        UInt32  => Ok( driver.create_with_band_type_with_options::<u32,P>(path, width, height, n_bands, &co)? ),
+        UInt64  => Ok( driver.create_with_band_type_with_options::<u64,P>(path, width, height, n_bands, &co)? ),
+        Int8    => Ok( driver.create_with_band_type_with_options::<i8,P>(path, width, height, n_bands, &co)? ),
+        Int16   => Ok( driver.create_with_band_type_with_options::<i16,P>(path, width, height, n_bands, &co)? ),
+        Int32   => Ok( driver.create_with_band_type_with_options::<i32,P>(path, width, height, n_bands, &co)? ),
+        Int64   => Ok( driver.create_with_band_type_with_options::<i64,P>(path, width, height, n_bands, &co)? ),
+        Float32 => Ok( driver.create_with_band_type_with_options::<f32,P>(path, width, height, n_bands, &co)? ),
+        Float64 => Ok( driver.create_with_band_type_with_options::<f64,P>(path, width, height, n_bands, &co)? ),
+        _ => Err( OdinGdalError::MiscError("unsupported GDAL data type".into()))
     }
+}
+
+pub fn open_dataset<P: AsRef<Path>> (path: P)->Result<Dataset> {
+    Ok( Dataset::open(path)? )
 }
 
 pub fn copy_full_rasterband (src: &RasterBand, tgt: &mut RasterBand)->Result<()> {
@@ -1041,7 +1081,7 @@ pub fn set_band_meta (ds: &mut Dataset, band_no: usize, kvs: &[(&str,&str,&str)]
     Ok(())
 }
 
-/// find the index of the rasterband that has all the specified (domain,key,val) meta infos
+/// find the index of the rasterband that has all the specified (domain,key,Option<val>) meta infos
 pub fn find_rasterband_index (ds: &Dataset, item_specs: &[(&str,&str,Option<&str>)]) -> Option<u32> {
     for i in 0..ds.raster_count() {
         let band_index = i + 1;
@@ -1087,6 +1127,12 @@ pub struct RasterInfo {
     pub top: f64,
     pub bottom: f64,
     pub dy: f64
+}
+
+impl From<&RasterInfo> for BoundingBox<f64> {
+    fn from (ri: &RasterInfo)->Self {
+        BoundingBox { west: ri.left, south: ri.bottom, east: ri.right, north: ri.top }
+    }
 }
 
 pub fn get_raster_info (ds: &Dataset)->Result<RasterInfo> {
@@ -1378,4 +1424,12 @@ pub fn create_cloned_mem_ds<T: GdalType, P: AsRef<Path>> (src_ds: &Dataset, n_ba
     copy_srs( src_ds, &mut dst_ds, dst_path)?;
 
     Ok( dst_ds )
+}
+
+pub fn copy_proj (src_ds: &Dataset, tgt_ds: &mut Dataset)->Result<()> {
+    tgt_ds.set_geo_transform( &src_ds.geo_transform()?);
+    tgt_ds.set_projection( &src_ds.projection());
+    tgt_ds.set_spatial_ref( &src_ds.spatial_ref()?);
+
+    Ok(())
 }

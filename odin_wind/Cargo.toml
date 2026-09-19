@@ -23,6 +23,7 @@ axum = { workspace = true }
 http = { workspace = true }
 futures-util = { workspace = true }
 
+odin_macro = { workspace = true }
 odin_common = { workspace = true }
 odin_wx = { workspace = true }
 odin_hrrr = { workspace = true }
