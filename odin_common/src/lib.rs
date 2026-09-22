@@ -153,6 +153,13 @@ impl <T: Num + Copy + ToPrimitive + From<f64> + Debug> BoundingBox<T> {
     }
 }
 
+pub fn apply_index_margin (bbox: &mut BoundingBox<usize>, margin: usize, max_x: usize, max_y: usize) {
+    bbox.west = if bbox.west > margin { bbox.west - margin } else { 0 };
+    bbox.east = if bbox.east + margin >= max_x { max_x } else { bbox.east + margin };
+    bbox.north = if bbox.north > margin { bbox.north - margin } else { 0 };
+    bbox.south = if bbox.south + margin >= max_y { max_y } else { bbox.south + margin };
+}
+
 /// a simple incremental min/max/avg accumulator
 #[derive(Debug)]
 pub struct MinMaxAvg {

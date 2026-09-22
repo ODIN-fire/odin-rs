@@ -33,6 +33,7 @@ pub struct ContourBuilder <'a> {
     tgt_layer_name: CString,
     field_id_index: Option<c_int>,
     interval: Option<c_double>,
+    fixed_levels: Option<Vec<c_double>>,
     attr_min_name: Option<CString>,
     attr_min_id: Option<c_int>,
     attr_max_name: Option<CString>,
@@ -59,6 +60,7 @@ impl <'a> ContourBuilder<'a> {
             tgt_layer_name : tgt_layer_name,
             field_id_index: None,
             interval: None,
+            fixed_levels: None,
             attr_min_name: None,
             attr_min_id: None,
             attr_max_name: None,
@@ -81,6 +83,13 @@ impl <'a> ContourBuilder<'a> {
 
     pub fn set_interval (&mut self, interval: f64) -> &mut ContourBuilder<'a>  {
         self.interval = Some(interval as c_double);
+        self
+    }
+
+    // this will override any set_interval() call
+    pub fn set_fixed_levels (&mut self, levels: &[f64]) -> &mut ContourBuilder<'a> {
+        let vs: Vec<c_double> = levels.iter().map( |v| *v as c_double ).collect();
+        self.fixed_levels = Some(vs);
         self
     }
 
@@ -260,24 +269,42 @@ impl <'a> ContourBuilder<'a> {
             }
             options.add_string(&format!("ID_FIELD={:?}", self.field_id_index.unwrap()).to_string());
 
-            if let Some(interval) = self.interval{
-                options.add_string(&format!("LEVEL_INTERVAL={}", interval).to_string());
+            if let Some(fixed_levels) = &self.fixed_levels {
+                let list = fixed_levels.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(",");
+                options.add_string( &format!("FIXED_LEVELS={}", list));
             } else {
-                return Err(OdinGdalError::MiscError("no interval set for contour operations".to_string()))
+                if let Some(interval) = self.interval{
+                    options.add_string(&format!("LEVEL_INTERVAL={}", interval).to_string());
+                } else {
+                    return Err(OdinGdalError::MiscError("no fixed levels or interval set for contour generation".to_string()))
+                }
             };
             Ok(options)
         }
     }
 }
 
-pub fn to_geo_json<P: AsRef<Path>> (ds: &Dataset, band: usize, interval: f64, path: P) -> Result<()> {
-
+pub fn to_interval_geo_json<P: AsRef<Path>> (ds: &Dataset, band: usize, interval: f64, path: P) -> Result<()> {
     let mut contourer = ContourBuilder::new( ds, path)?;
 
     contourer
         .set_band( band as i32)
         .set_interval( interval)
         .set_poly()  // use polylines since polygon outlines cannot be clamped to ground and accumulative alpha channel fill looks distorted
+        .set_quiet();
+
+    contourer.exec()?;
+
+    Ok(())
+}
+
+pub fn to_fixed_level_geo_json<P: AsRef<Path>> (ds: &Dataset, band: usize, levels: &[f64], path: P) -> Result<()> {
+    let mut contourer = ContourBuilder::new( ds, path)?;
+
+    contourer
+        .set_band( band as i32)
+        .set_fixed_levels( levels)
+        .set_poly()
         .set_quiet();
 
     contourer.exec()?;

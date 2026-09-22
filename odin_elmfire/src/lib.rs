@@ -36,7 +36,7 @@ use uom::si::{
     pressure::{pascal,inch_of_mercury},
     velocity::{mile_per_hour,meter_per_second,foot_per_minute},
     length::{kilometer,meter,foot},
-    area::{acre,hectare},
+    area::{acre,hectare,square_meter},
     volume::{acre_foot},
     mass::{milligram,kilogram,microgram},
     ratio::{percent,ratio},
@@ -49,18 +49,17 @@ use gdal::Dataset;
 use odin_build::{define_load_asset, define_load_config, pkg_cache_dir, pkg_data_dir};
 use odin_macro::public_struct;
 use odin_common::{
-    BoundingBox, run_captured_cmd, as_min_max,
-    angle::Angle360,
+    BoundingBox, angle::Angle360, apply_index_margin, as_min_max,
     datetime::{self, as_minutes, full_hour, hours, short_utc_datetime_string},
-    fs::{
-        EnvPathBuf, ensure_writable_dir, filepath_contents_as_string, find_first_match_in_dir, path_as_str,
-        filestem, matching_files_in_dir, set_filepath_contents
-    },
+    fs::{ EnvPathBuf, ensure_writable_dir, filepath_contents_as_string, filestem, find_first_match_in_dir, matching_files_in_dir, path_as_str, set_filepath_contents},
     geo::{GeoPoint,GeoRect},
-    json_writer::{JsonWritable, JsonWriter, NumFormat},
+    json_writer::{JsonWritable, JsonWriter, NumFormat}, run_captured_cmd,
     utm::{UtmPoint, UtmRect, geo_to_utm, try_geo_to_utm_zone},
 };
-use odin_gdal::geods::GeoDs;
+use odin_gdal::{
+    geods::GeoDs, get_mem_driver, get_raster_info, crop_mem_dataset, get_rasterband_data_bbox, replace_rasterband_value,
+    warp::{ResampleAlg, SimpleWarpBuilder}
+};
 use odin_openmeteo::get_fc_days;
 use odin_landfire::{evt_cats::{EVT_CATEGORIES, EvtCategories}, get_evt_values_at_utm_points};
 use odin_server::{spa::SpaService,ws_service::ws_msg_from_json};
@@ -121,6 +120,8 @@ struct ElmfireConfig {
     wind_res_m: u32,          // should be multiple of lf_res_m (we specify it here separately)
 
     input_dt: Duration,       // meteorologicel time step length
+    small_fire_cells: usize,  // number of cells for final perimeter we consider as small fire (needs post-processing to avoid pixelized contour artifacts)
+
     elmfire_cmd: EnvPathBuf   // the Elmfire executable
 }
 
@@ -465,7 +466,7 @@ impl ElmFire {
     }
 
     pub fn t_stop (&self)->i64 {
-        (self.n_hours * 3600) as i64
+        (self.n_hours * 3600) as i64 + 1800  // note we always compute 30min past n_hours to avoid contour artifacts in the outer ring
     }
 
     // seconds between first ignition timestamp and the base wx timestamp
@@ -516,17 +517,6 @@ impl ElmFire {
         process_raster_output(&output_dir, &FL_RE, "cf_wgs84.tif", "cf.png", None)?;
         files.push("cf.png".into());
 
-        // time-of-arrival contours
-        if let Some(utm_path) = find_first_match_in_dir( &output_dir, &TOA_RE) {
-            let wgs84_path = output_dir.join("toa_wgs84.tif");
-            let ds = odin_gdal::warp::warp_to_wgs84( &utm_path, &wgs84_path, vec![-9999.0])?;
-
-            let json_path = output_dir.join("toa.geojson");
-            odin_gdal::contour::to_geo_json( &ds, 1, 1800.0, &json_path)?;
-
-            files.push("toa.geojson".into());
-        }
-
         if let Some(area_path) = find_first_match_in_dir( &output_dir, &AREA_RE) {
             area = parse_area( &area_path, self.base_date)?;
         }
@@ -541,7 +531,31 @@ impl ElmFire {
             vs_max: Velocity::new::<foot_per_minute>(vs_max)
         };
 
+        // time-of-arrival contours (we might have to pre-process toa_wgs84.tif if this is a small fire)
+        if let Some(utm_path) = find_first_match_in_dir( &output_dir, &TOA_RE) {
+            let wgs84_path = output_dir.join("toa_wgs84.tif");
+            let mut ds = odin_gdal::warp::warp_to_wgs84( &utm_path, &wgs84_path, vec![-9999.0])?;
+
+            if let Some(final_area) = area.last().map(|a| a.area) {
+                if self.is_small_area_fire( config, final_area) {
+                    let mod_wgs84_path = output_dir.join("toa_wgs84_mod.tif");
+                    ds = pre_process_small_toa_raster( &ds, self.n_hours, &mod_wgs84_path)?;
+                }
+            }
+
+            let json_path = output_dir.join("toa.geojson");
+            let levels = contour_levels( self.n_hours);
+            odin_gdal::contour::to_fixed_level_geo_json( &ds, 1, &levels, &json_path)?;
+
+            files.push("toa.geojson".into());
+        }
+
         Ok( ElmfireOutput { stats, area, comp_stats, files, geo_rect } )
+    }
+
+    fn is_small_area_fire (&self, config: &ElmfireConfig, final_area: Area)->bool {
+        let cell_area = (config.lf_res_m * config.lf_res_m) as f64;
+        (final_area.get::<square_meter>() / cell_area) as usize <= config.small_fire_cells
     }
 
     async fn execute (&self, config: &ElmfireConfig)->Result<ElmfireOutput> {
@@ -558,6 +572,49 @@ impl ElmFire {
             Err( op_failed!("Elmfire failed to execute with code {}", xc) )
         }
     }
+}
+
+/// the time steps (in seconds) for which we want to compute time-of-arival contour isochlines
+/// this should always be one half-hour isocline less than the requested n_hours so that we avoid jagged contour artifacts
+pub fn contour_levels (n_hours: u32)->Vec<f64> {
+    let max = (n_hours * 2) as usize;
+    let mut levels: Vec<f64> = Vec::with_capacity(max);
+    for i in 1..=max {
+        levels.push( i as f64 * 1800.0)
+    }
+    levels
+}
+
+
+/// to avoid artifacts and jagged outer contour lines for small fires we have to crop the image to the data range
+/// (plus some nodata margin), then replace the nodata values with a max value beyond our upper contour limit
+/// and finally upsample using smooth interpolation
+pub fn pre_process_small_toa_raster<P: AsRef<Path>> (ds: &Dataset, n_hours: u32, path: P)->Result<Dataset> {
+    let (n_cols, n_rows) = ds.raster_size();
+    let margin: usize = 10;
+
+    let mut bbox = get_rasterband_data_bbox( ds, 1)?;
+    apply_index_margin(&mut bbox, margin, n_cols, n_rows);
+
+    let mut cropped_ds = crop_mem_dataset( &ds, &bbox)?;
+
+    // replace nodata value with some value that exceeds our outermost isochrone so that we can smoothly
+    // interpolate it (otherwise interpolation will preserve the outer cell bounds despite upsampling)
+    let max_toa = ((n_hours + 1) * 3600) as f32;
+    replace_rasterband_value( &mut cropped_ds, 1, -9999.0, max_toa)?;
+
+    // now up-sample by a factor of 2 to smoothen countour lines
+    let ri = get_raster_info( &cropped_ds)?;
+    let x_res = ri.dx / 2.0;
+    let y_res = ri.dy / 2.0;
+
+    let mut warper = SimpleWarpBuilder::new( &cropped_ds, path)?;
+    warper.set_tgt_resolution( x_res, y_res);
+    warper.set_resample_alg( ResampleAlg::CubicSpline);
+    warper.set_tgt_format("GTiff");
+    let tgt_ds = warper.exec()?;
+
+    Ok( tgt_ds )
 }
 
 fn process_raster_output (output_dir: &PathBuf, utm_re: &Regex, wgs84_fname: &str, png_fname: &str, pct_range: Option<Range<f64>>)->Result<Dataset>

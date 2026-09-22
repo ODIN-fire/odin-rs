@@ -17,5 +17,7 @@ ElmfireConfig (
     wind_res_m: 150,                          // micro-grid wind resolution in meter (only used if wind_config_name is set)
 
     input_dt: Duration(secs: 3600, nanos:0),  // the time step for timed input data bands (1h increments)
+    small_fire_cells: 500,                    // ~100 ac - any final perimeter cells below that number needs contour pre-processing (based on lf_res_m)
+
     elmfire_cmd: "elmfire",                   // has to be in the $PATH if not absolute (e.g. using $ODIN_ROOT)
 )
