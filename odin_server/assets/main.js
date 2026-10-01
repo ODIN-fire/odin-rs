@@ -171,6 +171,11 @@ export class GeoPoint {
         return new GeoPoint( round5(this.lon), round5(this.lat));
     }
 
+    /// note - this should be kept in sync with odin_common::geo::GeoPoint.encode
+    static encode (pos) {
+        return `${pos.lon.toFixed(4).replace(".", "_")}__${pos.lat.toFixed(4).replace(".", "_")}`;
+    }
+
     static checkType (o) {
         return (
             (o.lon != undefined && typeof o.lon == "number") &&

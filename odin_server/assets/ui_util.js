@@ -318,7 +318,7 @@ function toZeroPaddedString(num,len=2) {
 }
 
 // YYYY-MM-DD-HHmm (datetime in filesystem compatible encoding)
-export function toYYYYMMDDhhmmZString(timestamp,withSeconds=false) {
+export function toYYYYMMDDhhmmZString(timestamp,withSeconds=false, withZ=false) {
     let date = new Date(timestamp);
 
     let ts = date.getUTCFullYear().toString();
@@ -330,7 +330,13 @@ export function toYYYYMMDDhhmmZString(timestamp,withSeconds=false) {
     ts += toZeroPaddedString(date.getUTCHours());
     ts += toZeroPaddedString(date.getUTCMinutes());
 
-    if (withSeconds) ts += toZeroPaddedString(date.getUTCSeconds());
+    if (withSeconds) {
+        ts += toZeroPaddedString(date.getUTCSeconds());
+    }
+
+    if (withZ) {
+        ts += "Z";
+    }
 
     return ts;
 }
@@ -1193,7 +1199,7 @@ function getUtmTransform () {
     // no 'I' or 'O' band
     const latBands = ["A","B","C","D","E","F","G","H","J","K","L","M","N","P","Q","R","S","T","U","V","W","X"];
 
-    return function (latDeg,lonDeg) {
+    return function (latDeg, lonDeg) {
         if (latDeg < -80.0 || latDeg > 84.0) return undefined;
         let band = latBands[floor((latDeg+80)/8)];
 
@@ -1218,6 +1224,60 @@ function getUtmTransform () {
 
 export const latLon2Utm = getUtmTransform();
 
+function getLatLonTransform() {
+    //--- WGS84 ellipsoid constants
+    const a = 6378137.0;                        // Semi-major axis
+    const f = 1 / 298.257223563;                // Flattening
+    const k0 = 0.9996;                          // UTM Scale factor
+
+    const b = a * (1 - f);                      // Semi-minor axis
+    const e = Math.sqrt(1 - (b * b) / (a * a)); // First eccentricity
+    const eSq = (e * e) / (1 - e * e);          // Second eccentricity
+
+    const e1 = (1 - Math.sqrt(1 - e * e)) / (1 + Math.sqrt(1 - e * e));
+    const J1 = (3 * e1 / 2 - 27 * Math.pow(e1, 3) / 32);
+    const J2 = (21 * Math.pow(e1, 2) / 16 - 55 * Math.pow(e1, 4) / 32);
+    const J3 = (151 * Math.pow(e1, 3) / 96);
+    const J4 = (1097 * Math.pow(e1, 4) / 512);
+
+    const AE1 = a * (1 - Math.pow(e, 2) / 4 - 3 * Math.pow(e, 4) / 64 - 5 * Math.pow(e, 6) / 256);
+    const AE2 = a * (1 - e*e);
+
+    return function (easting, northing, zone, band) {
+        const isSouth = band.toUpperCase() < "N";
+        const totalZoneCM = (zone - 1) * 6 - 180 + 3;
+
+        const x = easting - 500000.0;
+        const y = isSouth ? northing - 10000000.0 : northing;
+
+        const M = y / k0;
+        const mu = M / AE1;
+        const fp = mu + J1 * Math.sin(2 * mu) + J2 * Math.sin(4 * mu) + J3 * Math.sin(6 * mu) + J4 * Math.sin(8 * mu);
+        const C1 = eSq * Math.pow(Math.cos(fp), 2);
+        const T1 = Math.pow(Math.tab = Math.tan(fp), 2);
+        const R1 = AE2 / Math.pow(1 - Math.pow(e * Math.sin(fp), 2), 1.5);
+        const N1 = a / Math.sqrt(1 - Math.pow(e * Math.sin(fp), 2));
+        const D = x / (N1 * k0);
+
+        let lat = fp - (N1 * Math.tan(fp) / R1) * (
+            (D * D) / 2 -
+            (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * eSq) * Math.pow(D, 4) / 24 +
+            (61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * eSq - 3 * C1 * C1) * Math.pow(D, 6) / 720
+        );
+
+        let lon = (D -
+            (1 + 2 * T1 + C1) * Math.pow(D, 3) / 6 +
+            (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * eSq + 24 * T1 * T1) * Math.pow(D, 5) / 120
+        ) / Math.cos(fp);
+
+        lat = roundToDecimals( toDegrees(lat), 6);
+        lon = roundToDecimals( toDegrees(lon) + totalZoneCM, 6);
+
+        return { lat, lon };
+    }
+}
+
+export const utmToLatLon = getLatLonTransform();
 
 export function downSampleWithFirstAndLast (a, newLen) {
     let len = a.length;
@@ -1451,4 +1511,22 @@ export function StringBuffer (initSize=1024) {
     };
 
     return { push, toString, clear, size }
+}
+
+/// remove all undefined items from given array
+export function removeUndefinedItems(arr) {
+    return arr.filter(item => item !== undefined);
+}
+
+/// register an action that triggers after debounce() not being called for 'delaySecs'
+export function debounce(func, delaySecs) {
+    let timeoutId;
+
+    return function (...args) {
+        clearTimeout(timeoutId); // remove pending timers
+
+        timeoutId = setTimeout(() => {
+            func.apply(this, args);
+        }, delaySecs * 1000);
+    };
 }

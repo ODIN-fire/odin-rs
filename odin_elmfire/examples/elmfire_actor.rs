@@ -23,7 +23,7 @@ use uom::si::{f64::Length,length::{kilometer, meter}};
 use odin_actor::prelude::*;
 
 use odin_common::geo::GeoPoint;
-use odin_elmfire::{ElmfireConfig, ElmFire, ElmfireRun, actor::ElmfireActor, get_fixed_steps, load_config};
+use odin_elmfire::{ElmfireConfig, ElmFire, ElmfireRun, actor::ElmfireActor, get_fixed_steps, fixed_src_from_steps, load_config};
 
 /// to see info/debug run with "ODIN_TRACE=1 RUST_LOG=info ..." environment set
 
@@ -49,8 +49,8 @@ run_actor_system!( actor_system => {
         })
     ))?;
 
-    let n_hours = 6;
-    let fixed_inputs = get_fixed_steps(
+    let n_hours = 5;
+    let fixed_steps = get_fixed_steps(
         n_hours+1,
         &[ 20.0 ], // ws_mph,
         &[ 0.0, 0.0, 0.0, 22.5, 45.0 ], //wd_deg,
@@ -60,6 +60,7 @@ run_actor_system!( actor_system => {
         &[ 30.0 ], // lh,
         &[ 60.0 ] // lw
     )?;
+    let fixed = fixed_src_from_steps( &fixed_steps);
 
     info!("creating ElmFire request");
     let fire = ElmFire::from_point_ignition(
@@ -69,7 +70,8 @@ run_actor_system!( actor_system => {
         bbox_size,
         n_hours as u32,
         false, // we don't use microgrid wind
-        Some(fixed_inputs),
+        Some(fixed),
+        None,
         None
     )?;
 

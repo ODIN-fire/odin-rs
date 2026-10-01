@@ -36,6 +36,11 @@ export function CodeInput(eid, template, lang, width, height) {
         e.style.maxHeight = height;
     }
 
+    // make sure we scroll to keep the cursor visible
+    e.addEventListener("input", () => {
+        e.scrollTop = e.scrollHeight;
+    });
+
     return e;
 }
 
@@ -53,10 +58,14 @@ export function setCode(o, code) {
     let e = getCodeInput(o);
     if (e) {
         if (e.textareaElement) {
-            e.textareaElement.value = code;
+            e.textareaElement.value = code ? code : "";
             e.update();
         }
     }
+}
+
+export function clearCode(o) {
+    setCode(o, null);
 }
 
 export function getCode(o) {

@@ -67,10 +67,5 @@ NUM_METEOROLOGY_TIMES = {{ n_steps }}
 /
 
 &SIMULATOR
-NUM_IGNITIONS = {{ num_ignitions }}
-{% for ign in ignitions %}
-T_IGN({{ loop.index }}) = {{ ign.0 }}
-X_IGN({{ loop.index }}) = {{ ign.1 }}
-Y_IGN({{ loop.index }}) = {{ ign.2 }}
-{% endfor %}
+{{ ignitions | safe }}
 /

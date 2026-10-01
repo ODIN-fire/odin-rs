@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -15,7 +15,7 @@
 use std::path::Path;
 use gdal::Dataset;
 use odin_common::define_cli;
-use odin_gdal::{crop_no_data, get_data_bounds, to_csl_string_list};
+use odin_gdal::{crop_no_data, get_interior_data_bounds, to_csl_string_list};
 use odin_gdal::errors::Result;
 
 define_cli! { ARGS [about="crop provided GDAL raster file so that it does not contain NO_DATA values"] =
@@ -30,7 +30,7 @@ fn main()->Result<()> {
     let (width,height) = src_ds.raster_size();
 
     println!("original size: width = {width}, height = {height}");
-    let bbox = get_data_bounds( &src_ds, 1)?;
+    let bbox = get_interior_data_bounds( &src_ds, 1)?;
     println!("cropped size:  width = {}, height = {}", bbox.east - bbox.west, bbox.south - bbox.north);
     println!("cropped to {bbox:?}");
 

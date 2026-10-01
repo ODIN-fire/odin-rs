@@ -17,9 +17,10 @@
 #![allow(unused)]
 
 use std::{
+    collections::HashMap,
     fs::{File, create_dir, create_dir_all, remove_dir_all, remove_file},
-    path::{Path,PathBuf}, time::Duration, io::{Read,Write}, sync::Arc, ops::Range,
-    result::{Result as StdResult}
+    io::{Read,Write}, ops::Range,
+    path::{Path,PathBuf}, result::Result as StdResult, sync::Arc, time::Duration
 };
 use chrono::{DateTime,Utc,Timelike};
 use serde::{Serialize,Deserialize};
@@ -50,14 +51,15 @@ use odin_build::{define_load_asset, define_load_config, pkg_cache_dir, pkg_data_
 use odin_macro::public_struct;
 use odin_common::{
     BoundingBox, angle::Angle360, apply_index_margin, as_min_max,
-    datetime::{self, as_minutes, full_hour, hours, short_utc_datetime_string},
+    datetime::{self, as_minutes, full_hour, hours, short_utc_datetime_string, to_epoch_millis},
     fs::{ EnvPathBuf, ensure_writable_dir, filepath_contents_as_string, filestem, find_first_match_in_dir, matching_files_in_dir, path_as_str, set_filepath_contents},
     geo::{GeoPoint,GeoRect},
-    json_writer::{JsonWritable, JsonWriter, NumFormat}, run_captured_cmd,
+    json_writer::{JsonEscapedStr, JsonWritable, JsonWriter, NumFormat},
+    run_captured_cmd,
     utm::{UtmPoint, UtmRect, geo_to_utm, try_geo_to_utm_zone},
 };
 use odin_gdal::{
-    geods::GeoDs, get_mem_driver, get_raster_info, crop_mem_dataset, get_rasterband_data_bbox, replace_rasterband_value,
+    geods::GeoDs, get_mem_driver, get_raster_info, crop_mem_dataset, get_exterior_data_bounds, replace_rasterband_value,
     warp::{ResampleAlg, SimpleWarpBuilder}
 };
 use odin_openmeteo::get_fc_days;
@@ -76,6 +78,8 @@ pub mod fixed;
 
 pub mod errors;
 use errors::{OdinElmfireError,Result,op_failed};
+
+use crate::fixed::parse_nml_array_line;
 
 lazy_static! {
     pub static ref CACHE_DIR: PathBuf = { pkg_cache_dir!() };
@@ -127,6 +131,7 @@ struct ElmfireConfig {
 
 /// structure with given wx and fuel data values for the same time point.
 /// Used to construct time/location dependent Elmfire inputs for wind and fuel moisture
+/// We need this
 #[derive(Debug,Clone, Serialize, Deserialize)]
 #[public_struct]
 struct FixedInputStep {
@@ -139,18 +144,44 @@ struct FixedInputStep {
     lw: Ratio
 }
 
-impl JsonWritable for FixedInputStep {
-    fn write_json_to (&self, w: &mut JsonWriter) {
-        w.write_object(|w| {
-            w.write_f64_field("ws", self.ws.get::<mile_per_hour>(), NumFormat::Fp1);
-            w.write_f64_field("wd", self.wd.degrees(), NumFormat::Fp0);
-            w.write_f64_field("m1", self.m1.get::<percent>(), NumFormat::Fp0);
-            w.write_f64_field("m10", self.m10.get::<percent>(), NumFormat::Fp0);
-            w.write_f64_field("m100", self.m100.get::<percent>(), NumFormat::Fp0);
-            w.write_f64_field("lh", self.lh.get::<percent>(), NumFormat::Fp0);
-            w.write_f64_field("lw", self.lw.get::<percent>(), NumFormat::Fp0);
-        });
+/// parse input with NML (Fortran Name List) formatted key=val,.. entries
+pub fn parse_fixed_wx_lines (src: &str, n_hours: usize)->Result<Vec<FixedInputStep>> {
+    let mut ws: Vec<f64> = Vec::with_capacity(0);
+    let mut wd: Vec<f64> = Vec::with_capacity(0);
+    let mut m1: Vec<f64> = Vec::with_capacity(0);
+    let mut m10: Vec<f64> = Vec::with_capacity(0);
+    let mut m100: Vec<f64> = Vec::with_capacity(0);
+    let mut lh: Vec<f64> = Vec::with_capacity(0);
+    let mut lw: Vec<f64> = Vec::with_capacity(0);
+
+    for line in src.lines() {
+        if let Some( (k,vs) ) = parse_nml_array_line(line).map_err( |e| op_failed!("invalid input line: {}", e))? {
+            match k.as_str() {
+                "ws" => ws = vs,
+                "wd" => wd = vs,
+                "m1" => m1 = vs,
+                "m10" => m10 = vs,
+                "m100" => m100 = vs,
+                "lh" => lh = vs,
+                "lw" => lw = vs,
+                o => return Err( op_failed!("unknown wx variable '{}'", o))
+            }
+        }
     }
+
+    get_fixed_steps( n_hours, &ws, &wd, &m1, &m10, &m100, &lh, &lw)
+}
+
+pub fn fixed_src_from_steps (steps: &[FixedInputStep])->String {
+    let ws = steps.iter().map( |s| format!("{:.1}",s.ws.get::<mile_per_hour>())).collect::<Vec<String>>().join(",");
+    let wd = steps.iter().map( |s| format!("{:.0}", s.wd.degrees())).collect::<Vec<String>>().join(",");
+    let m1 = steps.iter().map( |s| format!("{:.0}", s.m1.get::<percent>())).collect::<Vec<String>>().join(",");
+    let m10 = steps.iter().map( |s| format!("{:.0}", s.m10.get::<percent>())).collect::<Vec<String>>().join(",");
+    let m100 = steps.iter().map( |s| format!("{:.0}", s.m100.get::<percent>())).collect::<Vec<String>>().join(",");
+    let lh = steps.iter().map( |s| format!("{:.0}", s.lh.get::<percent>())).collect::<Vec<String>>().join(",");
+    let lw = steps.iter().map( |s| format!("{:.0}", s.lw.get::<percent>())).collect::<Vec<String>>().join(",");
+
+    format!("ws={ws}\nwd={wd}\nm1={m1}\nm10={m10}\nm100={m100}\nlh={lh}\nlw={lw}\n")
 }
 
 /// turn lists of primitive input values into a vec of FxiedInputSteps. All provided input value slices have to be non-empty.
@@ -268,20 +299,26 @@ impl JsonWritable for ComputedStats {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 //#[public_struct]
 pub struct ElmFire {
-    pub id: String, // this is supposed to be unique
+    pub id: String, // this is supposed to be unique (but not user-facing)
+    pub name: String, // this is what the user will see
 
-    pub name: String,
-    pub ignition: Ignition,
-    pub n_hours: u32,
+    //--- location
+    pub geo_center: GeoPoint, // center of fire simulation
+    pub utm_rect: UtmRect, // geographic simulation bounds
 
-    pub geo_center: GeoPoint,
-    pub utm_rect: UtmRect,
     pub base_date: DateTime<Utc>, // this is the base date for the Elmfire run (full hour, likely before start_date)
-    pub start_date: DateTime<Utc>, // of the first ignition
+    pub start_date: DateTime<Utc>, // of the simulation (usually first ignition)
+    pub n_hours: u32, // duration of simulation in hours
 
     pub compute_wind: bool,  // do we use microgrid (computed) wind or just plain wx forecasts?
-    pub fixed_inputs: Option<Vec<FixedInputStep>>, // if set use provided (fixed) wind- and fuel-moisture input
+
+    //--- mandatory inputs
+    pub ignitions: String,
+
+    //--- optional inputs
+    pub fixed: Option<String>, // if set use provided (fixed) wind- and fuel-moisture input
     pub spotting: Option<String>,
+    pub barriers: Option<String>,
 
     pub dir: PathBuf, // where we keep inputs and outputs of this run
 }
@@ -291,25 +328,25 @@ assert_impl_all!( ElmFire: Send, Sync );
 impl ElmFire {
 
     pub fn new (
+        id: String,
         name: String,
-        ignition: Ignition,
-        utm_rect: UtmRect,
+        geo_center: GeoPoint,
+        bbox_size: Length,
+        start_date: DateTime<Utc>,
         n_hours: u32,
         compute_wind: bool,
-        fixed_inputs: Option<Vec<FixedInputStep>>,
-        spotting: Option<String>
+        ignitions: String,
+        fixed: Option<String>,
+        spotting: Option<String>,
+        barriers: Option<String>
 
     )->Result<Self>
     {
-        let start_date = ignition.first_date();
+        let utm_rect = get_utm_rect_around_point( &geo_center, bbox_size / 2.0)?;
         let base_date = full_hour( &start_date);
-        let geo_center: GeoPoint = GeoPoint::from(utm_rect.center()).rounded(4);
-        let id = format!("{}__{}__{}", name, start_date.format("%Y-%m-%dT%H%M%SZ"), geo_center.encode(4));
-
         let dir = CACHE_DIR.join( &id);
-        if ignition.num_ignitions() < 1 { return Err( op_failed!("no ignitions")) }
 
-        Ok( ElmFire { id, name, ignition, n_hours, geo_center, utm_rect, base_date, start_date, compute_wind, fixed_inputs, spotting, dir } )
+        Ok( ElmFire { id, name, n_hours, geo_center, utm_rect, base_date, start_date, compute_wind, ignitions, fixed, spotting, barriers, dir } )
     }
 
     pub fn from_point_ignition (
@@ -319,31 +356,21 @@ impl ElmFire {
         bbox_size: Length,
         n_hours: u32,
         compute_wind: bool,
-        fixed_inputs: Option<Vec<FixedInputStep>>,
-        spotting: Option<String>
-    ) ->Result<Self>
+        fixed_wx: Option<String>,
+        spotting: Option<String>,
+        barriers: Option<String>
+    ) -> Result<Self>
     {
-        let utm_rect = get_utm_rect_around_point( &geo_point, bbox_size / 2.0)?;
-        let ignition = Ignition::SinglePoint(IgnitionPoint { position: geo_point, date });
+        let id = Self::get_id( &name, &geo_point, &date);
+        let base_date = full_hour(&date);
+        let ignitions = point_ignition_src( &[(geo_point, (date - base_date).num_seconds())])?;
 
-        Self::new( name, ignition, utm_rect, n_hours, compute_wind, fixed_inputs, spotting)
+        Self::new( id, name, geo_point, bbox_size, date, n_hours, compute_wind, ignitions, fixed_wx, spotting, barriers)
     }
 
-    pub fn from_point_ignitions (
-        name: String,
-        ips: Vec<IgnitionPoint>,
-        bbox_size: Length,
-        n_hours: u32,
-        compute_wind: bool,
-        fixed_inputs: Option<Vec<FixedInputStep>>,
-        spotting: Option<String>
-    ) ->Result<Self>
-    {
-        let ignition = Ignition::from_ignition_points(ips);
-        let geo_point = ignition.center();
-        let utm_rect = get_utm_rect_around_point( &geo_point, bbox_size / 2.0)?;
-
-        Self::new( name, ignition, utm_rect, n_hours, compute_wind, fixed_inputs, spotting)
+    // note - this should be kept in sync with odin_elmfire.js createRequest()
+    pub fn get_id (name: &str, pos: &GeoPoint, date: &DateTime<Utc>)->String {
+        format!("{}__{}__{}", name, date.format("%Y-%m-%d-%H%M%SZ"), pos.encode(4))
     }
 
     //.. and possibly more specialized constructors
@@ -383,53 +410,18 @@ impl ElmFire {
         // this needs to be called before creating wx inputs since we need the DEM dataset if wind is computed
         create_landfire_input( &self, config).await?;
 
-        if let Some(steps) = &self.fixed_inputs { // run (mostly) on provided inputs
-            create_fixed_input( &self, config, steps)?;
+        if let Some(src) = &self.fixed { // run (mostly) on provided inputs
+            let steps = parse_fixed_wx_lines( &src, self.n_hours as usize)?;
+            create_fixed_input( &self, config, &steps)?;
 
         } else { // acquire live data from external sources
             create_wx_based_input( &self, config).await?; // this includes wind and computed (NFDRS) fuel moisture
         }
 
-        let ignitions = self.flammable_ignition_points(config).await?;
-        self.create_datafile(config, &ignitions)
+        self.create_datafile(config)
     }
 
-    /// make sure we check if the ignition points are flammable and if not if any adjacent landfire.gov pixels are
-    /// or otherwise we risk to lose ignitions around water body boundaries and Elmfire just tells us there is no spread
-    async fn flammable_ignition_points (&self, config: &ElmfireConfig)->Result<Vec<(i64,f64,f64)>> {
-        let lf_src: GeoDs = odin_landfire::load_config( &config.lf_src_name)?;
-        let d = config.lf_res_m as f64;
-
-        let mut ignitions: Vec<(i64,f64,f64)> = Vec::new();
-
-        for ip in self.ignition.iter() {
-            if let Ok(utm_pos) = try_geo_to_utm_zone( &ip.position, self.utm_rect.utm_zone) {
-                // check if this or any of the adjacent pixels is flammable. If so use the first one that is as the ignition point
-                let pts = [
-                    utm_pos,
-                    utm_pos.add_delta(   -d, 0.0),
-                    utm_pos.add_delta(  0.0,  -d),
-                    utm_pos.add_delta(    d, 0.0),
-                    utm_pos.add_delta(  0.0,   d),
-                    utm_pos.add_delta(   -d,  -d),
-                    utm_pos.add_delta(    d,  -d),
-                    utm_pos.add_delta(    d,   d),
-                    utm_pos.add_delta(   -d,   d)
-                ];
-
-                let evts = get_evt_values_at_utm_points(&lf_src, &pts).await?;
-
-                if let Some(idx) = evts.iter().position( |evt| EVT_CATEGORIES.is_fuel(*evt)) { // use the first point that is fuel
-                    let t_offset = self.secs_from_base( ip.date);
-                    ignitions.push( (t_offset, pts[idx].easting.round(), pts[idx].northing.round()))
-                }
-            }
-        }
-
-        Ok( ignitions )
-    }
-
-    fn create_datafile (&self, config: &ElmfireConfig, ignitions: &[(i64,f64,f64)])->Result<PathBuf> {
+    fn create_datafile (&self, config: &ElmfireConfig)->Result<PathBuf> {
         let input_dir = self.dir.join("inputs");
         let output_dir = self.get_output_dir();
         let scratch_dir = self.dir.join("scratch");
@@ -447,9 +439,9 @@ impl ElmFire {
             x_min: self.utm_rect.x_min(),
             y_min: self.utm_rect.y_min(),
             n_steps: (self.n_hours + 1) as usize,
-            num_ignitions: ignitions.len(),
-            ignitions: &ignitions,
+            ignitions: self.ignitions.as_str(),
             spotting: self.spotting.as_ref().map(|s| s.as_str())
+            // barriers are specified in the INPUTS section (USE_BARRIERS=.TRUE. and BARRIER_FILENAME=...)
         }.to_string();
 
         let path = input_dir.join("elmfire.data");
@@ -574,6 +566,21 @@ impl ElmFire {
     }
 }
 
+/// generate (UTM-based) Elmfire ignitions source for given ignition-points
+/// note that all points need to have the same utm_zone
+pub fn point_ignition_src (igns: &[(GeoPoint,i64)])->Result<String> {
+    let mut s = format!("NUM_IGNITIONS={}\n", igns.len());
+    for (i, (geo_p,tsec)) in igns.iter().enumerate() {
+        let utm_p: UtmPoint = geo_to_utm( geo_p).ok_or( op_failed!("invalid point ignition coordinates"))?;
+        let idx = i+1;
+        s.push_str( &format!("T_IGN({}) = {}\n", idx, tsec));
+        s.push_str( &format!("X_IGN({}) = {:.0}\n", idx, utm_p.easting));
+        s.push_str( &format!("Y_IGN({}) = {:.0}\n", idx, utm_p.northing));
+    }
+
+    Ok( s )
+}
+
 /// the time steps (in seconds) for which we want to compute time-of-arival contour isochlines
 /// this should always be one half-hour isocline less than the requested n_hours so that we avoid jagged contour artifacts
 pub fn contour_levels (n_hours: u32)->Vec<f64> {
@@ -593,10 +600,9 @@ pub fn pre_process_small_toa_raster<P: AsRef<Path>> (ds: &Dataset, n_hours: u32,
     let (n_cols, n_rows) = ds.raster_size();
     let margin: usize = 10;
 
-    let mut bbox = get_rasterband_data_bbox( ds, 1)?;
-    apply_index_margin(&mut bbox, margin, n_cols, n_rows);
+    let idx_bounds = get_exterior_data_bounds( ds, 1)?.apply_margin( margin, n_cols, n_rows);
 
-    let mut cropped_ds = crop_mem_dataset( &ds, &bbox)?;
+    let mut cropped_ds = crop_mem_dataset( &ds, &idx_bounds)?;
 
     // replace nodata value with some value that exceeds our outermost isochrone so that we can smoothly
     // interpolate it (otherwise interpolation will preserve the outer cell bounds despite upsampling)
@@ -651,96 +657,11 @@ struct ElmfireDataTemplate<'a> {
     x_min: f64,
     y_min: f64,
     n_steps: usize,
-    num_ignitions: usize,
-    ignitions: &'a [(i64,f64,f64)],
-    spotting: Option<&'a str>
+    ignitions: &'a str,
+    spotting: Option<&'a str>,
+    // note that barriers are specified in the INPUTS section
 }
 
-#[derive(Serialize,Deserialize,Debug, Clone)]
-pub enum Ignition {
-    SinglePoint(IgnitionPoint),
-    MultiPoint(Vec<IgnitionPoint>),
-    // line and others to follow
-}
-
-impl Ignition {
-    pub fn from_ignition_points (ips: Vec<IgnitionPoint>)->Self {
-        if ips.len() == 1 { Ignition::SinglePoint(ips[0].clone()) }
-        else { Ignition::MultiPoint( ips) }
-    }
-
-    pub fn center (&self)->GeoPoint {
-        match self {
-            Ignition::SinglePoint(p) => {
-                p.position.clone()
-            }
-            Ignition::MultiPoint(ps) => {
-                let gps: Vec<GeoPoint> = ps.iter().map( |p| p.position.clone()).collect();
-                GeoPoint::from_median(&gps)
-            }
-        }
-    }
-
-    fn first_date (&self)->DateTime<Utc> {
-        match self {
-            Ignition::SinglePoint(p) => p.date,
-            Ignition::MultiPoint(ps) => ps.iter().map( |p| p.date).min().unwrap_or( datetime::ZERO)
-        }
-    }
-
-    fn num_ignitions (&self)->usize {
-        match self {
-            Ignition::SinglePoint(p) => 1,
-            Ignition::MultiPoint(ps) => ps.len()
-        }
-    }
-
-    fn is_multi_point (&self)->bool {
-        match self {
-            Ignition::SinglePoint(p) => false,
-            Ignition::MultiPoint(ps) => true
-        }
-    }
-
-    pub fn iter<'a> (&'a self)->impl Iterator<Item=&'a IgnitionPoint> {
-        self.into_iter()
-    }
-}
-
-impl<'a> IntoIterator for &'a Ignition {
-    type Item = &'a IgnitionPoint;
-    type IntoIter = std::slice::Iter<'a, IgnitionPoint>;
-
-    fn into_iter(self)->Self::IntoIter {
-        match self {
-            Ignition::SinglePoint(p) => std::slice::from_ref(p).iter(),
-            Ignition::MultiPoint(ps) => ps.iter()
-        }
-    }
-}
-
-#[derive(Serialize,Deserialize,Debug, Clone)]
-#[public_struct]
-struct IgnitionPoint {
-    position: GeoPoint,
-    date: DateTime<Utc>
-}
-
-impl IgnitionPoint {
-    pub fn new (position: GeoPoint, date: DateTime<Utc>)->Self {
-        IgnitionPoint{position,date}
-    }
-}
-
-impl JsonWritable for IgnitionPoint {
-    fn write_json_to (&self, w: &mut JsonWriter) {
-        w.write_object(|w| {
-            w.write_f64_field("lon", self.position.longitude_degrees(), NumFormat::Fp4);
-            w.write_f64_field("lat", self.position.latitude_degrees(), NumFormat::Fp4);
-            w.write_date_field("date", self.date);
-        })
-    }
-}
 
 pub fn get_utm_rect_around_point (center: &GeoPoint, dist: Length)->Result<UtmRect> {
     let mut p = geo_to_utm( center).ok_or( op_failed!("center not valid UTM"))?;
@@ -850,6 +771,7 @@ impl ElmfireRun {
     }
 }
 
+/// this is the serialization for what is sent to clients (processed by odin_elmfire.js)
 impl JsonWritable for ElmfireRun {
     fn write_json_to (&self, w: &mut JsonWriter) {
         let fire = self.fire.as_ref();
@@ -863,19 +785,19 @@ impl JsonWritable for ElmfireRun {
             w.write_date_field( "date", fire.start_date);
             w.write_rect_field( "bbox", &geo_rect, NumFormat::Fp4);
             w.write_field( "nHours", fire.n_hours);
+            w.write_field( "computeWind", fire.compute_wind);
 
-            w.write_array_field( "ignitions", |w|{
-                for ign in fire.ignition.iter() {
-                    ign.write_json_to(w);
-                }
-            });
+            // NOTE - no '\n' in JSON strings allowed, we have to escape/un-escape manually
+            w.write_field( "ignitions", JsonEscapedStr(&fire.ignitions));
 
-            if let Some(fixed_inputs) = &fire.fixed_inputs {
-                w.write_array_field( "fixedInputs", |w|{
-                    for fixed_step in fixed_inputs.iter() {
-                        fixed_step.write_json_to(w);
-                    }
-                });
+            if let Some(fixed) = fire.fixed.as_ref() {
+                w.write_field( "fixed", JsonEscapedStr(fixed))
+            }
+            if let Some(spotting) = fire.spotting.as_ref() {
+                w.write_field( "spotting", JsonEscapedStr(spotting))
+            }
+            if let Some(barriers) = fire.barriers.as_ref() {
+                w.write_field( "barriers", JsonEscapedStr(barriers))
             }
 
             if let Some(result) = &self.result {
@@ -913,6 +835,8 @@ impl JsonWritable for ElmfireRun {
 }
 
 /* #region stored namelist support **********************************************************************/
+
+// TODO - this should be not tied to NML
 
 pub fn get_saved_list<P: AsRef<Path>> (dir: P, fname_re: &Regex)->Result<Vec<String>> {
     let mut list: Vec<String> = Vec::new();

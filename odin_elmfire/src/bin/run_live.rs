@@ -54,7 +54,7 @@ async fn main ()->Result<()> {
     let n_hours = ARGS.fc_hours;
 
     let mut ef = ElmFire::from_point_ignition(
-        ARGS.name.clone(), ARGS.date, geo_center, bbox_size, n_hours, ARGS.compute_wind, None, None)?;
+        ARGS.name.clone(), ARGS.date, geo_center, bbox_size, n_hours, ARGS.compute_wind, None, None, None)?;
     let data_file_path = ef.create_inputs( &config).await?;
 
     if !ARGS.dry_run {

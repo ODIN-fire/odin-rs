@@ -1035,6 +1035,10 @@ export function setVarText(o, text) {
     }
 }
 
+export function clearVarText(o) {
+    setVarText(o, null);
+}
+
 //--- text area
 
 
@@ -1181,6 +1185,13 @@ export function setField(o, newContent) {
     }
 }
 
+export function clearField(o) {
+    let e = getField(o);
+    if (e) {
+        e.value = "";
+    }
+}
+
 export function getFieldValue(o) {
     let e = getField(o);
     if (e) {
@@ -1239,6 +1250,20 @@ export function getField(o) {
         else if (e.tagName == "DIV") return e.lastElementChild;
     }
     throw "not a field";
+}
+
+/// this can be used for both text input and textarea elements to trigger 'input' event processing
+/// (those are not sent when setting values programmatically)
+export function triggerInputEvent(o) {
+    let e = elementOf(o);
+    if (e) {
+        let event = new Event('input', {
+            bubbles: true,
+            cancelable: true
+        });
+
+        e.dispatchEvent(event);
+    }
 }
 
 //--- DTGEntry
@@ -1306,7 +1331,7 @@ function initializeDTGEntry(e) {
         e._uiMinute = eMin;
 
         let nowBtn = createElement("DIV", "ui_dtg_btn");
-        nowBtn.append("⎆");
+        nowBtn.append("⦿");
         wrapper.appendChild(nowBtn);
         nowBtn.addEventListener("click", (e) => {
             let now = new Date();
@@ -1337,6 +1362,8 @@ function setDtgFieldAttrs(e, placeholder, length, max=null) {
             if (val > max) {
                 event.target.value = null;
                 beep();
+            } else if (val < 10) {
+                event.target.value = leadZero(val);
             }
         };
     }
@@ -1370,8 +1397,17 @@ export function getDTGEntryDate(o) {
     return null;
 }
 
+export function getDTGEntryEpochMillis(o) {
+    let dtg = getDTGEntryDate(o);
+    return dtg ? dtg.getTime() : 0;
+}
+
+export function setDTGEntryEpochMillis(o, t) {
+    setDTGEntryDate(o, t);
+}
+
 export function setDTGEntryDate(o, d) {
-let e = getDTGEntry(o);
+    let e = getDTGEntry(o);
     if (e) {
         if (typeof d === "number") d = new Date(d);
 
@@ -1382,6 +1418,17 @@ let e = getDTGEntry(o);
             e._uiHour.value = leadZero(d.getHours());
             e._uiMinute.value = leadZero(d.getMinutes());
         }
+    }
+}
+
+export function clearDTGEntry(o) {
+    let e = getDTGEntry(o);
+    if (e) {
+        e._uiYear.value = "";
+        e._uiMonth.value = "";
+        e._uiDay.value = "";
+        e._uiHour.value = "";
+        e._uiMinute.value = "";
     }
 }
 
@@ -1497,9 +1544,22 @@ export function getLocationEntry(o) {
 export function setLocation(o, loc) {
     let e = getLocationEntry(o);
     if (e) {
-        if (Math.abs(loc.lon) > 180.0 || Math.abs(loc.lat) > 90.0) return;
-        e._uiLon.value = loc.lon;
-        e._uiLat.value = loc.lat;
+        if (loc) {
+            if (Math.abs(loc.lon) > 180.0 || Math.abs(loc.lat) > 90.0) return;
+            e._uiLon.value = loc.lon;
+            e._uiLat.value = loc.lat;
+        } else {
+            e._uiLon.value = "";
+            e._uiLat.value = "";
+        }
+    }
+}
+
+export function clearLocation(o) {
+let e = getLocationEntry(o);
+    if (e) {
+        e._uiLon.value = null;
+        e._uiLat.value = null;
     }
 }
 

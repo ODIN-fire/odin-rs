@@ -1384,37 +1384,40 @@ function handleKeyDown(e) {
     keyDownHandlers.forEach( handler=> handler(e));
 }
 
+// we need a combination of key modifiers and keydown/click events that work consistently
+// without running into OS/browser hotkeys we can't easily intercept. We also can't intercept
+// any valid text (entry/area) input.
+// Our general modifier for both keyboard and mouse actions is therefore 'altKey', with a default
+// animation that can be overridden with a simultaneous 'shiftKey'
+
 // global hotkeys - make sure these don't collide with module specific handlers
 function globalKeyDownHandler (event) {
     //if (Object.is( event.target, document.body)) { // otherwise this wasn't for us
-
-    if (event.shiftKey) {
+    if (event.altKey) {
         if (event.key == "Home") {
-            setHomeView( event.altKey);
-        } else if (event.key == "PageDown") {
-            setDownView( event.altKey);
+            setHomeView( event.shiftKey);
+        } else if (event.key == "PageDown" || event.key == "End") {
+            setDownView( event.shiftKey);
         } else if (event.key == "Escape") {
             clearSelectedEntity();
         } else {
             if (event.keyCode >= 49 && event.keyCode <= 57) {
                 let i = Math.min(event.keyCode - 49, config.zoomLevels.length-1);
-                zoomToHeight( config.zoomLevels[i], event.altKey);
+                zoomToHeight( config.zoomLevels[i], event.shiftKey);
             }
         }
     }
-
-    //}
 }
 
-function globalMouseClickHandler (event) {
-    if (event.shiftKey) {
+function globalMouseClickHandler(event) {
+    if (event.altKey) {
         let camera = viewer.camera;
         let cp = camera.positionCartographic;
         let pos = getCartographicMousePosition(event);
         pos.height = cp.height;
         let newCameraPos = Cesium.Cartographic.toCartesian(pos);
 
-        zoomTo( newCameraPos, event.altKey); // it alt/option is pressed we don't animate
+        zoomTo( newCameraPos, event.shiftKey); // it alt/option is pressed we don't animate
     }
 }
 
@@ -1786,17 +1789,16 @@ export function enterPolyline (points, maxPoints, callbacks) {
     }
 
     function onKeyDown(event) {
-        if (event.target === document.body) { // otherwise this wasn't for us
-            if (event.code == "Delete" || event.code == "Backspace") {
-                let idx = points.length-2;
-                let p = points[idx];
-                points.splice( idx, 1);
-                if (callbacks.onDelPoint) callbacks.onDelPoint( idx, p);
+        if (event.code == "Delete" || event.code == "Backspace") {
+            let idx = points.length-2;
+            let p = points[idx];
+            points.splice( idx, 1);
+            if (callbacks.onDelPoint) callbacks.onDelPoint( idx, p);
 
-            } else if (event.code == "Escape") { // exit edit alltogether
-                resetEnterPolyline();
-                if (callbacks.onCancel) callbacks.onCancel();
-            }
+        } else if (event.code == "Escape") { // exit edit alltogether
+            resetEnterPolyline();
+            setDefaultCursor();
+            if (callbacks.onCancel) callbacks.onCancel();
         }
     }
 

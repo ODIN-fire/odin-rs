@@ -127,6 +127,42 @@ pub fn str_from_last<'a> (s: &'a str, c: char) -> Option<&'a str> {
     }
 }
 
+/// parse Fortan Namelist array lines of the form "var = val,...", stripping comment lines and line comments
+/// this is a cheap alternative to using deserialization with the 'nml' crate in case we don't have explicit group sources
+/// (i.e. the "&<group> ... /" wrapper is missing)
+pub fn parse_nml_array_line<T> (line: &str)->Result<Option<(String,Vec<T>)>,String>
+    where T: FromStr + Display, <T as FromStr>::Err: Display
+{
+    let line = line.trim();
+    if line.is_empty() {
+        Ok( None )
+    } else {
+        if let Some(idx) = line.find('=') {
+            let key = line[0..idx].trim();
+
+            let mut line = line[idx+1..].trim();
+            if let Some(idx) = line.find('!') {
+                line = line[..idx].trim();
+            }
+
+            let mut vals: Vec<T> = Vec::new();
+            for sv in line.split(',') {
+                if !sv.is_empty() {
+                    vals.push( T::from_str(sv.trim()).map_err(|e| e.to_string())?);
+                }
+            }
+
+            Ok( Some((key.to_string(), vals)) )
+        } else {
+            if line.starts_with('!') {
+                Ok( None )
+            } else {
+                Err( "invalid line".to_string())
+            }
+        }
+    }
+}
+
 /// expand "...{var}..." environment variables in the provided str, returning a new String
 pub fn env_expand (s: &str)->String {
     // TODO - shall we add "./" and "../" expansion?

@@ -24,10 +24,16 @@ use axum::{
     response::{Response,IntoResponse},
 };
 use async_trait::async_trait;
-use odin_common::{angle::Angle360, datetime::from_epoch_millis, geo::GeoPoint, json_writer::JsonWriter};
 use serde::Deserialize;
 use serde_json;
+use chrono::{DateTime,Utc};
 
+use odin_common::{
+    angle::Angle360,
+    datetime::{from_epoch_millis, de_from_epoch_millis},
+    geo::GeoPoint,
+    json_writer::JsonWriter
+};
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_cesium::ImgLayerService;
@@ -35,7 +41,10 @@ use uom::si::{velocity::mile_per_hour,length::kilometer,ratio::percent};
 use uom::si::f64::{Velocity,Length,Ratio};
 
 use crate::{
-    CACHE_DIR, DATA_DIR, ElmFire, ElmfireRun, FIXED_DIR, FixedInputStep, Ignition, IgnitionPoint, NML_RE, SPOTTING_DIR, actor::{ElmfireActorMsg, ElmfireStore, ExecSnapshotAction}, errors::{OdinElmfireError, Result}, fixed, get_contents, get_saved_list, load_asset, remove_contents, save_contents
+    CACHE_DIR, DATA_DIR, ElmFire, ElmfireRun, FIXED_DIR, FixedInputStep, NML_RE, SPOTTING_DIR,
+    actor::{ElmfireActorMsg, ElmfireStore, ExecSnapshotAction},
+    errors::{OdinElmfireError, Result},
+    fixed, get_contents, get_saved_list, load_asset, remove_contents, save_contents
 };
 
 pub struct ElmfireService {
@@ -155,11 +164,15 @@ impl SpaService for ElmfireService {
                         Ok(efr) => {
                             info!("received ElmfireRequest from {} : {}", remote_addr, efr.name);
                             match ElmFire::try_from(efr) {
-                                Ok(ef) => { self.hactor.send_msg(ef).await; }
+                                Ok(ef) => {
+                                    self.hactor.send_msg(ef).await;
+                                }
                                 Err(e) => { warn!("failed to create ElmFire from request: {}", e) }
                             }
                         }
-                        Err(e) => { warn!("ignoring malformed ElmFire request: {}", e) }
+                        Err(e) => {
+                            warn!("ignoring malformed ElmFire request: {}", e)
+                        }
                     }
                 }
 
@@ -170,12 +183,6 @@ impl SpaService for ElmfireService {
                 }
                 "delSpotting" => {
                     del_content( ws_msg_parts.payload, SPOTTING_DIR.as_path(), &mut self.spotting_list, hself, "spotting");
-                }
-                "storeFixed" => {
-                    store_content( ws_msg_parts.payload, FIXED_DIR.as_path(), &mut self.fixed_list, hself, "fixed");
-                }
-                "delFixed" => {
-                    del_content( ws_msg_parts.payload, FIXED_DIR.as_path(), &mut self.fixed_list, hself, "fixed");
                 }
                 _ => { warn!("ignoring unknown websocket message: {}", ws_msg_parts.msg_type) }
             }
@@ -225,48 +232,40 @@ fn del_content<P: AsRef<Path>> (msg: &str, dir: P, list: &mut Vec<String>, hself
 #[derive(Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
 struct ElmfireRequest {
+    id: String,
     name: String,
+    #[serde(deserialize_with="de_from_epoch_millis")]
+    date: DateTime<Utc>, // of first ignition
+    pos: GeoPoint,
     n_hours: u32,
-    size: f64,
-    ignitions: Vec<IgnitionSpec>,
+    size: f64,          // of bbox sides in km
     compute_wind: bool, // compute micro-grid wind
-    fixed: Option<String>, // use fixed wx and fuel
-    spotting: Option<String>
+    ignitions: String,
+    fixed: Option<String>, // use fixed wx and fuel values instead of wx reports/forecast
+    spotting: Option<String>,
+    barriers: Option<String>
 }
 
 impl TryFrom<ElmfireRequest> for ElmFire {
     type Error = OdinElmfireError;
 
     fn try_from(req: ElmfireRequest) -> Result<Self> {
-        let ips: Vec<IgnitionPoint> = req.ignitions.iter().map( |ip| IgnitionPoint::from(ip) ).collect();
-        let bbox_size = Length::new::<kilometer>(req.size);
-        let fixed_input = if let Some(s) = &req.fixed {
-            Some( fixed::parse_content( &s, req.n_hours as usize + 1)? )
-        } else {
-            None
-        };
-        let spotting = req.spotting;
-
-        ElmFire::from_point_ignitions( req.name, ips, bbox_size, req.n_hours, req.compute_wind, fixed_input, spotting)
+        Ok( ElmFire::new(
+            req.id,
+            req.name,
+            req.pos,
+            Length::new::<kilometer>(req.size),
+            req.date,
+            req.n_hours,
+            req.compute_wind,
+            req.ignitions,
+            req.fixed,
+            req.spotting,
+            req.barriers
+        )? )
     }
 }
 
-
-#[derive(Deserialize, Debug)]
-struct IgnitionSpec {
-    date: i64,
-    lon: f64,
-    lat: f64
-}
-
-impl From<&IgnitionSpec> for IgnitionPoint {
-    fn from(p: &IgnitionSpec) -> Self {
-        IgnitionPoint {
-            position: GeoPoint::from_lon_lat_degrees( p.lon, p.lat).rounded(4),
-            date: from_epoch_millis( p.date)
-        }
-    }
-}
 
 #[derive(Deserialize,Debug)]
 struct StoreContent {

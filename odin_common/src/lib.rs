@@ -153,11 +153,39 @@ impl <T: Num + Copy + ToPrimitive + From<f64> + Debug> BoundingBox<T> {
     }
 }
 
-pub fn apply_index_margin (bbox: &mut BoundingBox<usize>, margin: usize, max_x: usize, max_y: usize) {
+/// expand the given BoundingBox index values with the given margin
+/// note - `bbox.east` and `bbox.south` are *exclusive* so that `bbox.width()` and `bbox.height()` return valid values
+pub fn apply_index_margin (bbox: &mut BoundingBox<usize>, margin: usize, n_cols: usize, n_rows: usize) {
     bbox.west = if bbox.west > margin { bbox.west - margin } else { 0 };
-    bbox.east = if bbox.east + margin >= max_x { max_x } else { bbox.east + margin };
+    bbox.east = if bbox.east + margin > n_cols { n_cols } else { bbox.east + margin };
     bbox.north = if bbox.north > margin { bbox.north - margin } else { 0 };
-    bbox.south = if bbox.south + margin >= max_y { max_y } else { bbox.south + margin };
+    bbox.south = if bbox.south + margin > n_rows { n_rows } else { bbox.south + margin };
+}
+
+/// index rectangle. We don't use BoundingBox<usize> for this to avoid the common pitfall of inclusive/exclusive right/bottom bounds
+#[derive(Debug)]
+pub struct IndexBounds2D {
+    pub left: usize,
+    pub top: usize,
+    pub width: usize,
+    pub height: usize
+}
+
+impl IndexBounds2D {
+    pub fn new (left: usize, top: usize, width: usize, height: usize)->Self {
+        IndexBounds2D { left, top, width, height }
+    }
+    pub fn right_bound (&self)->usize { self.left + self.width }
+    pub fn bottom_bound (&self)->usize { self.top + self.height }
+
+    pub fn apply_margin (&self, margin: usize, max_width: usize, max_height: usize)->Self {
+        let left = if margin > self.left { 0 } else { self.left - margin };
+        let top = if margin > self.top { 0 } else { self.top - margin };
+        let width = (self.width + 2*margin).min(max_width);
+        let height = (self.height + 2*margin).min(max_height);
+
+        IndexBounds2D { left, top, width, height }
+    }
 }
 
 /// a simple incremental min/max/avg accumulator

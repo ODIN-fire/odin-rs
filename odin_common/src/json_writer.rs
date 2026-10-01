@@ -14,7 +14,7 @@
 
 #![allow(unused)]
 
-use std::fmt::{Write,Display,Debug};
+use std::fmt::{Write,Display,Debug, Formatter};
 use std::borrow::Borrow;
 use chrono::{DateTime,Utc};
 
@@ -316,5 +316,29 @@ impl <T: JsonWritable> JsonWritable for &[T] {
 impl <T: JsonWritable> JsonWritable for Vec<T> {
     fn write_json_to (&self, w: &mut JsonWriter) {
         self.as_slice().write_json_to(w);
+    }
+}
+
+
+/// newtype to properly JSON escape string values without allocation
+pub struct JsonEscapedStr<'a>(pub &'a str);
+
+impl<'a> Debug for JsonEscapedStr<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("\"")?;
+        for c in self.0.chars() {
+            match c {
+                '\\' => f.write_str("\\\\")?,
+                '"' => f.write_str("\\\"")?,
+                '\n' => f.write_str("\\n")?,
+                '\r' => f.write_str("\\r")?,
+                '\t' => f.write_str("\\t")?,
+                _ if c.is_control() => {
+                    write!(f, "\\u{:04x}", c as u32)?;
+                }
+                _ => write!(f, "{}", c)?,
+            }
+        }
+        f.write_str("\"")
     }
 }

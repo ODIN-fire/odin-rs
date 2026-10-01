@@ -53,7 +53,10 @@ use geo::{Coord, Rect};
 
 use odin_build::{pkg_cache_dir,define_load_config};
 use odin_common::{
-    BoundingBox, fs::{existing_non_empty_file_from_path,get_filename_extension}, geo::{GeoPoint, GeoRect}, macros::if_let, num_type::NumericType, ranges::LinearRange, utm::{UtmZone, geo_to_utm_zone, naive_utm_zone, utm_zone}
+    BoundingBox, IndexBounds2D,
+    fs::{existing_non_empty_file_from_path,get_filename_extension},
+    geo::{GeoPoint, GeoRect}, macros::if_let, num_type::NumericType, ranges::LinearRange,
+    utm::{UtmZone, geo_to_utm_zone, naive_utm_zone, utm_zone}
 };
 use crate::errors::{Result,misc_error, last_gdal_error, OdinGdalError, gdal_error, map_gdal_error, op_failed};
 
@@ -643,18 +646,30 @@ pub fn get_vec_f64<T> (ds: &Dataset, band_index: usize)->Result<Vec<f64>>
 }
 
 pub fn replace_rasterband_value<T> (ds: &mut Dataset, band_index: usize, old_value: T, new_value: T)->Result<()> where T: GdalValueType + PartialEq {
-    let mut vs: Vec<T> = get_rasterband_as_vec( ds, band_index)?;
+    let mut band = ds.rasterband(band_index)?;
+    let (width,height) = ds.raster_size();
     let mut n = 0;
 
-    for i in 0..vs.len() {
-        if vs[i] == old_value {
-            vs[i] = new_value;
-            n += 1;
+    let mut buffer: Buffer<T> = band.read_as(
+        (0, 0),
+        (width, height),
+        (width, height),
+        None
+        //Some(gdal::raster::ResampleAlg::NearestNeighbour),
+    )?;
+
+    for j in 0..height {
+        for i in 0..width {
+            let val = buffer[(j,i)];
+            if val == old_value {
+                buffer[(j,i)] = new_value;
+                n += 1;
+            }
         }
     }
 
     if n > 0 {
-        set_rasterband_from_vec( ds, band_index, vs)?;
+        band.write((0, 0), (width, height), &mut buffer)?;
     }
 
     Ok(())
@@ -777,44 +792,44 @@ pub fn compress_create_opts ()->RasterCreationOptions {
     co
 }
 
-pub fn crop_mem_dataset (ds: &Dataset, bbox: &BoundingBox<usize>)->Result<Dataset> {
+pub fn crop_mem_dataset (ds: &Dataset, idx_bounds: &IndexBounds2D)->Result<Dataset> {
     let driver = get_mem_driver();
-    crop_dataset( ds, &driver, "", None, bbox)
+    //let driver = get_gtiff_driver();
+    crop_dataset( ds, &driver, "cropped.tif", None, idx_bounds)
 }
 
 /// crop the provided dataset by cutting top/bottom lines that contain more nodata values than the given threshold and
 /// skip leading/trailing columns with nodata from the rest.
 /// This function is mainly useful when warping a dataset between different SRS that do not preserve bounds (e.g. from UTM to WGS84)
-pub fn crop_dataset<P> (ds: &Dataset, driver: &Driver, path: P, create_opts: Option<RasterCreationOptions>, bbox: &BoundingBox<usize>) -> Result<Dataset>
+/// Note the east/south values of idx_bounds are *exclusive*
+pub fn crop_dataset<P> (ds: &Dataset, driver: &Driver, path: P, create_opts: Option<RasterCreationOptions>, idx_bounds: &IndexBounds2D) -> Result<Dataset>
     where P: AsRef<Path>
 {
     let (n_cols, n_rows) = ds.raster_size();
     let n_bands = ds.raster_count();
 
     if n_bands < 1 { return Err( op_failed!("no rasterbands in dataset")) }
-    if ! is_homogenous(ds) { return Err( op_failed!("dataset not homogenous")) }
-    if bbox.east >= n_cols || bbox.south >= n_rows { return Err( op_failed!("crop bounds exceed image"))}
+    if ! is_homogenous(ds) { return Err( op_failed!("dataset not homogenous")) } // we need all rasterbands to be of the same type
+    if idx_bounds.right_bound() > n_cols || idx_bounds.bottom_bound() > n_rows { return Err( op_failed!("crop bounds exceed image"))}
 
     let band_type = ds.rasterband(1)?.band_type();
-    let width = bbox.east - bbox.west + 1;
-    let height = bbox.south - bbox.north + 1;
-    let mut tgt_ds = create_dataset( &driver, path, width, height, n_bands, band_type, create_opts)?;
-
-    for k in 1..=n_bands {
-        let src_band = ds.rasterband(k)?;
-        let mut tgt_band = tgt_ds.rasterband(k)?;
-        tgt_band.set_no_data_value( src_band.no_data_value())?; // preserve nodata values
-        copy_rasterband( &src_band, &mut tgt_band, bbox.west, bbox.north, bbox.east, bbox.south)?;
-    }
+    let mut tgt_ds = create_dataset( &driver, path, idx_bounds.width, idx_bounds.height, n_bands, band_type, create_opts)?;
 
     // we keep projection and SRS but we have to adapt the geo-transform
     tgt_ds.set_projection( &ds.projection());
     tgt_ds.set_spatial_ref( &ds.spatial_ref()?);
 
     let mut gt = ds.geo_transform()?;
-    gt[0] += bbox.west as f64 * gt[1]; // x_left
-    gt[3] += bbox.north as f64 * gt[5]; // y_top
+    gt[0] += idx_bounds.left as f64 * gt[1]  + idx_bounds.top as f64 * gt[2]; // x_left
+    gt[3] += idx_bounds.top as f64 * gt[5] + idx_bounds.left as f64 * gt[4];  // y_top
     tgt_ds.set_geo_transform( &gt);
+
+    for k in 1..=n_bands {
+        let src_band = ds.rasterband(k)?;
+        let mut tgt_band = tgt_ds.rasterband(k)?;
+        tgt_band.set_no_data_value( src_band.no_data_value())?; // preserve nodata values
+        copy_rasterband( &src_band, &mut tgt_band, idx_bounds.left, idx_bounds.top, idx_bounds.width, idx_bounds.height)?;
+    }
 
     Ok(tgt_ds)
 }
@@ -825,7 +840,7 @@ pub fn crop_dataset<P> (ds: &Dataset, driver: &Driver, path: P, create_opts: Opt
 pub fn crop_no_data<P> (ds: &Dataset, path: P, create_opts: Option<RasterCreationOptions>) -> Result<Dataset>
     where P: AsRef<Path>
 {
-    let bbox = get_data_bounds(ds, 1)?;
+    let bbox = get_interior_data_bounds(ds, 1)?;
     let driver = ds.driver();
     crop_dataset( ds, &driver, path, create_opts, &bbox)
 }
@@ -887,56 +902,51 @@ pub fn copy_dataset<P: AsRef<Path>> (ds: &Dataset, path: P, co: Option<RasterCre
     Ok ( ds.create_copy( &driver, path, &options)? )
 }
 
-
-
 pub fn copy_full_rasterband (src: &RasterBand, tgt: &mut RasterBand)->Result<()> {
     let (w,h) = tgt.size();
-    copy_rasterband( src, tgt, 0, 0, w-1, h-1)
+    copy_rasterband( src, tgt, 0, 0, w, h)
 }
 
 /// copy rasterband source window (given by min,max index values)
-pub fn copy_rasterband( src: &RasterBand, tgt: &mut RasterBand, min_x: usize, min_y: usize, max_x: usize, max_y: usize)->Result<()> {
+pub fn copy_rasterband( src: &RasterBand, tgt: &mut RasterBand, min_x: usize, min_y: usize, width: usize, height: usize)->Result<()> {
     use GdalDataType::*;
 
     let data_type = src.band_type();
     if data_type != tgt.band_type() { return Err( OdinGdalError::MiscError("different rasterband types".into()) ) }
 
     match data_type {
-        UInt8   => copy_rasterband_type::<u8>( src, tgt, min_x, min_y, max_x, max_y, 0),
-        UInt16  => copy_rasterband_type::<u16>( src, tgt, min_x, min_y, max_x, max_y, 0),
-        UInt32  => copy_rasterband_type::<u32>( src, tgt, min_x, min_y, max_x, max_y, 0),
-        UInt64  => copy_rasterband_type::<u64>( src, tgt, min_x, min_y, max_x, max_y, 0),
-        Int8    => copy_rasterband_type::<i8>( src, tgt, min_x, min_y, max_x, max_y, 0),
-        Int16   => copy_rasterband_type::<i16>( src, tgt, min_x, min_y, max_x, max_y, 0),
-        Int32   => copy_rasterband_type::<i32>( src, tgt, min_x, min_y, max_x, max_y, 0),
-        Int64   => copy_rasterband_type::<i64>( src, tgt, min_x, min_y, max_x, max_y, 0),
-        Float32 => copy_rasterband_type::<f32>( src, tgt, min_x, min_y, max_x, max_y, 0.0),
-        Float64 => copy_rasterband_type::<f64>( src, tgt, min_x, min_y, max_x, max_y, 0.0),
+        UInt8   => copy_rasterband_type::<u8>(  src, tgt, min_x, min_y, width, height),
+        UInt16  => copy_rasterband_type::<u16>( src, tgt, min_x, min_y, width, height),
+        UInt32  => copy_rasterband_type::<u32>( src, tgt, min_x, min_y, width, height),
+        UInt64  => copy_rasterband_type::<u64>( src, tgt, min_x, min_y, width, height),
+        Int8    => copy_rasterband_type::<i8>(  src, tgt, min_x, min_y, width, height),
+        Int16   => copy_rasterband_type::<i16>( src, tgt, min_x, min_y, width, height),
+        Int32   => copy_rasterband_type::<i32>( src, tgt, min_x, min_y, width, height),
+        Int64   => copy_rasterband_type::<i64>( src, tgt, min_x, min_y, width, height),
+        Float32 => copy_rasterband_type::<f32>( src, tgt, min_x, min_y, width, height),
+        Float64 => copy_rasterband_type::<f64>( src, tgt, min_x, min_y, width, height),
         _ => Err( OdinGdalError::MiscError("unsupported GDAL data type".into()))
     }
 }
 
-fn copy_rasterband_type <T: Copy + GdalType> (src: &RasterBand, tgt: &mut RasterBand, min_x: usize, min_y: usize, max_x: usize, max_y: usize, init: T)->Result<()> {
-    let (src_width,src_height) = src.size();
-    let (tgt_width,tgt_height) = tgt.size();
+fn copy_rasterband_type <T: Copy + GdalType> (src: &RasterBand, tgt: &mut RasterBand, min_x: usize, min_y: usize, width: usize, height: usize)->Result<()> {
+    let mut buffer: Buffer<T> = src.read_as(
+        (min_x as isize, min_y as isize),
+        (width, height),
+        (width, height),
+        None
+        //Some(gdal::raster::ResampleAlg::NearestNeighbour),
+    )?;
 
-    let mut src_buf: Vec<T> = vec![init; src_width];
-    let mut tgt_buf: Buffer<T> = Buffer::new((tgt_width,1), vec![init; tgt_width]);
+    tgt.write((0, 0), (width, height), &mut buffer)?;
 
-    for j in 0..=max_y - min_y {
-        src.read_into_slice( (0 as isize, (j + min_y) as isize), (src_width,1), (src_width,1), &mut src_buf, None)?;
-        copy_scanline( &src_buf, tgt_buf.data_mut(), min_x, max_x)?;
-        tgt.write( (0 as isize, j as isize), (tgt_width,1), &mut tgt_buf)?;
+    /*
+    for j in 0..height {
+        let mut buf = src.read_as::<T>( (min_x as isize, (min_y + j) as isize), (width,1), (width,1), None)?;
+        tgt.write( (0 as isize, j as isize), (width,1), &mut buf)?;
     }
+    */
 
-    Ok(())
-}
-
-fn copy_scanline<T: Copy> (src: &[T], tgt: &mut[T], min_x: usize, max_x: usize)->Result<()> {
-    if src.len() <= max_x { return Err( OdinGdalError::MiscError("invalid copy bounds".into()) ) }
-    for i in 0..=max_x - min_x {
-        tgt[i] = src[i + min_x];
-    }
     Ok(())
 }
 
@@ -1005,15 +1015,17 @@ pub fn fill_nodata (ds: &mut Dataset, max_dist: usize, smoothing_passes: usize, 
     }
 }
 
-// get the min/max index values for rows and columns that include all data
-pub fn get_rasterband_data_bbox (ds: &Dataset, band_no: usize)->Result<BoundingBox<usize>> {
+/// get the min/max index values for rows and columns that include all data.
+/// Since this is called on potentially large input images we process those by scanlines
+/// NOTE - the `east` and `south` index values are *exclusive* so that `bbox.width()` and `bbox.height()` still return valid values
+/// Note also that we might have interior nodata scanlines so we can't stop at the first one following a data scanline
+pub fn get_exterior_data_bounds (ds: &Dataset, band_no: usize)->Result<IndexBounds2D> {
     let (n_cols, n_rows) = ds.raster_size();
-    let mut min_col = 0;
-    let mut max_col = n_cols-1;
-    let mut min_row = 0;
-    let mut max_row = n_rows -1;
+    let mut min_col = n_cols; // those are iteratively updated - set safe initial min/max
+    let mut max_col = 0;
+    let mut min_row = n_rows;
+    let mut max_row = 0;
 
-    let mut top_done = false;
     let mut bottom_done = false;
 
     let band = ds.rasterband(band_no)?;
@@ -1025,31 +1037,31 @@ pub fn get_rasterband_data_bbox (ds: &Dataset, band_no: usize)->Result<BoundingB
 
         for j in 0..n_rows {
             band.read_into_slice( (0 as isize, j as isize), (n_cols,1), (n_cols,1), &mut scanline, None)?;
-            let (n_leading, n_trailing, n_total) = count_nodata( &scanline, nodata_value);
+            let mut i0 = n_cols;
+            let mut i1 = 0;
+            for i in 0..n_cols {
+                if scanline[i] != nodata_value {
+                    i0 = i0.min(i);
+                    i1 = i1.max(i+1); // max_col is exclusive
+                }
+            }
+            if i0 < n_cols || i1 > 0 { // scanline has some data values
+                min_col = min_col.min(i0);
+                max_col = max_col.max(i1);
+                min_row = min_row.min( j);
 
-            if n_total < n_cols { // scanline contains some data value -> update min/max col
-                min_leading = min_leading.min(n_leading);
-                min_trailing = min_trailing.min(n_trailing);
-
-                top_done = true;
-                bottom_done = false; // reset in case we had internal nodata scanline
+                bottom_done = false; // reset in case we had interior nodata scanlines
 
             } else { // scanline contains no data
-                if !top_done {
-                    min_row = j;
-                } else {
-                    if !bottom_done {
-                        max_row = j;
-                        bottom_done = true;
-                    }
+                if !bottom_done {
+                    max_row = j;
+                    bottom_done = true;
                 }
             }
         }
-        min_col = min_leading;
-        max_col = n_cols - min_trailing -1;
     } // nothing to do if we don't hava a nodata value
 
-    Ok( BoundingBox { west: min_col, south: max_row, east: max_col, north: min_row } )
+    Ok( IndexBounds2D::new( min_col, min_row, (max_col - min_col), (max_row - min_row)) )
 }
 
 /// get min/max row/column indices of provided dataset so that the returned sub-region does not contain any nodata values.
@@ -1057,7 +1069,7 @@ pub fn get_rasterband_data_bbox (ds: &Dataset, band_no: usize)->Result<BoundingB
 /// this is the case for WGS_84 <-> UTM conversions but not necessarily for for other SRS
 /// the algorithm first determines the top and bottom row for which the number of leading/trailing NODATA pixels is not decreasing anymore
 /// and then gets the minimum/maximum scanline indices for pixels with valid data in between those min/max lines
-pub fn get_data_bounds (ds: &Dataset, ref_band: usize) -> Result<BoundingBox<usize>> {
+pub fn get_interior_data_bounds (ds: &Dataset, ref_band: usize) -> Result<IndexBounds2D> {
     let (n_cols, n_rows) = ds.raster_size();
     let n_bands = ds.raster_count();
     if ref_band > n_bands { return Err(OdinGdalError::MiscError("reference band index out of range".into())) }
@@ -1113,32 +1125,38 @@ pub fn get_data_bounds (ds: &Dataset, ref_band: usize) -> Result<BoundingBox<usi
         }
     }
 
-    Ok( BoundingBox { west: min_x, south: max_y, east: max_x, north: min_y } )
+    Ok( IndexBounds2D { left: min_x, top: min_y, width: (max_x - min_x + 1), height: (max_y - min_y + 1) } )
 }
 
 fn count_nodata (scanline: &[f64], nodata_value: f64)->(usize,usize,usize) {
-    let len = scanline.len();
-    let mut i0 = 0;
-    let mut i1 = len-1;
-    let mut n_total = 0;
+    let mut n_leading = 0;
+    let mut n_trailing = 0;
 
-    let mut front_done = false;
+    //--- count leading nodata
+    for i in 0..scanline.len() {
+        if scanline[i] == nodata_value { n_leading += 1 } else { break }
+    }
+    let mut n_total = n_leading;
 
-    for i in 0..len {
-        if scanline[i] == nodata_value {
-            n_total += 1;
+    if n_leading < scanline.len() {
+        //--- count trailing nodata
+        for i in (0..scanline.len()).rev() {
+            if scanline[i] == nodata_value { n_trailing += 1 } else { break }
+        }
+        n_total += n_trailing;
 
-        } else { // a set value
-            if !front_done { // first data value in scanline
-                i0 = i;
-                front_done = true;
-
-            } else {
-                i1 = i;
+        //--- count nodata in-between leading and trailing
+        for i in n_leading..scanline.len()-n_trailing {
+            if scanline[i] == nodata_value {
+                n_total += 1
             }
         }
+
+    } else { // scanline does not contain any data
+        n_trailing = n_leading;
     }
-    (i0, len-i1, n_total)
+
+    (n_leading, n_trailing, n_total)
 }
 
 
