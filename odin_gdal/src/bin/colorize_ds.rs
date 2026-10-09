@@ -20,7 +20,7 @@ use std::{path::Path,ops::Range};
 use gdal::{Dataset, GdalOpenFlags};
 use anyhow::{Result,anyhow};
 use odin_common::define_cli;
-use odin_gdal::{fill_nodata,FillNoDataAlg,open_update, colorize};
+use odin_gdal::{fill_nodata,FillNoDataAlg,open_dataset_for_update, colorize};
 
 define_cli! { ARGS [about="colorize a tif data set to a PNG"] =
     min: f64 [help="min percentile to scale value range to", long, default_value="0.0"],

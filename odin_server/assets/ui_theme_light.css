@@ -35,6 +35,7 @@
     --border-width: 1px;
     --border: var(--border-width) solid var(--border-color);
     --box-shadow: 5px 5px 8px rgb(136, 136, 136);
+    --menu-box-shadow: 2px 2px rgb(136, 136, 136);
     --padding: 5px;
     --margin: 3px;
     --gap: 3px;
@@ -91,7 +92,7 @@
     /* containers */
     --container-title-font: var(--font);
     --container-title-color: var(--color);
-    --container-title-border: 1px solid var(--border-color); 
+    --container-title-border: 1px solid var(--border-color);
     --container-border: var(--border);
     /* scrollbars */
     --scrollbar-track-width: 0.7rem;

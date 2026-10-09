@@ -29,7 +29,7 @@ document.addEventListener('load', e => {
     postLoadFunctions.forEach(f => f());
 });
 
-document.addEventListener('visibilitychange', e => {
+document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
         loadFunctions.forEach(f => f());
         console.log("modules terminated.");
@@ -192,6 +192,22 @@ var topWindowZ = _rootVarInt('--window-z');
 var spotlightZ = _rootVarInt('--spotlight-z');
 var windows = [];
 
+document.addEventListener('keydown', (event) => {
+    if (event.altKey) {
+        switch (event.code) {
+            case "KeyE": closeWindow(topWindow()); break;
+            case "KeyL": moveWindowLeft(topWindow()); break;
+            case "KeyR": moveWindowRight(topWindow()); break;
+            case "KeyB": moveWindowBottom(topWindow()); break;
+            case "KeyT": moveWindowTop(topWindow()); break;
+        }
+    }
+});
+
+export function topWindow() {
+    return (windows.length > 0) ? windows[windows.length - 1] : null;
+}
+
 export function Window (title, eid, icon) {
     return function (...children) {
         let e = createElement("DIV", "ui_window");
@@ -235,17 +251,24 @@ export function registerUiClassInitializer(uiClass, f) {
     uiClassInitializers.set(uiClass, f);
 }
 
+// note this only guarantees that elements added *after* the currently processed one get initialized
+let level = 0;
 function initializeRecursive(e) {
-    let uiCls = _getUiClass(e);
+    level++;
+    if (!e._uiInitialized) {
+        e._uiInitialized = true;
 
-    if (uiCls) {
-        let initializer = uiClassInitializers.get(uiCls);
-        if (initializer) {
-            initializer(e);
+        let uiCls = _getUiClass(e);
+        if (uiCls) {
+            let initializer = uiClassInitializers.get(uiCls);
+            if (initializer) {
+                initializer(e);
+            }
         }
-    }
 
-    for (const c of _getChildren(e)) initializeRecursive(c);
+        for (const c of e.children) initializeRecursive(c);
+    }
+    level--;
 }
 
 export function createWindow(title, isPermanent, closeAction, icon) {
@@ -285,10 +308,8 @@ function createWindowComponents(e, title, isPermanent, icon) {
 
     // titlebar shortcuts
     tb.addEventListener("mouseup", (event) => {
-        if (event.shiftKey) {
+        if (event.altKey) {
             moveWindowLeft(e);
-        } else if (event.altKey) {
-            closeWindow(e);
         }
     });
 
@@ -308,9 +329,8 @@ export function getWindowContent (o) {
 
 function setWindowEventHandlers(e) {
     makeWindowDraggable(e);
-    e.onmousedown = function (event) {
-        raiseWindowToTop(e);
-    };
+
+    e.addEventListener("mousedown", (event) => raiseWindowToTop(e));
 }
 
 function makeWindowDraggable(e) {
@@ -485,6 +505,12 @@ export function getWindowRect(o) {
     }
 }
 
+const WINDOW_MOVE_OPTS = {
+    duration: 500,
+    fill: 'forwards',
+    easing: 'cubic-bezier(0.25, 0.8, 0.25, 1)'
+};
+
 export function moveWindowLeft(o) {
     let e = getWindow(o);
     if (e) {
@@ -493,22 +519,53 @@ export function moveWindowLeft(o) {
         let animation = e.animate([
             { transform: 'translate(0,0)' },
             { transform: 'translate(' + -rect.x + 'px, 0px)' }
-        ], {
-            duration: 500,
-            fill: 'forwards',
-            easing: 'cubic-bezier(0.25, 0.8, 0.25, 1)'
-        });
-
+        ], WINDOW_MOVE_OPTS);
         safelyApplyStylesPostAnimation(animation, e, { left: '0px' });
+    }
+}
 
-        /****
-        animation.finished.then(() => {
-            animation.cancel();
-            requestAnimationFrame(() => {
-                e.style.left = "0px";
-            });
-        });
-        ***/
+export function moveWindowRight(o) {
+    let e = getWindow(o);
+    if (e) {
+        let rect = getWindowRect(e);
+        let width = window.innerWidth;
+        let newX = width - rect.width;
+        let dx = newX - rect.x;
+
+        let animation = e.animate([
+            { transform: 'translate(0,0)' },
+            { transform: 'translate(' + dx + 'px, 0px)' }
+        ], WINDOW_MOVE_OPTS);
+        safelyApplyStylesPostAnimation(animation, e, { left: newX + 'px' });
+    }
+}
+
+export function moveWindowBottom(o) {
+    let e = getWindow(o);
+    if (e) {
+        let rect = getWindowRect(e);
+        let height = window.innerHeight;
+        let newY = height - rect.height;
+        let dy = newY - rect.y;
+
+        let animation = e.animate([
+            { transform: 'translate(0,0)' },
+            { transform: 'translate(0px,' + dy + 'px)' }
+        ], WINDOW_MOVE_OPTS);
+        safelyApplyStylesPostAnimation(animation, e, { top: newY + 'px' });
+    }
+}
+
+export function moveWindowTop(o) {
+    let e = getWindow(o);
+    if (e) {
+        let rect = getWindowRect(e);
+
+        let animation = e.animate([
+            { transform: 'translate(0,0)' },
+            { transform: 'translate(0px,' + -rect.y + 'px)' }
+        ], WINDOW_MOVE_OPTS);
+        safelyApplyStylesPostAnimation(animation, e, { top: '0px' });
     }
 }
 
@@ -2232,12 +2289,15 @@ export function getSlider(o) {
 
 //--- choices
 
-export function Choice (label, eid, changeAction=null, width=null) {
+export function Choice (label, eid, changeAction=null, width=null, labelWidth=null) {
     let e = createElement("DIV", "ui_choice");
 
     e.setAttribute("data-label", label);
     if (eid) e.setAttribute("data-id", eid);
     if (width) e.setAttribute("data-width", width);
+    if (labelWidth) {
+        e.setAttribute("data-labelWidth", labelWidth);
+    }
 
     if (changeAction) {
         if (changeAction instanceof Function) {
@@ -2250,13 +2310,37 @@ export function Choice (label, eid, changeAction=null, width=null) {
     return e;
 }
 
+// for list item initialization
+export function createChoice (changeAction, width, items, selIdx) {
+    let e = createElement("DIV", "ui_choice");
+    e.setAttribute("data-width", width);
+
+    if (changeAction instanceof Function) {
+        e.addEventListener("change", changeAction);
+    } else {
+        e.onclick = changeAction; // expr.
+    }
+
+    initializeChoice(e);
+
+    let cve = e.firstElementChild;
+    cve.style.border = "none"; // don't show a border around the value if we are in a list item line
+    cve.style.background = "inherit";
+
+    setChoiceItems(e, items, selIdx);
+
+    return e;
+}
+
 function initializeChoice (e) {
     if (e.tagName == "DIV" && e.children.length == 0) {
         let id = e.dataset.id;
         let labelText = e.dataset.label;
+        let labelWidth = e.dataset.labelwidth;
 
         if (labelText) {
             let label = createElement("DIV", "ui_field_label", labelText);
+            if (labelWidth) label.style.width = labelWidth;
             e.appendChild(label);
         }
 
@@ -2771,7 +2855,13 @@ export function ListWithPopup (eid, maxRows, selectAction, clickAction, contextM
 
         if (menuItems.length > 0) {
             let popup = PopupMenu()(menuItems);
-            e.appendChild(popup)
+            e.appendChild(popup);
+
+            if (!contextMenuAction) {
+                e.addEventListener("contextmenu", (event) => {
+                    popupMenu(event, popup);
+                })
+            }
         }
 
         return e;
@@ -3758,6 +3848,16 @@ export function getList(o) {
     return undefined;
 }
 
+// this can be used from ui_list_subitem elements to get the containing list parent (e.g. to get the selected item)
+export function getParentListOf(e) {
+    return nearestParentWithClass(e, "ui_list");
+}
+
+export function getParentListItemOf(e) {
+    let le = nearestParentWithClass(e, "ui_list_item");
+    return le ? le._uiItem : null;
+}
+
 //--- list controls (first,up,down,last,clear buttons)
 
 export function ListControls (listId, first=null,up=null,down=null,last=null,clear=null) {
@@ -3844,7 +3944,7 @@ function createTooltip (e, text) {
 //--- menus
 
 var _uiActivePopupMenus = [];
-window.addEventListener("click", _windowPopupHandler);
+window.addEventListener("click", _windowPopupClickHandler);
 
 export function PopupMenu (eid=null) {
     return function (children) {
@@ -3864,8 +3964,23 @@ function createMenuItem (text, action=null, eid=null, isChecked=false, isDisable
     if (isDisabled) e.classList.add("disabled");
     if (isChecked) e.classList.add("checked");
 
-    if (action) e.setAttribute("onclick", action);
+    if (action) {
+        e._uiAction = action;
+        if (!isDisabled) {
+            //e.addEventListener("click", action);
+        }
+    }
     if (eid) e.setAttribute("id", eid);
+
+    e.addEventListener("mouseenter", _menuItemHandler);
+
+    e.addEventListener("click", (event) => {
+        event.stopPropagation();
+        closeAllActivePopups();
+
+        if (e._uiAction) { e._uiAction(event) }
+    });
+
     e.appendChild( document.createTextNode(text));
 
     return e;
@@ -3884,36 +3999,20 @@ export function SubMenu (text, action=null, eid=null, isChecked=false, isDisable
     }
 }
 
-
-function _initializeMenus() {
-    for (let e of document.getElementsByClassName("ui_menuitem")) {
-        initializeMenuItem(e);
-    }
+// any click outside popup closes the whole chain
+function _windowPopupClickHandler(event) {
+    closeAllActivePopups();
 }
 
-function initializePopupMenu (e) {
-    // nothing yet for ourselves
-    for (let c of _getChildren(e)) initializeRecursive(c);
-}
-
-function initializeMenuItem(e) {
-    e.addEventListener("mouseenter", _menuItemHandler);
-    e.addEventListener("click", (event) => {
+function menuItemKeydownHandler(event) {
+    console.log("@@ mi key", event);
+    if (event.key === 'Escape') {
         event.stopPropagation();
-        for (let i = _uiActivePopupMenus.length - 1; i >= 0; i--) {
-            _uiActivePopupMenus[i].style.visibility = "hidden";
-        }
-        _uiActivePopupMenus = [];
-    });
-
-    if (e.classList.contains("disabled")) {
-        e._uiSuspendedOnClickHandler = e.onclick;
-        e.onclick = null;
+        closeAllActivePopups();
     }
 }
-registerUiClassInitializer("ui_menuitem", initializeMenuItem);
 
-function _windowPopupHandler(event) {
+function closeAllActivePopups() {
     for (let p of _uiActivePopupMenus) {
         p.style.visibility = "hidden";
     }
@@ -3998,11 +4097,12 @@ export function setMenuItemDisabled(o, isDisabled = true) {
     if (e) {
         if (isDisabled) {
             e.classList.add("disabled");
-            e._uiSuspendedOnClickHandler = e.onclick;
-            e.onclick = null;
+            e.removeEventListener("click", e._uiAction);
+            e.removeEventListener("keydown", menuItemKeydownHandler);
         } else {
             e.classList.remove("disabled");
-            e.onclick = e._uiSuspendedOnClickHandler;
+            e.addEventListener("click", e._uiAction);
+            e.addEventListener("keydown", menuItemKeydownHandler);
         }
     }
 }

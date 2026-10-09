@@ -1125,6 +1125,8 @@ fn nfdrs_obs_query (station_ids: &[u32], start: DateTime<Utc>, end: DateTime<Utc
 pub async fn download_nfdrs_obs<P: AsRef<Path>> (client: &Client, url: &str, path: P, station_id: u32, start: DateTime<Utc>, end: DateTime<Utc>, fuel_models: &[NfdrsFuelModel])->Result<u64> {
     let request_body = nfdrs_obs_query( &[station_id], start, end, fuel_models);
     let headers = &[header("content-type", "application/json")];
+    println!("@@ url: {}", url);
+    println!("@@ body: {}", request_body);
     Ok( post_query( client, url, Some(headers), path, request_body).await? )
 }
 

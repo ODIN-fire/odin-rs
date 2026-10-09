@@ -25,7 +25,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 #[doc = include_str!("../doc/odin_goesr.md")]
 use std::{
-    f32::NAN,
     fmt::{Debug, Display},
     fs::File,
     io::Write,
@@ -529,11 +528,11 @@ pub fn read_goesr_data(data: &GoesrData) -> Result<GoesrHotspotSet> {
     let hs = find_grid_points_in_slice(&mask_ds, 1, find_fire_pixels_in_slice)?;
 
     let area: Vec<f32> =
-        get_grid_point_values(&quiet_nc_dataset(&data.file, "Area")?, 1, NAN, &hs)?;
+        get_grid_point_values(&quiet_nc_dataset(&data.file, "Area")?, 1, f32::NAN, &hs)?;
     let power: Vec<f32> =
-        get_grid_point_values(&quiet_nc_dataset(&data.file, "Power")?, 1, NAN, &hs)?;
+        get_grid_point_values(&quiet_nc_dataset(&data.file, "Power")?, 1, f32::NAN, &hs)?;
     let temp: Vec<f32> =
-        get_grid_point_values(&quiet_nc_dataset(&data.file, "Temp")?, 1, NAN, &hs)?;
+        get_grid_point_values(&quiet_nc_dataset(&data.file, "Temp")?, 1, f32::NAN, &hs)?;
     let dqf: Vec<u8> =
         get_grid_point_values(&quiet_nc_dataset(&data.file, "DQF")?, 1, DQF_UNKNOWN, &hs)?;
 

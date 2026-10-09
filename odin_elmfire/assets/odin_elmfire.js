@@ -38,38 +38,49 @@ class FireEntry {
         this.ef = ef;
 
         //--- display assets
-        //this.symEntity = this.createSymEntity(); // always on
-        this.toaDs = undefined; // on demand time-of-arrival image
-        this.flinEntity = undefined; // on demand fireline intensity image
-        this.vsEntity = undefined; // on demand spread rate image
-        this.cfEntity = undefined; // on demand crown fire image
-        this.flEntity = undefined; // on demand flame length image
-    }
+        let assets = {};
+        Object.keys(config.render).forEach(key => assets[key] = null);
+        this.assets = assets;
 
-    createSymEntity() {
-        let entity = createSymEntity(this.id, this.pos);
-        entity._uiElmFire = this; // backlink for selection
-
-        return entity
+        this.toaDs = undefined; // the spread isochrone polygons
     }
 
     state() {
         return (this.ef.output) ? "✓" : "⧗";
     }
 
-    hasRasterEntities() {
-        return (this.flinEntity || this.vsEntity || this.cfEntity || this.flEntity);
+    rasterProducts() {
+        let output = this.ef.output;
+        return output ? output.rasterProducts : null;
+    }
+
+    showImgOutputAsset(key) {
+        if (!this.assets[key]) {
+            this.removeImgOutputAssets();
+
+            if (this.ef.output && this.ef.output.rasterProducts) {
+                let fname = `${key}.png`;
+                let prod = this.ef.output.rasterProducts.find((p) => p.file == fname);
+                let prodRender = render[key];
+                if (prod && prodRender) {
+                    let entity = createRasterEntity(`elmfire-data/${this.ef.id}/outputs/${prod.file}`, prod.bbox, prodRender);
+                    this.assets[key] = entity;
+                    dataSource.entities.add(entity);
+                }
+            }
+        }
+    }
+
+    removeImgOutputAssets() {
+        let assets = this.assets;
+        Object.keys(assets).forEach((key) => {
+            dataSource.entities.remove(assets[key]);
+            assets[key] = null;
+        });
     }
 
     cleanUp() {
-        let ec = dataSource.entities;
-
-        //ec.remove(this.symEntity);
-        if (this.flinEntity) ec.remove(this.flinEntity);
-        if (this.vsEntity) ec.remove(this.vsEntity);
-        if (this.flEntity) ec.remove(this.flEntity);
-        if (this.cfEntity) ec.remove(this.cfEntity);
-
+        this.removeImgOutputAssets();
         if (this.toaDs) odinCesium.removeDataSource(this.toaDs);
     }
 
@@ -79,21 +90,9 @@ class FireEntry {
     }
 }
 
-class Ignition {
-    constructor(date, lon, lat) {
-        this.date = date;
-        this.lon = lon;
-        this.lat = lat;
-    }
-}
-
 /* #endregion ElmfireEntry */
 
-var toaRender = { ...config.toaRender };
-var flinRender = { ...config.flinRender };
-var vsRender = { ...config.vsRender };
-var flRender = { ...config.flRender };
-var cfRender = { ...config.cfRender };
+var render = util.levelOneCloneOf( config.render);
 
 var fireView = undefined;
 var areaView = undefined;
@@ -146,6 +145,9 @@ function handleWsMessages(msgType, msg) {
         case "update":
             handleUpdateMessage(msg);
             return true;
+        case "remove":
+            handleRemoveMessage(msg);
+            return true;
         case "spotting":
             handleSpottingMessage(msg);
             return true;
@@ -180,6 +182,18 @@ function updateElmfires(elmFires,sel=null) {
     updateFireView();
 }
 
+function handleRemoveMessage(msg) {
+    let id = msg.id;
+
+    if (fireEntries.delete(id)) {
+        if (selectedEntry && selectedEntry.id == id) {
+            selectedEntry.cleanUp();
+            selectedEntry = null;
+        }
+        updateFireView();
+    }
+}
+
 function handleSpottingMessage(newSpottingList) {
     spottingList = ["-", ...newSpottingList]; // prepend a none-choice
     updateSpottingsChoices();
@@ -197,10 +211,12 @@ function createWindow() {
     let view = ui.Window("elmfire", "elmfire", "./asset/odin_elmfire/fires-icon.svg")(
         ui.LayerPanel("elmfire", toggleShowFires),
         ui.Panel("simulations", true)(
-            (fireView = ui.List("elmfire.fires", 5, selectEntry, null, null, zoomToSelection)),
+            (fireView = ui.ListWithPopup("elmfire.fires", 5, selectEntry, null, null, zoomToSelection)(
+                ui.MenuItem("remove", removeSelectedFire)
+            )),
             ui.RowContainer("end")(
-                (statsView = ui.KvTable("elmfire.stats", 8, "21.2rem", "21.2rem")),
-                (areaView = ui.List("elmfire.area", 8))
+                (statsView = ui.KvTable("elmfire.stats", 8, "18.2rem", "18.2rem")),
+                (areaView = ui.List("elmfire.area", 8, selectArea))
             ),
             ui.VarText(null, "elmfire.error", 0, "100%")
         ),
@@ -242,13 +258,20 @@ function createWindow() {
                 ui.Tab("fixed wx", false)(
                     (fixedSrc = code.CodeInput("elmfire.fixedSrc", "nml-highlight", "fortran-namelist", "35rem", "11lh")),
                     ui.RowContainer()(
-                        ui.Button("clear", clearFixed),
+                        ui.Choice("wd", "elmfire.fixedWd", null, "3.5rem", "3rem"),
+                        ui.Choice("ws", "elmfire.fixedWs", null, "3.5rem", "3rem"),
+                        ui.Choice("t2", "elmfire.t2", null, "3.5rem", "3rem"),
+                        ui.Choice("tcc", "elmfire.tcc", null, "3.5rem", "3rem"),
                         ui.HorizontalSpacer(1.0),
-                        ui.Choice("dir", "elmfire.fixedDir", null, "4rem"),
-                        ui.Choice("spd", "elmfire.fixedSpd", null, "3rem"),
-                        ui.Choice("dfm", "elmfire.dfMoisture", null, "4rem"),
-                        ui.Choice("lfm", "elmfire.lfMoisture", null, "4rem"),
-                        ui.Button("create", createFixedSrc)
+                        ui.Button("create", createFixedSrc, "4rem")
+                    ),
+                    ui.RowContainer()(
+                        ui.Choice("m1", "elmfire.fixedM1", null, "3.5rem", "3rem"),
+                        ui.Choice("m10", "elmfire.fixedM10", null, "3.5rem", "3rem"),
+                        ui.Choice("m100", "elmfire.fixedM100", null, "3.5rem", "3rem"),
+                        ui.Choice("lfm", "elmfire.lfMoisture", null, "3.5rem", "3rem"),
+                        ui.HorizontalSpacer(1.0),
+                        ui.Button("clear", clearFixed, "4rem")
                     )
                 ),
                 ui.Tab("spotting", false)(
@@ -289,30 +312,62 @@ function createWindow() {
 
 //--- listview initializations
 
+function removeSelectedFire(event) {
+    if (selectedEntry) {
+        if (window.confirm(`remove fire simulation '${selectedEntry.ef.name}'`)) {
+            let id = selectedEntry.id;
+            ws.sendWsMessage( MOD_PATH, "removeElmfire", { id });
+        }
+    }
+}
+
+function imgChoices(e) {
+    let keys = ["-"];
+    let prods = e.rasterProducts();
+    if (prods) {
+        prods.forEach((rp) => {
+            let fname = util.stripExtension(rp.file);
+            keys.push(fname)
+        });
+    }
+
+    return keys;
+}
+
 function initFireView() {
     ui.setListItemDisplayColumns(fireView, ["fit", "header"], [
         { name: "", tip: "processing state", width: "1.5rem", attrs: [], map: e => e.state() },
-        { name: "name", tip: "fire name", width: "10rem", attrs: [], map: e => util.maxString(e.ef.name, 20) },
+        { name: "name", tip: "fire name", width: "12.5rem", attrs: [], map: e => util.maxString(e.ef.name, 20) },
         { name: "date", tip: "local date of update", width: "10rem", attrs:["fixed", "alignRight"], map: e=> util.toLocalDateHMTimeString(e.ef.date) },
         ui.listItemSpacerColumn(2),
-        { name: "toa", tip: "show time of arrival", width: "2rem", attrs:[], map: e => fileCb(e, "toa.geojson", e.toaDs, toggleShowToa)},
-        { name: "flin", tip: "show fireline intensity", width: "2rem", attrs:[], map: e => fileCb(e, "flin.png", e.flinEntity, toggleShowFlin)},
-        { name: "vs", tip: "show spread rate", width: "2rem", attrs:[], map: e => fileCb(e, "vs.png", e.vsEntity, toggleShowVs)},
-        { name: "cf", tip: "show crown fire", width: "2rem", attrs:[], map: e => fileCb(e, "cf.png", e.cfEntity, toggleShowCf)},
-        { name: "fl", tip: "show flame length", width: "2rem", attrs:[], map: e => fileCb(e, "fl.png", e.flEntity, toggleShowFl) },
-        { name: "wnd", tip: "show wind", width: "2rem", attrs:[], map: e => "-"}
+        { name: "toa", tip: "show time-of-arrival isochrones", width: "2.5rem", attrs: [], map: e => ui.createCheckBox(false, toggleShowToa) },
+        { name: "show img", tip: "show imagery output", width: "5rem", attrs:[], map: e => ui.createChoice( selectImgOutput, "5rem", imgChoices(e), 0)}
     ]);
 }
 
-function fileCb( e, fname, isShowing, toggleShow) {
-    return (e.ef.output && e.ef.output.files.includes(fname)) ? ui.createCheckBox(isShowing, toggleShow) : "-";
+function selectImgOutput(event) {
+    let choice = event.target;
+    let key = ui.getSelectedChoiceValue( choice);
+    if (key) {
+        let e = ui.getParentListItemOf(choice);
+        if (e) {
+            if (key == "-") {
+                e.removeImgOutputAssets();
+            } else {
+                e.showImgOutputAsset(key);
+            }
+        }
+    }
+
+    odinCesium.requestRender();
 }
 
 function initAreaView() {
     ui.setListItemDisplayColumns(areaView, ["fit", "header"], [
+        { name: "dt", tip: "hours from start", width: "2.5rem", attrs: ["fixed", "alignRight"], map: e=> areaItemDt(e) },
         { name: "time", tip: "", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalHMTimeString(e.date) },
-        { name: "dt", tip: "hours from start", width: "3rem", attrs: ["fixed", "alignRight"], map: e=> areaItemDt(e) },
-        { name: "area", tip: "area [ac]", width:  "7rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.area,0)}
+        { name: "𝚫", tip: "growth in %", width: "3.5rem", attrs: ["fixed", "alignRight"], map: e => e.growth },
+        { name: "area", tip: "area [ac]", width:  "5rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.area,1) }
     ]);
 }
 
@@ -324,6 +379,30 @@ function areaItemDt(e) {
     }
 }
 
+function selectArea(event) {
+    if (selectedEntry) {
+        let selIdx = ui.getSelectedListItemIndex(areaView);
+        if (selIdx >= 0) {
+            let dt = (selIdx + 1) * 1800;
+            let t = ((selectedEntry.ef.date % 3600000) / 1000) + dt;
+
+            if (selectedEntry.toaDs) {
+                for (const e of selectedEntry.toaDs.entities.values) {
+                    let props = e.properties;
+                    let lvl = getPropValue(props, "level");
+                    e.polygon.fill = (lvl == t);
+                }
+                odinCesium.requestRender();
+            }
+        }
+    }
+}
+
+function getPropValue(props,key) {
+    let p = props[key];
+    return p ? p._value : undefined;
+}
+
 function setIncidentChoices() {
     // this is in [km]
     ui.setChoiceItems("elmfire.nHours", [3, 4, 5, 6, 7, 8], 1);
@@ -332,10 +411,14 @@ function setIncidentChoices() {
 
 function setFixedWxChoices() {
     // initialize from config so that we can override based on configured location
-    ui.setChoiceItems("elmfire.fixedDir", config.fixedDir, config.defaultDir);
-    ui.setChoiceItems("elmfire.fixedSpd", config.fixedSpd, config.defaultSpd);
-    ui.setChoiceItems("elmfire.dfMoisture", [...config.dfmMap.keys()], config.defaultDfm);
+    ui.setChoiceItems("elmfire.fixedWs", config.fixedWs, config.defaultWs);
+    ui.setChoiceItems("elmfire.fixedWd", config.fixedWd, config.defaultWd);
+    ui.setChoiceItems("elmfire.fixedM1", config.fixedM1, config.defaultM1);
+    ui.setChoiceItems("elmfire.fixedM10", config.fixedM10, config.defaultM10);
+    ui.setChoiceItems("elmfire.fixedM100", config.fixedM100, config.defaultM100);
     ui.setChoiceItems("elmfire.lfMoisture", [...config.lfmMap.keys()], config.defaultLfm);
+    ui.setChoiceItems("elmfire.t2", config.fixedT2, config.defaultT2);
+    ui.setChoiceItems("elmfire.tcc", config.fixedTcc, config.defaultTcc);
 }
 
 function updateSpottingsChoices() {
@@ -408,7 +491,7 @@ function showError(msg) {
 // these have to be used if we change the content programmatically
 
 function setName(name) {
-    ui.setFieldValue(nameEntry, name);
+    ui.setField(nameEntry, name);
     processNameChange();
 }
 
@@ -487,22 +570,30 @@ function clearFixed() {
 }
 
 function createFixedSrc() {
-    let nHours = ui.getSelectedChoiceValue("elmfire.nHours");
-    let dir = ui.getSelectedChoiceValue("elmfire.fixedDir");
-    let spd = ui.getSelectedChoiceValue("elmfire.fixedSpd");
-    let dfms = config.dfmMap.get(ui.getSelectedChoiceValue("elmfire.dfMoisture"));
+    let ws = ui.getSelectedChoiceValue("elmfire.fixedWs");
+    let wd = ui.getSelectedChoiceValue("elmfire.fixedWd");
+    let t2 = ui.getSelectedChoiceValue("elmfire.t2");
+    let tcc = ui.getSelectedChoiceValue("elmfire.tcc");
+
+    let dfm1 = ui.getSelectedChoiceValue("elmfire.fixedM1");
+    let dfm10 = ui.getSelectedChoiceValue("elmfire.fixedM10");
+    let dfm100 = ui.getSelectedChoiceValue("elmfire.fixedM100");
     let lfms = config.lfmMap.get(ui.getSelectedChoiceValue("elmfire.lfMoisture"));
 
-    let src = `! fixed Elmfire weather and fuel moisture input
-ws   = ${spd.toFixed(0).padStart(4, ' ')}  ! wind speed [mph]
-wd   = ${dir.toFixed(0).padStart(4, ' ')}  ! wind direction [°]
+    let src =
+`! fixed Elmfire weather and fuel moisture input
+ws   = ${wd.toFixed(0).padStart(4, ' ')}  ! wind speed [mph]
+wd   = ${ws.toFixed(0).padStart(4, ' ')}  ! wind direction [°]
 
-m1   = ${dfms[0].toFixed(0).padStart(4, ' ')}  ! 1h dead fuel moisture [%]
-m10  = ${dfms[1].toFixed(0).padStart(4, ' ')}  ! 10h dead fuel moisture [%]
-m100 = ${dfms[2].toFixed(0).padStart(4, ' ')}  ! 100h dead fuel moisture [%]
+m1   = ${dfm1.toFixed(0).padStart(4, ' ')}  ! 1h dead fuel moisture [%]
+m10  = ${dfm10.toFixed(0).padStart(4, ' ')}  ! 10h dead fuel moisture [%]
+m100 = ${dfm100.toFixed(0).padStart(4, ' ')}  ! 100h dead fuel moisture [%]
 
 lh   = ${lfms[0].toFixed(0).padStart(4, ' ')}  ! live herbaceous fuel moisture [%]
 lw   = ${lfms[1].toFixed(0).padStart(4, ' ')}  ! live woody fuel moisture [%]
+
+t2   = ${t2.toFixed(0).padStart(4, ' ')}  ! temperature at 2m [F]
+tcc  = ${tcc.toFixed(0).padStart(4, ' ')}  ! total cloud covarage [%]
 `;
 
     code.setCode(fixedSrc, src);
@@ -577,7 +668,7 @@ async function loadToa(e) {
         if (response.ok) {
             let data = response.json();
             if (data) {
-                Cesium.GeoJsonDataSource.load(data, toaRender).then( (ds) => {
+                Cesium.GeoJsonDataSource.load(data, render.toa).then( (ds) => {
                     setToaRenderOpts(e, ds);
 
                     e.toaDs = ds;
@@ -593,106 +684,16 @@ async function loadToa(e) {
 
 function setToaRenderOpts(fireEntry, ds) {
     for (const e of ds.entities.values) {
-        if (e.polygon) {
-            if (!e.polyline) {
-                e.polyline = {
-                    positions: e.polygon.hierarchy._value.positions,
-                    material: toaRender.stroke,
-                    width: toaRender.strokeWidth,
-                    clampToGround: true
+        if (e.polyline) {
+            if (!e.polygon) {
+                e.polygon = {
+                    hierarchy: e.polyline.positions._value,
+                    material: render.toa.fill,
+                    outline: false,
+                    heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                    fill: false
                 };
-                e.addProperty('polyline');
-                e.polygon.outline = false;
-
-                if (fireEntry.hasRasterEntities()) { // or any other image we have to see through
-                    e.polygon.fill = false;
-                }
-                //e.polygon.fill = true;
-                //e.polygon.material = toaRender.fill;
-            }
-        }
-    }
-}
-
-function toggleShowFlin(e) {
-    let cb = ui.getCheckBox(event.target);
-    if (cb) {
-        let e = ui.getListItemOfElement(cb);
-        if (ui.isCheckBoxSelected(cb)) {
-            if (!e.flinEntity) {
-                e.flinEntity = createRasterEntity( `elmfire-data/${e.ef.id}/outputs/flin.png`, e.ef.output.bbox, flinRender);
-                dataSource.entities.add(e.flinEntity);
-                dataSource.show = true;
-                odinCesium.requestRender();
-            }
-        } else {
-            if (e.flinEntity) {
-                dataSource.entities.remove(e.flinEntity);
-                e.flinEntity = null;
-                odinCesium.requestRender();
-            }
-        }
-    }
-}
-
-function toggleShowVs(e) {
-    let cb = ui.getCheckBox(event.target);
-    if (cb) {
-        let e = ui.getListItemOfElement(cb);
-        if (ui.isCheckBoxSelected(cb)) {
-            if (!e.vsEntity) {
-                e.vsEntity = createRasterEntity( `elmfire-data/${e.ef.id}/outputs/vs.png`, e.ef.output.bbox, vsRender);
-                dataSource.entities.add(e.vsEntity);
-                dataSource.show = true;
-                odinCesium.requestRender();
-            }
-        } else {
-            if (e.vsEntity) {
-                dataSource.entities.remove(e.vsEntity);
-                e.vsEntity = null;
-                odinCesium.requestRender();
-            }
-        }
-    }
-}
-
-function toggleShowCf(e) {
-    let cb = ui.getCheckBox(event.target);
-    if (cb) {
-        let e = ui.getListItemOfElement(cb);
-        if (ui.isCheckBoxSelected(cb)) {
-            if (!e.cfEntity) {
-                e.cfEntity = createRasterEntity( `elmfire-data/${e.ef.id}/outputs/cf.png`, e.ef.output.bbox, cfRender);
-                dataSource.entities.add(e.cfEntity);
-                dataSource.show = true;
-                odinCesium.requestRender();
-            }
-        } else {
-            if (e.cfEntity) {
-                dataSource.entities.remove(e.cfEntity);
-                e.cfEntity = null;
-                odinCesium.requestRender();
-            }
-        }
-    }
-}
-
-function toggleShowFl(e) {
-    let cb = ui.getCheckBox(event.target);
-    if (cb) {
-        let e = ui.getListItemOfElement(cb);
-        if (ui.isCheckBoxSelected(cb)) {
-            if (!e.cfEntity) {
-                e.flEntity = createRasterEntity( `elmfire-data/${e.ef.id}/outputs/fl.png`, e.ef.output.bbox, flRender);
-                dataSource.entities.add(e.flEntity);
-                dataSource.show = true;
-                odinCesium.requestRender();
-            }
-        } else {
-            if (e.flEntity) {
-                dataSource.entities.remove(e.flEntity);
-                e.flEntity = null;
-                odinCesium.requestRender();
+                e.addProperty('polygon');
             }
         }
     }
@@ -710,9 +711,6 @@ function createRasterEntity (url, bbox, renderOpts) {
         }
     });
 }
-
-function toggleShowFm(e) { }
-function toggleShowWind(e) { }
 
 //--- button click handlers
 
@@ -783,7 +781,8 @@ function updateFireView() {
 function zoomToSelection(event) {
     let sel = ui.getSelectedListItem(event);
     if (sel) {
-        odinCesium.zoomTo(Cesium.Cartesian3.fromDegrees(sel.lon, sel.lat, config.zoomHeight));
+        let pos = sel.ef.pos;
+        odinCesium.zoomTo(Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat, config.zoomHeight));
     }
 }
 
@@ -824,23 +823,23 @@ function updateInput() {
     let e = selectedEntry;
     if (e) {
         let ef = e.ef;
-        ui.setField(nameEntry, ef.name);
-        ui.setLocation(locEntry, ef.pos);
+        setName( ef.name);
+        setLocation( ef.pos);
         ui.setDTGEntryEpochMillis(dtgEntry, ef.date);
         ui.setCheckBox("elmfire.computeWind", ef.computeWind);
 
-        code.setCode(ignitionSrc, ef.ignitions);
+        setIgnitionCode( ef.ignitions);
         code.setCode(fixedSrc, ef.fixed);
         code.setCode(spottingSrc, ef.spotting);
         code.setCode(barrierSrc, ef.barriers);
 
     } else {
         ui.clearField(nameEntry);
-        ui.clearLocation(locEntry);
+        setLocation( null);
         ui.clearDTGEntry(dtgEntry);
         ui.setCheckBox("elmfire.computeWind", false);
 
-        code.clearCode(ignitionSrc);
+        clearIgnitions();
         code.clearCode(fixedSrc);
         code.clearCode(spottingSrc);
         code.clearCode(barrierSrc);
@@ -920,26 +919,6 @@ function updateSpottingView() {
 }
 
 
-function selectFixed(e) {
-    let name = ui.getSelectedListItem(fixedListView);
-    if (name) {
-        loadSpec("fixed", name, fixedSrc);
-        ui.setField("elmfire.fixedName", name);
-    }
-}
-
-function storeFixed() {
-    storeSpec(fixedSrc, "elmfire.fixedgName", "storeFixed");
-}
-
-function delFixed() {
-    delSpec("elmfire.fixedName", "delFixed");
-}
-
-function updateFixedView() {
-    ui.setListItems(fixedListView, fixedList);
-}
-
 
 function storeSpec(tgtTextArea, nameField, msgType) {
     let source = ui.getTextAreaContent(tgtTextArea);
@@ -987,33 +966,28 @@ async function loadSpec(specType, name, tgtTextArea) {
 //--- interactive display parameters
 
 function toaStrokeWidthChanged(event) {
-    toaRender.strokeWidth = ui.getSliderValue(event.target);
+    render.toa.strokeWidth = ui.getSliderValue(event.target);
     updateToaRendering();
 }
 
 function toaStrokeColorChanged(event) {
     let clrSpec = event.target.value;
     if (clrSpec) {
-        toaRender.strokeColor = Cesium.Color.fromCssColorString(clrSpec);
+        render.toa.stroke = Cesium.Color.fromCssColorString(clrSpec);
         updateToaRendering();
     }
-}
-
-function toaFillOpacityChanged(event) {
-    toaRender.fillOpacity = ui.getSliderValue(event.target);
-    updateToaRendering();
 }
 
 function toaFillColorChanged(event) {
     let clrSpec = event.target.value;
     if (clrSpec) {
-        toaRender.fillColor = Cesium.Color.fromCssColorString(clrSpec);
+        render.toa.fill = Cesium.Color.fromCssColorString(clrSpec);
         updateToaRendering();
     }
 }
 
 function toaDimFactorChanged(event) {
-    toaRender.dimFactor = ui.getSliderValue(event.target);
+    render.toa.dimFactor = ui.getSliderValue(event.target);
     updateToaRendering();
 }
 
@@ -1037,7 +1011,7 @@ function updateToaRendering() {
                 }
             });
 
-            dimFactor *= toaRender.dimFactor;
+            dimFactor *= render.toa.dimFactor;
         }
 
         odinCesium.requestRender();
@@ -1046,9 +1020,9 @@ function updateToaRendering() {
 
 function getToaRenderOptions(dimFactor=1.0) {
     return {
-        fill: toaRender.fillColor.withAlpha( toaRender.fillOpacity * dimFactor),
-        stroke: toaRender.strokeColor.withAlpha(dimFactor),
-        strokeWidth: toaRender.strokeWidth
+        fill: render.toa.fill.withAlpha( dimFactor),
+        stroke: render.toa.stroke.withAlpha(dimFactor),
+        strokeWidth: render.toa.strokeWidth
     };
 }
 
@@ -1184,7 +1158,8 @@ function addPointIgnitionSource(loc, t) {
 
     } else {
         if (src.length == 0) {
-            src = `! Elmfire ignition specification
+            src =
+`! Elmfire ignition specification
 NUM_IGNITIONS = 1
 `;
         } else {

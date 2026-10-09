@@ -30,6 +30,7 @@
     --border-width: 2px;
     --border: var(--border-width) solid var(--border-color);
     --box-shadow: 5px 5px 8px rgb(79, 1, 1);
+    --menu-box-shadow: 2px 2px rgb(79, 1, 1);
     --padding: 5px;
     --margin: 3px;
     --gap: 3px;
@@ -78,7 +79,7 @@
     --panel-background: var(--background);
     --container-title-font: var(--font);
     --container-title-color: var(--color);
-    --container-title-border: 1px solid var(--border-color); 
+    --container-title-border: 1px solid var(--border-color);
     --container-border: var(--border);
     --scrollbar-track-width: 0.6rem;
     --scrollbar-track-color: rgb(44, 44, 44);

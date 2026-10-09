@@ -64,12 +64,8 @@ run_actor_system!( actor_system => {
     let hfire = spawn_actor!( actor_system, "elmfire",
         ElmfireActor::new(
             odin_elmfire::load_config("elmfire.ron")?,
-            dataref_action!(
-                let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |run: &ElmfireRun| {
-                    let ws_msg = run.get_json_update_msg();
-                    Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
-                }
-            )
+            odin_elmfire::actor::server_update_action( pre_server.to_actor_handle()),
+            odin_elmfire::actor::server_remove_action( pre_server.to_actor_handle())
         )
     )?;
     let svc_list = svc_list.add( build_service!( let svc = ElmfireService::new( hfire) => svc));

@@ -34,6 +34,11 @@ export function filename(path) {
     return path.substring(idx+1);
 }
 
+export function stripExtension(fname) {
+    let idx = fname.lastIndexOf(".");
+    return (idx < 0) ? fname : fname.substring(0, idx);
+}
+
 /**
  * a simple (extended) glob pattern to RegExp translator
  * we handle the Java PathMatcher glob syntax
@@ -1529,4 +1534,16 @@ export function debounce(func, delaySecs) {
             func.apply(this, args);
         }, delaySecs * 1000);
     };
+}
+
+// return an new object that has its properties cloned from the original properties, including their prototypes. Do not clone below level 1
+export function levelOneCloneOf(original) {
+    let clone = {};
+
+    for (let key of Object.keys(original)) {
+        clone[key] = { ...original[key] };
+        Object.setPrototypeOf(clone[key], Object.getPrototypeOf(original[key]));
+    }
+
+    return clone;
 }

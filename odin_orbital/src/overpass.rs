@@ -14,7 +14,7 @@
 
  #![allow(unused)]
 
-use std::{collections::{HashMap, VecDeque}, f64, time::Duration as StdDuration, fmt, sync::Arc, path::{Path,PathBuf}};
+use std::{collections::{HashMap, VecDeque}, time::Duration as StdDuration, fmt, sync::Arc, path::{Path,PathBuf}};
 use odin_macro::public_struct;
 use satkit::{Instant,Duration,TLE,frametransform::qteme2itrf,itrfcoord::ITRFCoord,sgp4::sgp4};
 use numeris::vector;

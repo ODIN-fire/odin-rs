@@ -23,7 +23,7 @@ use anyhow::{bail, Context, Result, anyhow};
 use gdal::raster::GdalType;
 use gdal::Dataset;
 use minifb::{Key, MouseButton, MouseMode, Window, WindowOptions};
-use std::{f64, path::PathBuf};
+use std::{path::PathBuf};
 
 use odin_common::{define_cli, fs::path_as_str};
 

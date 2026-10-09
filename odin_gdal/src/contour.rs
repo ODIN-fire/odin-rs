@@ -303,8 +303,10 @@ pub fn to_fixed_level_geo_json<P: AsRef<Path>> (ds: &Dataset, band: usize, level
 
     contourer
         .set_band( band as i32)
+        //.set_attr_max_name( "level")?
+        .set_attr_name("level")?
         .set_fixed_levels( levels)
-        .set_poly()
+        //.set_poly()
         .set_quiet();
 
     contourer.exec()?;

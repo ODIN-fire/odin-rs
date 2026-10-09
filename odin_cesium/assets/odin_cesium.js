@@ -1391,20 +1391,25 @@ function handleKeyDown(e) {
 // animation that can be overridden with a simultaneous 'shiftKey'
 
 // global hotkeys - make sure these don't collide with module specific handlers
-function globalKeyDownHandler (event) {
+function globalKeyDownHandler(event) {
     //if (Object.is( event.target, document.body)) { // otherwise this wasn't for us
     if (event.altKey) {
-        if (event.key == "Home") {
-            setHomeView( event.shiftKey);
-        } else if (event.key == "PageDown" || event.key == "End") {
-            setDownView( event.shiftKey);
-        } else if (event.key == "Escape") {
-            clearSelectedEntity();
-        } else {
-            if (event.keyCode >= 49 && event.keyCode <= 57) {
-                let i = Math.min(event.keyCode - 49, config.zoomLevels.length-1);
-                zoomToHeight( config.zoomLevels[i], event.shiftKey);
-            }
+        switch (event.code) {
+            case "Home": setHomeView(event.shiftKey); break;
+            case "PageDown": setDownView(event.shiftKey); break;
+            case "ArrowRight": moveCameraLongitude(0.1, event.shiftKey); break;
+            case "ArrowLeft": moveCameraLongitude(-0.1, event.shiftKey); break;
+            case "ArrowUp": moveCameraLatitude(0.1, event.shiftKey); break;
+            case "ArrowDown": moveCameraLatitude(-0.1, event.shiftKey); break;
+            case "KeyO": moveCameraHeight(0.25, event.shiftKey); break;
+            case "KeyI": moveCameraHeight(-0.25, event.shiftKey); break;
+            case "Digit1": zoomToHeightLevel(1, event.shiftKey); break;
+            case "Digit2": zoomToHeightLevel(2, event.shiftKey); break;
+            case "Digit3": zoomToHeightLevel(3, event.shiftKey); break;
+            case "Digit4": zoomToHeightLevel(4, event.shiftKey); break;
+            case "Digit5": zoomToHeightLevel(5, event.shiftKey); break;
+            case "Digit6": zoomToHeightLevel(6, event.shiftKey); break;
+            case "Escape": clearSelectedEntity(); break;
         }
     }
 }
@@ -1526,10 +1531,32 @@ export function saveCamera() {
     //console.log(spec);
 }
 
+export function zoomToHeightLevel(level,instantaneous=false) {
+    let nLevels = config.zoomLevels.length;
+    let i = level - 1;
+    if (level < 1) i = 0;
+    else if (level >= nLevels) i = nLevels - 1;
+
+    zoomToHeight( config.zoomLevels[i], instantaneous);
+}
+
+// this is height above ground (no point moving inside globe)
 export function zoomToHeight (height,instantaneous=false) {
     let cp = viewer.camera.position;
     let pNew = Cesium.Ellipsoid.WGS84.scaleToGeodeticSurface( cp, new Cesium.Cartesian3());
     let ds = Cesium.Cartesian3.magnitude(pNew);
+    let a = (ds + height) / ds;
+    Cesium.Cartesian3.multiplyByScalar( pNew, a, pNew);
+
+    zoomTo(pNew,instantaneous);
+}
+
+export function moveCameraHeight(percent, instantaneous = false) {
+    let cp = viewer.camera.position;
+    let dCur = Cesium.Cartesian3.magnitude(cp);
+    let pNew = Cesium.Ellipsoid.WGS84.scaleToGeodeticSurface( cp, new Cesium.Cartesian3());
+    let ds = Cesium.Cartesian3.magnitude(pNew); // surface height
+    let height = (dCur - ds) * (1.0 + percent);
     let a = (ds + height) / ds;
     Cesium.Cartesian3.multiplyByScalar( pNew, a, pNew);
 
@@ -1561,6 +1588,30 @@ function setInitialView (instantaneous=false) {
 
 export function setHomeView(instantaneous=false) {
     setCamera(homePosition, instantaneous);
+}
+
+export function moveCameraLongitude(percent, instantaneous=false) {
+    let curExt = viewer.camera.computeViewRectangle(viewer.scene.globe.ellipsoid);
+    if (Cesium.defined(curExt)) {
+        let curPos = viewer.camera.positionCartographic;
+        let vwAngle = curExt.width;
+        let newLongitude = curPos.longitude + (vwAngle * percent);
+        let newCameraPos = Cesium.Cartesian3.fromRadians(newLongitude, curPos.latitude, curPos.height);
+
+        zoomTo(newCameraPos, instantaneous);
+    }
+}
+
+export function moveCameraLatitude(percent, instantaneous=false) {
+    let curExt = viewer.camera.computeViewRectangle(viewer.scene.globe.ellipsoid);
+    if (Cesium.defined(curExt)) {
+        let curPos = viewer.camera.positionCartographic;
+        let vhAngle = curExt.height;
+        let newLatitude = curPos.latitude + (vhAngle * percent);
+        let newCameraPos = Cesium.Cartesian3.fromRadians(curPos.longitude, newLatitude, curPos.height);
+
+        zoomTo(newCameraPos, instantaneous);
+    }
 }
 
 export function setCamera(camera,instantaneous=false) {

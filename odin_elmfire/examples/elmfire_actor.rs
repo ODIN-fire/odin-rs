@@ -23,7 +23,7 @@ use uom::si::{f64::Length,length::{kilometer, meter}};
 use odin_actor::prelude::*;
 
 use odin_common::geo::GeoPoint;
-use odin_elmfire::{ElmfireConfig, ElmFire, ElmfireRun, actor::ElmfireActor, get_fixed_steps, fixed_src_from_steps, load_config};
+use odin_elmfire::{ElmfireConfig, ElmFire, ElmfireRun, actor::ElmfireActor, fixed::{get_fixed_steps,fixed_src_from_steps}, load_config};
 
 /// to see info/debug run with "ODIN_TRACE=1 RUST_LOG=info ..." environment set
 
@@ -46,7 +46,8 @@ run_actor_system!( actor_system => {
             }
 
             Ok(())
-        })
+        }),
+        no_dataref_action() // we don't remove elmfire simulation runs
     ))?;
 
     let n_hours = 5;
@@ -58,7 +59,9 @@ run_actor_system!( actor_system => {
         &[ 3.0 ], // m10,
         &[ 4.0 ], // m100,
         &[ 30.0 ], // lh,
-        &[ 60.0 ] // lw
+        &[ 60.0 ], // lw
+        &[ 10.0 ], // tcc
+        &[ 90.0 ], // t2
     )?;
     let fixed = fixed_src_from_steps( &fixed_steps);
 

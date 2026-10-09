@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -24,7 +24,7 @@ export function render (entityCollection, renderOpts) {
 function cleanupPropertyNames (entity) {
     if (entity.properties && entity.properties.propertyNames) {
         let props = entity.properties;
-        // note that 'propertyNames' only has a getter so we have to modify in sity
+        // note that 'propertyNames' only has a getter so we have to modify in situ
         if (props.propertyNames) {
             let propNames = props.propertyNames;
             for (var i = 0; i<propNames.length;) {

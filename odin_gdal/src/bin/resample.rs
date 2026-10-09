@@ -21,7 +21,7 @@ use std::path::Path;
 use gdal::{Dataset, GdalOpenFlags};
 use odin_common::define_cli;
 use odin_gdal::grid::resample_ds;
-use odin_gdal::{FillNoDataAlg, fill_nodata, get_driver_from_filename, open_update, get_default_create_opts_from_filename};
+use odin_gdal::{FillNoDataAlg, fill_nodata, get_driver_from_filename, open_dataset_for_update, get_default_create_opts_from_filename};
 
 define_cli! { ARGS [about="resample dataset by given scale factors"] =
     in_file: String [help="input filename"],

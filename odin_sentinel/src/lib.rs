@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -13,12 +13,11 @@
  */
 #![allow(unused)]
 
-use std::u64;
 #[doc = include_str!("../doc/odin_sentinel.md")]
 
 use std::{
-    cmp::{min, Ordering}, collections::{HashMap, VecDeque}, fmt::{self,Debug}, 
-    fs::File, future::Future, io::{Read, Write}, ops::RangeBounds, path::{Path,PathBuf}, 
+    cmp::{min, Ordering}, collections::{HashMap, VecDeque}, fmt::{self,Debug},
+    fs::File, future::Future, io::{Read, Write}, ops::RangeBounds, path::{Path,PathBuf},
     rc::Rc, sync::{atomic::{self,AtomicU64}, Arc}, time::Duration
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize, Serializer};
@@ -37,9 +36,9 @@ use trait_set::trait_set;
 
 use odin_build::{define_load_asset, define_load_config, pkg_cache_dir};
 use odin_common::{
-    angle::{Latitude,Longitude}, 
-    datetime::{days, hours, minutes, secs, deserialize_duration, to_epoch_millis, Dated, EpochMillis}, 
-    fs::{ensure_writable_dir, get_filename_extension}, 
+    angle::{Latitude,Longitude},
+    datetime::{days, hours, minutes, secs, deserialize_duration, to_epoch_millis, Dated, EpochMillis},
+    fs::{ensure_writable_dir, get_filename_extension},
     geo::{GeoPoint3,GeoPoint4}
 };
 use odin_actor::{MsgReceiver, Query, ActorHandle};
@@ -100,19 +99,19 @@ trait_set! {
 #[derive(Deserialize,Debug,Clone)]
 #[serde(bound = "T: Serialize, for<'de2> T: Deserialize<'de2>")]
 #[serde(rename_all="camelCase")]
-pub struct SensorRecord <T> where T: RecordDataBounds {   
-    pub id: RecordId, 
+pub struct SensorRecord <T> where T: RecordDataBounds {
+    pub id: RecordId,
 
     pub time_recorded: DateTime<Utc>,
     pub sensor_no: u32,
     pub device_id: DeviceId,
 
-    pub evidences: Vec<RecordRef>, 
+    pub evidences: Vec<RecordRef>,
     pub claims: Vec<RecordRef>,
 
     // here is the crux - we get this as different properties ("gps" etc - it depends on T)
     // since we need to preserve the mapping for subsequent serializing we have to provide alias annotations (for de)
-    // *and* our own Serialize impl 
+    // *and* our own Serialize impl
     #[serde(alias="accelerometer",alias="anemometer",alias="cloudcover",alias="detection",alias="event",alias="fire",alias="image",alias="gas",alias="gps",alias="gyroscope",
             alias="magnetometer",alias="orientation",alias="person",alias="power",alias="smoke",alias="thermometer",alias="valve",alias="voc")]
     pub data: T,
@@ -124,7 +123,7 @@ impl<T> SensorRecord<T> where T: RecordDataBounds {
     }
 
     fn generic_description(&self)->String {
-        format!("(id:\"{}\",device_id:\"{}\",sensor_no:{},time_recorded:{},{})", 
+        format!("(id:\"{}\",device_id:\"{}\",sensor_no:{},time_recorded:{},{})",
             self.id, self.device_id, self.sensor_no, self.time_recorded, self.capability().property_name())
     }
 
@@ -205,7 +204,7 @@ pub struct RecordRef {
 /// enum to give us a single non-generic type we can use to wrap any record so that we can publish it through a single msg/callback slot.
 /// since the variants are just Arcs a SentinelUpdate is cheap to clone
 /// note this also defines respective From<SensorRecord<..>> impls
-define_algebraic_type!{ 
+define_algebraic_type!{
     #[serde(untagged)]
     pub SentinelUpdate: Clone + Serialize =
         Arc<SensorRecord<AccelerometerData>> |
@@ -263,16 +262,16 @@ define_sensor_data! { Accelerometer =
     pub az: f32,
 }
 
-define_sensor_data! { Anemometer = 
+define_sensor_data! { Anemometer =
     pub angle: Angle,
-    pub speed: Velocity 
+    pub speed: Velocity
 }
 
 define_sensor_data! { Cloudcover =
     pub percent: f32,
 }
 
-define_sensor_data! { Detection = 
+define_sensor_data! { Detection =
     pub classes: Vec<String>,
     pub confidences: Vec<f64>,
     pub bounding_boxes: Vec<[u32;4]>
@@ -364,7 +363,7 @@ define_sensor_data! { Voc =
    #[serde(rename = "eCO2")] pub e_co2: i32,
 }
 
-#[derive(Serialize,Deserialize,Debug,PartialEq,Copy,Clone,IntoStaticStr)] 
+#[derive(Serialize,Deserialize,Debug,PartialEq,Copy,Clone,IntoStaticStr)]
 #[serde(rename_all="lowercase")]
 #[strum(serialize_all="lowercase")]
 pub enum SensorCapability {
@@ -477,21 +476,21 @@ impl SentinelStore {
     pub fn new ()->Self {
         SentinelStore { sentinels: HashMap::new(), updates: HashMap::new() }
     }
-    
+
     pub async fn fetch_from_config (&mut self, client: &Client, config: &SentinelConfig)->Result<()> {
         let base_uri = config.base_uri.as_str();
         let access_token = config.access_token.as_str();
         let n_last = config.max_history_len;  // number of initial records to retrieve
         let max_len = config.max_history_len; // max number of records to keep
         let device_filter = &config.device_filter;
-    
+
         let device_list = get_device_list( client, base_uri, access_token).await?;
 
         for device in &device_list.data {
             if device_filter.is_empty() || device_filter.contains( &device.id) {
                 let device_name = if let Some(info) = &device.info { info.clone() } else { "?".to_string() };
                 let mut sentinel = Sentinel::new( device.id.clone(), device_name, max_len);
-        
+
                 let sensor_list = get_sensor_list( client, base_uri, access_token, device.id.as_str()).await?;
                 for sensor_data in &sensor_list.data {
                     for capability in &sensor_data.capabilities {
@@ -499,12 +498,12 @@ impl SentinelStore {
                         for u in updates { self.updates.insert( u.record_id().clone(), u); }
                     }
                 }
-        
+
                 sentinel.set_time_recorded(); // from latest sensor record
                 self.insert( sentinel.device_id.clone(), sentinel);
             }
         }
-    
+
         Ok(())
     }
 
@@ -572,7 +571,7 @@ impl SentinelStore {
     pub fn get_sentinel_states (&self)->Result<Vec<SentinelState>> {
         let list: Vec<SentinelState> = self.values().iter().map( |sentinel| sentinel.get_status()).collect();
         Ok(list)
-    } 
+    }
 
     // here our responsibility is to keep sentinels and updates in sync and report back what changed
     pub fn update_with (&mut self, sentinel_update: SentinelUpdate, max_len: usize)->SentinelChange {
@@ -581,16 +580,16 @@ impl SentinelStore {
         if let Some(ref mut sentinel) = self.sentinels.get_mut( sentinel_update.device_id()) {
             let (added_rec_id, removed_rec_id) = sentinel.update_with( sentinel_update);
 
-            let added = if let Some(added_rec_id) = added_rec_id { 
+            let added = if let Some(added_rec_id) = added_rec_id {
                 self.updates.insert(added_rec_id.clone(), update.clone());
-                Some(update) 
-            } else { 
+                Some(update)
+            } else {
                 None  // nothing added
             };
 
-            let removed = if let Some(removed_rec_id) = removed_rec_id { 
+            let removed = if let Some(removed_rec_id) = removed_rec_id {
                 self.updates.remove(&removed_rec_id) // only report as removed if it was stored
-            } else { 
+            } else {
                 None  // nothing removed
             };
 
@@ -667,7 +666,7 @@ define_struct! {
 impl Sentinel {
     /// initial bulk retrieval based on capability. Note these are homogenous record type retrievals, i.e. we know (and check) the type
     /// of the returned records
-    pub async fn init_records( &mut self, client: &Client, base_uri: &str, access_token: &str, 
+    pub async fn init_records( &mut self, client: &Client, base_uri: &str, access_token: &str,
                                sensor_no: u32, capability: SensorCapability, n_last: usize, max_len: usize)->Result<Vec<SentinelUpdate>> {
         let device_id = &self.device_id.as_str();
         use SensorCapability::*;
@@ -745,12 +744,12 @@ impl Sentinel {
         add_latest_recs( &self.valve, latest_recs);
         add_latest_recs( &self.voc, latest_recs);
     }
- 
+
     pub fn set_time_recorded (&mut self) {
         fn set_latest<T> (latest: &mut DateTime<Utc>, recs: &VecDeque<Arc<SensorRecord<T>>>) where T: RecordDataBounds {
-            if let Some(rec_date) = recs.front().map(|r| r.time_recorded) { 
+            if let Some(rec_date) = recs.front().map(|r| r.time_recorded) {
                 if rec_date > *latest { *latest = rec_date }
-            } 
+            }
         }
 
         let mut latest = DateTime::from_timestamp_millis(0).unwrap();
@@ -787,7 +786,7 @@ impl Sentinel {
                 gps.altitude.unwrap_or( Length::new::<meter>(0.0))
             };
 
-            Some( GeoPoint4::from_geo3_epoch( 
+            Some( GeoPoint4::from_geo3_epoch(
                 GeoPoint3::from_lon_lat_alt( gps.longitude, gps.latitude, alt),
                 dt.into()
             ))
@@ -807,11 +806,11 @@ impl Sentinel {
 
 /// device id and last update of a Sentinel
 #[derive(Debug,Serialize,Deserialize)]
-pub struct SentinelState { 
-    device_id: DeviceId, 
+pub struct SentinelState {
+    device_id: DeviceId,
 
     #[serde(skip_serializing_if = "Option::is_none", serialize_with = "odin_common::datetime::ser_epoch_millis_option")]
-    time_recorded: Option<DateTime<Utc>> 
+    time_recorded: Option<DateTime<Utc>>
 }
 
 /// non-generic type to send collection of SentinelState objects
@@ -819,7 +818,7 @@ pub struct SentinelState {
 pub struct SentinelStates(pub Vec<SentinelState>);
 
 
-pub fn get_closest_record_idx<T> (dt: DateTime<Utc>, recs: &VecDeque< Arc<SensorRecord<T>> >)->Option<usize> 
+pub fn get_closest_record_idx<T> (dt: DateTime<Utc>, recs: &VecDeque< Arc<SensorRecord<T>> >)->Option<usize>
     where T: RecordDataBounds
 {
     if recs.is_empty() {
@@ -834,8 +833,8 @@ pub fn get_closest_record_idx<T> (dt: DateTime<Utc>, recs: &VecDeque< Arc<Sensor
             let nd = i64::abs_diff(recs[i].time_recorded.timestamp_millis(), millis);
             if nd == 0 { return Some(i) }
 
-            if nd > d { 
-                return Some(idx) 
+            if nd > d {
+                return Some(idx)
             } else {
                 idx = i;
                 d = nd;
@@ -849,7 +848,7 @@ pub fn rec_key (device_id: &str, sensor_no: u32, capa: SensorCapability)->String
     format!("/devices/{}/sensors/{}/{}", device_id, sensor_no, capa.property_name())
 }
 
-fn add_latest_recs<T> (list: &VecDeque<Arc<SensorRecord<T>>>, latest_recs: &mut HashMap<String,String>)     
+fn add_latest_recs<T> (list: &VecDeque<Arc<SensorRecord<T>>>, latest_recs: &mut HashMap<String,String>)
     where T: RecordDataBounds
 {
     let mut sensors: Vec<u32> = Vec::with_capacity(2);
@@ -865,7 +864,7 @@ fn add_latest_recs<T> (list: &VecDeque<Arc<SensorRecord<T>>>, latest_recs: &mut 
 
 // note that most record lists only have a single sensor, but some (images) have several. The max_len is per
 // sensor so we have to sort in recs after the first sensor batch
-fn init_recs<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, recs: Vec<SensorRecord<T>>, max_len: usize)->Vec<SentinelUpdate> 
+fn init_recs<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, recs: Vec<SensorRecord<T>>, max_len: usize)->Vec<SentinelUpdate>
     where T: RecordDataBounds, SentinelUpdate: From<Arc<SensorRecord<T>>>
 {
     let mut updates = Vec::<SentinelUpdate>::with_capacity(recs.len());
@@ -873,13 +872,13 @@ fn init_recs<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, recs: Vec<SensorReco
     if list.is_empty() { // first sensor, recs is already time sorted
         for rec in recs.into_iter() {
             let rec = Arc::new(rec);
-            updates.push( rec.clone().into()); 
+            updates.push( rec.clone().into());
             list.push_back( rec);
         }
     } else { // different sensor, we have to sort in
         for rec in recs.into_iter() {
             let rec = Arc::new(rec);
-            updates.push( rec.clone().into()); 
+            updates.push( rec.clone().into());
             sort_in_record( list, rec, max_len);
         }
     }
@@ -919,7 +918,7 @@ pub fn sort_in_record<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, rec: Arc<Se
                 return (None,None)
             }
         }
-        if sensor_no == r.sensor_no { n_sensor_recs += 1; } 
+        if sensor_no == r.sensor_no { n_sensor_recs += 1; }
     }
 
     // if we get here it's the oldest record so check if it would exceed max_len before adding
@@ -932,15 +931,15 @@ pub fn sort_in_record<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, rec: Arc<Se
 }
 
 // find the first sensor rec from start_idx that exceeds max_len
-fn remove_excess_sensor_rec<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, sensor_no: u32, 
-                                start_idx: usize, n_sensor_recs: usize, max_len: usize)->Option<RecordId> 
+fn remove_excess_sensor_rec<T> (list: &mut VecDeque<Arc<SensorRecord<T>>>, sensor_no: u32,
+                                start_idx: usize, n_sensor_recs: usize, max_len: usize)->Option<RecordId>
     where T: RecordDataBounds
 {
     let mut n = n_sensor_recs;
 
     for i in start_idx..list.len() {
         if list[i].sensor_no == sensor_no { n += 1 }
-        if n > max_len { 
+        if n > max_len {
             return list.remove(i).map( |r| r.id.clone() );
         }
     }
@@ -961,8 +960,8 @@ pub struct SentinelConfig {
 
     pub max_history_len: usize, // maximum number of records to store per device/sensor capability
     pub max_age: Duration, // maximum age after which additional data (images etc.) are deleted
-    pub ping_interval: Option<Duration>, // interval duration for sending Ping messages on the websocket 
-    pub reconnect_delay: Option<Duration>, // sleep duration after which we try to re-initializa a broken websocket 
+    pub ping_interval: Option<Duration>, // interval duration for sending Ping messages on the websocket
+    pub reconnect_delay: Option<Duration>, // sleep duration after which we try to re-initializa a broken websocket
     pub device_filter: Vec<String>, // optional list of device_ids to filter for
 
     pub inactive_duration: Duration, // max duration since last update after which a device is considered to be inactive
@@ -994,7 +993,7 @@ pub fn sentinel_cache_dir()->PathBuf {
 }
 
 
-/// device information that is not obtained through Delphire server APIs 
+/// device information that is not obtained through Delphire server APIs
 #[derive(Serialize,Deserialize,Debug)]
 #[serde(rename_all(serialize="camelCase"))]
 pub struct SentinelDeviceInfo {
@@ -1022,7 +1021,7 @@ pub struct SensorInfo {
     pub fov_dist: f64,
 }
 
-define_algebraic_type! { 
+define_algebraic_type! {
     pub ExternalImage: Serialize + Deserialize = DirectUriImage
 
     pub fn name (&self)->&str { __.name.as_str() }
@@ -1047,7 +1046,7 @@ define_algebraic_type! {
 pub struct DirectUriImage {
     pub name: String,
     pub sensors: Vec<u32>, // Sentinel image sensor_no for which this external image can be used (empty means any one)
-    pub filename: String, // this is the filename stem 
+    pub filename: String, // this is the filename stem
     pub uri: String,
     //... and probably more to follow (e.g. location, fov, optional classifier, ...)
 }
@@ -1102,15 +1101,15 @@ pub type ExternalFileQuery = Query<GetExternalFile,SentinelFileResult>;
 pub trait SentinelConnector {
 
     async fn start (&mut self, hself: ActorHandle<SentinelActorMsg>) -> Result<()>;
- 
+
     // note that these future do not wait until the request was resolved - only until the request has been queued (if it needs to)
 
     async fn send_cmd (&mut self, cmd: ws::WsCmd) -> Result<()>;
 
     async fn handle_sentinel_file_query (&self, file_query: Query<GetSentinelFile,Result<SentinelFile>>) -> Result<()>;
- 
+
     fn terminate (&mut self);
- 
+
     fn max_history(&self)->usize;
 
     /// duration since last update after which we consider a device inactive
@@ -1162,28 +1161,28 @@ pub async fn get_sensor_list (client: &Client, base_uri: &str, access_token: &st
     Ok(sensor_list)
 }
 
-pub async fn get_time_sorted_records <T> (client: &Client, base_uri: &str, access_token: &str, 
-                              device_id: &str, sensor_no:u32, n_last: usize) -> Result<Vec<SensorRecord<T>>> 
+pub async fn get_time_sorted_records <T> (client: &Client, base_uri: &str, access_token: &str,
+                              device_id: &str, sensor_no:u32, n_last: usize) -> Result<Vec<SensorRecord<T>>>
     where T: RecordDataBounds
-{ 
+{
     let capability = T::capability();
     let uri = format!("{base_uri}/devices/{device_id}/sensors/{sensor_no}/{capability:?}?sort=timeRecorded,DESC&limit={n_last}");
     let response = client.get(uri).bearer_auth(access_token).send().await?;
-    let record_list: RecordList<T> = from_json(response).await?; 
+    let record_list: RecordList<T> = from_json(response).await?;
     Ok(record_list.data)
-} 
+}
 
-pub async fn get_records_since <T> (client: &Client, base_uri: &str, access_token: &str, uri_path: &str, last: &str) -> Result<Vec<SensorRecord<T>>> 
+pub async fn get_records_since <T> (client: &Client, base_uri: &str, access_token: &str, uri_path: &str, last: &str) -> Result<Vec<SensorRecord<T>>>
     where T: RecordDataBounds
 {
     let uri = format!("{base_uri}{uri_path}?sort=timeRecorded,DESC&last={last}"); // FIXME - the uri_path has a heading '/'
     let response = client.get(uri).bearer_auth(access_token).send().await?;
-    let record_list: RecordList<T> = from_json(response).await?; 
+    let record_list: RecordList<T> = from_json(response).await?;
     Ok(record_list.data)
 }
 
-pub async fn get_latest_record <T> (client: &Client, base_uri: &str, access_token: &str, 
-                                    device_id: &str, sensor_no:u32) -> Result<SensorRecord<T>> 
+pub async fn get_latest_record <T> (client: &Client, base_uri: &str, access_token: &str,
+                                    device_id: &str, sensor_no:u32) -> Result<SensorRecord<T>>
     where T: RecordDataBounds, SentinelUpdate: From<Arc<SensorRecord<T>>>
 {
     let mut recs = get_time_sorted_records::<T>( client, base_uri, access_token, device_id, sensor_no, 1).await?;

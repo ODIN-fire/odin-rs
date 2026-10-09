@@ -62,9 +62,9 @@ SIMULATION_TSTOP  = {{ t_stop_secs }}
 /
 {% endif %}
 
-&MONTE_CARLO
-NUM_METEOROLOGY_TIMES = {{ n_steps }}
-/
+! &MONTE_CARLO
+! NUM_METEOROLOGY_TIMES = {{ n_steps }}
+! /
 
 &SIMULATOR
 {{ ignitions | safe }}

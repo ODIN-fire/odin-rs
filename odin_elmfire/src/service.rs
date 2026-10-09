@@ -42,7 +42,7 @@ use uom::si::f64::{Velocity,Length,Ratio};
 
 use crate::{
     CACHE_DIR, DATA_DIR, ElmFire, ElmfireRun, FIXED_DIR, FixedInputStep, NML_RE, SPOTTING_DIR,
-    actor::{ElmfireActorMsg, ElmfireStore, ExecSnapshotAction},
+    actor::{ElmfireActorMsg, ElmfireStore, ExecSnapshotAction, RemoveElmFire},
     errors::{OdinElmfireError, Result},
     fixed, get_contents, get_saved_list, load_asset, remove_contents, save_contents
 };
@@ -173,6 +173,12 @@ impl SpaService for ElmfireService {
                         Err(e) => {
                             warn!("ignoring malformed ElmFire request: {}", e)
                         }
+                    }
+                }
+
+                "removeElmfire" => {
+                    if let Ok( remove_elmfire ) = serde_json::from_str::<RemoveElmFire>( ws_msg_parts.payload) {
+                        self.hactor.send_msg( remove_elmfire).await?;
                     }
                 }
 

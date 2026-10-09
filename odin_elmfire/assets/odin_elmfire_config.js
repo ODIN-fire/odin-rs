@@ -7,22 +7,33 @@ export const config = {
     maxEntries: 20,
 
     //--- fixed wx input defaults
-    fixedSpd: [5, 10, 15, 20, 30, 40, 50],
-    defaultSpd: 2,
-    fixedDir: [0, 45, 90, 135, 180, 225, 270, 315],
-    defaultDir: 7,
-    dfmMap: new Map([ // dead fuel moisture categories (1,10,100h) in %
-        ["low", [2, 5, 5]],
-        ["med", [5, 10, 10]],
-        ["high", [10, 15, 20]]
-    ]),
-    defaultDfm: 0,
+    fixedWs: [5, 10, 15, 20, 30, 40, 50],
+    defaultWs: 2,
+
+    fixedWd: [0, 45, 90, 135, 180, 225, 270, 315],
+    defaultWd: 7,
+
+    fixedM1: [0, 2, 5, 7, 10, 20],
+    defaultM1: 1,
+
+    fixedM10: [0, 5, 10, 15, 20],
+    defaultM10: 1,
+
+    fixedM100: [0, 10, 20, 30],
+    defaultM100: 1,
+
     lfmMap: new Map([ // live fuel moisture categories (herbaceous, woody) in %
         ["low", [25, 55]],
         ["med", [30, 60]],
         ["high", [35, 65]]
     ]),
     defaultLfm: 1,
+
+    fixedT2: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110],  // temperature at 2m
+    defaultT2: 7,
+
+    fixedTcc: [0, 30, 70, 100], // pervent total cloud coverage
+    defaultTcc: 0,
 
     pointSize: 4,
     pointColor: Cesium.Color.RED,
@@ -45,16 +56,20 @@ export const config = {
     billboardDC: new Cesium.DistanceDisplayCondition(0, 70000),
     billboardColor: Cesium.Color.YELLOW,
 
-    zoomHeight: 70000,
+    zoomHeight: 10000,
 
-    toaRender: {
-        stroke: Cesium.Color.YELLOW,
-        fill: Cesium.Color.RED.withAlpha(0.25),
-        strokeWidth: 1.2
-    },
-    flinRender: { color: Cesium.Color.RED },
-    vsRender: { color: Cesium.Color.MAGENTA },
-    cfRender: { color: Cesium.Color.GREENYELLOW },
-    flRender: { color: Cesium.Color.DEEPPINK },
+    imgOutput: [ "flin", "vs", "cf", "fl" ],
 
+    render: {
+        toa: {
+            stroke: Cesium.Color.YELLOW,
+            fill: Cesium.Color.RED.withAlpha(0.25),
+            strokeWidth: 1.2,
+            dimFactor: 0.7
+        },
+        flin: { color: Cesium.Color.RED },
+        vs: { color: Cesium.Color.MAGENTA },
+        cf: { color: Cesium.Color.GREENYELLOW },
+        fl: { color: Cesium.Color.DEEPPINK }
+    }
 };

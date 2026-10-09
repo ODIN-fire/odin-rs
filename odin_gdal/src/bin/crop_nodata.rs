@@ -15,7 +15,7 @@
 use std::path::Path;
 use gdal::Dataset;
 use odin_common::define_cli;
-use odin_gdal::{crop_no_data, get_interior_data_bounds, to_csl_string_list};
+use odin_gdal::{crop_to_interior_data, get_interior_data_bounds, to_csl_string_list};
 use odin_gdal::errors::Result;
 
 define_cli! { ARGS [about="crop provided GDAL raster file so that it does not contain NO_DATA values"] =
@@ -30,14 +30,14 @@ fn main()->Result<()> {
     let (width,height) = src_ds.raster_size();
 
     println!("original size: width = {width}, height = {height}");
-    let bbox = get_interior_data_bounds( &src_ds, 1)?;
-    println!("cropped size:  width = {}, height = {}", bbox.east - bbox.west, bbox.south - bbox.north);
-    println!("cropped to {bbox:?}");
+    let bounds = get_interior_data_bounds( &src_ds, 1)?;
+    println!("cropped size:  width = {}, height = {}", bounds.width, bounds.height);
+    println!("cropped to {bounds:?}");
 
     if let Some(tgt_pathname) = &ARGS.tgt_path {
         let tgt_path = Path::new( tgt_pathname);
         let create_opts = to_csl_string_list(&ARGS.co)?;
-        crop_no_data( &src_ds, tgt_path, create_opts)?;
+        crop_to_interior_data( &src_ds, tgt_path, create_opts)?;
     }
     Ok(())
 }

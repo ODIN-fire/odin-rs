@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -17,7 +17,7 @@
 use std::path::Path;
 use gdal::{Dataset, GdalOpenFlags};
 use odin_common::define_cli;
-use odin_gdal::{fill_nodata,FillNoDataAlg,open_update};
+use odin_gdal::{fill_nodata,FillNoDataAlg,open_dataset_for_update};
 use odin_gdal::errors::Result;
 
 define_cli! { ARGS [about="fill GDAL raster file with NO_DATA values"] =
@@ -30,7 +30,7 @@ define_cli! { ARGS [about="fill GDAL raster file with NO_DATA values"] =
 fn main()->Result<()> {
     let path = Path::new(ARGS.path.as_str());
 
-    let mut ds = open_update( path)?;
+    let mut ds = open_dataset_for_update( path)?;
 
     fill_nodata( &mut ds, ARGS.max_dist, ARGS.smooth, ARGS.alg)?;
 

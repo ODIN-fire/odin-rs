@@ -28,7 +28,8 @@ use serde::{Serialize,Deserialize};
 use serde::ser::{Serialize as SerializeTrait, SerializeSeq, Serializer, SerializeStruct};
 use serde::de::{self, Deserialize as DeserializeTrait, Deserializer, Visitor, SeqAccess, MapAccess};
 use rkyv::{
-    Archive, Deserialize as RkyvDeserialize, Place, Serialize as RkyvSerialize, access, deserialize, rancor::Error, to_bytes, traits::NoUndef, with::{ArchiveWith, DeserializeWith, SerializeWith}
+    Archive, Deserialize as RkyvDeserialize, Place, Serialize as RkyvSerialize, access, deserialize,
+    rancor::Error, to_bytes, traits::NoUndef, with::{ArchiveWith, DeserializeWith, SerializeWith}
 };
 use bytecheck;
 
@@ -46,13 +47,14 @@ use uom::si::length::{meter,foot};
 
 use chrono::{DateTime,TimeZone,Utc};
 
-use crate::{cartesian3::Cartesian3, round_to_decimals, strings::format_float};
-use crate::cartographic::Cartographic;
-use crate::impl_deserialize_struct;
-use crate::angle::{normalize_180, normalize_90, Angle360, Latitude, Longitude};
-use crate::geo_constants::{EQUATORIAL_EARTH_RADIUS,F_EARTH};
-use crate::datetime::{Dated, EpochMillis};
-use crate::json_writer::{JsonWritable,JsonWriter,NumFormat};
+use crate::{
+    cartesian3::Cartesian3, round_to_decimals, strings::format_float, BoundingBox,
+    cartographic::Cartographic, impl_deserialize_struct,
+    angle::{normalize_180, normalize_90, Angle360, Latitude, Longitude},
+    geo_constants::{EQUATORIAL_EARTH_RADIUS,F_EARTH},
+    datetime::{Dated, EpochMillis},
+    json_writer::{JsonWritable,JsonWriter,NumFormat}
+};
 
 pub type GeoCoord = Coord<f64>;
 
@@ -306,6 +308,10 @@ impl GeoRect {
 
     pub fn from_wsen_degree_array ( a: &[f64;4]) -> Self {
         GeoRect( Rect::new( Point::new( a[0], a[1]), Point::new( a[2], a[3]) ) )
+    }
+
+    pub fn from_bbox_degrees (bbox: &BoundingBox<f64>) -> Self {
+        GeoRect( Rect::new( Point::new( bbox.west, bbox.south), Point::new( bbox.east, bbox.north) ) )
     }
 
     pub fn from_center (geo_center: &GeoPoint, width: Length, height: Length) -> Self {

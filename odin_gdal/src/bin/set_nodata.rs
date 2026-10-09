@@ -19,7 +19,7 @@
 use std::path::Path;
 use gdal::{Dataset, GdalOpenFlags};
 use odin_common::define_cli;
-use odin_gdal::{fill_nodata,FillNoDataAlg,open_update};
+use odin_gdal::{fill_nodata,FillNoDataAlg,open_dataset_for_update};
 use odin_gdal::errors::Result;
 
 define_cli! { ARGS [about="set NO_DATA value of raster data set"] =
@@ -30,7 +30,7 @@ define_cli! { ARGS [about="set NO_DATA value of raster data set"] =
 fn main()->Result<()> {
     let path = Path::new(ARGS.file.as_str());
 
-    let mut ds = open_update( path)?;
+    let mut ds = open_dataset_for_update( path)?;
     let n_bands = ds.raster_count();
     let value = ARGS.value;
 

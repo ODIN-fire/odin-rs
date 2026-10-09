@@ -23,6 +23,7 @@ use std::{
     path::{Path,PathBuf}, result::Result as StdResult, sync::Arc, time::Duration
 };
 use chrono::{DateTime,Utc,Timelike};
+use interp::{InterpMode, interp_slice};
 use serde::{Serialize,Deserialize};
 use ron;
 use lazy_static::lazy_static;
@@ -50,17 +51,19 @@ use gdal::Dataset;
 use odin_build::{define_load_asset, define_load_config, pkg_cache_dir, pkg_data_dir};
 use odin_macro::public_struct;
 use odin_common::{
-    BoundingBox, angle::Angle360, apply_index_margin, as_min_max,
-    datetime::{self, as_minutes, full_hour, hours, short_utc_datetime_string, to_epoch_millis},
+    BoundingBox, IndexBounds2D, angle::Angle360, apply_index_margin, as_min_max,
+    datetime::{self, as_minutes, full_hour, hours, minutes, secs_f64, short_utc_datetime_string, to_epoch_millis},
     fs::{ EnvPathBuf, ensure_writable_dir, filepath_contents_as_string, filestem, find_first_match_in_dir, matching_files_in_dir, path_as_str, set_filepath_contents},
-    geo::{GeoPoint,GeoRect},
-    json_writer::{JsonEscapedStr, JsonWritable, JsonWriter, NumFormat},
-    run_captured_cmd,
+    geo::{GeoPoint,GeoRect}, json_writer::{JsonEscapedStr, JsonWritable, JsonWriter, NumFormat}, run_captured_cmd,
     utm::{UtmPoint, UtmRect, geo_to_utm, try_geo_to_utm_zone},
 };
 use odin_gdal::{
-    geods::GeoDs, get_mem_driver, get_raster_info, crop_mem_dataset, get_exterior_data_bounds, replace_rasterband_value,
-    warp::{ResampleAlg, SimpleWarpBuilder}
+    colorize::to_cmap,
+    contour::to_fixed_level_geo_json, copy_mem_dataset, crop_dataset, crop_mem_dataset,
+    geods::GeoDs,
+    get_band_value_range, get_exterior_data_bounds, get_geo_rect, get_gtiff_create_opts, get_gtiff_driver, get_mem_driver,
+    get_raster_info, get_rasterband_as_vec, get_resolution, open_dataset, read_rasterband_into_slice, replace_rasterband_value,
+    warp::{ResampleAlg, SimpleWarpBuilder, warp_to_res_mem, warp_to_res_tif, warp_to_wgs84_mem, warp_to_wgs84_tif}
 };
 use odin_openmeteo::get_fc_days;
 use odin_landfire::{evt_cats::{EVT_CATEGORIES, EvtCategories}, get_evt_values_at_utm_points};
@@ -72,9 +75,12 @@ pub mod input;
 use input::{create_fixed_input, create_internal_input, create_landfire_input, create_wx_based_input};
 
 pub mod actor;
+
 pub mod service;
 pub use service::ElmfireService;
+
 pub mod fixed;
+use fixed::{FixedInputStep,parse_fixed_wx_lines};
 
 pub mod errors;
 use errors::{OdinElmfireError,Result,op_failed};
@@ -89,9 +95,9 @@ lazy_static! {
     pub static ref FIXED_DIR: PathBuf = DATA_DIR.join("fixed");
     pub static ref NML_RE: Regex = Regex::new( r#"^[^._].*\.nml"#).unwrap(); // namelist file pattern
 
-    pub static ref FLIN_RE: Regex = Regex::new( r#"flin_.*\.tif"#).unwrap();
+    pub static ref FLIN_RE: Regex = Regex::new( r#"flin_\d+_\d+.*\.tif"#).unwrap();
     pub static ref TOA_RE: Regex = Regex::new( r#"time_of_arrival_.*\.tif"#).unwrap();
-    pub static ref VS_RE: Regex = Regex::new( r#"vs_.*\.tif"#).unwrap();
+    pub static ref VS_RE: Regex = Regex::new( r#"vs_\d+_\d+.*\.tif"#).unwrap();
     pub static ref CF_RE: Regex = Regex::new( r#"crown_fire_.*\.tif"#).unwrap();
     pub static ref FL_RE: Regex = Regex::new( r#"flame_length_.*\.tif"#).unwrap();
     pub static ref AREA_RE: Regex = Regex::new( r#"acres_.*\.csv"#).unwrap();
@@ -126,94 +132,14 @@ struct ElmfireConfig {
     input_dt: Duration,       // meteorologicel time step length
     small_fire_cells: usize,  // number of cells for final perimeter we consider as small fire (needs post-processing to avoid pixelized contour artifacts)
 
-    elmfire_cmd: EnvPathBuf   // the Elmfire executable
-}
+    elmfire_cmd: EnvPathBuf,   // the Elmfire executable
 
-/// structure with given wx and fuel data values for the same time point.
-/// Used to construct time/location dependent Elmfire inputs for wind and fuel moisture
-/// We need this
-#[derive(Debug,Clone, Serialize, Deserialize)]
-#[public_struct]
-struct FixedInputStep {
-    ws: Velocity,
-    wd: Angle360,
-    m1: Ratio,
-    m10: Ratio,
-    m100: Ratio,
-    lh: Ratio,
-    lw: Ratio
-}
-
-/// parse input with NML (Fortran Name List) formatted key=val,.. entries
-pub fn parse_fixed_wx_lines (src: &str, n_hours: usize)->Result<Vec<FixedInputStep>> {
-    let mut ws: Vec<f64> = Vec::with_capacity(0);
-    let mut wd: Vec<f64> = Vec::with_capacity(0);
-    let mut m1: Vec<f64> = Vec::with_capacity(0);
-    let mut m10: Vec<f64> = Vec::with_capacity(0);
-    let mut m100: Vec<f64> = Vec::with_capacity(0);
-    let mut lh: Vec<f64> = Vec::with_capacity(0);
-    let mut lw: Vec<f64> = Vec::with_capacity(0);
-
-    for line in src.lines() {
-        if let Some( (k,vs) ) = parse_nml_array_line(line).map_err( |e| op_failed!("invalid input line: {}", e))? {
-            match k.as_str() {
-                "ws" => ws = vs,
-                "wd" => wd = vs,
-                "m1" => m1 = vs,
-                "m10" => m10 = vs,
-                "m100" => m100 = vs,
-                "lh" => lh = vs,
-                "lw" => lw = vs,
-                o => return Err( op_failed!("unknown wx variable '{}'", o))
-            }
-        }
-    }
-
-    get_fixed_steps( n_hours, &ws, &wd, &m1, &m10, &m100, &lh, &lw)
-}
-
-pub fn fixed_src_from_steps (steps: &[FixedInputStep])->String {
-    let ws = steps.iter().map( |s| format!("{:.1}",s.ws.get::<mile_per_hour>())).collect::<Vec<String>>().join(",");
-    let wd = steps.iter().map( |s| format!("{:.0}", s.wd.degrees())).collect::<Vec<String>>().join(",");
-    let m1 = steps.iter().map( |s| format!("{:.0}", s.m1.get::<percent>())).collect::<Vec<String>>().join(",");
-    let m10 = steps.iter().map( |s| format!("{:.0}", s.m10.get::<percent>())).collect::<Vec<String>>().join(",");
-    let m100 = steps.iter().map( |s| format!("{:.0}", s.m100.get::<percent>())).collect::<Vec<String>>().join(",");
-    let lh = steps.iter().map( |s| format!("{:.0}", s.lh.get::<percent>())).collect::<Vec<String>>().join(",");
-    let lw = steps.iter().map( |s| format!("{:.0}", s.lw.get::<percent>())).collect::<Vec<String>>().join(",");
-
-    format!("ws={ws}\nwd={wd}\nm1={m1}\nm10={m10}\nm100={m100}\nlh={lh}\nlw={lw}\n")
-}
-
-/// turn lists of primitive input values into a vec of FxiedInputSteps. All provided input value slices have to be non-empty.
-/// If an input value slice has not enough elements for a time step it is filled up with the last element
-pub fn get_fixed_steps (n_steps: usize, ws_mph: &[f64], wd_deg: &[f64], m1: &[f64], m10: &[f64], m100: &[f64], lh: &[f64], lw: &[f64])->Result<Vec<FixedInputStep>> {
-    if ws_mph.is_empty() || wd_deg.is_empty() || m1.is_empty() || m10.is_empty() || m100.is_empty() || lh.is_empty() || lw.is_empty(){
-        return Err( op_failed!("missing FixedInputStep component"))
-    }
-
-    let mut vs: Vec<FixedInputStep> = Vec::with_capacity( n_steps);
-
-    let ws_len = ws_mph.len();
-    let wd_len = wd_deg.len();
-    let m1_len = m1.len();
-    let m10_len = m10.len();
-    let m100_len = m100.len();
-    let lh_len = lh.len();
-    let lw_len = lw.len();
-
-    for i in 0..n_steps {
-        let ws = Velocity::new::<mile_per_hour>( if i < ws_len { ws_mph[i] } else { ws_mph[ws_len-1] });
-        let wd = Angle360::from_degrees( if i < wd_len { wd_deg[i] } else { wd_deg[wd_len-1] });
-        let m1 = Ratio::new::<percent>( if i < m1_len { m1[i] } else { m1[m1_len-1] });
-        let m10 = Ratio::new::<percent>( if i < m10_len { m10[i] } else { m10[m10_len-1] });
-        let m100 = Ratio::new::<percent>( if i < m100_len { m100[i] } else { m100[m100_len-1] });
-        let lh = Ratio::new::<percent>( if i < lh_len { lh[i] } else { lh[lh_len-1] });
-        let lw = Ratio::new::<percent>( if i < lw_len { lw[i] } else { lw[lw_len-1] });
-
-        vs.push( FixedInputStep{ws,wd,m1,m10,m100,lh,lw});
-    }
-
-    Ok( vs )
+    // Elmfire raster output colorization
+    toa_colors: Vec<u32>,
+    flin_colors: Vec<u32>,
+    vs_colors: Vec<u32>,
+    cf_colors: Vec<u32>,
+    fl_colors: Vec<u32>,
 }
 
 
@@ -223,8 +149,7 @@ pub struct ElmfireOutput {
     pub stats: Vec<FireStats>, // at the end of the simulation
     pub area: Vec<AreaSnapshot>,
     pub comp_stats: ComputedStats,
-    pub files: Vec<String>, // filenames of generated images and geojsons
-    pub geo_rect: GeoRect // wgs84 bounding box of files (if any)
+    pub raster_products: Vec<(String,GeoRect)>
 }
 
 assert_impl_all!( ElmfireOutput : Send,Sync);
@@ -233,7 +158,8 @@ assert_impl_all!( ElmfireOutput : Send,Sync);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AreaSnapshot {
     pub date: DateTime<Utc>,
-    pub area: Area
+    pub area: Area,
+    pub growth: Ratio
 }
 
 impl JsonWritable for AreaSnapshot {
@@ -241,6 +167,7 @@ impl JsonWritable for AreaSnapshot {
         w.write_object(|w| {
             w.write_date_field("date", self.date);
             w.write_f64_field("area", self.area.get::<acre>(), NumFormat::Fp1);
+            w.write_f64_field("growth", self.growth.get::<percent>(), NumFormat::Fp0);
         });
     }
 }
@@ -306,7 +233,7 @@ pub struct ElmFire {
     pub geo_center: GeoPoint, // center of fire simulation
     pub utm_rect: UtmRect, // geographic simulation bounds
 
-    pub base_date: DateTime<Utc>, // this is the base date for the Elmfire run (full hour, likely before start_date)
+    pub base_date: DateTime<Utc>, // this is the base date for the Elmfire run (full hour time before start date). Basis for wx-retrieval
     pub start_date: DateTime<Utc>, // of the simulation (usually first ignition)
     pub n_hours: u32, // duration of simulation in hours
 
@@ -457,8 +384,10 @@ impl ElmFire {
         1800 // TODO - maybe we should make this configurable
     }
 
+    /// this is simulation end time in seconds relative to base date so we have to take the first ignition into account
+    /// note we compute 30min past n_hours from first ignition to avoid isochrone contour artifacts in the outer ring
     pub fn t_stop (&self)->i64 {
-        (self.n_hours * 3600) as i64 + 1800  // note we always compute 30min past n_hours to avoid contour artifacts in the outer ring
+        self.t_start() + (self.n_hours * 3600) as i64 + 1800
     }
 
     // seconds between first ignition timestamp and the base wx timestamp
@@ -483,71 +412,30 @@ impl ElmFire {
     }
 
     pub fn process_outputs (&self, config: &ElmfireConfig)->Result<ElmfireOutput> {
-        let mut area: Vec<AreaSnapshot> = Vec::with_capacity(0);
-        let mut stats: Vec<FireStats> = Vec::with_capacity(0);
-        let mut files: Vec<String> = Vec::new();
+        let dir = self.get_output_dir();
 
-        let output_dir = self.get_output_dir();
+        let raster_products = process_ef_raster_output(config, &dir)?;
 
-        // fireline intensity output raster (always on so we use it to get the geo_rect)
-        let ds = process_raster_output(&output_dir, &FLIN_RE, "flin_wgs84.tif", "flin.png", Some(0.02..0.99))?;
-        let geo_rect = odin_gdal::get_geo_rect(&ds)?; // will be the same for all so we just need to compute once
-        let (flin_min,flin_max) = as_min_max( odin_gdal::get_band_value_range( &ds, 1)? );
-        files.push( "flin.png".into());
+        let ds = open_dataset( &dir.join("toa_wgs84.tif"))?;
+        process_contour( &ds, &dir.join("toa.geojson"), config.small_fire_cells, self.t_start(), self.n_hours)?;
 
-        // spread rate output raster
-        let ds = process_raster_output(&output_dir, &VS_RE, "vs_wgs84.tif", "vs.png", Some(0.02..0.99))?;
-        let (vs_min, vs_max) = as_min_max( odin_gdal::get_band_value_range( &ds, 1)? );
-        files.push("vs.png".into());
+        let flin_range = get_band_value_range( &open_dataset( &dir.join("flin_wgs84.tif"))?, 1)?;
+        let vs_range = get_band_value_range( &open_dataset( &dir.join("vs_wgs84.tif"))?, 1)?;
+        let fl_range = get_band_value_range( &open_dataset( &dir.join("fl_wgs84.tif"))?, 1)?;
 
-        // flame length raster
-        let ds = process_raster_output(&output_dir, &FL_RE, "fl_wgs84.tif", "fl.png", Some(0.02..0.99))?;
-        let (fl_min, fl_max) = as_min_max( odin_gdal::get_band_value_range( &ds, 1)? );
-        files.push("fl.png".into());
+        let cell_size = Area::new::<square_meter>( (config.lf_res_m as f64).powi(2));
+        let area = compute_areas_from_toa( &dir.join("toa.tif"), &self.start_date, &contour_levels(self.t_start(), self.n_hours), cell_size)?;
 
-        // crown fire raster (don't adjust ranges)
-        process_raster_output(&output_dir, &FL_RE, "cf_wgs84.tif", "cf.png", None)?;
-        files.push("cf.png".into());
-
-        if let Some(area_path) = find_first_match_in_dir( &output_dir, &AREA_RE) {
-            area = parse_area( &area_path, self.base_date)?;
-        }
-
-        if let Some(stats_path) = find_first_match_in_dir( &output_dir, &STATS_RE) {
-            stats = parse_fire_stats( &stats_path, self.base_date)?;
-        }
+        let path = find_first_match_in_dir( &dir, &STATS_RE).ok_or( op_failed!("no fire_size_stats"))?;
+        let stats = parse_fire_stats( &path, self.base_date)?;
 
         let comp_stats = ComputedStats {
-            flin_max: LinearPowerDensity::new::<watt_per_meter>(flin_max * 1000.0), // we get it in kW/m
-            fl_max: Length::new::<foot>(fl_max),
-            vs_max: Velocity::new::<foot_per_minute>(vs_max)
+            flin_max: LinearPowerDensity::new::<watt_per_meter>(flin_range.end * 1000.0), // we get it in kW/m
+            fl_max: Length::new::<foot>(fl_range.end),
+            vs_max: Velocity::new::<foot_per_minute>(vs_range.end)
         };
 
-        // time-of-arrival contours (we might have to pre-process toa_wgs84.tif if this is a small fire)
-        if let Some(utm_path) = find_first_match_in_dir( &output_dir, &TOA_RE) {
-            let wgs84_path = output_dir.join("toa_wgs84.tif");
-            let mut ds = odin_gdal::warp::warp_to_wgs84( &utm_path, &wgs84_path, vec![-9999.0])?;
-
-            if let Some(final_area) = area.last().map(|a| a.area) {
-                if self.is_small_area_fire( config, final_area) {
-                    let mod_wgs84_path = output_dir.join("toa_wgs84_mod.tif");
-                    ds = pre_process_small_toa_raster( &ds, self.n_hours, &mod_wgs84_path)?;
-                }
-            }
-
-            let json_path = output_dir.join("toa.geojson");
-            let levels = contour_levels( self.n_hours);
-            odin_gdal::contour::to_fixed_level_geo_json( &ds, 1, &levels, &json_path)?;
-
-            files.push("toa.geojson".into());
-        }
-
-        Ok( ElmfireOutput { stats, area, comp_stats, files, geo_rect } )
-    }
-
-    fn is_small_area_fire (&self, config: &ElmfireConfig, final_area: Area)->bool {
-        let cell_area = (config.lf_res_m * config.lf_res_m) as f64;
-        (final_area.get::<square_meter>() / cell_area) as usize <= config.small_fire_cells
+        Ok( ElmfireOutput { stats, area, comp_stats, raster_products } )
     }
 
     async fn execute (&self, config: &ElmfireConfig)->Result<ElmfireOutput> {
@@ -566,6 +454,101 @@ impl ElmFire {
     }
 }
 
+fn get_ds (output_dir: &PathBuf, regex: &Regex)->Result<Dataset> {
+    let path = find_first_match_in_dir( output_dir, regex).ok_or( op_failed!("no '{}' output", regex.to_string()))?;
+    Ok( open_dataset( &path)? )
+}
+
+pub fn process_ef_raster_output (config: &ElmfireConfig, dir: &PathBuf)->Result<Vec<(String,GeoRect)>> {
+    let mut raster_products = Vec::with_capacity(5);
+
+    let toa_ds = get_ds( &dir, &TOA_RE)?;
+    let (n_cols, n_rows) = toa_ds.raster_size();
+    let idx_bounds = get_exterior_data_bounds( &toa_ds, 1)?.apply_margin( 10, n_cols, n_rows);
+
+    // create cropped UTM (metric) toa dataset as basis for area computation
+    crop_dataset( &toa_ds, &get_gtiff_driver(), &dir.join("toa.tif"), Some(get_gtiff_create_opts()), &idx_bounds)?;
+
+    // note we neither scale (up-sample) nor apply an outlier filter to PNG colorization. Both would not work
+    // well with nodata boundaries and we actually might want to give a visual feedback regarding the computational grid/precision
+
+    //let scale_factor = if (idx_bounds.width * idx_bounds.height) < config.small_fire_cells { Some(2.0) } else { None }; // could be adaptive
+    let scale_factor = None;
+    let alg = ResampleAlg::NearestNeighbour;
+
+    let ds = process_raster_file( toa_ds, &dir.join("toa_wgs84.tif"), &dir.join("toa.png"),
+                                    &idx_bounds, &scale_factor, alg, &config.toa_colors, None)?; // no outliers here
+    let geo_rect = get_geo_rect(&ds)?; // they are all the same so we have to get this just once
+    raster_products.push( ("toa.png".into(), geo_rect.clone()));
+
+    process_raster_file( get_ds( &dir, &FLIN_RE)?, &dir.join("flin_wgs84.tif"), &dir.join("flin.png"),
+                                    &idx_bounds, &scale_factor, alg, &config.flin_colors, None)?;
+    raster_products.push( ("flin.png".into(), geo_rect.clone()));
+
+    process_raster_file( get_ds( &dir, &VS_RE)?, &dir.join("vs_wgs84.tif"), &dir.join("vs.png"),
+                                    &idx_bounds, &scale_factor, alg, &config.vs_colors, None)?;
+    raster_products.push( ("vs.png".into(), geo_rect.clone()));
+
+    process_raster_file( get_ds( &dir, &FL_RE)?, &dir.join("fl_wgs84.tif"), &dir.join("fl.png"),
+                                    &idx_bounds, &scale_factor, alg, &config.fl_colors, None)?;
+    raster_products.push( ("fl.png".into(), geo_rect.clone()));
+
+    process_raster_file( get_ds( &dir, &CF_RE)?, &dir.join("cf_wgs84.tif"), &dir.join("cf.png"),
+                                   &idx_bounds, &scale_factor, alg, &config.cf_colors, None)?;
+    raster_products.push( ("cf.png".into(), geo_rect));
+
+    Ok( raster_products )
+}
+
+pub fn process_raster_file<P: AsRef<Path>> (
+    ef_ds: Dataset,
+    wgs84_path: P,
+    png_path: P,
+    idx_bounds: &IndexBounds2D,
+    scale_factor: &Option<f64>,
+    alg: ResampleAlg,
+    cmap: &[u32],
+    pct_range:Option<Range<f64>>
+)->Result<Dataset>
+{
+    if wgs84_path.as_ref().is_file() { remove_file( &wgs84_path)? }
+    if png_path.as_ref().is_file() { remove_file( &png_path)?; }
+
+    let ds = crop_mem_dataset( &ef_ds, idx_bounds)?;
+    let mut ds = warp_to_wgs84_tif( &ds, &wgs84_path, vec![-9999.0])?;
+
+    // up-sampling does not easily work with nodata boundaries. For interpolating resampling algorithms we would have to use
+    // an approach like for contour generation, i.e. fill nodata regions with a value that pushes the interpolation into
+    // a range we could easily identify during subsequent to_cmap translation
+
+    if let Some(sf) = scale_factor {
+        let (x_res, y_res) = get_resolution( &ds)?;
+        ds = warp_to_res_tif( &ds, &wgs84_path, x_res / *sf, y_res / *sf, alg)?;
+    }
+
+    to_cmap( png_path, &ds, 1, pct_range, &cmap)?;
+    Ok(ds)
+}
+
+pub fn process_contour<P: AsRef<Path>> (ds: &Dataset, json_path: P, cell_threshold: usize, start_secs: i64, n_hours: u32)->Result<()> {
+    let (n_cols, n_rows) = ds.raster_size(); // this is already cropped so no need to crop again
+    let mut ds = copy_mem_dataset(ds)?;
+
+    // fill nodata (before we potentially upsample so that nodata positions are preserved)
+    let max_toa = ((n_hours + 1) * 3600) as f32;
+    replace_rasterband_value( &mut ds, 1, -9999.0, max_toa)?;
+
+    if n_cols * n_rows < cell_threshold {
+        let (x_res, y_res) = get_resolution(&ds)?;
+        ds = warp_to_res_mem( &ds, x_res / 2.0, y_res / 2.0, ResampleAlg::CubicSpline)?;
+    }
+
+    let levels = contour_levels( start_secs, n_hours);
+    to_fixed_level_geo_json( &ds, 1, &levels, json_path)?;
+
+    Ok(())
+}
+
 /// generate (UTM-based) Elmfire ignitions source for given ignition-points
 /// note that all points need to have the same utm_zone
 pub fn point_ignition_src (igns: &[(GeoPoint,i64)])->Result<String> {
@@ -581,65 +564,53 @@ pub fn point_ignition_src (igns: &[(GeoPoint,i64)])->Result<String> {
     Ok( s )
 }
 
-/// the time steps (in seconds) for which we want to compute time-of-arival contour isochlines
-/// this should always be one half-hour isocline less than the requested n_hours so that we avoid jagged contour artifacts
-pub fn contour_levels (n_hours: u32)->Vec<f64> {
-    let max = (n_hours * 2) as usize;
-    let mut levels: Vec<f64> = Vec::with_capacity(max);
-    for i in 1..=max {
-        levels.push( i as f64 * 1800.0)
+/// the time steps (in seconds) for which we want to compute time-of-arival contour isochrones
+/// this starts 30min after first ignition and covers n_hours (from first ignition)
+pub fn contour_levels (start_secs: i64, n_hours: u32)->Vec<f64> {
+    let mut levels: Vec<f64> = Vec::with_capacity( n_hours as usize *2);
+    let t_max = (start_secs + (n_hours as i64 * 3600) + 1) as f64;
+    let mut t = (start_secs + 1800) as f64;
+
+    while (t < t_max) {
+        levels.push(t);
+        t += 1800.0;
     }
+
     levels
 }
 
+/// we compute this ourselves so that we could extend it to get additional information such as growth per 30min interval
+/// we can also control how holes are counted (e.g. water or developed)
+pub fn compute_areas_from_toa<P: AsRef<Path>> (path: P, start: &DateTime<Utc>, levels: &[f64], cell_size: Area)->Result<Vec<AreaSnapshot>> {
+    let ds = open_dataset(path)?;
+    let mut vs: Vec<f32> = get_rasterband_as_vec( &ds, 1)?;
+    let nodata: f32 = -9999.0;
 
-/// to avoid artifacts and jagged outer contour lines for small fires we have to crop the image to the data range
-/// (plus some nodata margin), then replace the nodata values with a max value beyond our upper contour limit
-/// and finally upsample using smooth interpolation
-pub fn pre_process_small_toa_raster<P: AsRef<Path>> (ds: &Dataset, n_hours: u32, path: P)->Result<Dataset> {
-    let (n_cols, n_rows) = ds.raster_size();
-    let margin: usize = 10;
-
-    let idx_bounds = get_exterior_data_bounds( ds, 1)?.apply_margin( margin, n_cols, n_rows);
-
-    let mut cropped_ds = crop_mem_dataset( &ds, &idx_bounds)?;
-
-    // replace nodata value with some value that exceeds our outermost isochrone so that we can smoothly
-    // interpolate it (otherwise interpolation will preserve the outer cell bounds despite upsampling)
-    let max_toa = ((n_hours + 1) * 3600) as f32;
-    replace_rasterband_value( &mut cropped_ds, 1, -9999.0, max_toa)?;
-
-    // now up-sample by a factor of 2 to smoothen countour lines
-    let ri = get_raster_info( &cropped_ds)?;
-    let x_res = ri.dx / 2.0;
-    let y_res = ri.dy / 2.0;
-
-    let mut warper = SimpleWarpBuilder::new( &cropped_ds, path)?;
-    warper.set_tgt_resolution( x_res, y_res);
-    warper.set_resample_alg( ResampleAlg::CubicSpline);
-    warper.set_tgt_format("GTiff");
-    let tgt_ds = warper.exec()?;
-
-    Ok( tgt_ds )
-}
-
-fn process_raster_output (output_dir: &PathBuf, utm_re: &Regex, wgs84_fname: &str, png_fname: &str, pct_range: Option<Range<f64>>)->Result<Dataset>
-{
-    if let Some(utm_path) = find_first_match_in_dir( &output_dir, utm_re) {
-        let wgs84_path = output_dir.join(wgs84_fname);
-        let ds = odin_gdal::warp::warp_to_wgs84( &utm_path, &wgs84_path, vec![-9999.0])?;
-
-        let img_path = output_dir.join(png_fname);
-
-        let cmap = vec![0xff000000, 0xff000040, 0xff000080, 0xa00000ff, 0xff0000ff, 0xff4500ff, 0xffa500ff, 0xffd700ff, 0xffff00ff];
-        odin_gdal::colorize::to_cmap( &img_path, &ds, 1, pct_range, &cmap)?;
-        //odin_gdal::colorize::to_alpha( &img_path, &ds, 1, 0xffffff, pct_range)?; // target color should be configured
-
-        Ok(ds)
-
-    } else {
-        Err( op_failed!("no match for {:?}", utm_re) )
+    fn count_cells (vs: &[f32], level: f32, nodata: f32)->usize {
+        let mut n: usize = 0;
+        for i in 0..vs.len() {
+            let v = vs[i];
+            if v != nodata && v <= level { n += 1; }
+        }
+        n
     }
+
+    let dt = minutes(30);
+    let mut date = *start;
+    let mut areas: Vec<AreaSnapshot> = Vec::with_capacity( levels.len());
+    let mut prev: Area = Area::new::<acre>( 0.0);
+    for t in levels.iter() {
+        let n = count_cells( &vs, *t as f32, nodata);
+        let area = cell_size * n as f64;
+        date = date + dt;
+
+        let growth: Ratio = Ratio::new::<ratio>(if prev.value == 0.0 { 0.0 } else { (area - prev).value / prev.value });
+        prev = area;
+
+        areas.push( AreaSnapshot { date, area, growth });
+    }
+
+    Ok( areas )
 }
 
 #[derive(Template)]
@@ -676,23 +647,32 @@ pub fn get_utm_rect_around_point (center: &GeoPoint, dist: Length)->Result<UtmRe
 
 pub fn parse_area<P: AsRef<Path>> (path: P, base_date: DateTime<Utc>)->Result<Vec<AreaSnapshot>> {
     let mut vs: Vec<AreaSnapshot> = Vec::new();
+    let mut ts_last = -100000.0;
+    let mut prev: Area = Area::new::<acre>(0.0);
 
     let mut rdr = csv::Reader::from_reader( File::open(&path)?);
     for result in rdr.records() {
         let record = result?;
         if record.len() != 2 { return Err( op_failed!("not an Acres Record") ) }
 
-        let ts: f64 = record[0].trim().parse()?;
-        let acres: f64 = record[1].trim().parse()?;
+        let ts: f64 = record[0].trim().parse()?; // this is in seconds
+        if ts - ts_last > 300.0 { // only add new entries if they are more than 5min apart (Elmfire has a tendency to add some almost-duplicates at the tail)
+            let acres: f64 = record[1].trim().parse()?;
 
-        let date = base_date + Duration::from_secs_f64(ts);
-        let area = Area::new::<acre>( acres);
+            let date = base_date + Duration::from_secs_f64(ts);
+            let area = Area::new::<acre>( acres);
 
-        vs.push( AreaSnapshot { date, area } )
+            let growth: Ratio = Ratio::new::<ratio>(if prev.value == 0.0 { 0.0 } else { (area - prev).value / prev.value });
+            prev = area;
+
+            ts_last = ts;
+            vs.push( AreaSnapshot { date, area, growth } )
+        }
     }
 
     Ok( vs )
 }
+
 
 /// format:
 /// icase,Meteorology band, x, y, tstop (h), Wall clock time (s), Total fire area (ac), Crown fire area (ac),
@@ -757,6 +737,15 @@ impl ElmfireRun {
         ws_msg_from_json( ElmfireService::mod_path(), "update", &msg)
     }
 
+    pub fn get_json_remove_msg (&self)->String {
+        let mut w = JsonWriter::with_capacity(128);
+        w.write_object( |w| {
+            w.write_field("id", &self.fire.id);
+        });
+        let msg = w.as_str();
+        ws_msg_from_json( ElmfireService::mod_path(), "remove", &msg)
+    }
+
     pub fn save_to<P: AsRef<Path>> (&self, path: P)->Result<()> {
         let s = ron::ser::to_string(self)?;
         let mut file = File::create(path)?;
@@ -768,6 +757,23 @@ impl ElmfireRun {
         let s = filepath_contents_as_string(path)?;
         let elmfire_run: Self = ron::de::from_str( &s)?;
         Ok(elmfire_run)
+    }
+
+    /// use with caution - make sure we only delete valid Elmfire dirs in our CACHE_DIR
+    pub fn remove_dir (&self)->Result<()> {
+        let dir = &self.fire.dir;
+        if dir.is_dir() {
+            if let Some(parent) = dir.parent() {
+                let cache_dir: &Path = &CACHE_DIR;
+                if parent == cache_dir {
+                    println!("removing Elmfire dir: {:?}", dir);
+                    remove_dir_all( dir)?;
+                    return Ok(())
+                }
+            }
+        }
+
+        Err( op_failed!( "cannot remove dir {:?}", dir) )
     }
 }
 
@@ -815,14 +821,16 @@ impl JsonWritable for ElmfireRun {
                                 }
                             });
                             w.write_json_field("compStats", &outputs.comp_stats);
-                            w.write_array_field( "files", |w|{
-                                for fname in outputs.files.iter() {
-                                    w.write_value( fname);
+
+                            w.write_array_field( "rasterProducts", |w|{
+                                for (fname,geo_rect) in outputs.raster_products.iter() {
+                                    w.write_object( |w| {
+                                        w.write_field("file", fname);
+                                        w.write_rect_field("bbox", geo_rect, NumFormat::Fp5);
+                                        // TODO - extend with optional cmap
+                                    })
                                 }
                             });
-
-                            // this is the bbox for the generated WGS84 imagery
-                            w.write_rect_field("bbox", &outputs.geo_rect, NumFormat::Fp5);
                         });
                     }
                     Err(e) => {

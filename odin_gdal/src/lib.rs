@@ -203,7 +203,12 @@ pub fn gdal_badarg(details: String) -> GdalError {
     GdalError::BadArgument(details)
 }
 
-pub fn open_update<P:AsRef<Path>> (path: P)->Result<Dataset> {
+/// this is mostly here so that we don't directly call gdal functions from clients
+pub fn open_dataset<P: AsRef<Path>> (path: P) -> Result<Dataset> {
+    Ok( Dataset::open(path)? )
+}
+
+pub fn open_dataset_for_update<P:AsRef<Path>> (path: P)->Result<Dataset> {
     let dso = DatasetOptions {
         open_flags: GdalOpenFlags::GDAL_OF_UPDATE,
         allowed_drivers: None,
@@ -211,6 +216,11 @@ pub fn open_update<P:AsRef<Path>> (path: P)->Result<Dataset> {
         sibling_files: None
     };
     Ok( Dataset::open_ex(path, dso)? )
+}
+
+// here to avoid direct calls of gdal functions outside of odin_gdal
+pub fn get_rasterband<'a>( ds: &'a Dataset, band_no: usize)->Result<RasterBand<'a>> {
+    Ok( ds.rasterband(band_no)? )
 }
 
 /// run the provided closure with the global GDAL error handler disabled. Note this does not
@@ -795,7 +805,7 @@ pub fn compress_create_opts ()->RasterCreationOptions {
 pub fn crop_mem_dataset (ds: &Dataset, idx_bounds: &IndexBounds2D)->Result<Dataset> {
     let driver = get_mem_driver();
     //let driver = get_gtiff_driver();
-    crop_dataset( ds, &driver, "cropped.tif", None, idx_bounds)
+    crop_dataset( ds, &driver, "", None, idx_bounds)
 }
 
 /// crop the provided dataset by cutting top/bottom lines that contain more nodata values than the given threshold and
@@ -810,7 +820,9 @@ pub fn crop_dataset<P> (ds: &Dataset, driver: &Driver, path: P, create_opts: Opt
 
     if n_bands < 1 { return Err( op_failed!("no rasterbands in dataset")) }
     if ! is_homogenous(ds) { return Err( op_failed!("dataset not homogenous")) } // we need all rasterbands to be of the same type
-    if idx_bounds.right_bound() > n_cols || idx_bounds.bottom_bound() > n_rows { return Err( op_failed!("crop bounds exceed image"))}
+    if idx_bounds.right_bound() > n_cols || idx_bounds.bottom_bound() > n_rows {
+        return Err( op_failed!("crop bounds exceed image"))
+    }
 
     let band_type = ds.rasterband(1)?.band_type();
     let mut tgt_ds = create_dataset( &driver, path, idx_bounds.width, idx_bounds.height, n_bands, band_type, create_opts)?;
@@ -834,15 +846,27 @@ pub fn crop_dataset<P> (ds: &Dataset, driver: &Driver, path: P, create_opts: Opt
     Ok(tgt_ds)
 }
 
+/// create a cropped version of the provided dataset that has the outer bounds of the data pixels
+/// this is useful if we have a small region of defined pixels within a larger image and need to downsample the result
+/// (e.g. to create contours from the defined pixels)
+pub fn crop_to_exterior_data<P> (ds: &Dataset, path: P, create_opts: Option<RasterCreationOptions>) -> Result<Dataset>
+    where P: AsRef<Path>
+{
+    let (n_cols, n_rows) = ds.raster_size();
+    let idx_bounds = get_exterior_data_bounds( ds, 1)?;
+    let driver = ds.driver();
+    crop_dataset( ds, &driver, path, create_opts, &idx_bounds)
+}
+
 /// crop the provided dataset by cutting top/bottom lines that contain more nodata values than the given threshold and
 /// skip leading/trailing columns with nodata from the rest.
 /// This function is mainly useful when warping a dataset between different SRS that do not preserve bounds (e.g. from UTM to WGS84)
-pub fn crop_no_data<P> (ds: &Dataset, path: P, create_opts: Option<RasterCreationOptions>) -> Result<Dataset>
+pub fn crop_to_interior_data<P> (ds: &Dataset, path: P, create_opts: Option<RasterCreationOptions>) -> Result<Dataset>
     where P: AsRef<Path>
 {
-    let bbox = get_interior_data_bounds(ds, 1)?;
+    let idx_bounds = get_interior_data_bounds(ds, 1)?;
     let driver = ds.driver();
-    crop_dataset( ds, &driver, path, create_opts, &bbox)
+    crop_dataset( ds, &driver, path, create_opts, &idx_bounds)
 }
 
 /// check if dimensions and raster type of all bands are the same
@@ -891,8 +915,10 @@ pub fn create_dataset<P> (driver: &Driver, path: P, width: usize, height: usize,
     }
 }
 
-pub fn open_dataset<P: AsRef<Path>> (path: P)->Result<Dataset> {
-    Ok( Dataset::open(path)? )
+pub fn copy_mem_dataset (ds: &Dataset)->Result<Dataset> {
+    let driver = get_mem_driver();
+    let options = no_create_opts();
+    Ok ( ds.create_copy( &driver, "", &options)? )
 }
 
 pub fn copy_dataset<P: AsRef<Path>> (ds: &Dataset, path: P, co: Option<RasterCreationOptions>)->Result<Dataset> {
@@ -1266,6 +1292,40 @@ pub fn get_raster_info (ds: &Dataset)->Result<RasterInfo> {
     Ok( RasterInfo { cols, left, right, dx, rows, top, bottom, dy } )
 }
 
+pub fn get_bbox (ds: &Dataset)->Result<BoundingBox<f64>> {
+    let (w,h) = ds.raster_size();
+    let width = w as f64;
+    let height = h as f64;
+    let gt = ds.geo_transform()?;
+
+    let min_x = gt[0];
+    let max_y = gt[3];
+
+    let max_x = gt[0] + width * gt[1] + height * gt[2];
+    let min_y = gt[3] + width * gt[4] + height * gt[5];
+
+    Ok( BoundingBox::new( min_x, min_y, max_x, max_y) )
+}
+
+pub fn get_geo_rect (ds: &Dataset)->Result<GeoRect> {
+    if is_epsg4326(ds) {
+        let bbox = get_bbox( ds)?;
+        Ok( GeoRect::from_wsen_degrees( bbox.west, bbox.south, bbox.east, bbox.north) )
+    } else {
+        Err( op_failed!("srs is not EPSG 4326") )
+    }
+}
+
+pub fn is_epsg4326 (ds: &Dataset)->bool {
+    ds.spatial_ref().map( |srs| srs == SpatialRef::from_epsg(4326).unwrap()).is_ok() // Ok to unrwap - we know EPSG 4326 is valid
+}
+
+pub fn get_resolution (ds: &Dataset)->Result<(f64,f64)> {
+    let a = ds.geo_transform()?;
+    Ok( (a[1], a[5]) )
+}
+
+
 /// syntactic sugar for creating CslStringLists. Note this panics if an invalid string (that cannot be translated into
 /// a C string) is provided. This should only be used
 #[macro_export]
@@ -1282,8 +1342,6 @@ macro_rules! csl_string_list {
         }
     }
 }
-
-
 
 /* #endregion misc high level functions */
 
@@ -1415,6 +1473,11 @@ pub fn stack_band<P: AsRef<Path>> (inputs: &Vec<Dataset>, band_no: usize, path: 
     Ok(tgt_ds)
 }
 
+pub fn get_min_max_band_value (ds: &Dataset, band_no: usize)->Result<(f64,f64)> {
+    let v_range = get_band_value_range( ds, band_no)?;
+    Ok( (v_range.start, v_range.end) )
+}
+
 pub fn get_band_value_range (ds: &Dataset, band_no: usize)->Result<Range<f64>> {
     let band = ds.rasterband(band_no)?;
     let (width, height) = ds.raster_size();
@@ -1478,26 +1541,6 @@ pub fn get_adjusted_band_value_range (src_ds: &Dataset, band_no: usize, pct_rang
     } else {
         get_band_value_range( &src_ds, band_no)
     }
-}
-
-pub fn get_bbox (ds: &Dataset)->Result<BoundingBox<f64>> {
-    let (w,h) = ds.raster_size();
-    let width = w as f64;
-    let height = h as f64;
-    let gt = ds.geo_transform()?;
-
-    let min_x = gt[0];
-    let max_y = gt[3];
-
-    let max_x = gt[0] + width * gt[1] + height * gt[2];
-    let min_y = gt[3] + width * gt[4] + height * gt[5];
-
-    Ok( BoundingBox::new( min_x, min_y, max_x, max_y) )
-}
-
-pub fn get_geo_rect (ds: &Dataset)->Result<GeoRect> {
-    let bbox = get_bbox( ds)?;
-    Ok( GeoRect::from_wsen_degrees( bbox.west, bbox.south, bbox.east, bbox.north) )
 }
 
 pub fn copy_srs<P: AsRef<Path>> (src_ds: &Dataset, dst_ds: &mut Dataset, dst_path: Option<&P>)->Result<()> {

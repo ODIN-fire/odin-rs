@@ -16,7 +16,7 @@
 #![allow(unused)]
 
 use std::{path::{Path,PathBuf}, str::FromStr, time::Duration, collections::HashMap,
-    fs::{File,read_to_string}, ops::{Deref,DerefMut}, io::{BufReader,BufWriter,Read,Write},
+    fs::{File,read_to_string, remove_dir_all}, ops::{Deref,DerefMut}, io::{BufReader,BufWriter,Read,Write},
     sync::Arc, result::{Result as StdResult}
 };
 use chrono::{DateTime,Utc,Datelike,Timelike};
@@ -25,7 +25,8 @@ use derive_more::{Deref,DerefMut};
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
 use odin_common::{fs, json_writer::{JsonWritable, JsonWriter}};
-use odin_server::{spa::SpaService,ws_service::ws_msg_from_json};
+use odin_server::{spa::{SpaServerMsg, SpaService, BroadcastWsMsg}, ws_service::ws_msg_from_json};
+use serde::Deserialize;
 
 use crate::{
     CACHE_DIR, EF_RUN_RE, ElmfireConfig, ElmfireOutput, ElmFire, ElmfireRun,
@@ -56,26 +57,32 @@ impl ElmfireStore {
 /// internal notifications about a completed run
 #[derive(Debug)] pub struct RequestFinished { id: String, result: StdResult<ElmfireOutput,String> }
 
-define_actor_msg_set! { pub ElmfireActorMsg = ExecSnapshotAction | ElmFire | RequestFinished }
+#[derive(Debug,Deserialize)]
+pub struct RemoveElmFire {
+    pub id: String
+}
 
-pub struct ElmfireActor <U>
-    where U: DataRefAction<ElmfireRun> + Send + Sync
+define_actor_msg_set! { pub ElmfireActorMsg = ExecSnapshotAction | ElmFire | RemoveElmFire | RequestFinished }
+
+pub struct ElmfireActor <U,R>
+    where U: DataRefAction<ElmfireRun> + Send + Sync, R: DataRefAction<ElmfireRun> + Send + Sync
 {
     config: Arc<ElmfireConfig>,
     store: ElmfireStore,       // our internal store
 
     update_action: U,           // store update interactions (triggered by self)
+    remove_action: R            // remove elmfire interactions
 }
 
-impl <U> ElmfireActor <U>
-    where U: DataRefAction<ElmfireRun> + Send + Sync
+impl <U,R> ElmfireActor <U,R>
+    where U: DataRefAction<ElmfireRun> + Send + Sync, R: DataRefAction<ElmfireRun> + Send + Sync
 {
-    pub fn new (config: ElmfireConfig, update_action: U)->Self {
+    pub fn new (config: ElmfireConfig, update_action: U, remove_action: R)->Self {
         let mut store: ElmfireStore = ElmfireStore(HashMap::new());
         let config = Arc::new(config);
 
         reset_store( &mut store);
-        ElmfireActor{ config, store, update_action }
+        ElmfireActor{ config, store, update_action, remove_action }
     }
 
     async fn process_request (&mut self, hself: ActorHandle<ElmfireActorMsg>, fire: ElmFire)->Result<()> {
@@ -126,6 +133,18 @@ impl <U> ElmfireActor <U>
             Err( op_failed!("ignoring unknown run: {}", id) )
         }
     }
+
+    async fn remove_elmfire (&mut self, id: &str)->Result<()> {
+        if let Some(run) = self.store.remove(id) {
+            info!("removing run {}", id);
+            // note we leave it up to the action what to do with the associated cache dir
+            self.remove_action.execute( &run).await.map_err(|e| OdinElmfireError::ActionFailure(e.to_string()))?;
+            Ok(())
+
+        } else {
+            Err( op_failed!("ignoring remove request for unknown run: {}", id) )
+        }
+    }
 }
 
 fn reset_store (store: &mut ElmfireStore) {
@@ -142,8 +161,8 @@ fn reset_store (store: &mut ElmfireStore) {
     }
 }
 
-impl_actor! { match msg for Actor<ElmfireActor<U>, ElmfireActorMsg>
-    where U: DataRefAction<ElmfireRun> + Send + Sync
+impl_actor! { match msg for Actor<ElmfireActor<U,R>, ElmfireActorMsg>
+    where U: DataRefAction<ElmfireRun> + Send + Sync,  R: DataRefAction<ElmfireRun> + Send + Sync
     as
 
     ExecSnapshotAction => cont! {
@@ -165,4 +184,31 @@ impl_actor! { match msg for Actor<ElmfireActor<U>, ElmfireActorMsg>
             error!("failed to process result: {}", e)
         }
     }
+
+    RemoveElmFire => cont! {
+        if let Err(e) = self.remove_elmfire( &msg.id).await {
+            error!("remove elmfire {} failed: {}", msg.id, e)
+        }
+    }
+}
+
+// standard actions in a SpaServer context
+
+pub fn server_update_action (hserver: ActorHandle<SpaServerMsg>) -> impl DataRefAction<ElmfireRun> {
+    dataref_action!(
+        let hserver: ActorHandle<SpaServerMsg> = hserver => |run: &ElmfireRun| {
+            let ws_msg = run.get_json_update_msg();
+            Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
+        }
+    )
+}
+
+pub fn server_remove_action (hserver: ActorHandle<SpaServerMsg>) -> impl DataRefAction<ElmfireRun> {
+    dataref_action!(
+        let hserver: ActorHandle<SpaServerMsg> = hserver => |run: &ElmfireRun| {
+            run.remove_dir()?;
+            let ws_msg = run.get_json_remove_msg();
+            Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
+        }
+    )
 }

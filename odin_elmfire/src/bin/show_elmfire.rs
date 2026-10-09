@@ -16,11 +16,11 @@
 
 #![allow(unused)]
 
-use std::sync::Arc;
+use std::{sync::Arc, fs::remove_dir_all};
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 
-use odin_elmfire::{ElmfireRun, ElmfireService, actor::{ElmfireActor,ElmfireActorMsg}, load_config};
+use odin_elmfire::{ElmfireRun, ElmfireService, actor::{ElmfireActor,ElmfireActorMsg, server_update_action, server_remove_action}, load_config};
 
 run_actor_system!( actor_system => {
     let pre_fire = PreActorHandle::new( &actor_system, "elmfire", 8);
@@ -37,12 +37,8 @@ run_actor_system!( actor_system => {
     let hfire = spawn_pre_actor!( actor_system, pre_fire,
         ElmfireActor::new(
             load_config("elmfire.ron")?,
-            dataref_action!(
-                let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |run: &ElmfireRun| {
-                    let ws_msg = run.get_json_update_msg();
-                    Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
-                }
-            )
+            server_update_action( hserver.clone()),
+            server_remove_action( hserver.clone())
         )
     )?;
 

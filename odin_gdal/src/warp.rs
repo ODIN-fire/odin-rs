@@ -32,7 +32,7 @@ use crate::{
 };
 use crate::errors::{OdinGdalError, Result, last_gdal_err_description, last_gdal_error, misc_error, reset_last_gdal_error};
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub enum ResampleAlg {
     NearestNeighbour = GDALResampleAlg::GRA_NearestNeighbour as isize,
     Bilinear         = GDALResampleAlg::GRA_Bilinear as isize,
@@ -808,6 +808,13 @@ pub fn warp_to_wgs84<P,Q> (src_path: P, tgt_path: Q, nodatas: Vec<f64>) -> Resul
     where P: AsRef<Path>, Q: AsRef<Path>
 {
     let src_ds = Dataset::open(src_path)?;
+    warp_to_wgs84_tif( &src_ds, tgt_path, nodatas)
+}
+
+/// warp to WGS84. Note this requires nodata values since the src bbox might not map to a lon/lat bbox (e.g. for a UTM input SRS)
+pub fn warp_to_wgs84_tif<P> (src_ds: &Dataset, tgt_path: P, nodatas: Vec<f64>) -> Result<Dataset>
+    where P: AsRef<Path>
+{
     let tgt_srs = SpatialRef::from_epsg(4326)?;
     let tgt_format = "GTiff";
     let c_opts = get_gtiff_create_opts();
@@ -817,6 +824,42 @@ pub fn warp_to_wgs84<P,Q> (src_path: P, tgt_path: Q, nodatas: Vec<f64>) -> Resul
     warper.set_tgt_format( tgt_format);
     warper.set_tgt_nodatas(nodatas);
     warper.set_create_options( &c_opts);
+
+    warper.exec()
+}
+
+pub fn warp_to_wgs84_mem (src_ds: &Dataset, nodatas: Vec<f64>) -> Result<Dataset> {
+    let tgt_srs = SpatialRef::from_epsg(4326)?;
+    let tgt_format = "MEM";
+
+    let mut warper = SimpleWarpBuilder::new( &src_ds, "")?;
+    warper.set_tgt_srs( &tgt_srs);
+    warper.set_tgt_format( tgt_format);
+    warper.set_tgt_nodatas(nodatas);
+
+    warper.exec()
+}
+
+
+pub fn warp_to_res_tif<P> (src_ds: &Dataset, path: P, x_res: f64, y_res: f64, alg: ResampleAlg) -> Result<Dataset>
+    where P: AsRef<Path>
+{
+    let c_opts = get_gtiff_create_opts();
+
+    let mut warper = SimpleWarpBuilder::new( src_ds, path)?;
+    warper.set_tgt_resolution( x_res, y_res);
+    warper.set_resample_alg( alg);
+    warper.set_tgt_format("GTiff");
+    warper.set_create_options( &c_opts);
+
+    warper.exec()
+}
+
+pub fn warp_to_res_mem (src_ds: &Dataset, x_res: f64, y_res: f64, alg: ResampleAlg) -> Result<Dataset> {
+    let mut warper = SimpleWarpBuilder::new( src_ds, "")?;
+    warper.set_tgt_resolution( x_res, y_res);
+    warper.set_resample_alg( alg);
+    warper.set_tgt_format("MEM");
 
     warper.exec()
 }
