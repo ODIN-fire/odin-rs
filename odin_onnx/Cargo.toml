@@ -23,7 +23,7 @@ thiserror = { workspace = true }
 ndarray = { workspace = true }
 image = { workspace = true }
 
-ort = { version="2.0.0-rc.11", features = ["ndarray"] }
+ort = { version="2.0.0-rc.14", features = ["ndarray"] }
 
 
 [features]

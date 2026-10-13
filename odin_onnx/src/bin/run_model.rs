@@ -36,7 +36,9 @@ define_cli! { ARGS [about="run image classifier model for given configuration an
 
 fn main() -> Result<()> {
     let config: ImageClassifierConfig = ron::from_path(&ARGS.config)?;
-    let mut session = Session::builder()?.commit_from_file(&config.model_path)?;
+
+    let env = ort::init().build()?;  // TODO - this has to be configured
+    let mut session = Session::builder(&env)?.commit_from_file(&config.model_path)?;
     print_session_info( &session);
 
     let img = image::open(&ARGS.img)?.to_rgb8();
