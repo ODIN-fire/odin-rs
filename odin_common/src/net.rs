@@ -322,8 +322,9 @@ pub fn encoding_for_path<'a,T: AsRef<Path>> (path: &'a T) -> Option<&'static str
 
 pub async fn from_json<T> (response: Response)->Result<T> where T: DeserializeOwned {
     let bytes = response.bytes().await?;
+    //println!("@@ {}",String::from_utf8(bytes.to_vec()).unwrap());
     serde_json::from_slice( &bytes).map_err(|e| {
-        println!("{}",String::from_utf8(bytes.to_vec()).unwrap());
+        //println!("@@ {}",String::from_utf8(bytes.to_vec()).unwrap());
         OdinNetError::ParseError(e.to_string())
     })
 }

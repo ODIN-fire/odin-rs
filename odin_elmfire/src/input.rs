@@ -17,7 +17,7 @@
 use std::{path::{Path,PathBuf},collections::HashMap, time::Duration, str::FromStr, sync::Arc};
 use tokio::time::sleep;
 use uom::si::f64::{Angle, Length, Ratio};
-use uom::si::{ratio::{ratio,percent}, length::{meter,kilometer,inch}, angle::{degree}, velocity::{meter_per_second,mile_per_hour}};
+use uom::si::{ratio::{ratio,percent}, length::{meter,kilometer,inch}, angle::{degree}, velocity::{meter_per_second,mile_per_hour}, thermodynamic_temperature::degree_celsius};
 use chrono::{DateTime, Timelike, Utc};
 use interp::{interp_slice, InterpMode};
 use reqwest::Client;
@@ -28,7 +28,7 @@ use odin_common::{
     BoundingBox, arc,
     collections::Grid,
     datetime::{as_minutes, days, hours, is_between_inclusive, secs, short_utc_datetime_string, ymd, ymd_hms_enc},
-    fs::{create_symlink, ensure_writable_dir, path_as_str, path_to_lossy_string, replace_env_var_path},
+    fs::{create_symlink, ensure_writable_dir, odin_data_filename, path_as_str, path_to_lossy_string, replace_env_var_path},
     geo::{GeoPoint,GeoRect},
     uom::{LengthF32, ToF64Quantity,VelocityF32},
     utm::{UtmPoint,UtmRect,geo_to_utm, try_get_xy_vecs}
@@ -48,7 +48,7 @@ use odin_gdal::{
 use odin_wind::{WindConfig, WnJob, get_wn_out_basename, run_wn, wn_output_path};
 use odin_openmeteo::{
     HourlyLocationData, MAX_POINTS, OpenMeteoConfig,
-    convert::{create_stacked_hourly_utm_ds, wn_utm_grid_to_hrrr},
+    convert::{create_stacked_hourly_utm_ds, set_hrrr_metadata, wn_utm_grid_to_hrrr},
     dataset::{Fw21Data, MinimalSfcData}, get_forecast_url, get_time_step_range,
     grid::{GridAlgorithm, UtmGrid}, ids::ModelId, queries::get_cached_annual_grid_precipitations
 };
@@ -123,38 +123,66 @@ pub fn create_internal_input (ef: &ElmFire, config: &ElmfireConfig) -> Result<()
 
 /* #region fixed steps ****************************************************************************************************/
 
-pub fn create_fixed_input (ef: &ElmFire, config: &ElmfireConfig, steps: &[FixedInputStep]) -> Result<()> {
+pub async fn create_fixed_input (ef: &ElmFire, config: &ElmfireConfig, steps: &[FixedInputStep]) -> Result<()> {
     if steps.is_empty() {
         return Err( op_failed!("empty fixed input steps"))
     }
 
     let dir = ef.dir.join("inputs");
+
+    create_fixed_wind_input( ef, config, steps, &dir).await?;
+    create_fixed_fuel_moisture_input( ef, config, steps, &dir)?;
+
+    Ok(())
+}
+
+/// create the ws, wd tifs either directly from the fixed input steps or from WindNinja output
+async fn create_fixed_wind_input (ef: &ElmFire, config: &ElmfireConfig, steps: &[FixedInputStep], dir: &PathBuf) -> Result<()> {
+    if ef.compute_wind { // use FixedInputSteps to create WindNinja input and use WindNinja output as Elmfire input
+        let wind_dir = dir.join("wn");
+        ensure_writable_dir( &wind_dir)?;
+
+        let wx_paths = create_fixed_wn_input_steps( ef, config, steps, &wind_dir)?;
+        run_wn_steps( ef, config, &wx_paths, &wind_dir, dir).await?
+
+    } else {
+        let bbox = &ef.utm_rect.bbox;
+        let x_width = bbox.east - bbox.west;
+        let y_height = bbox.north - bbox.south;
+        let epsg = ef.utm_rect.epsg();
+        let n_steps = (ef.n_hours+1) as usize;
+
+        let driver = get_gtiff_driver(); // not Send - has to be obtained after await points
+        let create_opts = get_gtiff_create_opts();
+
+        let dpix = config.wx_res_m as f64;
+        let xsize = (x_width / dpix).round() as usize;
+        let ysize = (y_height / dpix).round() as usize;
+
+        let band_vals: Vec<f64> = extend( steps.iter().map( |s| s.ws.get::<mile_per_hour>()).collect(), n_steps);
+        grid::create_const_grid_ds::<f32,_>(
+            &driver, &dir.join("ws.tif"), epsg, bbox.west, bbox.east, bbox.south, bbox.north, xsize, ysize, &band_vals, -9999.0, &create_opts
+        )?;
+
+        let band_vals: Vec<f64> = extend( steps.iter().map( |s| s.wd.degrees()).collect(), n_steps);
+        grid::create_const_grid_ds::<f32,_>(
+            &driver, &dir.join("wd.tif"), epsg, bbox.west, bbox.east, bbox.south, bbox.north, xsize, ysize, &band_vals, -9999.0, &create_opts
+        )?;
+    }
+
+    Ok(())
+}
+
+/// create the m1, m10, m100, lh, lw tifs from the fixed input steps
+fn create_fixed_fuel_moisture_input (ef: &ElmFire, config: &ElmfireConfig, steps: &[FixedInputStep], dir: &PathBuf) -> Result<()> {
     let bbox = &ef.utm_rect.bbox;
     let x_width = bbox.east - bbox.west;
     let y_height = bbox.north - bbox.south;
     let epsg = ef.utm_rect.epsg();
+    let n_steps = (ef.n_hours+1) as usize;
 
     let driver = get_gtiff_driver();
     let create_opts = get_gtiff_create_opts();
-    let n_steps = (ef.n_hours+1) as usize;
-
-    //--- generate the wind inputs
-
-    let dpix = config.wx_res_m as f64;
-    let xsize = (x_width / dpix).round() as usize;
-    let ysize = (y_height / dpix).round() as usize;
-
-    let band_vals: Vec<f64> = extend( steps.iter().map( |s| s.ws.get::<mile_per_hour>()).collect(), n_steps);
-    grid::create_const_grid_ds::<f32,_>(
-        &driver, &dir.join("ws.tif"), epsg, bbox.west, bbox.east, bbox.south, bbox.north, xsize, ysize, &band_vals, -9999.0, &create_opts
-    )?;
-
-    let band_vals: Vec<f64> = extend( steps.iter().map( |s| s.wd.degrees()).collect(), n_steps);
-    grid::create_const_grid_ds::<f32,_>(
-        &driver, &dir.join("wd.tif"), epsg, bbox.west, bbox.east, bbox.south, bbox.north, xsize, ysize, &band_vals, -9999.0, &create_opts
-    )?;
-
-    //--- generate the fuel moisture inputs
 
     let dpix = config.wx_res_m as f64;
     let xsize = (x_width / dpix).round() as usize;
@@ -197,6 +225,47 @@ fn extend<T: Clone> (mut vs: Vec<T>, n: usize)->Vec<T> {
     }
     vs
 }
+
+/// create HRRR conform WindNinja wx input tifs (one per hour) with const band values from the fixed input steps
+/// note this is not async since the driver is not Send. Datasets are dropped (written) before we return
+fn create_fixed_wn_input_steps (ef: &ElmFire, config: &ElmfireConfig, steps: &[FixedInputStep], wind_dir: &PathBuf)->Result<Vec<PathBuf>> {
+    let n_steps = (ef.n_hours+1) as usize;
+    let steps = extend( steps.to_vec(), n_steps); // repeat last step if we have fewer than n_steps
+
+    let driver = get_gtiff_driver();
+    let create_opts = get_gtiff_create_opts();
+    let epsg = ef.utm_rect.epsg();
+
+    // pad the bbox by one wx grid cell since WindNinja rejects wx input that does not fully cover the DEM
+    let dpix = config.wx_res_m as f64;
+    let bbox = &ef.utm_rect.bbox;
+    let (w,s,e,n) = (bbox.west - dpix, bbox.south - dpix, bbox.east + dpix, bbox.north + dpix);
+    let xsize = ((e - w) / dpix).round() as usize;
+    let ysize = ((n - s) / dpix).round() as usize;
+
+    let mut paths: Vec<PathBuf> = Vec::with_capacity(n_steps);
+    for (i,step) in steps.iter().take(n_steps).enumerate() {
+        let date = ef.base_date + hours(i as u64);
+        let path = wind_dir.join( odin_data_filename( &ef.name, Some(date), &[ &config.wx_model ], Some("tif")));
+
+        // HRRR band order and units: TMP [C], TCDC [%], UGRD [m/s], VGRD [m/s]
+        // wd is the meteorological direction the wind is coming from
+        let spd = step.ws.get::<meter_per_second>();
+        let u = -spd * step.wd.sin();
+        let v = -spd * step.wd.cos();
+        let band_vals = [ step.t2.get::<degree_celsius>(), step.tcc.get::<percent>(), u, v ];
+
+        let mut ds = grid::create_const_grid_ds::<f32,_>(
+            &driver, &path, epsg, w, e, s, n, xsize, ysize, &band_vals, -9999.0, &create_opts
+        )?;
+        set_hrrr_metadata( &mut ds, band_vals.len(), &date.timestamp().to_string())?;
+
+        paths.push( path);
+    }
+
+    Ok(paths)
+}
+
 
 /* #endregion  fixed steps */
 
@@ -264,6 +333,9 @@ pub async fn create_wx_based_input (ef: &ElmFire, config: &ElmfireConfig)->Resul
         }
     }
 
+    // if we compute wind the wx-based ws/wd are only kept for reference - ws.tif and wd.tif are created from WindNinja output
+    let (ws_fname, wd_fname) = if ef.compute_wind { ("ws_wx.tif", "wd_wx.tif") } else { ("ws.tif", "wd.tif") };
+
     { // we need to drop drv before any further await point since it is not Send
         let drv = get_gtiff_driver();
         let epsg = fw21_grid.utm_rect.epsg();
@@ -276,8 +348,8 @@ pub async fn create_wx_based_input (ef: &ElmFire, config: &ElmfireConfig)->Resul
         check_cache( dir.join("m100.tif"), |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, m100, &copts))?;
         check_cache( dir.join("lh.tif"),   |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, lh, &copts))?;
         check_cache( dir.join("lw.tif"),   |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, lw, &copts))?;
-        check_cache( dir.join("ws.tif"),   |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, ws, &copts))?;
-        check_cache( dir.join("wd.tif"),   |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, wd, &copts))?;
+        check_cache( dir.join(ws_fname),   |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, ws, &copts))?;
+        check_cache( dir.join(wd_fname),   |path| create_grid_ds_from_array2::<f32,_>(&drv, path, epsg, w, n, nx, ny, wx_res, wx_res, wd, &copts))?;
     }
 
     if ef.compute_wind {
@@ -325,27 +397,37 @@ async fn get_annual_precip (
     Ok( Grid::from_array2(sum_f64) )
 }
 
-/// use forecast ws/wd plus already retrieved dir/dem.tif to compute micro grid wind with WindNinja
-/// since this is only called internally we can safely assume ws,wd have the right time steps and ws in in [mph]
+/// use forecast data from fw21_grid plus already retrieved dir/dem.tif to compute micro grid wind with WindNinja
 async fn compute_wind( ef: &ElmFire, config: &ElmfireConfig, fw21_grid: &UtmGrid<Fw21Data>, dir: &PathBuf) ->Result<()> {
-    let wind_config: WindConfig = odin_wind::load_config( &config.wind_config_name)?;
     let wind_dir = dir.join("wn");
     ensure_writable_dir( &wind_dir)?;
     let n_steps = ef.n_hours as usize + 1;
 
-    // extract HRRR conform DS for each hour from fw21_grid (note we don't need unique tif names since we place this into its oen wind_dir)
+    // extract HRRR conform DS for each hour from fw21_grid (note we don't need unique tif names since we place this into its own wind_dir)
     let wx_paths = wn_utm_grid_to_hrrr( &ef.name, &config.wx_model, &fw21_grid, &ef.base_date, n_steps, &wind_dir)?;
+
+    run_wn_steps( ef, config, &wx_paths, &wind_dir, dir).await
+}
+
+/* #endregion actual weather inputs */
+
+/* #region windninja support functions ****************************************************************************/
+
+/// run WindNinja on the given (hourly) wx input paths and collect the huvw output into the ws.tif, wd.tif Elmfire inputs.
+/// This does not care how the wx input paths were generated
+async fn run_wn_steps (ef: &ElmFire, config: &ElmfireConfig, wx_paths: &[PathBuf], wind_dir: &PathBuf, dir: &PathBuf)->Result<()> {
+    let wind_config: WindConfig = odin_wind::load_config( &config.wind_config_name)?;
+    let n_steps = wx_paths.len();
 
     let dem_path = Arc::new( wind_dir.join( format!("{}.tif", ef.name)));
     create_symlink( Path::new("../dem.tif"), &dem_path.as_ref())?; // no need to copy
-    //std::fs::copy( &dir.join("dem.tif"),  &dem_path.as_ref()).unwrap();
 
     let region = Arc::new(ef.name.clone());
     let wx_src = Arc::new( config.wx_model.clone());
     let mesh_res = config.wind_res_m as f64;
 
-    // WindNinja uses the DEM tif to set the huvw output bbox so we should get it from there. The fw21_grid is a superset of this bbox
-    // the huvw size is not the same as the DEM though (witch likely is of higher resolution) - we have to compute it
+    // WindNinja uses the DEM tif to set the huvw output bbox so we should get it from there (wx input is a superset of this bbox)
+    // the huvw size is not the same as the DEM though (which likely is of higher resolution) - we have to compute it
     let dem_ds = open_dataset(dem_path.as_ref())?;
     let ri = get_raster_info( &dem_ds)?;
     let bbox = BoundingBox::<f64>::from(&ri);
@@ -353,21 +435,13 @@ async fn compute_wind( ef: &ElmFire, config: &ElmfireConfig, fw21_grid: &UtmGrid
 
     let wn_out_basename = Arc::new( get_wn_out_basename( &ef.name, ef.base_date.clone(), &bbox, mesh_res, &config.wx_model));
 
-    let ws_path = dir.join("ws.tif");
-    let wd_path = dir.join("wd.tif");
+    // create the ws.tif, wd.tif target datasets into which we collect the WindNinja huvw output
+    let mut ws_ds = create_wn_ds( &dir.join("ws.tif"), w, h, n_steps)?;
+    let mut wd_ds = create_wn_ds( &dir.join("wd.tif"), w, h, n_steps)?;
 
-    //rename wx-based ws.tif and wd.tif file (note we use the HRRR files generated from fw21_grid for WindNinja)
-    std::fs::rename( &ws_path, &dir.join("ws_wx.tif"))?;
-    std::fs::rename( &wd_path, &dir.join("wd_wx.tif"))?;
-
-    // create the ws.tif, wd,tif target datasets into which we will collect the WindNinja huvw output
-    let mut ws_ds = create_wn_ds( &ws_path, w, h, n_steps)?;
-    let mut wd_ds = create_wn_ds( &wd_path, w, h, n_steps)?;
-
-    // run WindNinja on all generated HRRR files in wx_paths and stack the output into the new ws/wd datasets reqiored by elmfire
     for (n, p) in wx_paths.iter().enumerate() {
         let date = ef.base_date + hours(n as u64);
-        let huvw_path = wn_output_path( &wind_dir, region.as_ref(), &date, mesh_res, wx_src.as_ref());
+        let huvw_path = wn_output_path( wind_dir, region.as_ref(), &date, mesh_res, wx_src.as_ref());
 
         let wn_job = WnJob {
             region: region.clone(),
@@ -383,7 +457,7 @@ async fn compute_wind( ef: &ElmFire, config: &ElmfireConfig, fw21_grid: &UtmGrid
 
         // this might take a moment but since this is not recurring and grids are rather small we await it here
         // TODO - we could refactor this into its own task to make sure we only execute one WindNinja child proc at a time
-        run_wn( &wind_config.windninja_cmd, &wind_dir, &wn_job).await?;
+        run_wn( &wind_config.windninja_cmd, wind_dir, &wn_job).await?;
 
         process_wn_output( &huvw_path, n+1, &mut ws_ds, &mut wd_ds)?;
     }
@@ -434,7 +508,7 @@ fn process_wn_output<P: AsRef<Path>> (huvw_path: P, band_no: usize, ws_ds: &mut 
     Ok(())
 }
 
-/* #endregion  */
+/* #endregion windninja support functions */
 
 /* #region landfire ***********************************************************************************************************/
 

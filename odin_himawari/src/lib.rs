@@ -276,7 +276,7 @@ pub async fn download_hotspots<P: AsRef<Path>> (config: &HimawariConfig, ref_dat
                         let mut file = AsyncFile::create( &path).await?;
 
                         tokio::io::copy( &mut reader, &mut file).await?;
-                        ftp_stream.finalize_retr_stream(reader).await?;
+                        reader.finish().await?; // closes the data connection and reads the server's transfer-complete reply
 
                         let f_len = file.metadata().await?.len();
                         println!("{f} ({f_len} bytes)");

@@ -96,7 +96,7 @@ impl <I,U> FemsActor <I,U>
                             eprintln!("failed to execute update action for station {}: {:?}", station.id, e);
                         }
                     }
-                    Err(e) => { eprintln!("error updating weather data for station {}: {}", station.id, e); }
+                    Err(e) => { eprintln!("error updating data for station {}: {}", station.id, e); }
                 }
             }
         }

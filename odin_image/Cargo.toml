@@ -28,8 +28,8 @@ image-compare = { version = "0.5.0" }
 edge-detection = { version = "0.3.0" }
 ab_glyph = { version = "0.2.32" }
 linreg = { version = "0.2.0" }
-tiff = { version = "0.10.3" }
-minifb = { version = "0.28" }
+tiff = { version = "0.11" }
+minifb = { version = "0.29" }
 
 
 [build-dependencies]

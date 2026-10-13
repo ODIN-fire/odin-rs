@@ -55,12 +55,16 @@ impl <I,U> BushfireActor <I,U>
         BushfireActor{ config, store, init_action, update_action, client, n_updates: 0, timer: None }
     }
 
-    async fn initialize (&mut self, hself: ActorHandle<BushfireActorMsg>) {
-        // do initial update and slot exec here
+    async fn initialize (&mut self, hself: ActorHandle<BushfireActorMsg>)->Result<()> {
+        self.update().await?;
 
         if let Ok(timer) = hself.start_repeat_timer( 1, self.config.check_interval, false) {
             self.timer = Some(timer);
-        } else { error!("failed to bushfire timer") }
+        } else {
+            error!("failed to bushfire timer")
+        }
+
+        Ok(())
     }
 
     fn add_new_bushfire (&mut self, f: Bushfire) {
@@ -121,15 +125,21 @@ impl_actor! { match msg for Actor<BushfireActor<I,U>, BushfireActorMsg>
     as
 
     ExecSnapshotAction => cont! {
-        msg.0.execute( &self.store).await;
+        if let Err(e) = msg.0.execute( &self.store).await {
+            error!("bushfire snapshot exec failed: {:?}", e);
+        }
     }
 
     _Start_ => cont! {
         let hself = self.hself.clone();
-        self.initialize(hself).await;
+        if let Err(e) = self.initialize(hself).await {
+            error!("bushfire initialization failed: {}", e);
+        }
     }
 
     _Timer_ => cont! {
-        self.update().await;
+        if let Err(e) = self.update().await {
+            error!("bushfire update failed: {}", e);
+        }
     }
 }

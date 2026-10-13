@@ -62,6 +62,7 @@
     - [odin_sentinel](odin_sentinel/odin_sentinel.md)
     - [odin_wind](odin_wind/odin_wind.md)
     - [odin_fems](odin_fems/odin_fems.md)
+    - [odin_elmfire](odin_elmfire/odin_elmfire.md)
 
 - [6. ODIN Example Applications](examples.md)
     - [odin_live](odin_live/odin_live.md)

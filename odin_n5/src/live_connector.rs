@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -18,14 +18,14 @@ use async_trait::async_trait;
 use odin_actor::prelude::*;
 use reqwest::Client;
 use crate::{
-    N5Config,N5Connector,errors::Result,actor::{N5ActorMsg,InitStore,UpdateStore}, 
+    N5Config,N5Connector,errors::Result,actor::{N5ActorMsg,InitStore,UpdateStore},
     get_n5_devices, get_n5_data
 };
 
 /// an http based N5Connector
 /// Note that `N5Connector` instances are used for dependency injection into [crate::actor::N5Actor] and hence
 /// are created before we have a respective [`ActorHandle`]
-pub struct LiveN5Connector { 
+pub struct LiveN5Connector {
     config: Arc<N5Config>,
     task: Option<AbortHandle>
 }
@@ -60,7 +60,7 @@ impl N5Connector for LiveN5Connector {
                         }
                     }
                     Err(e) => {
-                        eprintln!("{e}");
+                        error!("error reading N5 data: {e}");
                     }
                 }
             })?;

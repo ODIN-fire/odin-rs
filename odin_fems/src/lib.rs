@@ -471,12 +471,15 @@ impl FemsStation {
         if len < 100 {
             return Err( errors::op_failed!("no weather observation data for station {}", id))
         }
+        //println!("downloaded weather obs: {:?} ({} bytes)", path, len);
         self.parse_weather_obs( &path, n_obs)?;
 
         let path = station_nfdrs_obs_path( id, start, forecast_hours, ALL_FUEL_MODELS);
+        let len = download_nfdrs_obs( client, url, &path, id, start, end, ALL_FUEL_MODELS).await?;
         if len < 100 {
             return Err( errors::op_failed!("no NFDRS observation data for station {}", id))
         }
+        //println!("downloaded nfdrs obs: {:?} ({} bytes)", path, len);
         self.parse_nfdrs_obs( &path, n_obs)?;
 
         Ok(())
@@ -1125,8 +1128,6 @@ fn nfdrs_obs_query (station_ids: &[u32], start: DateTime<Utc>, end: DateTime<Utc
 pub async fn download_nfdrs_obs<P: AsRef<Path>> (client: &Client, url: &str, path: P, station_id: u32, start: DateTime<Utc>, end: DateTime<Utc>, fuel_models: &[NfdrsFuelModel])->Result<u64> {
     let request_body = nfdrs_obs_query( &[station_id], start, end, fuel_models);
     let headers = &[header("content-type", "application/json")];
-    println!("@@ url: {}", url);
-    println!("@@ body: {}", request_body);
     Ok( post_query( client, url, Some(headers), path, request_body).await? )
 }
 

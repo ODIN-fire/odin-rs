@@ -339,7 +339,7 @@ impl ElmFire {
 
         if let Some(src) = &self.fixed { // run (mostly) on provided inputs
             let steps = parse_fixed_wx_lines( &src, self.n_hours as usize)?;
-            create_fixed_input( &self, config, &steps)?;
+            create_fixed_input( &self, config, &steps).await?;
 
         } else { // acquire live data from external sources
             create_wx_based_input( &self, config).await?; // this includes wind and computed (NFDRS) fuel moisture

@@ -7,7 +7,7 @@ export const config = {
     maxEntries: 20,
 
     //--- fixed wx input defaults
-    fixedWs: [5, 10, 15, 20, 30, 40, 50],
+    fixedWs: [5, 10, 15, 20, 30, 40, 50, 60],
     defaultWs: 2,
 
     fixedWd: [0, 45, 90, 135, 180, 225, 270, 315],
@@ -30,7 +30,7 @@ export const config = {
     defaultLfm: 1,
 
     fixedT2: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110],  // temperature at 2m
-    defaultT2: 7,
+    defaultT2: 8,
 
     fixedTcc: [0, 30, 70, 100], // pervent total cloud coverage
     defaultTcc: 0,

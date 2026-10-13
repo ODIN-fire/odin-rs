@@ -41,11 +41,11 @@ csv = { workspace = true }
 kiddo = { workspace = true }
 rkyv = { workspace = true }
 
-satkit = "0.18"
-numeris = "0.5"
+satkit = "0.24"
+numeris = "0.6"
 static_init = "1.0"
 
-kml = "0.13"
+kml = "0.14"
 
 [build-dependencies]
 odin_build = { workspace = true }

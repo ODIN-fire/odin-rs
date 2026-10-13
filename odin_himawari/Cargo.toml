@@ -33,7 +33,7 @@ regex = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 
-suppaftp = { version = "7.0", features = ["tokio"]}
+suppaftp = { version = "12.2", features = ["tokio"]}
 
 [build-dependencies]
 odin_build = { workspace = true }

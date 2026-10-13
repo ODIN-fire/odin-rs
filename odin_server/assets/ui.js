@@ -200,6 +200,8 @@ document.addEventListener('keydown', (event) => {
             case "KeyR": moveWindowRight(topWindow()); break;
             case "KeyB": moveWindowBottom(topWindow()); break;
             case "KeyT": moveWindowTop(topWindow()); break;
+            case "KeyN": cycleTopWindow(false); break;
+            case "KeyP": cycleTopWindow(true); break;
         }
     }
 });
@@ -409,6 +411,28 @@ export function raiseWindowToTop(o) {
 
 export function isTopWindow(w) {
     return (windows.length > 0) && Object.is(windows[windows.length-1], w);
+}
+
+function cycleTopWindow(isBackwards) {
+    let n = windows.length;
+    if (n > 1) {
+        if (isBackwards) {
+            let w = windows[0];
+            for (let i = 0; i < n - 1; i++) {
+                windows[i] = windows[i + 1];
+            }
+            windows[n - 1] = w;
+
+        } else {
+            let w = windows[n - 1];
+            for (let i = n - 1; i > 0; i--) {
+                windows[i] = windows[i - 1];
+            }
+            windows[0] = w;
+        }
+
+        updateWindowZorder();
+    }
 }
 
 function removeWindowFromStack(w) {

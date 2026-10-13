@@ -12,6 +12,27 @@ This crate provides two main services:
 - `ImgLayerService` is a configurable service to provide and control background imagery from own and external (proxied) sources.
   It is especially the layer that controls the map display
 
+## How to interactively use the Cesium Display
+
+Apart from normal mouse based Cesium view control
+
+- left-click + drag : pan
+- scroll wheel / swipe up/down : zoom in/out  
+- ctrl + left-click + drag : tilt and rotate
+
+We provide a number of additional mouse interactions and hotkeys to control both the virtual globe view and ui windows:
+
+- alt + left-click : center display on cursor position
+- alt + arrow-left/arrow-right or arrow-up/arrow-down :  move center display left/right or up/down
+- alt + home : pan/zoom back to home (initial) view
+- alt + page-down : reset orthogonal view angle (towards center of earth)
+- alt + 1/2/3/4/5/6 : zoom to (`odin_cesium_config.js` configured) camera height level
+- alt + 'i'/'o' : zoom in/out
+- esc : reset entity selection indicator (the green rectangle around selected objects)
+- alt + left-click in titlebar of ui window : move window to the left 
+- alt + 'l'/'r' or 't'/'b' : move top window to left/right or top/bottom
+- alt + 'n'/'p' : cycle forwards/backwards through ui windows
+
 
 ## How to access CesiumJS
 

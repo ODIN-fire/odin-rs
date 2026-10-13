@@ -363,7 +363,7 @@ function createHotspotEntity(hs) {
         position: Cesium.Cartesian3.fromDegrees(
             hs.position.lon,
             hs.position.lat,
-            hs.position.alt,
+            hs.position.alt + 5,
         ),
         point: {
             pixelSize: pointSize,
@@ -377,7 +377,8 @@ function createHotspotEntity(hs) {
             semiMinorAxis: 1000,
             semiMajorAxis: 1000,
             material: fillMaterial(hs),
-            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            height: hs.position.alt,
+            //heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
             distanceDisplayCondition: config.boundsDC
         }
     });

@@ -29,6 +29,22 @@ The windows are shown on top of a 3D virtual globe background that uses WebGL to
 dynamic data entities such as track symbols or weather information. Data entities are geometric constructs
 such as points, lines and polygons, or symbols/icons representing data items.
 
+To change the virtual globe view and move or switch between UI windows we use the following mouse and key commands:
+
+- left-click + drag : pan globe view
+- scroll wheel / swipe up/down : zoom globe view in/out   
+- ctrl + left-click + drag : tilt and rotate globe view
+- alt + left-click : center globe view on cursor position
+- alt + arrow-left/arrow-right or arrow-up/arrow-down :  move center of globe view left/right or up/down
+- alt + home : pan/zoom back to home (initial) globe view
+- alt + page-down : reset to orthogonal view angle (towards center of earth)
+- alt + 1/2/3/4/5/6 : zoom globe view to (`odin_cesium_config.js` configured) camera height levels
+- alt + 'i'/'o' : zoom globe view in/out
+- esc : reset entity selection indicator (the green rectangle around selected objects)
+- alt + left-click in titlebar of ui window : move window to the left 
+- alt + 'l'/'r' or 't'/'b' : move top window to left/right or top/bottom
+- alt + 'n'/'p' : cycle forwards/backwards through ui windows
+
 
 ### 3.1 DOM
 

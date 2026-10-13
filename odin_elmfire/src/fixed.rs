@@ -78,8 +78,6 @@ pub fn parse_fixed_wx_lines (src: &str, n_steps: usize)->Result<Vec<FixedInputSt
     let mut tcc: Vec<f64> = Vec::with_capacity(0);
     let mut t2: Vec<f64> = Vec::with_capacity(0);
 
-    println!("@@ fixed src: '{}'", src);
-
     for line in src.lines() {
         if let Some( (k,vs) ) = parse_nml_array_line(line).map_err( |e| op_failed!("invalid input line: {}", e))? {
             match k.as_str() {

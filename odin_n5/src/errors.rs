@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -30,7 +30,7 @@ pub enum OdinN5Error {
 
     #[error("net error {0}")]
     NetError( #[from] odin_common::net::OdinNetError),
-        
+
     #[error("actor error {0}")]
     ActorError( #[from] odin_actor::errors::OdinActorError),
 
@@ -54,3 +54,10 @@ macro_rules! parse_error {
     };
 }
 pub (crate) use parse_error;
+
+macro_rules! op_failed {
+    ($fmt:literal $(, $arg:expr )* ) => {
+        OdinN5Error::OpFailedError( format!( $fmt $(, $arg)* ))
+    };
+}
+pub (crate) use op_failed;

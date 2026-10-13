@@ -103,8 +103,8 @@ pub fn wn_dataset_to_hrrr<P,T> (region: &str, model_name: &str, bbox: &GeoRect, 
 
 // make sure we convert to the units HRRR uses (see respective GRIB_UNIT metadata entries of HRRR generated grib2 files)
 fn push_hrrr_timestep<T,U> (d: &T, ts: usize, tgt: &mut Vec<Vec<U>>) where T: WindNinjaDataSet, U: From<f32> {
-    let ws10 = -d.wind_speed_10m()[ts].get::<meter_per_second>();
-    let wd10 = d.wind_direction_10m()[ts].get::<radian>();
+    let ws10 = d.wind_speed_10m()[ts].get::<meter_per_second>();
+    let wd10 = d.wind_direction_10m()[ts].get::<radian>(); // meteorological convention: direction wind is coming from
 
     tgt[0].push( d.temperature_2m()[ts].get::<degree_celsius>().into());
     tgt[1].push( d.cloud_cover()[ts].get::<percent>().into());
@@ -113,14 +113,14 @@ fn push_hrrr_timestep<T,U> (d: &T, ts: usize, tgt: &mut Vec<Vec<U>>) where T: Wi
 
     if let Some( wind_speed_80m ) = d.wind_speed_100m()  // note OpenMeteo only has 10,100m winds
     && let Some( wind_direction_80m ) = d.wind_direction_100m() {
-        let ws100 = -wind_speed_80m[ts].get::<meter_per_second>();
+        let ws100 = wind_speed_80m[ts].get::<meter_per_second>();
         let wd100 = wind_direction_80m[ts].get::<radian>();
         tgt[4].push( (-ws100 * wd100.sin()).into());
         tgt[5].push( (-ws100 * wd100.cos()).into());
     }
 }
 
-fn set_hrrr_metadata (ds: &mut GdalDataset, n_bands: usize, fc_epoch: &str)->Result<()> {
+pub fn set_hrrr_metadata (ds: &mut GdalDataset, n_bands: usize, fc_epoch: &str)->Result<()> {
     set_band_meta( ds, 1, meta::TMP_2_HTGL_GRIB_META);
     set_band_meta( ds, 2, meta::TCDC_0_EATM_GRIB_META);
     set_band_meta( ds, 3, meta::UGRD_10_HTGL_GRIB_META);
