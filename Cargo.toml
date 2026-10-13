@@ -97,11 +97,11 @@ http-cache-reqwest = { git = "https://github.com/06chaynes/http-cache", features
 #http-cache-reqwest = { version = "0.16" } # this still depends on reqwest 12.2
 
 tower = { version = "0.5", features = ["full"] }
-tower-http = { version = "0.6", features = ["full"] }
-tower-sessions = { version = "0.14.0", default-features = false, features = ["signed"] }
+tower-http = { version = "0.7", features = ["full"] }
+tower-sessions = { version = "0.15.0", default-features = false, features = ["signed"] }
 tower-sessions-sqlx-store = { version = "0.15", features = ["sqlite"] }
 sqlx = { version = "0.9", features = ["sqlite", "time", "runtime-tokio"] }
-http = { version = "1.4" }
+http = { version = "1.5" }
 cacache = { version = "13.1" }
 headers = { version = "0.4" }
 url = { version = "2.5" }
@@ -125,7 +125,7 @@ uom = { version = "0.38", features = ["serde", "f32", "i64", "autoconvert"] }
 num = { version = "0.4.3" }
 chrono = { version = "0.4", features = ["serde", "rkyv-64", "rkyv-validation"] }
 chrono-tz = { version = "0.10", features = ["serde"] }
-tzf-rs = { version = "1.3" }
+tzf-rs = { version = "2.1" }
 thiserror = { version = "2.0" }
 anyhow = { version = "1.0" }
 itertools = { version = "0.14" }
