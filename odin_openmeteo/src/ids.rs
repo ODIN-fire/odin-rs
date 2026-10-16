@@ -14,6 +14,7 @@
 use std::{str::FromStr,hash::{Hash,DefaultHasher,Hasher}};
 use serde::{Deserialize};
 use strum::{AsRefStr,EnumString,VariantNames,IntoStaticStr};
+use uom::si::{f64::Length, length::kilometer};
 
 /// Known OpenMeteo query field names
 /// We use a public enum with non-standard variant names to avoid explicit (error prone) mapping to &str
@@ -63,5 +64,17 @@ pub enum ModelId {
 impl ModelId {
     pub fn is_known_model (wx_model: &str)->bool {
         ModelId::from_str( wx_model).is_ok()
+    }
+
+    /// the (approximate) native horizontal grid resolution of the model. There is no point in computing derived grids
+    /// with a higher resolution than this
+    pub fn grid_resolution (&self)->Length {
+        let km = match self {
+            ModelId::best_match => 9.0, // varies with location, we use the global (ECMWF IFS) resolution
+            ModelId::ecmwf_ifs => 9.0,
+            ModelId::ncep_hrrr_conus => 3.0,
+            ModelId::ncep_hrrr_conus_15min => 3.0,
+        };
+        Length::new::<kilometer>(km)
     }
 }

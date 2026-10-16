@@ -24,18 +24,20 @@ use odin_goesr::{GoesrHotspotService, actor::spawn_goesr_hotspot_actors};
 use odin_orbital::{actor::spawn_orbital_hotspot_actors,hotspot_service::OrbitalHotspotService,firms::FirmsConfig};
 use odin_share::prelude::*;
 use odin_geolayer::GeoLayerService;
-use odin_sentinel::{SentinelStore, SentinelUpdate, LiveSentinelConnector, SentinelActor, sentinel_service::SentinelService};
+use odin_sentinel::{LiveSentinelConnector, SentinelActor, sentinel_service::SentinelService};
 use odin_hrrr::{self,HrrrActor,HrrrService};
 use odin_openmeteo::{self,OpenMeteoActor,wx_service::OpenMeteoService};
 use odin_wx::{WxServiceList,WxFileAvailable};
 use odin_wind::{self, WindActor,WindActorMsg, server_subscribe_action, server_update_action, WindService};
-use odin_adsb::{AircraftStore,actor::AdsbActor,adsb_service::AdsbService, sbs::SbsConnector};
-use odin_n5::{self, N5DeviceStore, N5DataUpdate, n5_service::N5Service, actor::N5Actor, live_connector::LiveN5Connector};
+use odin_adsb::{actor::AdsbActor,adsb_service::AdsbService, sbs::SbsConnector};
+use odin_n5::{self, n5_service::N5Service, actor::N5Actor, live_connector::LiveN5Connector};
 use odin_alertca::{self,actor::AlertCaActor, alertca_service::AlertCaService, live_connector::LiveAlertCaConnector, CameraStore, CameraUpdate};
 use odin_fires::{fire_service::FireService};
 use odin_fems::{self, FemsStore, FemsStation, actor::FemsActor,service::FemsService};
 use odin_landfire::{service::LandfireService,LandfireConfig};
 use odin_elmfire::{self,ElmfireRun, ElmfireService, actor::{ElmfireActor,ElmfireActorMsg}};
+use odin_nfdrs::{self, NfdrsActor, NfdrsService};
+use odin_openmeteo::ids::ModelId;
 
 
 // note that odin_sentinel, odin_n5 and odin_adsb all require non-public data sources and hence are feature gated
@@ -53,12 +55,45 @@ run_actor_system!( actor_system => {
     //--- add the geolayer service
     let svc_list = svc_list.add( build_service!( => GeoLayerService::new( &odin_geolayer::default_data_dir())));
 
+    //--- add the historical fires service
+    let svc_list = svc_list.add( build_service!(let svc = FireService::new(odin_fires::load_config("fires.ron")?)? => svc));
+
     //--- add the landfire service
     let svc_list = svc_list.add( build_service!( let svc = LandfireService::new(odin_landfire::load_config("landfire.ron")?) => svc));
 
-    //--- add the fires service
-    // (service construction can fail since it has to parse externally generated data files)
-    let svc_list = svc_list.add( build_service!(let svc = FireService::new(odin_fires::load_config("fires.ron")?)? => svc));
+    //--- spawn the NFDRS actor (fuel moisture and fire danger index grids)
+    let hnfdrs = spawn_actor!( actor_system, "nfdrs",
+        NfdrsActor::new(
+            odin_nfdrs::load_config("nfdrs.ron")?,
+            odin_openmeteo::load_config("openmeteo.ron")?,
+            ModelId::ncep_hrrr_conus,                          // determines NFDRS grid resolution
+            odin_landfire::load_config("lf_2025_conus.ron")?,  // GeoDs for slope class and fuel model of grid points
+            odin_nfdrs::actor::server_update_action( pre_server.to_actor_handle()),
+            odin_nfdrs::actor::server_remove_action( pre_server.to_actor_handle())
+        )
+    )?;
+    let svc_list = svc_list.add( build_service!( let svc = NfdrsService::new( hnfdrs) => svc));
+
+    //--- spawn FemsActor
+    let fems_id = "fems";
+    let hfems = spawn_actor!( actor_system, fems_id,
+        FemsActor::new(
+            odin_fems::load_config("fems.ron")?,
+            odin_fems::actor::server_init_action( pre_server.to_actor_handle(), fems_id),
+            odin_fems::actor::server_update_action( pre_server.to_actor_handle())
+        )
+    )?;
+    let svc_list = svc_list.add( build_service!( => FemsService::new(  hfems)));
+
+    //--- spawn the micro grid wind simulator
+    let wxs: WxServiceList = vec_boxed![ HrrrService::new_basic( pre_hrrr.to_actor_handle()) ];
+    let hwind = spawn_actor!( actor_system, "wind", WindActor::new(
+        odin_wind::load_config("wind.ron")?,
+        wxs,
+        odin_wind::actor::server_subscribe_action( pre_server.to_actor_handle()),
+        odin_wind::actor::server_update_action( pre_server.to_actor_handle())
+    ))?;
+    let svc_list = svc_list.add( build_service!( let hwind = hwind.clone() => WindService::new( hwind) ));
 
     //--- spawn the elmfire actor
     let hfire = spawn_actor!( actor_system, "elmfire",
@@ -69,16 +104,6 @@ run_actor_system!( actor_system => {
         )
     )?;
     let svc_list = svc_list.add( build_service!( let svc = ElmfireService::new( hfire) => svc));
-
-    //--- spawn the micro grid wind simulator
-    let wxs: WxServiceList = vec_boxed![ HrrrService::new_basic( pre_hrrr.to_actor_handle()) ];
-    let hwind = spawn_actor!( actor_system, "wind", WindActor::new(
-        odin_wind::load_config("wind.ron")?,
-        wxs,
-        server_subscribe_action( pre_server.to_actor_handle()),
-        server_update_action( pre_server.to_actor_handle())
-    ))?;
-    let svc_list = svc_list.add( build_service!( let hwind = hwind.clone() => WindService::new( hwind) ));
 
     //--- spawn the HRRR weather forecast importer
     let _hrrr = spawn_pre_actor!( actor_system, pre_hrrr, HrrrActor::with_statistic_schedules(
@@ -105,122 +130,49 @@ run_actor_system!( actor_system => {
     let orbital_sats = spawn_orbital_hotspot_actors( &mut actor_system, pre_server.to_actor_handle(), region, data, &orbital_sat_configs)?;
     let svc_list = svc_list.add( build_service!( => OrbitalHotspotService::new( orbital_sats)));
 
-    //--- spawn FemsActor
-    let svc_list = {
-        let fems_id = arc!("fems");
-        let hfems = spawn_actor!( actor_system, &fems_id,
-            FemsActor::new(
-                odin_fems::load_config("fems.ron")?,
-                dataref_action!(
-                    let fems_id: Arc<String> = fems_id.clone(),
-                    let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |store: &FemsStore| {
-                        Ok( hserver.try_send_msg( DataAvailable::new::<FemsStore>(fems_id) )? )
-                    }
-                ),
-                dataref_action!(
-                    let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |station: &FemsStation| {
-                        let ws_msg = station.get_json_update_msg();
-                        Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
-                    }
-                )
-            )
-        )?;
-
-        svc_list.add( build_service!( => FemsService::new(  hfems)))
-    };
-
     //--- spawn AlertCaActor
-    let svc_list = {
-        let sender_id = arc!("alertca");
-        let haca = spawn_actor!( actor_system, &sender_id, AlertCaActor::new(
-            odin_alertca::load_config("sf_bay_area.ron")?,
-            LiveAlertCaConnector::new,
-            dataref_action!(
-                let sender_id: Arc<String> = sender_id.clone(),
-                let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |_store: &CameraStore| {
-                    Ok( hserver.try_send_msg( DataAvailable::new::<CameraStore>(sender_id) )? )
-                }
-            ),
-            dataref_action!(
-                let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |updates: &Vec<CameraUpdate>| {
-                    let ws_msg = odin_alertca::get_json_update_msg( &updates);
-                    Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
-                }
-            )
-        ))?;
-
-        svc_list.add( build_service!( => AlertCaService::new(  haca)))
-    };
+    let sender_id = "alertca";
+    let haca = spawn_actor!( actor_system, sender_id, AlertCaActor::new(
+        odin_alertca::load_config("sf_bay_area.ron")?,
+        LiveAlertCaConnector::new,
+        odin_alertca::actor::server_init_action( pre_server.to_actor_handle(), sender_id),
+        odin_alertca::actor::server_update_action( pre_server.to_actor_handle())
+    ))?;
+    let svc_list = svc_list.add( build_service!( => AlertCaService::new(  haca)));
 
     //--- spawn the sentinel actor
     #[cfg(feature="sentinel")]
     let svc_list = {
-        let sentinel_name = arc!("sentinel");
-        let hsentinel = spawn_actor!( actor_system, &sentinel_name, SentinelActor::new(
+        let sentinel_id = "sentinel";
+        let hsentinel = spawn_actor!( actor_system, sentinel_id, SentinelActor::new(
             LiveSentinelConnector::new( odin_sentinel::load_config( "sentinel.ron")?),
-            dataref_action!(
-                let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle(),
-                let sender_id: Arc<String> = sentinel_name.clone() =>
-                |_store: &SentinelStore| {
-                    Ok( hserver.try_send_msg( DataAvailable::new::<SentinelStore>(sender_id) )? )
-                }
-            ),
-            data_action!(
-                let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() =>
-                |update:SentinelUpdate| {
-                    let ws_msg = WsMsg::json( SentinelService::mod_path(), "update", update)?;
-                    Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
-                }
-            )
+            odin_sentinel::actor::server_init_action( pre_server.to_actor_handle(), sentinel_id),
+            odin_sentinel::actor::server_update_action( pre_server.to_actor_handle())
         ))?;
-
         svc_list.add( build_service!( => SentinelService::new( hsentinel)))
     };
 
     //--- spawn N5Actor
     #[cfg(feature="n5")]
     let svc_list = {
-        let sender_id = arc!("n5");
-        let hn5 = spawn_actor!( actor_system, &sender_id, N5Actor::new(
+        let n5_id = "n5";
+        let hn5 = spawn_actor!( actor_system, n5_id, N5Actor::new(
             LiveN5Connector::new( odin_n5::load_config("n5.ron")?),
-            dataref_action!(
-                let sender_id: Arc<String> = sender_id.clone(),
-                let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |_store: &N5DeviceStore| {
-                    Ok( hserver.try_send_msg( DataAvailable::new::<N5DeviceStore>(sender_id) )? )
-                }
-            ),
-            data_action!(
-                let hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() => |updates: Vec<N5DataUpdate>| {
-                    let ws_msg = odin_n5::get_json_update_msg( &updates);
-                    Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
-                }
-            )
+            odin_n5::actor::server_init_action( pre_server.to_actor_handle(), n5_id),
+            odin_n5::actor::server_update_action( pre_server.to_actor_handle())
         ))?;
-
         svc_list.add( build_service!( => N5Service::new( hn5)))
     };
-
 
     //--- spawn the AdsbActor
     #[cfg(feature="adsb")]
     let svc_list = {
-        let hadsb = spawn_actor!( actor_system, "adsb",
-            AdsbActor::<SbsConnector,_>::new(
-                odin_adsb::load_config("adsb.ron")?,
-                dataref_mut_action!(
-                    let mut w: JsonWriter = JsonWriter::with_capacity(4096), // use a cached writer to assemble the ws_msg
-                    let mut hserver: ActorHandle<SpaServerMsg> = pre_server.to_actor_handle() =>
-                    |store: &AircraftStore| {
-                        let ws_msg = store.get_json_update_msg(w);
-                        Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
-                    }
-                )
-            )
-        )?;
-
+        let hadsb = spawn_actor!( actor_system, "adsb", AdsbActor::<SbsConnector,_>::new(
+            odin_adsb::load_config("adsb.ron")?,
+            odin_adsb::actor::server_update_action( pre_server.to_actor_handle())
+        ))?;
         svc_list.add( build_service!( => AdsbService::new( vec![ hadsb])))
     };
-
 
     //--- finally spawn the server actor
     let _hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(

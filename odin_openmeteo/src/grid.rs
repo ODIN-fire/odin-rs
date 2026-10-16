@@ -66,7 +66,7 @@ impl<T> UtmGrid<T> where T: VecDataSet + Clone {
         let geo_rect_hull = utm_rect.add_meters( -m, -m, m, m).to_geo_rect( GeoRectMapping::ExteriorGeo);
 
         let n_time_steps: usize = 0;
-        let shape = (2*nx2+1, 2*ny2+1);
+        let shape = (2*ny2+1, 2*nx2+1); // ndarray is row-major, i.e. (rows,cols)
         let data = Array2::from_elem( shape, None);
 
         Ok( UtmGrid { geo_center, utm_center, utm_rect, geo_rect_hull, cell_size, n_time_steps, data } )
@@ -95,7 +95,7 @@ impl<T> UtmGrid<T> where T: VecDataSet + Clone {
 
     /// this uses x,y grid coordinates
     pub fn at (&self, col: usize, row: usize)->Result<&Option<T>> {
-        let (w,h) = self.data.dim();
+        let (h,w) = self.data.dim();
 
         if col < w && row < h {
             Ok( &self.data[(row,col)] )
@@ -105,16 +105,17 @@ impl<T> UtmGrid<T> where T: VecDataSet + Clone {
         }
     }
 
-    /// this uses x,y grid coordinates
+    /// this uses x,y grid coordinates. Grid points are cell centers (utm_rect is the outer boundary of all cells)
     pub fn utm_pos_at ( &self, col: usize, row: usize)->Result<UtmPoint> {
         let (h,w) = self.data.dim();
 
         if col < w && row < h {
             let d = self.cell_size.get::<meter>();
+            let d2 = d / 2.0;
             let utm_zone = self.utm_center.utm_zone;
 
-            let easting = self.utm_rect.west + (col as f64 * d);
-            let northing = self.utm_rect.north - (row as f64 * d);
+            let easting = self.utm_rect.west + (col as f64 * d) + d2;
+            let northing = self.utm_rect.north - (row as f64 * d) - d2;
             Ok ( UtmPoint { easting, northing, utm_zone } )
 
         } else {
@@ -126,16 +127,18 @@ impl<T> UtmGrid<T> where T: VecDataSet + Clone {
         self.utm_pos_at( col, row).map( |p| utm_to_geo(&p) )
     }
 
+    /// the cell center points of all grid cells in row-major order
     pub fn get_utm_points (&self)->Vec<UtmPoint> {
         let (h,w) = self.data.dim();
         let d = self.cell_size.get::<meter>();
+        let d2 = d / 2.0;
         let utm_zone = self.utm_center.utm_zone;
         let mut pts: Vec<UtmPoint> = Vec::with_capacity( h*w );
 
         for row in 0..h {
             for col in 0..w {
-                let easting = self.utm_rect.west + (col as f64 * d);
-                let northing = self.utm_rect.north - (row as f64 * d);
+                let easting = self.utm_rect.west + (col as f64 * d) + d2;
+                let northing = self.utm_rect.north - (row as f64 * d) - d2;
                 pts.push( UtmPoint{easting,northing,utm_zone} )
             }
         }
@@ -214,8 +217,8 @@ impl<T> UtmGrid<T> where T: VecDataSet + Clone {
         //--- get closest data points for grid positions
         let res = self.cell_size.get::<meter>();
         let res2 = res / 2.0;
-        let (nx,ny) = self.dim();
-        let mut n_vals = Array2::from_elem( (nx,ny), 0.0);
+        let (ny,nx) = self.dim(); // ndarray is row-major
+        let mut n_vals = Array2::from_elem( (ny,nx), 0.0);
 
         for j in 0..ny {
             let y = self.utm_rect.north - (j as f64 * res) - res2;
@@ -228,11 +231,11 @@ impl<T> UtmGrid<T> where T: VecDataSet + Clone {
                     .execute();
 
                 let ld = &data[nearest.item as usize];
-                self.data[(i,j)] = Some( ld.hourly.clone() );
+                self.data[(j,i)] = Some( ld.hourly.clone() ); // (row,col)
 
                 let dist = nearest.distance.sqrt();
                 let d = dist / res2;
-                n_vals[(i,j)] = d;
+                n_vals[(j,i)] = d;
             }
         }
 
@@ -245,7 +248,7 @@ impl<T> UtmGrid<T> where T: VecDataSet + Clone {
 
         let res = self.cell_size.get::<meter>();
         let res2 = res / 2.0;
-        let (nx,ny) = self.dim();
+        let (ny,nx) = self.dim(); // ndarray is row-major
 
         let cutoff = (res * cutoff_factor).powi(2); // we ignore input points that exceeed this SquaredEuclidean
         let q = 5;
@@ -277,7 +280,7 @@ impl<T> UtmGrid<T> where T: VecDataSet + Clone {
                 let wds: Vec<(f64,&T)> = ws.into_iter().zip( ds.into_iter()).collect();
 
                 T::idw(&mut d_acc, &wds);
-                self.data[(i,j)] = Some(d_acc);
+                self.data[(j,i)] = Some(d_acc); // (row,col)
             }
         }
 
@@ -308,13 +311,13 @@ impl<T> UtmGrid<T> where T: VecDataSet + Clone {
             Err( op_failed!("time step out of bounds") )
 
         } else {
-            let (nx,ny) = self.dim();
+            let (ny,nx) = self.dim(); // ndarray is row-major
             let mut a: Array2<U> = Array2::from_elem( self.dim(), U::zero());
 
             for j in 0..ny {
                 for i in 0..nx {
-                    let v = f( self.data[(i,j)].as_ref(), step);
-                    a[(i,j)] = v;
+                    let v = f( self.data[(j,i)].as_ref(), step);
+                    a[(j,i)] = v;
                 }
             }
 

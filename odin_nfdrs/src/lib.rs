@@ -35,7 +35,7 @@ use uom::si::{
     heat_flux_density::watt_per_square_meter,
 };
 
-use odin_build::{define_load_config, pkg_cache_dir, pkg_data_dir};
+use odin_build::{define_load_asset, define_load_config, pkg_cache_dir, pkg_data_dir};
 use odin_gdal::{geods::{GeoDs,GeoDsSrs}};
 use odin_macro::public_struct;
 use odin_common::{
@@ -56,17 +56,32 @@ use odin_openmeteo::{
 pub mod errors;
 use errors::{OdinNfdrsError,Result,op_failed};
 
+pub mod grid;
+
+pub mod actor;
+pub use actor::NfdrsActor;
+
+pub mod service;
+pub use service::NfdrsService;
+
 define_load_config!();
+define_load_asset!();
 
 lazy_static! {
     pub static ref CACHE_DIR: PathBuf = { pkg_cache_dir!() };
+    pub static ref GRID_DIR: PathBuf = { CACHE_DIR.join("grids") }; // where we keep NfdrsGridSets
 }
 
 #[derive(Deserialize,Debug)]
 #[public_struct]
 struct NfdrsConfig {
     nfdrs_cmd: EnvPathBuf,  // path to NFDRS4_cli command (absolute or in $PATH)
+
+    #[serde(default="default_pixel_res_m")]
+    pixel_res_m: f64,       // pixel resolution in meters for generated grid datasets (EPSG:4326 pixels are approximated)
 }
+
+fn default_pixel_res_m()->f64 { 1000.0 }
 
 // DateTime, Temperature(F), RelativeHumidity(%), Precipitation(in), WindSpeed(mph), WindAzimuth(degrees), SolarRadiation(W/m2), SnowFlag
 // 2001-03-22T15:00:00-07:00, 62, 16, 0.000, 4, 6, 650,1

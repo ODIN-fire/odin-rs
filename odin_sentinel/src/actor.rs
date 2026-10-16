@@ -20,6 +20,9 @@ use odin_actor::{error,debug,warn,info};
 use odin_common::{datetime::duration_since, geo::GeoPoint4};
 use crate::*;
 use crate::ws::WsCmd;
+use std::sync::Arc;
+use odin_server::{WsMsg, spa::{SpaServerMsg, SpaService, DataAvailable, BroadcastWsMsg}};
+use crate::sentinel_service::SentinelService;
 
 
 //-- external messages (from other actors)
@@ -145,3 +148,23 @@ impl_actor! { match msg for Actor< SentinelActor<C,I,U>, SentinelActorMsg>
     }
 }
 
+
+// standard actions in a SpaServer context
+
+pub fn server_init_action (hserver: ActorHandle<SpaServerMsg>, actor_id: &str) -> impl DataRefAction<SentinelStore> {
+    dataref_action!(
+        let sender_id: Arc<String> = Arc::new( actor_id.to_string()),
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |_store: &SentinelStore| {
+            Ok( hserver.try_send_msg( DataAvailable::new::<SentinelStore>(sender_id) )? )
+        }
+    )
+}
+
+pub fn server_update_action (hserver: ActorHandle<SpaServerMsg>) -> impl DataAction<SentinelUpdate> {
+    data_action!(
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |update: SentinelUpdate| {
+            let ws_msg = WsMsg::json( SentinelService::mod_path(), "update", update)?;
+            Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
+        }
+    )
+}

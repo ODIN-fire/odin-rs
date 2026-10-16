@@ -628,8 +628,9 @@ pub fn set_rasterband_from_vec<T> (ds: &mut Dataset, band_index: usize, vs: Vec<
         return Err( op_failed!("incompatible vec size for band (expected {}, found {})", size.0 * size.1, vs.len()))
     }
 
-    let shape = (size.1, size.0); // size is (col,row), ndarray shape is (row,col)
-    let mut buffer = Buffer::new( shape, vs);
+    // NOTE - gdal::raster::Buffer shape is (cols,rows), i.e. the same order as size (and the reverse of ndarray). Using
+    // (rows,cols) here makes GDAL resample the buffer into the band window, which scrambles non-square rasters
+    let mut buffer = Buffer::new( size, vs);
     band.write( (0,0), size, &mut buffer)?;
     //ds.flush_cache();
 

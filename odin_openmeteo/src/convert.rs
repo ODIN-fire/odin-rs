@@ -264,24 +264,23 @@ pub fn create_stacked_hourly_utm_ds<T,P,U,F> (
         U: GdalType + NumericType,
         F: FnMut(&Option<T>,usize, &mut Vec<U>)
 {
-    let (nx, ny) = grid_data.dim();
+    let (ny, nx) = grid_data.dim(); // ndarray is row-major
     let dlen = nx * ny;
     if dlen == 0 { return Err( op_failed!("no grid data") ) }
 
     let utm_zone = utm_rect.utm_zone;
-    let center = utm_rect.center();
 
     let driver = get_gtiff_driver();
     let epsg = utm_zone.epsg();
-    let x_min = center.easting - (nx/2) as f64 * x_res;
-    let y_max = center.northing + (ny/2) as f64 * y_res;
+    let x_min = utm_rect.west;  // utm_rect is the outer boundary of all grid cells, i.e. pixel (0,0) is cell (0,0)
+    let y_max = utm_rect.north;
 
     let n_steps = time_interval.end - time_interval.start;
 
     let mut vss: Vec<Vec<U>> = Vec::with_capacity( n_steps);
     for i in  time_interval {
         let mut vs: Vec<U> = Vec::with_capacity( dlen);
-        grid_data.iter().map( |c| push_timestep_vals( c, i, &mut vs));
+        for c in grid_data.iter() { push_timestep_vals( c, i, &mut vs) } // note Iterator::map() would be lazy
         vss.push( vs);
     }
 
@@ -339,17 +338,16 @@ pub fn create_utm_ds<T,P,U,F> (
         U: GdalType + NumericType,
         F: FnMut(&T,usize,&mut Vec<Vec<U>>)
 {
-    let (nx, ny) = grid_data.dim();
+    let (ny, nx) = grid_data.dim(); // ndarray is row-major
     let dlen = nx * ny;
     if dlen == 0 { return Err( op_failed!("no grid data") ) }
 
     let utm_zone = utm_rect.utm_zone;
-    let center = utm_rect.center();
 
     let driver = get_gtiff_driver();
     let epsg = utm_zone.epsg();
-    let x_min = center.easting - (nx/2) as f64 * x_res;
-    let y_max = center.northing + (ny/2) as f64 * y_res;
+    let x_min = utm_rect.west;  // utm_rect is the outer boundary of all grid cells, i.e. pixel (0,0) is cell (0,0)
+    let y_max = utm_rect.north;
 
     let mut vss: Vec<Vec<U>> = vec![ Vec::with_capacity(dlen); n_bands];
 

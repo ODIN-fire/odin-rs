@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- NFDRS icon: fuel moisture droplet -->
+<svg
+   width="32.0px"
+   height="32.0px"
+   viewBox="0 0 32.0 32.0"
+   version="1.1"
+   xmlns="http://www.w3.org/2000/svg">
+  <g id="layer1">
+    <rect style="fill:none;stroke:none" width="32" height="32" x="0" y="0" />
+    <path
+       style="fill:#4d4d4d;fill-opacity:1;stroke:#e2dfdf;stroke-width:1.22;stroke-linecap:square;stroke-linejoin:miter;stroke-opacity:1"
+       d="M 16,2.5 C 12.5,8.5 7,14 7,20 c 0,5.2 4,9.5 9,9.5 5,0 9,-4.3 9,-9.5 C 25,14 19.5,8.5 16,2.5 Z" />
+    <text
+       style="font-style:normal;font-weight:bold;font-size:11px;font-family:Arial;text-anchor:middle;fill:#e5e5e5"
+       x="16"
+       y="25">%</text>
+  </g>
+</svg>

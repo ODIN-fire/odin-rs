@@ -1,3 +1,4 @@
 NfdrsConfig (
     nfdrs_cmd: "NFDRS4_cli", // has to be absolute or in $PATH
+    pixel_res_m: 250.0,     // pixel resolution of generated grid datasets in meters (approximated for EPSG:4326)
 )

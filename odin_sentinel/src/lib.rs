@@ -44,7 +44,7 @@ use odin_common::{
 use odin_actor::{MsgReceiver, Query, ActorHandle};
 use odin_macro::{define_algebraic_type, match_algebraic_type, define_struct};
 
-mod actor;
+pub mod actor;
 pub use actor::*;
 
 mod alarm;

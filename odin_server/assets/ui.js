@@ -685,12 +685,15 @@ export function TabbedContainer (eid,width) {
     }
 }
 
-export function Tab (label,show,eid) {
+// the optional selectTab(event,tabContainer) callback is called when the user clicks on this tab and it was not already showing.
+// The label of the selected tab is available as tabContainer.dataset.label
+export function Tab (label,show,eid,selectTab=null) {
     return function (...children) {
         let e = createElement("DIV", "ui_tab_container");
         e.setAttribute("data-label", label);
         if (show) e.classList.add("show");
         if (eid) e.setAttribute("id", eid);
+        if (selectTab instanceof Function) e._uiSelectTab = selectTab;
 
         for (const c of children) e.appendChild(c);
 
@@ -744,12 +747,16 @@ function clickTab(event) {
         let tcw = tc.parentElement;
         if (tcw._uiShowing !== tc) {
             let prevTc = tcw._uiShowing;
-            prevTc.classList.remove("show");
-            prevTc._uiTab.classList.remove("show");
+            if (prevTc) { // there might not have been a showing tab
+                prevTc.classList.remove("show");
+                prevTc._uiTab.classList.remove("show");
+            }
 
             tc.classList.add("show");
             tc._uiTab.classList.add("show");
             tcw._uiShowing = tc;
+
+            if (tc._uiSelectTab) tc._uiSelectTab(event, tc);
         }
     }
 }

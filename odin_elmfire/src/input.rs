@@ -50,7 +50,7 @@ use odin_openmeteo::{
     HourlyLocationData, MAX_POINTS, OpenMeteoConfig,
     convert::{create_stacked_hourly_utm_ds, set_hrrr_metadata, wn_utm_grid_to_hrrr},
     dataset::{Fw21Data, MinimalSfcData}, get_forecast_url, get_time_step_range,
-    grid::{GridAlgorithm, UtmGrid}, ids::ModelId, queries::get_cached_annual_grid_precipitations
+    grid::{GridAlgorithm, UtmGrid}, ids::ModelId, queries::{get_annual_precip, get_fw21_grid}
 };
 use crate::{CACHE_DIR, ElmfireConfig, ElmFire, FixedInputStep, WX_DT, errors::{OdinElmfireError,Result,op_failed}, get_utm_rect_around_point};
 
@@ -292,7 +292,7 @@ pub async fn create_wx_based_input (ef: &ElmFire, config: &ElmfireConfig)->Resul
     }
 
     // the cached weather data acquisition
-    let fw21_grid = get_fw21_grid( &wx_config, wx_model, &dir, &ef.geo_center, Length::new::<meter>(wx_res), n2, &start_date, &end_date).await?;
+    let fw21_grid = get_fw21_grid( &wx_config, wx_model, &dir, &ef.geo_center, Length::new::<meter>(wx_res), n2, n2, &start_date, &end_date).await?;
     let precip_grid = get_annual_precip( &wx_config, &dir, &fw21_grid, &ef.geo_center, &ef.base_date).await?;
 
     let (ny,nx) = fw21_grid.dim();
@@ -357,44 +357,6 @@ pub async fn create_wx_based_input (ef: &ElmFire, config: &ElmfireConfig)->Resul
     }
 
     Ok(())
-}
-
-async fn get_fw21_grid (
-    wx_config: &OpenMeteoConfig, wx_model: ModelId, dir: &PathBuf,
-    geo_center: &GeoPoint, res: Length, n2: usize,
-    start: &DateTime<Utc>, end: &DateTime<Utc>
-) -> Result<UtmGrid<Fw21Data>>
-{
-    let mut grid: UtmGrid<Fw21Data> = UtmGrid::from_center( geo_center, res, n2, n2)?;
-
-    // make sure we get all the OpenMeteo data in one query
-    let center_enc = geo_center.encode(4);
-    let path = dir.join( format!("fw21__{}__{}.json", center_enc, ymd_hms_enc( end)));
-    grid.get_cached_hourly_data( wx_config, wx_model, start, end, GridAlgorithm::idw( 1.5, 2.0), &path).await?;
-
-    Ok(grid)
-}
-
-// NOTE - using odin_common::containers::Grid is a workaround for the infamous
-//       "Future not Send.. expected struct `Quantity<..., ..., f64>` found struct `Quantity<..., ..., f64>`"
-// With ndarray v0.17.2 we can't directly use Array2<Length> in the loop and UtmGrid should not have any DeserializeOwned
-// bounds on the type (only on the deserializing methods)
-// TODO - remove workaround if fixed in rustc (https://github.com/rust-lang/rust/issues/162558)
-// and/or ndarray (https://github.com/rust-ndarray/ndarray/issues/1617)
-
-async fn get_annual_precip (
-    wx_config: &OpenMeteoConfig, dir: &PathBuf,
-    grid: &UtmGrid<Fw21Data>, geo_center: &GeoPoint,
-    date: &DateTime<Utc>
-) -> Result<Grid<Length>>
-{
-    let center_enc = geo_center.encode(4);
-    let path = dir.join( format!("annual_precip__{}__{}.json", center_enc, ymd(date)));
-
-    let sum_f32 = get_cached_annual_grid_precipitations( wx_config, grid, date, &path).await?;
-    let sum_f64 = sum_f32.map( |l| l.to_f64() ); // NOTE - this has to be the same unit as we use in the compute_nfdrs_recs argument
-
-    Ok( Grid::from_array2(sum_f64) )
 }
 
 /// use forecast data from fw21_grid plus already retrieved dir/dem.tif to compute micro grid wind with WindNinja

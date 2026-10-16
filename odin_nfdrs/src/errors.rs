@@ -78,6 +78,9 @@ pub enum OdinNfdrsError {
     #[error("chrono parse error {0}")]
     ChronoParseError( #[from] chrono::ParseError),
 
+    #[error("action failure {0}")]
+    ActionFailure(String), // ActionFailure cannot impl std::error::Error
+
     #[error("operation failed {0}")]
     OpFailedError(String),
 }

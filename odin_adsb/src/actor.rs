@@ -17,7 +17,8 @@ use std::sync::{Arc,atomic::Ordering};
 use chrono::{DateTime,Utc};
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
-use odin_common::datetime::EpochMillis;
+use odin_common::{datetime::EpochMillis, json_writer::JsonWriter};
+use odin_server::spa::{SpaServerMsg, BroadcastWsMsg};
 use dashmap::DashMap;
 use crate::{Aircraft, AircraftStore, adsb::{AdsbConfig,AdsbConnector}, errors::{Result,OdinAdsbError}};
 
@@ -105,4 +106,17 @@ impl_actor! { match msg for Actor<AdsbActor<C,U>, AdsbActorMsg>
     _Terminate_ => stop! { 
         self.connector.terminate(); 
     }
+}
+
+// standard actions in a SpaServer context
+
+pub fn server_update_action (hserver: ActorHandle<SpaServerMsg>) -> impl DataRefMutAction<AircraftStore> {
+    dataref_mut_action!(
+        let mut w: JsonWriter = JsonWriter::with_capacity(4096), // use a cached writer to assemble the ws_msg
+        let mut hserver: ActorHandle<SpaServerMsg> = hserver.clone() =>
+        |store: &AircraftStore| {
+            let ws_msg = store.get_json_update_msg(w);
+            Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
+        }
+    )
 }

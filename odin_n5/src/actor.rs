@@ -16,7 +16,9 @@
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
 use crate::{N5DataUpdate, N5Device};
-use crate::{N5Connector,N5DeviceStore,N5Data,errors::{Result,OdinN5Error}};
+use crate::{N5Connector,N5DeviceStore,N5Data,get_json_update_msg,errors::{Result,OdinN5Error}};
+use std::sync::Arc;
+use odin_server::spa::{SpaServerMsg, DataAvailable, BroadcastWsMsg};
 
 //--- external messages
 #[derive(Debug)] pub struct ExecSnapshotAction( pub DynDataRefAction<N5DeviceStore> );
@@ -98,4 +100,23 @@ impl_actor! { match msg for Actor<N5Actor<C,I,U>, N5ActorMsg>
     _Terminate_ => stop! { 
         self.connector.terminate(); 
     }
+}
+// standard actions in a SpaServer context
+
+pub fn server_init_action (hserver: ActorHandle<SpaServerMsg>, actor_id: &str) -> impl DataRefAction<N5DeviceStore> {
+    dataref_action!(
+        let sender_id: Arc<String> = Arc::new( actor_id.to_string()),
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |_store: &N5DeviceStore| {
+            Ok( hserver.try_send_msg( DataAvailable::new::<N5DeviceStore>(sender_id) )? )
+        }
+    )
+}
+
+pub fn server_update_action (hserver: ActorHandle<SpaServerMsg>) -> impl DataAction<Vec<N5DataUpdate>> {
+    data_action!(
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |updates: Vec<N5DataUpdate>| {
+            let ws_msg = get_json_update_msg( &updates);
+            Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
+        }
+    )
 }

@@ -13,14 +13,15 @@
  */
 #![allow(unused)]
 
-use std::collections::{HashMap, VecDeque};
+use std::{collections::{HashMap, VecDeque},sync::Arc};
 use reqwest::Client;
 use chrono::{DateTime,Utc,Datelike,Timelike};
+use uom::si::time::minute;
 
+use odin_common::{collections::RingDeque,fs::remove_old_files, datetime::{hours, minutes, utc_now}};
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
-use odin_common::{collections::RingDeque,fs::remove_old_files, datetime::{hours, minutes, utc_now}};
-use uom::si::time::minute;
+use odin_server::spa::{SpaServerMsg,DataAvailable,BroadcastWsMsg};
 
 use crate::{
     CACHE_DIR, FemsConfig, FemsStation, FemsStore, errors::{Result}
@@ -121,4 +122,22 @@ impl_actor! { match msg for Actor<FemsActor<I,U>, FemsActorMsg>
     _Timer_ => cont! {
         self.update().await;
     }
+}
+
+pub fn server_init_action (hserver: ActorHandle<SpaServerMsg>, fems_id: &str) -> impl DataRefAction<FemsStore> {
+    dataref_action!(
+        let fems_id: Arc<String> = Arc::new(fems_id.to_string()),
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |store: &FemsStore| {
+            Ok( hserver.try_send_msg( DataAvailable::new::<FemsStore>(fems_id) )? )
+        }
+    )
+}
+
+pub fn server_update_action (hserver: ActorHandle<SpaServerMsg>) -> impl DataRefAction<FemsStation> {
+    dataref_action!(
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |station: &FemsStation| {
+            let ws_msg = station.get_json_update_msg();
+            Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
+        }
+    )
 }
