@@ -1,9 +1,9 @@
 /**
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -17,13 +17,13 @@ import { config } from "./odin_alertca_config.js";              // associated st
 import * as main from "../odin_server/main.js";               // global functions (e.g. for data sharing)
 import * as util from "../odin_server/ui_util.js";            // common, cross-module support functions
 import * as data from "../odin_server/ui_data.js";
-import * as ui from "../odin_server/ui.js";                   // ODIN specific user interface library 
+import * as ui from "../odin_server/ui.js";                   // ODIN specific user interface library
 import * as wnd from "../odin_server/ui_windows.js";
 import * as ws from "../odin_server/ws.js";                   // websocket processing
 import * as odinCesium from "../odin_cesium/odin_cesium.js";  // virtual globe rendering interface from odin_cesium
 
 
-const MOD_PATH = "odin_alertca::alertca_service::AlertCaService";   // the name of the associated odin-rs SpaService 
+const MOD_PATH = "odin_alertca::alertca_service::AlertCaService";   // the name of the associated odin-rs SpaService
 
 ws.addWsHandler( MOD_PATH, handleWsMessages);                 // incoming websocket messages for MOD_PATH
 //main.addShareHandler( handleShareMessage);                  // if module uses shared data items
@@ -107,7 +107,7 @@ class CameraEntry {
                 color: clr,
                 outlineColor: config.pointOutlineColor,
                 outlineWidth: config.pointOutlineWidth,
-                distanceDisplayCondition: config.pointDC, 
+                distanceDisplayCondition: config.pointDC,
             }
         });
         entity._uiCameraEntry = this; // backlink for selection
@@ -217,14 +217,14 @@ console.log("odin_alertca initialized");
 
 /* #endregion initialization */
 
-function createIcon() {                                     
+function createIcon() {
     return ui.Icon("./asset/odin_alertca/alertca.svg", (e)=> ui.toggleWindow(e,'alertca'), "Alert CA cameras");
 }
 
-function createWindow() {                                 
+function createWindow() {
     return ui.Window("Alert-CA Cameras", "alertca", "./asset/odin_alertca/alertca.svg")(
-        ui.LayerPanel("alert-ca", toggleShowAlertCa),    
-        
+        ui.LayerPanel("alert-ca", toggleShowAlertCa),
+
         ui.Panel("cameras", true) (
             (cameraView = ui.List("alertca.cameras", 10, selectCameraEntry,null,null,zoomToCamera)),
         ),
@@ -237,10 +237,10 @@ function createWindow() {
     );
 }
 
-function initCameraView() {                               
+function initCameraView() {
     let view = ui.getList("alertca.cameras");
     if (view) {
-        ui.setListItemDisplayColumns(view, ["fit", "header"], [    
+        ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "", width: "2.2rem", attrs: [], map: e => e.hasRecentAlerts() ?  "⚠️" : ""},
             { name: "id", width: "10rem", attrs: ["alignLeft"], map: e => e.label },
             ui.listItemSpacerColumn(0.5),
@@ -255,9 +255,9 @@ function initCameraView() {
 function initDataView() {
     let view = ui.getList("alertca.data");
     if (view) {
-        ui.setListItemDisplayColumns(view, ["fit", "header"], [    
-            { name: "show", tip: "show image", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.window, toggleShowImage, null) },
-            { name: "fov", tip: "show fov", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.fovAsset, toggleShowFov, null) },
+        ui.setListItemDisplayColumns(view, ["fit", "header"], [
+            { name: "show", tip: "show image", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.window, toggleShowImage) },
+            { name: "fov", tip: "show fov", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.fovAsset, toggleShowFov) },
             ui.listItemSpacerColumn(0.5),
             { name: "dir", tip: "camera direction", width: "3rem", attrs: ["fixed", "alignRight"], map: e => util.f_1.format( e.azimut) },
             { name: "zoom", tip: "zoom factor", width: "3rem", attrs: ["fixed", "alignRight"], map: e => util.f_1.format( e.zoom) },
@@ -267,10 +267,10 @@ function initDataView() {
     }
 }
 
-function initAlertsView() {                
+function initAlertsView() {
     let view = ui.getList("alertca.alerts");
     if (view) {
-        ui.setListItemDisplayColumns(view, ["fit", "header"], [  
+        ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "alert", width: "15rem", attrs:[], map: e => e.alert },
 
             ui.listItemSpacerColumn(),
@@ -290,10 +290,10 @@ function toggleShowImage(event) {
             } else {
                 setTimeout(() => { // otherwise the mouseUp will put the focus back on dataView
                     let uri = "./alertca-data/" + data.image;
-                    let w = wnd.ImageWindow( 
+                    let w = wnd.ImageWindow(
                         imageTitle(data), null,
                         () => { ui.setCheckBox(cb, false); },
-                        uri, "", 
+                        uri, "",
                         config.imageWidth, config.imageHeight,
                         event.clientX + 10, event.clientY + 10
                     );
@@ -307,7 +307,7 @@ function toggleShowImage(event) {
 function imageTitle (data) {
     if (selectedCameraEntry) {
         return `${selectedCameraEntry.label} -- ${util.toLocalMDHMSString(data.date)} -- ${data.azimut}°`;
-    } 
+    }
 }
 
 function toggleShowFov (event) {
@@ -326,11 +326,11 @@ function toggleShowFov (event) {
 }
 
 // list -> entity
-function selectCameraEntry(event) {        
+function selectCameraEntry(event) {
     let ce = event.detail.curSelection;
     if (ce) {
-        selectedCameraEntry = ce; 
-        
+        selectedCameraEntry = ce;
+
         ui.setListItems( dataView, ce.camera.data.toReversed());
         ui.setListItems( alertView, ce.camera.alerts.toReversed());
     }
@@ -394,7 +394,7 @@ function handleSnapshotMsg (msg) {
     deDuplicateCameraEntries(); // for cameras at the same location
 
     let cameraList = [...cameraEntries.values()].sort( sortCameras);
-    ui.setListItems( cameraView, cameraList); 
+    ui.setListItems( cameraView, cameraList);
 }
 
 function deDuplicateCameraEntries() {

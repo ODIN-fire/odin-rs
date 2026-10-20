@@ -42,7 +42,25 @@ class FireEntry {
         Object.keys(config.render).forEach(key => assets[key] = null);
         this.assets = assets;
 
-        this.toaDs = undefined; // the spread isochrone polygons
+        //--- isochrone (time-of-arrival) display state. Entity visibility is only set in updateDisplay()
+        this.isShown = false;              // == "show" checkbox in fireView
+        this.shownTimeSteps = new Set();   // explicitly requested levels (secs) in mode B
+        this.toaDs = undefined;            // the spread isochrone polylines/polygons (loaded on demand)
+        this.toaLoading = undefined;       // Promise while loading toaDs (to avoid duplicate loads)
+        this.toaGen = 0;                   // incremented whenever toaDs is reset so that we can discard outdated loads
+        this.toaRender = undefined;        // toa render options of this run (set when the run gets selected)
+    }
+
+    // the toa render options for this run. Changes of display parameters only affect the selected run and
+    // following selections (to make it easier to compare runs), i.e. each run keeps its own copy
+    getToaRender() {
+        return this.toaRender ? this.toaRender : render.toa;
+    }
+
+    // adopt the current display parameters (called when this run gets selected or display parameters are changed)
+    setToaRender() {
+        this.toaRender = { ...render.toa };
+        this.updateToaRendering();
     }
 
     state() {
@@ -52,6 +70,45 @@ class FireEntry {
     rasterProducts() {
         let output = this.ef.output;
         return output ? output.rasterProducts : null;
+    }
+
+    // levels (secs since base date) of all timesteps of this run (as shown in timestepView)
+    allLevels() {
+        let area = this.ef.output ? this.ef.output.area : null;
+        return area ? area.map( ae => getTimestepSeconds(this, ae)) : [];
+    }
+
+    // this is the only place where we set visibility of toa entities - it is computed from the current state:
+    //  - outlines (polylines) are shown if the run is shown and we are in showSelectedEntryMode (only the selected
+    //    run can be shown in this mode) or if the respective level was explicitly requested
+    //  - only the selected timestep of the selectedEntry is filled, and only if its outline is visible
+    updateDisplay() {
+        let ds = this.toaDs;
+        if (ds) {
+            ds.show = layerShow;
+            let isSel = (this === selectedEntry);
+            for (const e of ds.entities.values) {
+                let lvl = getPropValue(e.properties, "level");
+                let showOutline = this.isShown && (showSelectedEntryMode || this.shownTimeSteps.has(lvl));
+                if (e.polyline) e.polyline.show = showOutline;
+                if (e.label) e.label.show = showOutline; // only label visible outlines
+                if (e.polygon) e.polygon.fill = showOutline && isSel && (selectedLevel !== undefined) && (lvl == selectedLevel);
+            }
+            odinCesium.requestRender();
+        }
+    }
+
+    // remove loaded toa data (outdated loads that are still in progress will be discarded)
+    removeToa() {
+        this.toaGen++;
+        if (this.toaDs) odinCesium.removeDataSource(this.toaDs);
+        this.toaDs = undefined;
+        this.toaLoading = undefined;
+    }
+
+    resetDisplayState() {
+        this.isShown = false;
+        this.shownTimeSteps = new Set();
     }
 
     showImgOutputAsset(key) {
@@ -81,7 +138,41 @@ class FireEntry {
 
     cleanUp() {
         this.removeImgOutputAssets();
-        if (this.toaDs) odinCesium.removeDataSource(this.toaDs);
+        this.removeToa();
+    }
+
+    getToaBounds() {
+        // check if we have a "toa.png" raster product, and if so return its bbox
+        if (this.ef.output && this.ef.output.rasterProducts) {
+            let toaProd = this.ef.output.rasterProducts.find((p) => p.file == "toa.png");
+            if (toaProd) {
+                return toaProd.bbox;
+            }
+        }
+
+        // as a fallback use the whole run bbox (which is likely too large)
+        return this.ef.bbox;
+    }
+
+    // this does not affect visibility but only how entities are rendered if they are visible
+    // visibility changes on areaEntry selection and explicit request via checkbox
+    updateToaRendering() {
+        let ds = this.toaDs;
+        if (ds) {
+            let renderOpts = this.getToaRender();
+            let fillMaterial = new Cesium.ColorMaterialProperty(renderOpts.fill.withAlpha(renderOpts.alpha));
+
+            ds.entities.values.forEach( entity => {
+                if (entity.polygon) {
+                    entity.polygon.material = fillMaterial;
+                }
+                if (entity.polyline) {
+                    entity.polyline.width = renderOpts.strokeWidth;
+                    entity.polyline.material = renderOpts.stroke;
+                }
+            });
+            odinCesium.requestRender();
+        }
     }
 
     // note - this should be kept in sync with odin_elmfire::ElmFire::get_id
@@ -95,7 +186,10 @@ class FireEntry {
 var render = util.levelOneCloneOf( config.render);
 
 var fireView = undefined;
-var areaView = undefined;
+var timestepView = undefined;
+var selCb = undefined;
+var imgCh = undefined;
+var wndCh = undefined;
 var nameEntry = undefined;
 var locEntry = undefined;
 var dtgEntry = undefined;
@@ -107,12 +201,16 @@ var barrierSrc = undefined;
 var statsView = undefined;
 
 var fireEntries = new Map();  // id -> FireEntry
+
+// UI state
+var showSelectedEntryMode = true;  // do we automatically show all isochrones of a run upon selecting it (or only requested timesteps)
 var selectedEntry = undefined;
+var selectedLevel = undefined;     // level (secs since base date) of selected timestepView entry (the only filled polygon)
+var layerShow = config.layer.show;
+var repopulatingFireView = false;  // to ignore transient selection changes while re-populating fireView
 
 var curCenterAsset = undefined;
 var curIgnitionAssets = [];
-
-var ignitions = [];
 
 var spottingList = [];
 
@@ -122,11 +220,14 @@ createWindow();
 initFireView();
 initAreaView();
 
+setWindChoices();
+setImgChoices();
 setIncidentChoices();
 setFixedWxChoices();
 setBarrierChoices();
 
 setInputDebouncers();
+initDisplayControls();
 
 var dataSource = odinCesium.createDataSource("elmfire", config.layer.show);
 
@@ -164,31 +265,42 @@ function handleUpdateMessage(update) {
     updateElmfires( [update]);
 }
 
-function updateElmfires(elmFires,sel=null) {
+function updateElmfires(elmFires) {
+    let reloads = [];
+
     for (let ef of elmFires) {
-        let oldEntry = fireEntries.get(ef.id);
-        if (oldEntry) {
-            oldEntry.cleanUp();
-        }
-
         let e = new FireEntry(ef);
-        fireEntries.set(e.id, e);
 
-        if (sel && ef === sel) {
-            selectedEntry = e; // will be selected when we call updateFireView()
+        let oldEntry = fireEntries.get(ef.id);
+        if (oldEntry) { // carry over display state, toa data gets re-loaded if this run is shown
+            e.isShown = oldEntry.isShown;
+            e.shownTimeSteps = oldEntry.shownTimeSteps;
+            e.toaRender = oldEntry.toaRender;
+            oldEntry.cleanUp();
+            if (e.isShown) reloads.push(e);
         }
+
+        fireEntries.set(e.id, e);
     }
 
-    updateFireView();
+    updateFireView(); // if the selected run was replaced this calls selectEntry() for the new entry
+    reloads.forEach( e => ensureToa(e));
 }
 
 function handleRemoveMessage(msg) {
     let id = msg.id;
 
-    if (fireEntries.delete(id)) {
-        if (selectedEntry && selectedEntry.id == id) {
-            selectedEntry.cleanUp();
+    let e = fireEntries.get(id);
+    if (e) {
+        e.cleanUp(); // removes all display assets of this run
+        fireEntries.delete(id);
+
+        if (selectedEntry === e) {
             selectedEntry = null;
+            selectedLevel = undefined;
+            updateStatsView();
+            updateAreaView();
+            updateErrorView();
         }
         updateFireView();
     }
@@ -206,19 +318,25 @@ function createIcon() {
 }
 
 function createWindow() {
-    let btnWidth = "3rem";
-
     let view = ui.Window("elmfire", "elmfire", "./asset/odin_elmfire/fires-icon.svg")(
         ui.LayerPanel("elmfire", toggleShowFires),
         ui.Panel("simulations", true)(
+            ui.RowContainer()(
+                (selCb = ui.CheckBox("show sel", toggleShowSelectedEntry, "elmfire.showSel", true)),
+                ui.HorizontalSpacer(12),
+                (imgCh = ui.Choice("img", "elmfire.showImg", selectImgOutput, "4rem")),
+                (wndCh = ui.Choice("wnd", "elmfire.showWind", selectWndOutput, "4rem")),
+                ui.HorizontalSpacer(2),
+                ui.Button("∅", clearAllAssets, "3rem")
+            ),
             (fireView = ui.ListWithPopup("elmfire.fires", 5, selectEntry, null, null, zoomToSelection)(
                 ui.MenuItem("remove", removeSelectedFire)
             )),
             ui.RowContainer("end")(
-                (statsView = ui.KvTable("elmfire.stats", 8, "18.2rem", "18.2rem")),
-                (areaView = ui.List("elmfire.area", 8, selectArea))
+                (statsView = ui.KvTable("elmfire.stats", 8, "17.8rem", "17.8rem")),
+                (timestepView = ui.List("elmfire.area", 8, selectTimeStep))
             ),
-            ui.VarText(null, "elmfire.error", 0, "100%")
+            ui.VarText(null, "elmfire.error", "30rem")
         ),
         ui.Panel("input", false)(
             ui.RowContainer()(
@@ -232,7 +350,7 @@ function createWindow() {
                 ui.HorizontalSpacer(0.5),
                 ui.Choice("hours", "elmfire.nHours", null, "3rem"),
                 ui.HorizontalSpacer(0.5),
-                ui.Choice("size [km]", "elmfire.size", null, "3rem"),
+                ui.Choice("grid [km]", "elmfire.size", null, "3rem"),
                 ui.HorizontalSpacer(0.5),
                 ui.CheckBox( "comp wind", null, "elmfire.computeWind")
             ),
@@ -296,9 +414,15 @@ function createWindow() {
             )
         ),
         ui.Panel("display parameters", false)(
-            ui.initSlider("TOA stroke width", "fires.toa.stroke_width", toaStrokeWidthChanged, 1,3,1, util.f_0, 1),
-            ui.ColorField("TOA stroke color", "fires.toa.stroke_color", true, toaStrokeColorChanged),
-            ui.initSlider("TOA dim factor", "fires.toa.dim_factor", toaDimFactorChanged, 0,1,0.1, util.f_1, 1)
+            ui.RowContainer()(
+                ui.ColorField("toa stroke", "fires.toa.stroke_color", true, toaStrokeColorChanged, "2rem"),
+                ui.initSlider("width", "fires.toa.stroke_width", toaStrokeWidthChanged, 1, 3, 1, util.f_0, 1)
+            ),
+            ui.RowContainer()(
+                ui.ColorField("toa fill", "fires.toa.fill_color", true, toaFillColorChanged, "2rem"),
+                ui.initSlider("alpha", "fires.toa.fill_alpha", toaFillAlphaChanged, 0, 1, 0.1, util.f_1, 0.7)
+            ),
+            ui.Button("reset all", resetRendering)
         )
     );
 
@@ -337,38 +461,87 @@ function imgChoices(e) {
 function initFireView() {
     ui.setListItemDisplayColumns(fireView, ["fit", "header"], [
         { name: "", tip: "processing state", width: "1.5rem", attrs: [], map: e => e.state() },
-        { name: "name", tip: "fire name", width: "12.5rem", attrs: [], map: e => util.maxString(e.ef.name, 20) },
-        { name: "date", tip: "local date of update", width: "10rem", attrs:["fixed", "alignRight"], map: e=> util.toLocalDateHMTimeString(e.ef.date) },
-        ui.listItemSpacerColumn(2),
-        { name: "toa", tip: "show time-of-arrival isochrones", width: "2.5rem", attrs: [], map: e => ui.createCheckBox(false, toggleShowToa) },
-        { name: "show img", tip: "show imagery output", width: "5rem", attrs:[], map: e => ui.createChoice( selectImgOutput, "5rem", imgChoices(e), 0)}
+        { name: "name", tip: "fire name", width: "11rem", attrs: [], map: e => util.maxString(e.ef.name, 20) },
+        { name: "date", tip: "local date of update", width: "10rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalDateHMTimeString(e.ef.date) },
+        { name: "h", tip: "length of simulation in [h]", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.ef.nHours },
+        { name: "area", tip: "area [ac]", width: "5rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.ef.output.stats[0].totalArea, 1) },
+        { name: "in", tip: "input types (wind, fixed, spotting, barriers)", width: "3.5rem", attrs: ["fixed", "alignRight"], map: e => inputTypes(e) },
+        ui.listItemSpacerColumn(0.8),
+        { name: "⏿", tip: "show 30min time-of-arrival isochrones", width: "1.5rem", attrs: [], map: e => ui.createCheckBox(e.isShown, toggleShowToa) }
     ]);
 }
 
-function selectImgOutput(event) {
-    let choice = event.target;
-    let key = ui.getSelectedChoiceValue( choice);
-    if (key) {
-        let e = ui.getParentListItemOf(choice);
-        if (e) {
-            if (key == "-") {
-                e.removeImgOutputAssets();
-            } else {
-                e.showImgOutputAsset(key);
-            }
+function initAreaView() {
+    ui.setListItemDisplayColumns(timestepView, ["fit", "header"], [
+        { name: "dt", tip: "hours from start", width: "2.5rem", attrs: ["fixed", "alignRight"], map: e=> areaItemDt(e) },
+        { name: "time", tip: "", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalHMTimeString(e.date) },
+        { name: "𝚫", tip: "growth in %", width: "3.5rem", attrs: ["fixed", "alignRight"], map: e => e.growth },
+        { name: "area", tip: "area [ac]", width: "5rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.area, 1) },
+        ui.listItemSpacerColumn(0.8),
+        { name: "⏿", tip: "show isochrone", width: "1.5rem", attrs: [], map: e => ui.createCheckBox(isRequestedTimeStep(e), toggleShowIso) }
+    ]);
+}
+
+function inputTypes(e) {
+    let t = "";
+    if (e.ef.computeWind) t += 'w';
+    if (e.ef.fixed) t += 'f';
+    if (e.ef.spotting) t += 's';
+    if (e.ef.barriers) t += 'b';
+
+    return t;
+}
+
+function isRequestedTimeStep(ae) {
+    return (selectedEntry !== undefined && selectedEntry !== null) && selectedEntry.shownTimeSteps.has( getTimestepSeconds(selectedEntry, ae));
+}
+
+function initDisplayControls() {
+    let e = ui.getField("fires.toa.stroke_color");
+    ui.setField(e, render.toa.stroke.toCssHexString());
+
+    e = ui.getField("fires.toa.fill_color");
+    ui.setField(e, render.toa.fill.toCssHexString());
+
+    e = ui.getSlider('fires.toa.stroke_width');
+    ui.setSliderRange(e, 0, 5.0, 0.5, util.f_1);
+    ui.setSliderValue(e, render.toa.strokeWidth);
+
+    e = ui.getSlider('fires.toa.fill_alpha');
+    ui.setSliderRange(e, 0, 1.0, 0.1, util.f_1);
+    ui.setSliderValue(e, render.toa.alpha);
+}
+
+function selectImgOutput() {
+    if (selectedEntry) {
+        selectedEntry.removeImgOutputAssets();
+        let imgType = ui.getSelectedChoiceValue(imgCh);
+        if (imgType && imgType !== "-") {
+            selectedEntry.showImgOutputAsset(imgType);
         }
     }
 
     odinCesium.requestRender();
 }
 
-function initAreaView() {
-    ui.setListItemDisplayColumns(areaView, ["fit", "header"], [
-        { name: "dt", tip: "hours from start", width: "2.5rem", attrs: ["fixed", "alignRight"], map: e=> areaItemDt(e) },
-        { name: "time", tip: "", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalHMTimeString(e.date) },
-        { name: "𝚫", tip: "growth in %", width: "3.5rem", attrs: ["fixed", "alignRight"], map: e => e.growth },
-        { name: "area", tip: "area [ac]", width:  "5rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.area,1) }
-    ]);
+function selectWndOutput() {
+    // not yet
+}
+
+// remove all visible outlines, fills and image assets of all runs. This also clears the fireView and timestepView
+// selections but does not change the display mode (showSelectedEntryMode)
+function clearAllAssets() {
+    ui.selectChoiceItemIndex(imgCh, 0);
+    ui.selectChoiceItemIndex(wndCh, 0);
+
+    fireEntries.forEach( e => {
+        e.resetDisplayState(); // clears shown runs and requested timesteps
+        e.cleanUp();           // removes loaded toa data (re-loaded on demand) and image assets
+    });
+
+    ui.clearSelectedListItem(fireView); // -> selectEntry() clears selectedEntry, selectedLevel and the timestepView
+    ui.updateListItems(fireView);       // reset "show" checkboxes (in case there was no selection)
+    odinCesium.requestRender();
 }
 
 function areaItemDt(e) {
@@ -379,28 +552,12 @@ function areaItemDt(e) {
     }
 }
 
-function selectArea(event) {
-    if (selectedEntry) {
-        let selIdx = ui.getSelectedListItemIndex(areaView);
-        if (selIdx >= 0) {
-            let dt = (selIdx + 1) * 1800;
-            let t = ((selectedEntry.ef.date % 3600000) / 1000) + dt;
-
-            if (selectedEntry.toaDs) {
-                for (const e of selectedEntry.toaDs.entities.values) {
-                    let props = e.properties;
-                    let lvl = getPropValue(props, "level");
-                    e.polygon.fill = (lvl == t);
-                }
-                odinCesium.requestRender();
-            }
-        }
-    }
+function setWindChoices() {
+    ui.setChoiceItems("elmfire.showWind", ["-", "anim", "vec", "cntr"], 0);
 }
 
-function getPropValue(props,key) {
-    let p = props[key];
-    return p ? p._value : undefined;
+function setImgChoices() {
+    ui.setChoiceItems("elmfire.showImg", ["-", "toa", "flin", "vs", "cf", "fl"], 0);
 }
 
 function setIncidentChoices() {
@@ -642,61 +799,156 @@ function pickLocation() {
 
 //--- entry data display toggles
 
-function toggleShowToa(event) {
-    let cb = ui.getCheckBox(event.target);
-    if (cb) {
-        let e = ui.getListItemOfElement(cb);
-        if (ui.isCheckBoxSelected(cb)) {
-            if (!e.toaDs) {
-                loadToa(e); // async
-            }
-        } else {
-            if (e.toaDs) {
-                odinCesium.removeDataSource( e.toaDs);
-                e.toaDs = null;
-                odinCesium.requestRender();
-            }
-        }
-    }
+// the only way to trigger loading of toa data. Note that callers don't need to wait for completion since
+// loadToa() applies the then current display state of the entry
+function ensureToa(e) {
+    if (e.toaDs) return Promise.resolve(e.toaDs);
+    if (!e.toaLoading) e.toaLoading = loadToa(e);
+    return e.toaLoading;
 }
 
-async function loadToa(e) {
-    let ef = e.ef;
-    let url = `elmfire-data/${ef.id}/outputs/toa.geojson`;
+function loadToa(e) {
+    let gen = e.toaGen;
+    let url = `elmfire-data/${e.ef.id}/outputs/toa.geojson`;
+    let toaRender = e.getToaRender();
+    let renderOpts = {
+        stroke: toaRender.stroke,
+        strokeWidth: toaRender.strokeWidth,
+        fill: toaRender.fill.withAlpha(toaRender.alpha)
+    };
 
-    fetch(url).then( (response) => {
-        if (response.ok) {
-            let data = response.json();
-            if (data) {
-                Cesium.GeoJsonDataSource.load(data, render.toa).then( (ds) => {
-                    setToaRenderOpts(e, ds);
+    return Cesium.GeoJsonDataSource.load(url, renderOpts).then( (ds) => {
+        if (gen !== e.toaGen) return undefined; // entry was reset or replaced while we were loading
 
-                    e.toaDs = ds;
-                    ds.show = true;
-                    odinCesium.addDataSource(ds);
+        addPolygons(e, ds);
+        e.toaDs = ds;
+        e.toaLoading = undefined;
+        e.updateDisplay(); // apply current display state before it gets added
+        odinCesium.addDataSource(ds);
+        console.log("loaded ", url);
+        return ds;
 
-                    console.log("loaded ", url);
-                });
-            } else console.log("no data for TOA request: ", url);
-        } else console.log("request failed: ", url);
-    }, (reason) => console.log("failed to retrieve: ", url, ", reason: ", reason));
+    }).catch( (reason) => {
+        if (gen === e.toaGen) e.toaLoading = undefined;
+        console.log("failed to load: ", url, ", reason: ", reason);
+        return undefined;
+    });
 }
 
-function setToaRenderOpts(fireEntry, ds) {
+function addPolygons(fireEntry, ds) {
+    let toaRender = fireEntry.getToaRender();
+    let fillMaterial = new Cesium.ColorMaterialProperty(toaRender.fill.withAlpha(toaRender.alpha));
+    let removed = [];
+
     for (const e of ds.entities.values) {
         if (e.polyline) {
-            if (!e.polygon) {
-                e.polygon = {
-                    hierarchy: e.polyline.positions._value,
-                    material: render.toa.fill,
-                    outline: false,
-                    heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-                    fill: false
-                };
-                e.addProperty('polygon');
+            let nPoints = e.polyline.positions._value.length;
+            if (nPoints > config.contourThreshold) {
+                if (!e.polygon) {
+                    e.polygon = {
+                        hierarchy: e.polyline.positions._value,
+                        material: fillMaterial,
+                        outline: false,
+                        //heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                        fill: false // set when we select a time step
+                    };
+                    e.addProperty('polygon');
+                }
+            } else { // remove small contour artifacts (can't do this while we iterate over entities)
+                removed.push(e);
             }
         }
     }
+
+    for (const e of removed) {
+        ds.entities.remove(e);
+    }
+
+    addTimeStepLabels(fireEntry, ds);
+}
+
+// add a label with the timestep in hours (corresponding to the timestepView "dt" column) to the largest outline
+// of each isochrone level. Labels are placed on the vertex with the widest gap to the neighboring isochrones so that
+// they don't end up between narrowly spaced outlines
+function addTimeStepLabels(fireEntry, ds) {
+    let dt0 = (fireEntry.ef.date % 3600000) / 1000;  // secs between full hour and first ignition (see getTimestepSeconds)
+
+    //--- group outline entities by level
+    let levels = new Map(); // level -> [entity]
+    for (const e of ds.entities.values) {
+        let lvl = getPropValue(e.properties, "level");
+        if (e.polyline && lvl !== undefined) {
+            let es = levels.get(lvl);
+            if (es) es.push(e); else levels.set(lvl, [e]);
+        }
+    }
+    let sortedLevels = [...levels.keys()].sort((a,b) => a - b);
+
+    //--- per level vertices for the gap computation (subsampled for large outlines)
+    let levelPts = sortedLevels.map( lvl => subsample( levels.get(lvl).flatMap( e => outlinePositions(e)), config.labelMaxNeighborPts || 400));
+
+    sortedLevels.forEach( (lvl, i) => {
+        // label only the largest outline of this level (there can be several, e.g. from spot fires)
+        let e = levels.get(lvl).reduce( (a,b) => outlinePositions(a).length >= outlinePositions(b).length ? a : b);
+        let pos = getLabelPosition( outlinePositions(e), levelPts[i-1], levelPts[i+1]);
+
+        if (pos) {
+            let dt = (lvl - dt0) / 3600.0;
+            e.position = pos;
+            e.label = new Cesium.LabelGraphics({
+                text: util.formatFloat(dt, 1),
+                font: config.labelFont,
+                fillColor: config.labelColor,
+                showBackground: true,
+                backgroundColor: config.labelBackground,
+                horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+                verticalOrigin: Cesium.VerticalOrigin.CENTER,
+                distanceDisplayCondition: config.labelDC,
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                show: false // set in FireEntry.updateDisplay() according to outline visibility
+            });
+        }
+    });
+}
+
+function outlinePositions(e) {
+    return e.polyline.positions.getValue(Cesium.JulianDate.now()) || [];
+}
+
+function subsample(pts, maxPts) {
+    if (pts.length <= maxPts) return pts;
+    let stride = Math.ceil(pts.length / maxPts);
+    return pts.filter( (p,i) => i % stride == 0);
+}
+
+// pick the candidate vertex with the largest minimum distance to the inner and outer neighbor isochrones
+function getLabelPosition(pts, innerPts, outerPts) {
+    if (pts.length == 0) return undefined;
+
+    let step = Math.max(1, Math.floor(pts.length / (config.labelCandidates || 24)));
+    let best = undefined;
+    let bestGap = -1;
+
+    for (let i = 0; i < pts.length; i += step) {
+        let p = pts[i];
+        let gap = Math.min( minDistance(p, innerPts), minDistance(p, outerPts));
+        if (gap > bestGap) {
+            bestGap = gap;
+            best = p;
+        }
+    }
+    return best;
+}
+
+function minDistance(p, pts) {
+    if (!pts || pts.length == 0) return Number.MAX_VALUE; // no neighbor on this side (first or last isochrone)
+    let dMin = Number.MAX_VALUE;
+    for (const q of pts) {
+        let d = Cesium.Cartesian3.distanceSquared(p, q); // squared is enough for comparison
+        if (d < dMin) dMin = d;
+    }
+    return dMin;
 }
 
 function createRasterEntity (url, bbox, renderOpts) {
@@ -710,6 +962,104 @@ function createRasterEntity (url, bbox, renderOpts) {
             classificationType: Cesium.ClassificationType.TERRAIN
         }
     });
+}
+
+// "show sel" checkbox - explicitly switches modes
+function toggleShowSelectedEntry(event) {
+    let cb = ui.getCheckBox(event.target);
+    if (cb) {
+        if (ui.isCheckBoxSelected(cb)) { // -> showSelectedEntryMode: clear all requested timesteps but show all of the selected run
+            showSelectedEntryMode = true;
+            fireEntries.forEach( e => e.resetDisplayState());
+            if (selectedEntry) {
+                selectedEntry.isShown = true;
+                ensureToa(selectedEntry);
+            }
+
+        } else { // -> explicit timestep mode: keep what is showing by turning all timesteps of the selected run into requests
+            showSelectedEntryMode = false;
+            if (selectedEntry && selectedEntry.isShown) {
+                selectedEntry.shownTimeSteps = new Set( selectedEntry.allLevels());
+            }
+        }
+
+        updateAllDisplays();
+    }
+}
+
+// set mode without user interaction (from timestep request)
+function setExplicitTimeStepMode() {
+    showSelectedEntryMode = false;
+    ui.setCheckBox(selCb, false);
+    fireEntries.forEach( e => e.resetDisplayState());
+}
+
+function updateAllDisplays() {
+    fireEntries.forEach( e => e.updateDisplay());
+    ui.updateListItems(fireView);
+    ui.updateListItems(timestepView);
+    odinCesium.requestRender();
+}
+
+// show/hide selected fire entry
+function toggleShowFires(event) {
+    showFires( ui.isCheckBoxSelected(event.target));
+}
+
+// "show" checkbox of a fireView item. Note this is executed before the item gets selected (i.e. before selectEntry)
+// so we have to use the item of the checkbox and not selectedEntry
+function toggleShowToa(event) {
+    let cb = ui.getCheckBox(event.target);
+    if (cb) {
+        let e = ui.getListItemOfElement(cb);
+        if (e) {
+            if (ui.isCheckBoxSelected(cb)) {
+                e.isShown = true;
+                if (!showSelectedEntryMode) e.shownTimeSteps = new Set( e.allLevels()); // shortcut to request all timesteps
+                ensureToa(e);
+
+            } else { // remove all outlines and fills of this run, regardless of mode
+                e.resetDisplayState();
+                if (e === selectedEntry) {
+                    selectedLevel = undefined;
+                    ui.clearSelectedListItem(timestepView);
+                }
+            }
+
+            e.updateDisplay();
+            if (e === selectedEntry) ui.updateListItems(timestepView);
+        }
+    }
+}
+
+// timestepView item checkbox - requests a timestep. Note this is executed before the item gets selected (i.e. before
+// selectTimeStep). Requesting a timestep implicitly switches to explicit timestep mode
+function toggleShowIso(event) {
+    let cb = ui.getCheckBox(event.target);
+    if (cb && selectedEntry) {
+        let ae = ui.getListItemOfElement(cb);
+        if (ae) {
+            let lvl = getTimestepSeconds(selectedEntry, ae);
+            let isSelected = ui.isCheckBoxSelected(cb);
+
+            if (showSelectedEntryMode) {
+                setExplicitTimeStepMode(); // this clears all previous requests and shown runs
+                updateAllDisplays();       // .. which might reset our checkbox
+            }
+
+            if (isSelected) {
+                selectedEntry.shownTimeSteps.add(lvl);
+            } else {
+                selectedEntry.shownTimeSteps.delete(lvl);
+            }
+            selectedEntry.isShown = selectedEntry.shownTimeSteps.size > 0;
+
+            ui.updateListItem(fireView, selectedEntry);
+            ui.updateListItem(timestepView, ae);
+            selectedEntry.updateDisplay();
+            if (selectedEntry.isShown) ensureToa(selectedEntry);
+        }
+    }
 }
 
 //--- button click handlers
@@ -772,26 +1122,71 @@ function createRequest() {
 
 function updateFireView() {
     let entries = Array.from(fireEntries.values()).sort((a, b) => util.defaultCompare(a.id, b.id));
+    let selEntry = selectedEntry ? fireEntries.get(selectedEntry.id) : undefined; // selectedEntry might have been replaced
 
-    let selEntry = selectedEntry;
+    repopulatingFireView = true; // setListItems() resets the selection, which should not change our state
     ui.setListItems(fireView, entries);
-    if (selEntry) ui.setSelectedListItem(fireView, selEntry);
+    repopulatingFireView = false;
+
+    if (selEntry) ui.setSelectedListItem(fireView, selEntry); // no-op in selectEntry() if this is still the same object
 }
 
 function zoomToSelection(event) {
     let sel = ui.getSelectedListItem(event);
     if (sel) {
-        let pos = sel.ef.pos;
-        odinCesium.zoomTo(Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat, config.zoomHeight));
+        let area = sel.getToaBounds();
+        odinCesium.zoomToOffsetRect(area, 0.1, -0.1, 0.0);
     }
 }
 
-function selectEntry(e) {
-    selectedEntry = ui.getSelectedListItem(fireView);
+// select an Elmfire run from the fireView
+// note this is also called if the item was already selected (re-select or re-populated list), which has to be a no-op
+function selectEntry() {
+    if (repopulatingFireView) return;
+
+    let prevEntry = selectedEntry;
+    let entry = ui.getSelectedListItem(fireView);
+    if (entry === prevEntry) return;
+
+    selectedEntry = entry;
+    selectedLevel = undefined; // timestepView gets re-populated
+
+    if (showSelectedEntryMode) {
+        fireEntries.forEach( e => { if (e !== entry) e.isShown = false; });
+        if (entry) entry.isShown = true;
+    }
+
+    if (prevEntry) prevEntry.updateDisplay(); // removes its fill (and in showSelectedEntryMode its outlines)
+    if (entry) {
+        entry.setToaRender(); // following selections use the current display parameters
+        entry.updateDisplay();
+        if (entry.isShown) ensureToa(entry);
+    }
+    ui.updateListItems(fireView);
+
+    selectImgOutput();
     updateStatsView();
     updateAreaView();
     updateErrorView();
-    updateInput();
+    if (entry) updateInput(); // don't clear input when de-selecting (user might be entering a new run)
+}
+
+// select a timestep from the timestepView. Only the selected timestep of the selectedEntry is filled (if its outline is visible)
+function selectTimeStep() {
+    let ae = ui.getSelectedListItem(timestepView);
+    selectedLevel = (selectedEntry && ae) ? getTimestepSeconds(selectedEntry, ae) : undefined;
+    if (selectedEntry) selectedEntry.updateDisplay();
+}
+
+function getTimestepSeconds(e, ae) {
+    let dt0 = (e.ef.date % 3600000) / 1000;
+    let t = ((ae.date - e.ef.date) / 1000) + dt0;
+    return t;
+}
+
+function getPropValue(props,key) {
+    let p = props[key];
+    return p ? p._value : undefined;
 }
 
 function updateStatsView() {
@@ -806,17 +1201,15 @@ function updateStatsView() {
 function updateAreaView() {
     let e = selectedEntry;
     if (e && e.ef.output) {
-        ui.setListItems(areaView, e.ef.output.area);
+        ui.setListItems(timestepView, e.ef.output.area);
     } else {
-        ui.clearList(areaView);
+        ui.clearList(timestepView);
     }
 }
 
 function updateErrorView() {
     let e = selectedEntry;
-    if (e) {
-        showError( e.ef.error);
-    }
+    showError( e ? e.ef.error : null); // clear stale errors if there is no selection
 }
 
 function updateInput() {
@@ -873,27 +1266,11 @@ function fireSelection() {
     }
 }
 
-function toggleShowFires(event) {
-    let showIt = ui.isCheckBoxSelected(event.target);
-    dataSource.show = showIt;
-    showToa(showIt);
-    odinCesium.requestRender();
-}
-
 function showFires(cond) {
+    layerShow = cond;
     dataSource.show = cond;
-    showToa(cond);
+    fireEntries.forEach( e => e.updateDisplay());
     odinCesium.requestRender();
-}
-
-function showToa(cond) {
-    elmfires.forEach((e, id, map) => {
-        e.forEach((fire) => {
-            if (fire.toaDs) {
-                fire.toaDs.show = cond;
-            }
-        })
-    });
 }
 
 //--- spotting  and wx specs
@@ -917,7 +1294,6 @@ function delSpotting() {
 function updateSpottingView() {
     ui.setListItems(spottingListView, spottingList);
 }
-
 
 
 function storeSpec(tgtTextArea, nameField, msgType) {
@@ -965,16 +1341,23 @@ async function loadSpec(specType, name, tgtTextArea) {
 
 //--- interactive display parameters
 
+// display parameter changes only affect the selected run and following selections (other runs keep their rendering)
+function resetRendering() {
+    render = util.levelOneCloneOf(config.render);
+    initDisplayControls();
+    if (selectedEntry) selectedEntry.setToaRender();
+}
+
 function toaStrokeWidthChanged(event) {
     render.toa.strokeWidth = ui.getSliderValue(event.target);
-    updateToaRendering();
+    if (selectedEntry) selectedEntry.setToaRender();
 }
 
 function toaStrokeColorChanged(event) {
     let clrSpec = event.target.value;
     if (clrSpec) {
         render.toa.stroke = Cesium.Color.fromCssColorString(clrSpec);
-        updateToaRendering();
+        if (selectedEntry) selectedEntry.setToaRender();
     }
 }
 
@@ -982,48 +1365,13 @@ function toaFillColorChanged(event) {
     let clrSpec = event.target.value;
     if (clrSpec) {
         render.toa.fill = Cesium.Color.fromCssColorString(clrSpec);
-        updateToaRendering();
+        if (selectedEntry) selectedEntry.setToaRender();
     }
 }
 
-function toaDimFactorChanged(event) {
-    render.toa.dimFactor = ui.getSliderValue(event.target);
-    updateToaRendering();
-}
-
-function updateToaRendering() {
-    if (selectedEntry) {
-        let dimFactor = 1.0;
-
-        let ds = selectedEntry.toaDs;
-        if (ds && ds.show) {
-            let renderOpts = getToaRenderOptions(dimFactor);
-            ds.entities.values.forEach( e => {
-                if (e.polygon) {
-                    e.polygon.material = renderOpts.fill;
-                    //e.polygon.outline = true;
-                    //e.polygon.outlineWidth = renderOpts.strokeWidth;
-                    //e.polygon.outlineColor = renderOpts.stroke;
-                }
-                if (e.polyline) {
-                    e.polyline.width = renderOpts.strokeWidth;
-                    e.polyline.material = renderOpts.stroke;
-                }
-            });
-
-            dimFactor *= render.toa.dimFactor;
-        }
-
-        odinCesium.requestRender();
-    }
-}
-
-function getToaRenderOptions(dimFactor=1.0) {
-    return {
-        fill: render.toa.fill.withAlpha( dimFactor),
-        stroke: render.toa.stroke.withAlpha(dimFactor),
-        strokeWidth: render.toa.strokeWidth
-    };
+function toaFillAlphaChanged(event) {
+    render.toa.alpha = ui.getSliderValue(event.target);
+    if (selectedEntry) selectedEntry.setToaRender();
 }
 
 //--- NML parsing

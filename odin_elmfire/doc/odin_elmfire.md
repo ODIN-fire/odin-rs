@@ -295,10 +295,61 @@ cargo run --bin run_fixed -- --fc-hours 6 MyFire 37.25 -121.95 my_fixed_inputs.n
 
 ## Web Application User Interface
 
-The `odin_elmfire` crate has a single [UI window](../odin_server/client.md) to control visualization and data input. This window contains two main panels: "simulations" to view completed runs and "input" to enter and start new runs.
+The `odin_elmfire` crate has a single [UI window](../odin_server/client.md) to control visualization and data input. This
+window contains three panels: "simulations" to view completed runs, "input" to enter and start new runs, and "display
+parameters" to control how isochrones are rendered. The user interface serves two purposes:
+
+- to assess progression of a single run - this is mostly aimed at real incidents with a single set of input types
+- to compare "what if" scenarios - this looks at differences for runs based on input variations, i.e. shows (subsets
+  of) the data for multiple runs at the same time.
+
+Those purposes are reflected in the two selection modes described at the end of this section. 
 
 <img class="left" src="../img/odin_elmfire-ui.png" width="40%">
 
-The **simulations** panel shows a list of currently known completed Elmfire simulations. The "toa" checkbox in each line can be used to load and show the 30min isochrones for the selected run. The "show img" choice menu to the right of it can display associated images generated from Elmfire output (e.g. "flin" for fire line intensity). Selecting a simulation automatically populates the rest of the UI window with the data for this simulation. The key/value table to the left underneath the simulation list shows statistics for the selected run, the list to the right shows the time, growth and area for each 30min interval. Selecting a time step entry fills the respective isochrone polygon displayed on the virtual globe.
+The **simulations** panel shows a list of currently known Elmfire simulations (runs). Each line shows the processing state,
+name and date of a run, plus a "show" checkbox that controls if the isochrone outlines of this run are displayed. Selecting a
+run populates the rest of the UI window with the data for this run: the key/value table underneath the run list shows
+statistics for the selected run, and the timestep list to the right shows the time, growth and area for each 30min interval.
+Each timestep line has its own "⏿" checkbox to request the display of the respective isochrone outline. The column to the
+right of the run list holds the "show sel" checkbox (see below), the "img" choice to display images generated from Elmfire
+output (e.g. "flin" for fire line intensity), the "wnd" choice for wind output (not yet implemented), and the "∅" button.
+
+Isochrones are displayed as outlines (polylines) of the fire area at the end of each 30min interval. Selecting a timestep
+in the timestep list highlights its isochrone by filling the respective polygon. There is at most one filled polygon at a
+time - the selected timestep of the selected run - and fills are only shown together with their (visible) outline.
+Isochrone data is loaded on demand the first time any isochrone of a run has to be shown.
+
+The isochrone display has two selection modes, which are controlled by the "show sel" checkbox:
+
+- **show selected run** ("show sel" checked, default): selecting a run in the run list shows all isochrone outlines of
+  this run, and only of this run. The "show" checkbox of the selected run is set automatically, isochrones of a previously
+  selected run are removed.
+
+- **show requested timesteps** ("show sel" not checked): only explicitly requested timesteps (with a checked "⏿" box in the
+  timestep list) have their outlines displayed. Requests are kept per run, i.e. selecting another run does not remove the
+  displayed timesteps of previously selected runs, which allows to compare isochrones of different runs (e.g. for different
+  weather or fuel inputs). In this mode the "show" checkbox of a run is a shortcut to request (checked) or remove (unchecked)
+  all timesteps of this run.
+
+The modes are switched as follows:
+
+- requesting a timestep (checking its "⏿" box) in "show selected run" mode automatically switches to "show requested
+  timesteps" mode. This removes all previously displayed outlines so that only the requested timestep is shown, and clears
+  the "show sel" checkbox
+- checking "show sel" switches to "show selected run" mode. This removes all timestep requests of all runs but keeps the
+  selected run and shows all of its outlines (the selected timestep remains filled)
+- manually un-checking "show sel" switches to "show requested timesteps" mode without changing the display, i.e. all
+  timesteps of the selected run become requested timesteps
+
+In both modes un-checking the "show" checkbox of a run removes all outlines and fills of this run. The "∅" button removes
+all displayed outlines, fills and images of all runs and clears the run and timestep selections, without changing the
+selection mode.
+
+The **display parameters** panel controls the stroke color and width of isochrone outlines, and the fill color and
+alpha of the highlighted (selected) isochrone polygon. Parameter changes only apply to the selected run and to runs
+that are selected afterwards - other displayed runs keep their rendering. Together with the "show requested timesteps" mode
+this makes it easier to visually compare isochrones of different runs. The "reset all" button restores the configured
+default rendering.
 
 The **input** panel contains all the potential data required to create a new Elmfire simulation. The "pick now" button allows to quickly select an ignition point on the virtual globe and use the current time as the ignition time. This will populate the "loc" and "dtg" entries underneath (which can be changed subsequently). Before a new simulation request can be submitted by clicking the "simulate" button the user has to enter a respective name for the simulation. The "comp wind" checkbox controls if either actual or entered wind data is used directly or WindNinja output generated from it should be the input for Elmfire. The main part of this panel is a tab container for the different types of Elmfire input sources (using Fortran Namelist format). Each tab has a row underneath its source editor to create respective sources from chosen/default values.

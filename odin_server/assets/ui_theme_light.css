@@ -66,14 +66,14 @@
     --tooltip-shadow: 2px 2px 2px var(--tooltip-border-color);
     /* windows */
     --titlebar-height: 1.4rem;
-    --titlebar-color: var(--color);
+    --titlebar-color: rgb(255,255,255);
     --titlebar-spotlight-color: var(--titlebar-color);
-    --titlebar-background: rgb(32, 32, 64);
+    --titlebar-background: rgb(100,100,100);
     --titlebar-spotlight-background: var(--titlebar-background);
     --titlebar-font: var(--font);
     --titlebar-padding: 5px;
     --window-color: var(--color);
-    --window-background: var(--background);
+    --window-background: rgb(200,200,200);
     --window-border: 1px solid var(--border-color);
     --window-spotlight-border: 2px solid rgb(10,10,60);
     --window-spotlight-background: var(--window-background);
@@ -104,9 +104,9 @@
     --menuitem-font: var(--font);
     --menuitem-height: 1.1rem;
     --menuitem-color: var(--color);
-    --menuitem-background: rgb(64, 64, 64);
+    --menuitem-background: rgb(200, 200, 200);
     --menuitem-selection-color: rgb(255, 255, 255);
-    --menuitem-selection-background: rgb(64, 64, 200);
+    --menuitem-selection-background: rgb(140, 140, 140);
     /* data fields */
     --field-height: 1.5rem;
     --field-label-width: 5rem;
@@ -126,10 +126,10 @@
     --choice-field-background: var(--data-background);
     /* pushbuttons */
     --button-height: 2rem;
-    --button-color: rgb(200, 200, 200);
+    --button-color: rgb(255, 255, 255);
     --button-hover-color: rgb(230, 230, 230);
-    --button-background: rgb(62, 59, 122);
-    --button-hover-background: rgb(56, 56, 101);
+    --button-background: rgb(140, 140, 180);
+    --button-hover-background: rgb(120, 120, 200);
     --button-border: 3px groove var(--border-color);
     --button-hover-border: var(--button-border);
     --button-border-radius: 0px;
@@ -150,9 +150,10 @@
     --list-item-height: 1.1rem;
     --list-item-padding: 2px;
     --list-border: var(--border);
-    --list-hover-background: rgb(80, 80, 80);
+    --list-hover-background: rgb(200, 200, 200);
     --list-selection-color: var(--selected-data-color);
     --list-selection-background: var(--selection-background);
+    --list-selection-border: 1px solid rgb(20,20,100);
     --list-header-font: var(--font-small);
     /* tables */
     --table-border: 1px solid rgb(50,50,50);
@@ -176,10 +177,10 @@
     --progress-1-border: none;
     --progress-1-padding: 1px 0px 1px 0px;
     /* tabs */
-    --tab-color: var(--darker-color);
+    --tab-color: rgb(120,120,120);
+    --tab-background: rgb(180, 180, 180);
     --selected-tab-color: var(--color);
-    --tab-background: rgb(30, 30, 50);
-    --selected-tab-background: var(--background);
+    --selected-tab-background: rgb(200,200,200);
     /* general containers */
     --container-padding: 4px;
     --container-margin: var(--margin) 0 var(--margin) 0;

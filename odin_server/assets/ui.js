@@ -202,6 +202,7 @@ document.addEventListener('keydown', (event) => {
             case "KeyT": moveWindowTop(topWindow()); break;
             case "KeyN": cycleTopWindow(false); break;
             case "KeyP": cycleTopWindow(true); break;
+            case "KeyC": clearTopWindowSelections(); break;
         }
     }
 });
@@ -441,6 +442,22 @@ function removeWindowFromStack(w) {
         windows.splice(idx, 1);
         updateWindowZorder();
         w.style.zIndex = -1;
+    }
+}
+
+function clearTopWindowSelections() {
+    let w = topWindow();
+    if (w) {
+        clearSelectionsRecursive(w);
+    }
+}
+
+function clearSelectionsRecursive(e) {
+    let uiCls = _getUiClass(e);
+    if (uiCls && uiCls == "ui_list") {
+        clearSelectedListItem(e);
+    } else {
+        for (const c of e.children) clearSelectionsRecursive(c);
     }
 }
 
@@ -1196,9 +1213,11 @@ export function NumField (label, eid, isInput, changeAction) {
     return genField("text", extraCls, label, eid, changeAction);
 }
 
-export function ColorField (label, eid, isInput, changeAction){
+export function ColorField (label, eid, isInput, changeAction, width = null){
     let extraCls = isInput ? ["input"] : [];
-    return genField("color", extraCls, label, eid, changeAction);
+    let e = genField("color", extraCls, label, eid, changeAction);
+    if (width) e.setAttribute("data-width", width);
+    return e;
 }
 //////////////////
 
@@ -2540,10 +2559,10 @@ function _addCheckBoxComponents(e, labelText) {
     }
 }
 
-export function createCheckBox(initState, clickHandler, labelText = "") {
+export function createCheckBox(initState, clickHandler) {
     let e = createElement("DIV", "ui_checkbox");
     if (initState) _addClass(e, "checked");
-    _addCheckBoxComponents(e, labelText);
+    _addCheckBoxComponents(e, ""); // no label for inline checkboxes
 
     if (clickHandler)  {
         e.addEventListener("click", clickHandler); // watch out - these don't get cloned
@@ -3587,6 +3606,25 @@ export function clearListItemCheckBoxes(o) {
             if (isCheckBoxSelected(cb)) {
                 setCheckBox(cb, false);
                 triggerCheckBoxAction(cb);
+            }
+        }
+    }
+}
+
+export function setListItemCheckBox(o, item, cbIdx, newValue) {
+    let e = getList(o);
+    if (e) {
+        let ie = e._uiItemMap.get(item);
+        if (ie) {
+            let i = 0;
+            for (let cb of ie.getElementsByClassName("ui_checkbox")) {
+                if (i == cbIdx) {
+                    if (newValue != isCheckBoxSelected(cb)) {
+                        setCheckBox(cb, newValue);
+                        triggerCheckBoxAction(cb);
+                    }
+                    return;
+                }
             }
         }
     }

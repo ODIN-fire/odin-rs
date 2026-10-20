@@ -6,6 +6,10 @@ export const config = {
     },
     maxEntries: 20,
 
+    contourThreshold: 15, // timestep polygons with less vertices are ignored when displayed
+    labelCandidates: 24,  // number of evenly spaced outline vertices considered for isochrone timestep label positions
+    labelMaxNeighborPts: 400, // max number of neighbor isochrone vertices used to compute label position gaps
+
     //--- fixed wx input defaults
     fixedWs: [5, 10, 15, 20, 30, 40, 50, 60],
     defaultWs: 2,
@@ -63,9 +67,9 @@ export const config = {
     render: {
         toa: {
             stroke: Cesium.Color.YELLOW,
-            fill: Cesium.Color.RED.withAlpha(0.25),
             strokeWidth: 1.2,
-            dimFactor: 0.7
+            fill: Cesium.Color.RED,
+            alpha: 0.2
         },
         flin: { color: Cesium.Color.RED },
         vs: { color: Cesium.Color.MAGENTA },

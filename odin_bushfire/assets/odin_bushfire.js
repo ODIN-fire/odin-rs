@@ -172,7 +172,7 @@ function initFireView() {
 
 function initPerimeterView() {
     ui.setListItemDisplayColumns(perimeterView, ["fit", "header"], [
-        { name: "show", tip: "show perimeter", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.perimeterDs && e.perimeterDs.show, toggleShowPerimeter, null) },
+        { name: "show", tip: "show perimeter", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.perimeterDs && e.perimeterDs.show, toggleShowPerimeter) },
         { name: "area", tip: "fire area [ha]", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_1.format(e.area) },
         { name: "perim", tip: "fire perimeter [km]", with: "4rem", attrs: ["fixed", "alignRight"], map: e => util.f_1.format( e.perimeter) },
         { name: "lat", width: "5.5rem", attrs: ["fixed", "alignRight"], map: (e) => util.f_3.format(e.lat) },

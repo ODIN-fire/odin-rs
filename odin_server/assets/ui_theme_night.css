@@ -131,6 +131,7 @@
     --list-hover-background: rgb(145, 0, 0);
     --list-selection-color: var(--selected-data-color);
     --list-selection-background: var(--selection-background);
+    --list-selection-border: 1px solid rgb(200,80,80);
     --list-header-font: var(--font-small);
     --table-border: 1px solid var(--border-dark-color);
     --clock-date-font: var(--font-small);

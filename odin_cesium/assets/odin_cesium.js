@@ -1563,6 +1563,42 @@ export function moveCameraHeight(percent, instantaneous = false) {
     zoomTo(pNew,instantaneous);
 }
 
+// zoom/pan camera so that the given rectangle (expanded by a ratio) fills the screen, offset by a horizontal and vertical view ratios
+export function zoomToOffsetRect(bbox, rExpand, rLon, rLat) {
+    let dLon = (bbox.east - bbox.west);
+    let dLonEx = dLon * rExpand;
+    let dLat = (bbox.north - bbox.south);
+    let dLatEx = dLat * rExpand;
+
+    let rect = Cesium.Rectangle.fromDegrees( // the expanded bbox
+        bbox.west - dLonEx,
+        bbox.south - dLatEx,
+        bbox.east + dLonEx,
+        bbox.north + dLatEx
+    );
+
+    let camera = viewer.camera;
+    let scratchCamera = new Cesium.Camera(viewer.scene);
+    scratchCamera.frustum = camera.frustum.clone();
+
+    // since computeViewRectangle requires a set camera position we cannot call it on the real camera
+    // i.e. we have to use a cloned camera object to perform the computation of the view pos for the
+    // (expanded) rect, get the view extent, apply the horizontal and vertical offset to get the
+    // new cameraPos, and finally use it to set the real camera. Just calling zoomTo(..); moveCamera(..)
+    // would not work since those are not sync operations (they are animated)
+    let scratchPos = camera.getRectangleCameraCoordinates(rect);
+    scratchCamera.setView({ destination: scratchPos });
+    let ext = scratchCamera.computeViewRectangle(viewer.scene.globe.ellipsoid);
+    let pos = scratchCamera.positionCartographic;
+    let vwAngle = ext.width;
+    let vhAngle = ext.height;
+    let newLongitude = pos.longitude + (vwAngle * rLon);
+    let newLatitude = pos.latitude + (vhAngle * rLat);
+    let newCameraPos = Cesium.Cartesian3.fromRadians(newLongitude, newLatitude, pos.height);
+
+    zoomTo(newCameraPos);
+}
+
 export function zoomTo(cameraPos,instantaneous=false) {
     saveCamera();
 
