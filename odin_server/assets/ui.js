@@ -536,6 +536,17 @@ export function setWindowLocation(o, x, y) {
     }
 }
 
+// change the title text of a window (without affecting titlebar icon and close button)
+export function setWindowTitle(o, title) {
+    let e = getWindow(o);
+    if (e) {
+        let tb = _firstChildWithClass(e, "ui_titlebar");
+        if (tb && tb.firstChild && tb.firstChild.nodeType === Node.TEXT_NODE) {
+            tb.firstChild.nodeValue = title;
+        }
+    }
+}
+
 export function getWindowRect(o) {
     let e = getWindow(o);
     if (e) {
@@ -1172,7 +1183,9 @@ export function TextInput (label, eid, width, opts = {}) {
     if (opts.isFixed) extraCls.push("fixed");
     if (opts.alignRight) extraCls.push("align_right");
     let e = genField("text", extraCls, label, eid, opts.changeAction);
+
     e.setAttribute("data-placeholder", opts.placeHolder ? opts.placeHolder : "");
+    if (opts.noAutocomplete) e.setAttribute("data-autocomplete", "off");
 
     if (width) e.setAttribute("data-width", width);
     if (!label || label.length == 0) e.style.width = width;
@@ -1213,10 +1226,13 @@ export function NumField (label, eid, isInput, changeAction) {
     return genField("text", extraCls, label, eid, changeAction);
 }
 
-export function ColorField (label, eid, isInput, changeAction, width = null){
+export function ColorField (label, eid, isInput, changeAction, width = null, labelWidth = null){
     let extraCls = isInput ? ["input"] : [];
     let e = genField("color", extraCls, label, eid, changeAction);
     if (width) e.setAttribute("data-width", width);
+    if (labelWidth) {
+        e.setAttribute("data-labelWidth", labelWidth);
+    }
     return e;
 }
 //////////////////
@@ -1227,9 +1243,12 @@ function initializeField (e) {
         let id = e.dataset.id;
         let labelText = e.dataset.label;
         let inputType = e.dataset.type ? e.dataset.type : "text";
+        let autocomplete = e.dataset.autocomplete;
 
-        let dataWidth = _inheritableData(e, 'width');
-        let labelWidth = _inheritableData(e, 'labelWidth');
+        //let dataWidth = _inheritableData(e, 'width');
+        //let labelWidth = _inheritableData(e, 'labelWidth');
+        let dataWidth = e.dataset.width;
+        let labelWidth = e.dataset.labelwidth; // attribute names are lowercased, i.e. "data-labelWidth" -> dataset.labelwidth
 
         if (id) {
             if (labelText) {
@@ -1241,6 +1260,7 @@ function initializeField (e) {
             let field = createElement("INPUT", e.classList);
             field.id = id;
             field.type = inputType;
+            field.autocomplete = autocomplete;
 
             if (_hasBorderedParent(e)) {
                 field.style.border = 'none';

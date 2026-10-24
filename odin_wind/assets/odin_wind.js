@@ -38,9 +38,9 @@ const RegionStatus = {
 const BBOX_PATTERN = util.glob2regexp("{rect/**,**/rect/**,**/rect}"); // any pathname with 'rect' in it
 
 // the supported display types
-const AnimDisplay = "animation";
-const VectorDisplay = "vector";
-const ContourDisplay = "contour";
+const AnimDisplay = wf.AnimDisplay;
+const VectorDisplay = wf.VectorDisplay;
+const ContourDisplay = wf.ContourDisplay;
 var selDisplay = undefined;
 
 // the supported wind sources
@@ -49,10 +49,8 @@ const Wx10Source = "wx_10m";
 const Wx80Source = "wx_80m";
 var selSource = undefined;
 
-//--- render parameters
-var animRender = {...config.animRender};
-var vectorRender = {...config.vectorRender};
-var contourRender = {...config.contourRender};
+//--- render parameters and controls (panels for anim, vector and contour display)
+const renderControls = new wf.WindFieldRenderControls( "wind", config.windRender, windRenderChanged);
 
 class ForecastRegion {
     constructor (name, bbox, status) {
@@ -183,48 +181,29 @@ class Forecast {
         this.vector = {};
         this.contour = {};
 
-        this.animation.windNinja = new wf.AnimField( urlBase, "__grid.csv", animRender, wfStatusChanged);
-        this.vector.windNinja = new wf.VectorField( urlBase, "__vector.csv", vectorRender, wfStatusChanged);
-        this.contour.windNinja = new wf.ContourField( urlBase, "__contour.json", contourRender, wfStatusChanged);
+        let rc = renderControls;
+        let url = (suffix) => `./wind-data/${urlBase}${suffix}`; // see WindService route
 
-        this.animation.wx_10m = new wf.AnimField( urlBase, "__10__grid.csv", animRender, wfStatusChanged);
-        this.vector.wx_10m = new wf.VectorField( urlBase, "__10__vector.csv", vectorRender, wfStatusChanged);
-        this.contour.wx_10m = new wf.ContourField( urlBase, "__10__contour.json", contourRender, wfStatusChanged);
+        this.animation.windNinja = new wf.AnimField( url("__grid.csv"), rc.animRender, wfStatusChanged);
+        this.vector.windNinja = new wf.VectorField( url("__vector.csv"), rc.vectorRender, wfStatusChanged);
+        this.contour.windNinja = new wf.ContourField( url("__contour.json"), rc.contourRender, wfStatusChanged);
 
-        this.animation.wx_80m = new wf.AnimField( urlBase, "__80__grid.csv", animRender, wfStatusChanged);
-        this.vector.wx_80m = new wf.VectorField( urlBase, "__80__vector.csv", vectorRender, wfStatusChanged);
-        this.contour.wx_80m = new wf.ContourField( urlBase, "__80__contour.json", contourRender, wfStatusChanged);
+        this.animation.wx_10m = new wf.AnimField( url("__10__grid.csv"), rc.animRender, wfStatusChanged);
+        this.vector.wx_10m = new wf.VectorField( url("__10__vector.csv"), rc.vectorRender, wfStatusChanged);
+        this.contour.wx_10m = new wf.ContourField( url("__10__contour.json"), rc.contourRender, wfStatusChanged);
+
+        this.animation.wx_80m = new wf.AnimField( url("__80__grid.csv"), rc.animRender, wfStatusChanged);
+        this.vector.wx_80m = new wf.VectorField( url("__80__vector.csv"), rc.vectorRender, wfStatusChanged);
+        this.contour.wx_80m = new wf.ContourField( url("__80__contour.json"), rc.contourRender, wfStatusChanged);
     }
 
     status () { return this[selDisplay][selSource].status; }
-
-    startViewChange () {
-        if (this.isShowing()) {
-            this.showWindField(false);
-            this._onHold = true;
-            this[selDisplay][selSource].startViewChange();
-        }
-    }
-
-    endViewChange () {
-        if (this._onHold) {
-            this[selDisplay][selSource].endViewChange();
-            this.showWindField(true);
-            this._onHold = undefined;
-        }
-    }
 
     renderChanged () {
         // TODO - to be consistent we either we have to set sliders upon source/display selection or we have
         // to update all source/display entries here
 
-        if (Object.is(selDisplay, AnimDisplay)) {
-            this.animation[selSource].setRenderOpts( animRender);
-        } else if (Object.is(selDisplay, VectorDisplay)) {
-            this.vector[selSource].setRenderOpts( vectorRender);
-        } else if (Object.is(selDisplay, ContourDisplay)) {
-            this.contour[selSource].setRenderOpts( contourRender);
-        }
+        this[selDisplay][selSource].setRenderOpts( renderControls.renderOpts(selDisplay));
     }
 
     isShowing() { return Object.is( this.status(), wf.WindFieldStatus.SHOWING); }
@@ -292,12 +271,7 @@ initSourceCb();
 initRegionView();
 initForecastView();
 
-initAnimDisplayControls();
-initVectorDisplayControls();
-initContourDisplayControls();
-
-//const viewer = await odinCesium.viewerReadyPromise; // Safari bug workaround (setupEventListeners use odinCesium)
-setupEventListeners();
+renderControls.initialize();
 
 odinCesium.initLayerPanel("wind", config, showWind);
 console.log("odin_wind initialized");
@@ -315,9 +289,16 @@ function handleWsMessages(msgType, msg) {
     }
 }
 
-// this is the response to connecting - all forecast regions that are currently active
+// this is the response to connecting - all forecast regions that are currently active. Since we get this upon each
+// (re-)connect we have to clean up assets of regions we replace (otherwise we would get duplicated entities)
 function handleForecastRegions (frsMsg) {
     for (let r of frsMsg.regions) {
+        let old = forecastRegions.get( r.region);
+        if (old) {
+            old.clearAsset();
+            old.forecasts.forEach( fc => fc.clearWindFields());
+        }
+
         let fr = new ForecastRegion( r.region, r.bbox, RegionStatus.ACTIVE);
         forecastRegions.set(fr.name, fr);
 
@@ -465,58 +446,13 @@ function createWindow() {
             (forecastView = ui.List("wind.forecasts", 6, selectForecast)),
             ui.ListControls("wind.forecasts",null,null,null,null,clearWindFields)
         ),
-        ui.Panel("anim display")(
-            ui.ColumnContainer("align_right")(
-                ui.Slider("particles", "wind.anim.particles", windParticlesChanged),
-                ui.Slider("extra height", "wind.anim.height", windHeightChanged),
-                ui.Slider("fade opacity", "wind.anim.fade_opacity", windFadeOpacityChanged),
-                ui.Slider("drop", "wind.anim.drop", windDropRateChanged),
-                ui.Slider("drop bump", "wind.anim.drop_bump", windDropRateBumpChanged),
-                ui.Slider("speed factor", "wind.anim.speed", windSpeedChanged),
-                ui.Slider("line width", "wind.anim.width", windWidthChanged),
-                ui.ColorField("color", "wind.anim.color", true, animColorChanged),
-            )
-        ),
-        // TODO - those fields should be created from config
-        ui.Panel("vector display")(
-            ui.Slider("point size", "wind.vector.point_size", vectorPointSizeChanged),
-            ui.Slider("line width", "wind.vector.width", vectorLineWidthChanged),
-            ...colorFields( vectorRender, "wind.vector", vectorLineColorChanged)
-        ),
-        ui.Panel("contour display")(
-            ui.Slider("stroke width", "wind.contour.stroke_width", contourStrokeWidthChanged),
-            ui.Slider("fill alpha", "wind.contour.alpha", contourAlphaChanged),
-            ...colorFields( contourRender, "wind.contour", contourColorChanged)
-        )
+        renderControls.displayPanel()
     );
-}
-
-function colorFields (renderOpts, group, callback) {
-    let fields = [];
-    for (let i=0; i<renderOpts.colors.length; i++) {
-        let spd = i*5;
-        let lbl = (i < renderOpts.colors.length-1) ? `${spd}-${spd+5}mph` : `>${spd}mph`;
-        let id = `${group}.color${i}`;
-        fields.push( ui.ColorField( lbl, id, true, callback));
-    }
-    return fields;
 }
 
 function initDisplayCb() {
     ui.setChoiceItems( displayCb, [AnimDisplay, VectorDisplay, ContourDisplay], 0);
     selDisplay = ui.getSelectedChoiceValue( displayCb);
-}
-
-function isAnimDisplay () {
-    return selDisplay == "animation";
-}
-
-function isVectorDisplay () {
-    return selDisplay == "vector";
-}
-
-function isContourDisplay () {
-    return selDisplay == "contour";
 }
 
 function initSourceCb() {
@@ -554,130 +490,9 @@ function initForecastView() {
     return view;
 }
 
-function initAnimDisplayControls() {
-    var e = undefined;
-
-    let r = animRender;
-
-    e = ui.getSlider("wind.anim.particles");
-    ui.setSliderRange(e, 0, 128, 16, util.f_0);
-    ui.setSliderValue(e, r.particlesTextureSize);
-
-    e = ui.getSlider("wind.anim.height");
-    ui.setSliderRange(e, 0, 10000, 500, util.f_0);
-    ui.setSliderValue(e, r.particleHeight);
-
-    e = ui.getSlider("wind.anim.fade_opacity");
-    ui.setSliderRange(e, 0.8, 1.0, 0.01, util.f_2);
-    ui.setSliderValue(e, r.fadeOpacity);
-
-    e = ui.getSlider("wind.anim.drop");
-    ui.setSliderRange(e, 0.0, 0.01, 0.001, util.f_3);
-    ui.setSliderValue(e, r.dropRate);
-
-    e = ui.getSlider("wind.anim.drop_bump");
-    ui.setSliderRange(e, 0.0, 0.05, 0.005, util.f_3);
-    ui.setSliderValue(e, r.dropRateBump);
-
-    e = ui.getSlider("wind.anim.speed");
-    ui.setSliderRange(e, 0.0, 0.3, 0.02, util.f_2);
-    ui.setSliderValue(e, r.speedFactor);
-
-    e = ui.getSlider("wind.anim.width");
-    ui.setSliderRange(e, 0.0, 3.0, 0.5, util.f_1);
-    ui.setSliderValue(e, r.lineWidth);
-
-    e = ui.getField("wind.anim.color");
-    ui.setField(e, r.color.toCssHexString());
-}
-
-function initVectorDisplayControls() {
-    var e = undefined;
-
-    e = ui.getSlider("wind.vector.point_size");
-    ui.setSliderRange(e, 0, 8, 0.5, util.f_1);
-    ui.setSliderValue(e, vectorRender.pointSize);
-
-    e = ui.getSlider("wind.vector.width");
-    ui.setSliderRange(e, 0, 5, 0.2, util.f_1);
-    ui.setSliderValue(e, vectorRender.strokeWidth);
-
-    for (var i=0; i<vectorRender.colors.length; i++) {
-        e = ui.getField(`wind.vector.color${i}`);
-        if (e) {
-            e._uiIdx = i;
-            ui.setField(e, vectorRender.colors[i].toCssHexString());
-        }
-    }
-}
-
-function initContourDisplayControls() {
-    var e = undefined;
-
-    e = ui.getSlider("wind.contour.stroke_width");
-    ui.setSliderRange(e, 0, 3, 0.5, util.f_1);
-    ui.setSliderValue(e, contourRender.strokeWidth);
-
-    e = ui.getSlider("wind.contour.alpha");
-    ui.setSliderRange(e, 0, 1.0, 0.1, util.f_1);
-    ui.setSliderValue(e, contourRender.alpha);
-
-    for (var i = 0; i<contourRender.colors.length; i++) {
-        e = ui.getField(`wind.contour.color${i}`);
-        if (e) {
-            ui.setField(e, contourRender.colors[i].toCssHexString());
-        }
-    }
-}
-
 /* #endregion UI window */
 
 /* #region UI callbacks *************************************************************************************/
-
-/// some of our windfield visualizations have to be aware of view changes
-function setupEventListeners() {
-    // since this requires an initialized Cesium.Viewer we have to sync with odin_cesium.js init
-    odinCesium.viewerReadyPromise.then( (viewer) => {
-        let scene = viewer.scene;
-
-        viewer.camera.moveStart.addEventListener(startViewChange);
-        viewer.camera.moveEnd.addEventListener(endViewChange);
-
-        var resized = false;
-
-        window.addEventListener("resize", () => {
-            resized = true;
-            //scene.primitives.show = false;
-            //windEntries.forEach(e => e.removePrimitives());
-        });
-
-        scene.preRender.addEventListener(() => {
-            if (resized) {
-                //windEntries.forEach(e => e.updatePrimitives());
-                resized = false;
-                //scene.primitives.show = true;
-            }
-        });
-    });
-}
-
-function startViewChange() {
-    for (let region of forecastRegions.values()) {
-        for (let forecast of region.forecasts) {
-            forecast.startViewChange();
-        }
-    }
-}
-
-function endViewChange() {
-    wf.updateViewerParameters();
-    for (let region of forecastRegions.values()) {
-        for (let forecast of region.forecasts) {
-
-            forecast.endViewChange();
-        }
-    }
-}
 
 function toggleShowWind (event) { // our local show/hide
     // show/hide wind assets
@@ -793,123 +608,13 @@ function selectWindSource (event) {
 /* #endregion UI callbacks */
 
 
-/* #region anim display settings ****************************************************************************/
+/* #region render settings **********************************************************************************/
 
-// we have to delay particleSystem updates while user moves the slider
-var pendingUserInputChange = false;
-
-function triggerAnimRenderChange(forecast, newInput) {
-    if (isAnimDisplay()) {
-        if (newInput) pendingUserInputChange = true;
-
-        setTimeout(() => {
-            if (pendingUserInputChange) {
-                pendingUserInputChange = false;
-                triggerAnimRenderChange(forecast, false);
-            } else {
-                forecast.renderChanged();
-            }
-        }, 500);
+// called by our renderControls when the user changed render options for the given display type
+function windRenderChanged (displayType) {
+    if (selectedForecast && Object.is( selDisplay, displayType)) {
+        selectedForecast.renderChanged();
     }
 }
 
-function windParticlesChanged(event) {
-    let n = ui.getSliderValue(event.target);
-    animRender.particlesTextureSize = n;
-    animRender.maxParticles = n*n;
-    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
-}
-
-function windFadeOpacityChanged(event) {
-    animRender.fadeOpacity = ui.getSliderValue(event.target);
-    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
-}
-
-function windSpeedChanged(event) {
-    animRender.speedFactor = ui.getSliderValue(event.target);
-    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
-}
-
-function windWidthChanged(event) {
-    animRender.lineWidth = ui.getSliderValue(event.target);
-    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
-}
-
-function windHeightChanged(event) {
-    animRender.particleHeight = ui.getSliderValue(event.target);
-    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
-}
-
-function windDropRateChanged(event) {
-    animRender.dropRate = ui.getSliderValue(event.target);
-    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
-}
-
-function windDropRateBumpChanged(event) {
-    animRender.dropRateBump = ui.getSliderValue(event.target);
-    if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
-}
-
-function animColorChanged(event) {
-    let clr= Cesium.Color.fromCssColorString( event.target.value);
-    if (clr) {
-        animRender.color = clr;
-        if (selectedForecast && isAnimDisplay()) { triggerAnimRenderChange( selectedForecast, true); }
-    }
-}
-
-/* #endregion anim display settings */
-
-/* #region vector display settings **************************************************************************/
-
-function vectorPointSizeChanged(event) {
-    vectorRender.pointSize =  ui.getSliderValue(event.target);
-    if (selectedForecast && isVectorDisplay()) { selectedForecast.renderChanged();}
-}
-
-function vectorLineWidthChanged(event) {
-    vectorRender.strokeWidth =  ui.getSliderValue(event.target);
-    if (selectedForecast && isVectorDisplay()) { selectedForecast.renderChanged();}
-}
-
-function vectorLineColorChanged(event) {
-    let e = event.target;
-    let clr= Cesium.Color.fromCssColorString( event.target.value);
-    if (clr) {
-        let idx = e._uiIdx;
-        if (idx >= 0 && idx < vectorRender.colors.length) {
-            vectorRender.colors[idx] = clr;
-            if (selectedForecast && isVectorDisplay()) { selectedForecast.renderChanged(); }
-        }
-    }
-}
-
-/* #endregion vector display settings */
-
-/* #region contour display settigns *************************************************************************/
-
-function contourStrokeWidthChanged(event) {
-    contourRender.strokeWidth =  ui.getSliderValue(event.target);
-    if (selectedForecast && isContourDisplay()) { selectedForecast.renderChanged();}
-}
-
-function contourColorChanged(event) {
-    let idx = colorIndex( event.target);
-    let clr= Cesium.Color.fromCssColorString( event.target.value);
-    if (clr) {
-        contourRender.colors[idx] = clr;
-        if (selectedForecast && isContourDisplay()) { selectedForecast.renderChanged();}
-    }
-}
-
-function contourAlphaChanged(event) {
-    contourRender.alpha =  ui.getSliderValue(event.target);
-    if (selectedForecast && isContourDisplay()) { selectedForecast.renderChanged();}
-}
-
-/* #endregion contour display settings */
-
-function colorIndex (e) {
-    let id = e.id;
-    return parseInt( id.charAt( id.length-1));
-}
+/* #endregion render settings */

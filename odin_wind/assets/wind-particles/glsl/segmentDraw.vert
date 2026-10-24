@@ -7,7 +7,20 @@ in vec3 normal; // (point to use, offset sign, not used component)
 
 
 uniform sampler2D H; // grid cell height
+uniform sampler2D U; // eastward wind (for wind speed colors)
+uniform sampler2D V; // northward wind
+uniform sampler2D W; // up/down wind
 uniform float particleHeight; //  extra height we can interactively set
+
+// particle colors - either a single color or by wind speed (in 5mph steps, same as vector and contour displays)
+#define MAX_SPEED_COLORS 16
+const float SPEED_COLOR_STEP = 2.2352; // 5mph in m/s
+uniform vec4 color;
+uniform vec4 speedColors[MAX_SPEED_COLORS];
+uniform float nSpeedColors; // number of valid speedColors entries
+uniform float colorBySpeed; // > 0.5 means use speedColors
+
+out vec4 v_color;
 
 uniform sampler2D previousParticlesPosition;
 uniform sampler2D currentParticlesPosition;
@@ -32,48 +45,60 @@ struct adjacentPoints {
 
 //--- height interpolation (unfortunately somewhat redundant with calculateSpeed.frag)
 
-vec2 mapPositionToNormalizedIndex2D(vec3 lonLatLev) {
-    // ensure the range of longitude and latitude
-    lonLatLev.x = mod(lonLatLev.x, 360.0);
-    lonLatLev.y = clamp(lonLatLev.y, -90.0, 90.0);
+// NOTE - this has to be consistent with the grid lookup in calculateSpeed.frag (see comments there)
+vec3 gridIndex(vec3 lonLatLev) {
+    float width = maximum.x - minimum.x;
+    float dLon = mod(lonLatLev.x - minimum.x, 360.0);
+    if (dLon > 180.0 + width / 2.0) dLon -= 360.0; // west of grid
 
-    vec3 index3D = vec3(0.0);
-    index3D.x = (lonLatLev.x - minimum.x) / interval.x;
-    index3D.y = (lonLatLev.y - minimum.y) / interval.y;
-    index3D.z = (interval.z != 0.0) ? (lonLatLev.z - minimum.z) / interval.z : 1.0; // WATCH OUT - interval.z might be 0
-    //index3D.z = (lonLatLev.z - minimum.z) / interval.z; // WATCH OUT - interval.z must not be 0 (checked in particlesRendering.js as GPUs don't like branches)
-    
-    vec2 index2D = vec2(index3D.x, index3D.z * dimension.y + index3D.y);
-    vec2 normalizedIndex2D = vec2(index2D.x / dimension.x, 1.0 - index2D.y / (dimension.y * dimension.z));
-    return normalizedIndex2D;
+    return vec3(
+        dLon / interval.x,
+        (lonLatLev.y - minimum.y) / interval.y,
+        (interval.z != 0.0) ? (lonLatLev.z - minimum.z) / interval.z : 0.0  // WATCH OUT - interval.z might be 0
+    );
 }
 
-float getGridHeight(vec3 lonLatLev) {
-    vec2 normalizedIndex2D = mapPositionToNormalizedIndex2D(lonLatLev);
-    float height = texture(H, normalizedIndex2D).r;
-    return height;
+float gridValue(sampler2D componentTexture, int col, int iy, int iz) {
+    int nx = int(dimension.x);
+    int ny = int(dimension.y);
+    int nz = int(dimension.z);
+    col = clamp(col, 0, nx - 1);
+    iy = clamp(iy, 0, ny - 1);
+    iz = clamp(iz, 0, nz - 1);
+    int row = iz * ny + (ny - 1 - iy);
+    return texelFetch(componentTexture, ivec2(col, row), 0).r;
+}
+
+float interpolateGrid(sampler2D componentTexture, vec3 lonLatLev) {
+    vec3 idx = gridIndex(lonLatLev);
+    float x0 = floor(idx.x);
+    float y0 = floor(idx.y);
+    float fx = idx.x - x0;
+    float fy = idx.y - y0;
+    int i = int(x0);
+    int j = int(y0);
+    int k = int(round(idx.z));
+
+    float v00 = gridValue(componentTexture, i,   j,   k);
+    float v10 = gridValue(componentTexture, i+1, j,   k);
+    float v01 = gridValue(componentTexture, i,   j+1, k);
+    float v11 = gridValue(componentTexture, i+1, j+1, k);
+
+    return mix( mix(v00, v10, fx), mix(v01, v11, fx), fy);
 }
 
 float interpolateHeight(vec3 lonLatLev) {
-    float lon = lonLatLev.x;
-    float lat = lonLatLev.y;
-    float lev = lonLatLev.z;
+    return interpolateGrid(H, lonLatLev);
+}
 
-    float lon0 = floor(lon / interval.x) * interval.x;
-    float lon1 = lon0 + 1.0 * interval.x;
-    float lat0 = floor(lat / interval.y) * interval.y;
-    float lat1 = lat0 + 1.0 * interval.y;
-
-    float lon0_lat0 = getGridHeight( vec3(lon0, lat0, lev));
-    float lon1_lat0 = getGridHeight( vec3(lon1, lat0, lev));
-    float lon0_lat1 = getGridHeight( vec3(lon0, lat1, lev));
-    float lon1_lat1 = getGridHeight( vec3(lon1, lat1, lev));
-
-    float lon_lat0 = mix(lon0_lat0, lon1_lat0, lon - lon0);
-    float lon_lat1 = mix(lon0_lat1, lon1_lat1, lon - lon0);
-    float lon_lat = mix(lon_lat0, lon_lat1, lat - lat0);
-
-    return lon_lat;
+vec4 particleColor(vec3 lonLatLev) {
+    if (colorBySpeed > 0.5 && nSpeedColors > 0.5) {
+        vec3 wind = vec3( interpolateGrid(U, lonLatLev), interpolateGrid(V, lonLatLev), interpolateGrid(W, lonLatLev));
+        int idx = int( min( floor( length(wind) / SPEED_COLOR_STEP), nSpeedColors - 1.0));
+        return speedColors[idx];
+    } else {
+        return color;
+    }
 }
 
 float getHeight (vec3 lonLatLev) {
@@ -175,6 +200,8 @@ void main() {
     vec3 previousPosition = texture(previousParticlesPosition, particleIndex).rgb;
     vec3 currentPosition = texture(currentParticlesPosition, particleIndex).rgb;
     vec3 nextPosition = texture(postProcessingPosition, particleIndex).rgb;
+
+    v_color = particleColor(currentPosition);
 
     float isAnyRandomPointUsed = texture(postProcessingPosition, particleIndex).a +
         texture(currentParticlesPosition, particleIndex).a +

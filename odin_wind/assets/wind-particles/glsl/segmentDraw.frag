@@ -1,12 +1,8 @@
 //#version 300 es
 
-uniform vec4 color;
+in vec4 v_color; // single or wind speed color (computed in segmentDraw.vert)
 out vec4 fragColor;
 
 void main() {
-    //const vec4 white = vec4(1.0);
-    //const vec4 clr = vec4(0.0, 1.0, 1.0, 1.0);
-    //fragColor = clr;
-
-    fragColor = color;
+    fragColor = v_color;
 }

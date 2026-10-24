@@ -208,7 +208,13 @@ export function handleWsMessages(msgType, msg) {
     }
 }
 
+// snapshots are complete replacements - we get one for each (re-)connect and server side data (re-)initialization,
+// i.e. this has to remove all previous state (otherwise we would get duplicated entities)
 function handleSnapshotMessage(msg) {
+    dataSource.entities.removeAll();
+    stationEntries.clear();
+    selectedStation = undefined;
+
     for (let station of msg.stations) {
         let id = station.meta.id;
         let e = new StationEntry(station.meta, station.obs);

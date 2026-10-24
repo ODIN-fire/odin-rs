@@ -958,6 +958,9 @@ div.ui_list_item:hover {
 div.ui_list_item.selected {
     color: var(--selected-data-color);
     background: var(--list-selection-background);
+}
+
+div.ui_list_item.selected:not(div.ui_node .ui_list_item) {
     border: var(--list-selection-border);
 }
 
@@ -1034,12 +1037,13 @@ div.ui_node:hover {
 div.ui_node.selected {
     color: var(--selected-data-color);
     background: var(--list-selection-background);
+    border: var(--list-selection-border);
 }
 
 div.ui_node_prefix {
     display: inline-block;
     white-space: pre;
-    background: var(--data-background); /* override hover/selected */
+    background: inherit; /* override hover/selected */
     font: var(--mono-font);
     color: var(--dim-color);
     height: 100%;

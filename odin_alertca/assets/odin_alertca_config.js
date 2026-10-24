@@ -4,7 +4,7 @@ export const config = {
       description: "AlertCalifornia webcams",
       show: false,
     },
-    maxAlertAge: 60000 * 60, // 1h
+    maxAlertAge: 15 * 60, // [secs] cameras that have not been updated for 15min are flagged
     color: Cesium.Color.fromCssColorString('aquamarine'),
     alertColor: Cesium.Color.fromCssColorString('deeppink'),
     labelFont: '15px sans-serif',
@@ -26,5 +26,4 @@ export const config = {
     imageHeight: 450,
     maxHistory: 20, // max data points we keep
     zoomHeight: 20000,
-    inactiveDuration: 60000 * 20 // 20 min
   };

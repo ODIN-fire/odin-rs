@@ -23,7 +23,10 @@ import * as cesium from "./odin_cesium.js";
 
 const ellipsoid = Cesium.Ellipsoid.WGS84;
 
-const viewer = await cesium.viewerReadyPromise;
+// NOTE - no top level await here since this would delay evaluation of all importing modules (and hence change the
+// order of their icons). The viewer is only used from interactive editor functions, i.e. after it is initialized
+let viewer = undefined;
+cesium.viewerReadyPromise.then( (v) => { viewer = v; });
 
 /* #region test *****************************************************************************/
 

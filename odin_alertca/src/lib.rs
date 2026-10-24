@@ -14,9 +14,9 @@
 
 #![allow(unused)]
 
-use std::{collections::{HashMap,VecDeque}, path::{Path,PathBuf}, io::{Read, Write}, sync::Arc, time::Duration};
+use std::{borrow::Cow, collections::{HashMap,VecDeque}, path::{Path,PathBuf}, io::{Read, Write}, sync::Arc, time::Duration};
 use chrono::{DateTime,Utc};
-use serde::{Serialize,Deserialize};
+use serde::{Serialize, Deserialize, Deserializer, de::{DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor}};
 use reqwest::{Client,Response};
 use async_trait::async_trait;
 use uom::si::{length::meter};
@@ -26,7 +26,7 @@ use odin_actor::prelude::*;
 use odin_server::{spa::SpaService, ws_service::ws_msg_from_json};
 use odin_common::{
     angle::{Angle360, Angle90}, cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque,
-    datetime::{utc_now, EpochMillis}, extract_all, extract_optional, fs::{self, filename},
+    datetime::{utc_now, EpochMillis}, fs::{self, filename},
     geo::{GeoPoint, GeoPoint3, GeoPolygon}, json_writer::{JsonWritable, JsonWriter, NumFormat}, net::{download_url, NO_HEADERS}
 };
 use odin_macro::{define_struct, public_struct};
@@ -46,152 +46,113 @@ use alertca_service::AlertCaService;
 define_load_config!{}
 define_load_asset!{}
 
-/// our internal, updated data model for (selected) AlertCalifornia cameras
-/// the fixed part is initialized from configuration and CalOES data
-/// the VarCameraData is updated from connector messages
+/// our internal data model for (selected) AlertCalifornia cameras. Each `Camera` object represents the state of a camera
+/// at a given time (`last_update`) as parsed from the AlertCalifornia `all_cameras` GeoJSON data. Note that cameras can
+/// move, i.e. the position is part of the camera state
+#[derive(Debug,Clone)]
 #[public_struct]
 struct Camera {
-    id: Arc<String>,
+    id: Arc<String>,     // not human readable (shared between all states of the same camera)
+    name: String,        // human readable name (used for display)
+
     position: GeoPoint3,
     pos: Cartesian3,
-    max_fov: Angle90,
+    max_fov: Angle90,    // horizontal field of view of the camera
 
-    data: VecDeque<VarCameraData>
-}
-
-impl Camera {
-    fn new (config: &AlertCaConfig, id: Arc<String>, cal_oes_cam: &CalOesCamera)->Self {
-        let position = GeoPoint3::from_lon_lat_degrees_alt_meters( cal_oes_cam.lon, cal_oes_cam.lat, cal_oes_cam.height);
-        let pos = position.to_cartesian3();
-        let max_fov = Angle90::from_degrees(cal_oes_cam.fov);
-        let data: VecDeque<VarCameraData> = VecDeque::with_capacity(config.max_history);
-
-        Camera { id, position, pos, max_fov, data }
-    }
-
-    fn last_update (&self)->Option<DateTime<Utc>> {
-        self.data.back().map( |d|  DateTime::from_timestamp_millis( d.last_update.millis()).unwrap())
-    }
-
-    fn last_update_timestamp (&self)->EpochMillis {
-        self.data.back().map( |d|  d.last_update).or( Some(EpochMillis::new(0))).unwrap()
-    }
-}
-
-impl JsonWritable for Camera {
-    fn write_json_to (&self, w: &mut JsonWriter) {
-        w.write_object( |w| {
-            w.write_field("id", self.id.as_str());
-            w.write_json_field("position", &self.position);
-            w.write_json_field("pos", &self.pos);
-            w.write_f64_field("maxFov", self.max_fov.degrees(), NumFormat::Fp1);
-            w.write_array_field("data", |w| {
-                for d in &self.data { d.write_json_to(w); }
-            })
-        })
-    }
-}
-
-/// the variable camera data we store / publish
-#[derive(Debug)]
-#[public_struct]
-struct VarCameraData {
     last_update: EpochMillis,
 
     fov_dist: Length,
     fov_angle: Angle90,
 
-    azimut: Angle360,
-    tilt: Angle90,
-    zoom: f64,
+    azimut: Angle360,    // current camera direction (derived from fov_center for cameras that do not report azimut)
+    tilt: Option<Angle90>,  // only reported by PTZ cameras
+    zoom: Option<f64>,      // ditto
 
     image: Option<PathBuf>,
 }
 
-impl VarCameraData {
-    pub fn new()->Self {
-        VarCameraData {
-            last_update: EpochMillis::new(0),
-            fov_dist: Length::new::<meter>(0.0),
-            fov_angle: Angle90::from_degrees(0.0),
-            azimut: Angle360::from_degrees(0.0),
-            tilt: Angle90::from_degrees(0.0),
-            zoom: 0.0,
-            image: None
-        }
-    }
-}
-
-
-impl JsonWritable for VarCameraData {
-    fn write_json_to (&self, w: &mut JsonWriter) {
+impl Camera {
+    /// the time dependent (data) part of this camera state
+    fn write_data_json_to (&self, w: &mut JsonWriter) {
         w.write_object(|w| {
             w.write_field("date", self.last_update.millis());
             w.write_f64_field("fovDist", self.fov_dist.get::<meter>(), NumFormat::Fp0);
             w.write_f64_field("fovAngle", self.fov_angle.degrees(), NumFormat::Fp0);
             w.write_f64_field("azimut", self.azimut.degrees(), NumFormat::Fp0);
-            w.write_f64_field("tilt", self.tilt.degrees(), NumFormat::Fp0);
-            w.write_f64_field("zoom", self.zoom, NumFormat::Fp0);
+            if let Some(tilt) = &self.tilt { w.write_f64_field("tilt", tilt.degrees(), NumFormat::Fp0); }
+            if let Some(zoom) = self.zoom { w.write_f64_field("zoom", zoom, NumFormat::Fp0); }
             if let Some(path) = &self.image && let Some(fname) = filename( path) {
                 w.write_field("image", fname); // we make sure it is valid utf8
             }
         })
     }
-}
 
-#[derive(Debug)]
-#[public_struct]
-struct CameraUpdate {
-    id: Arc<String>,
-    data: VarCameraData,
-}
-
-impl JsonWritable for CameraUpdate {
-    fn write_json_to (&self, w: &mut JsonWriter) {
-        w.write_object(|w| {
+    /// write camera JSON with this as the latest state and `history` (oldest first, including self) as data entries
+    fn write_json_with_history<'a> (&self, w: &mut JsonWriter, history: impl Iterator<Item=&'a Camera>) {
+        w.write_object( |w| {
             w.write_field("id", self.id.as_str());
-            w.write_json_field("data", &self.data);
+            w.write_field("name", self.name.as_str());
+            w.write_json_field("position", &self.position);
+            w.write_json_field("pos", &self.pos);
+            w.write_f64_field("maxFov", self.max_fov.degrees(), NumFormat::Fp1);
+            w.write_array_field("data", |w| {
+                for c in history { c.write_data_json_to(w); }
+            })
         })
     }
 }
 
-pub fn get_json_update_msg (updates: &Vec<CameraUpdate>)->String {
+/// camera update messages contain the same camera objects as snapshot messages, but only the new state as data
+impl JsonWritable for Camera {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        self.write_json_with_history( w, std::iter::once(self));
+    }
+}
+
+pub fn get_json_update_msg (updates: &Vec<Camera>)->String {
     let mut w = JsonWriter::with_capacity(8192);
     w.write_object( |w| {
         w.write_field("date", EpochMillis::now().millis());
         w.write_array_field("changes", |w| {
-            for d in updates {
-                d.write_json_to(w);
+            for camera in updates {
+                camera.write_json_to(w);
             }
         })
     });
     ws_msg_from_json( AlertCaService::mod_path(), "update", w.as_str())
 }
 
-/// abstraction for how we store updated Camera objects
-/// since entries are static we accept the key duplication upon entry so that we can save temporary string objects on &str based lookup
+/// the store for the (configured) cameras we have received. For each camera we keep a history of its last `max_history` states
 pub struct CameraStore {
-    map: HashMap<String,Camera>,
+    map: HashMap<String,VecDeque<Camera>>,
+    max_history: usize,
     last_update: EpochMillis
 }
 
 impl CameraStore {
-    fn new(map: HashMap<String,Camera>)->Self {
-        CameraStore{ map, last_update: EpochMillis::new(0) }
+    pub fn new (max_history: usize)->Self {
+        CameraStore{ map: HashMap::new(), max_history: max_history.max(1), last_update: EpochMillis::new(0) }
     }
 
-    pub fn get(&self, id: &str)->Option<&Camera> { self.map.get( id) }
-    pub fn get_mut (&mut self, id: &str)->Option<&mut Camera> { self.map.get_mut( id) }
+    /// the latest state of camera `id`
+    pub fn get (&self, id: &str)->Option<&Camera> { self.map.get( id).and_then( |h| h.back()) }
 
-    pub fn update_all (&mut self, camera_updates: Vec<CameraUpdate>) {
-        for update in camera_updates.into_iter() {
-            if let Some(camera) = self.map.get_mut(update.id.as_str()) {
-                if update.data.last_update > self.last_update {
-                    self.last_update = update.data.last_update;
-                }
+    pub fn history (&self, id: &str)->Option<&VecDeque<Camera>> { self.map.get( id) }
 
-                camera.data.push_back( update.data);
+    pub fn len (&self)->usize { self.map.len() }
+
+    pub fn last_update (&self)->EpochMillis { self.last_update }
+
+    /// add new camera states. This also adds cameras we did not have before
+    pub fn update_all (&mut self, cameras: Vec<Camera>) {
+        for camera in cameras.into_iter() {
+            if camera.last_update > self.last_update {
+                self.last_update = camera.last_update;
             }
+
+            let history = self.map.entry( camera.id.to_string()).or_insert_with( || VecDeque::with_capacity( self.max_history));
+            while history.len() >= self.max_history { history.pop_front(); }
+            history.push_back( camera);
         }
     }
 
@@ -200,31 +161,14 @@ impl CameraStore {
         w.write_object( |w| {
             w.write_field("date", self.last_update.millis());
             w.write_array_field("cameras", |w| {
-                for (id,camera) in self.map.iter() {
-                    camera.write_json_to(w);
+                for history in self.map.values() {
+                    if let Some(latest) = history.back() {
+                        latest.write_json_with_history( w, history.iter());
+                    }
                 }
             })
         });
         ws_msg_from_json( AlertCaService::mod_path(), "snapshot", w.as_str())
-    }
-}
-
-/// camera information we get from CalOES data and DEM
-/// only used during CameraStore construction for invariant Camera part
-/// deserialized from data/config file
-#[derive(Debug,Serialize,Deserialize)]
-#[public_struct]
-struct CalOesCamera {
-    id: String,
-    lon: f64, // in degrees
-    lat: f64, // in degrees
-    fov: f64, // in degrees
-    height: f64 // in meters
-}
-
-impl CalOesCamera {
-    pub fn new(id:&str, lon: f64, lat: f64, fov: f64, height: f64)-> Self {
-        CalOesCamera { id: id.to_string(), lon, lat, fov, height }
     }
 }
 
@@ -235,7 +179,7 @@ struct AlertCaConfig {
     cameras: Vec<Arc<String>>,  // we use ids for 3 different data structures - share the ids to avoid duplicate allocation
     base_url: String, // for all-camera / image retrieval
     update_interval: Duration, // data retrieval interval
-    max_history: usize,
+    max_history: usize, // number of camera states we keep per camera
     max_age: Duration, // duration after which to drop camera data
 }
 
@@ -256,43 +200,156 @@ pub fn all_cameras_filepath ()->PathBuf {
     pkg_cache_dir!().join( "all_cameras.json")
 }
 
-pub fn create_cameras (config: &AlertCaConfig, cal_oes_cameras: &HashMap<String,CalOesCamera>)->Result<CameraStore> {
-    let mut map: HashMap<String,Camera> = HashMap::with_capacity( config.cameras.len());
-    for camera_id in &config.cameras {
-        if let Some(cal_oes_cam) = cal_oes_cameras.get( camera_id.as_str()) {
-            let camera = Camera::new( config, camera_id.clone(), cal_oes_cam);
-            map.insert( camera.id.to_string(), camera);
-        } else {
-            return Err( op_failed!("could not find camera position for {}", camera_id));
-        }
+/// map from (configured) camera ids to shared id objects. This allows lookup without allocation while parsing
+pub fn camera_ids (config: &AlertCaConfig)->HashMap<String,Arc<String>> {
+    HashMap::from_iter( config.cameras.iter().map( |id| (id.to_string(), id.clone())))
+}
+
+/* #region all_cameras GeoJSON parsing *********************************************************************************/
+
+// The AlertCalifornia all_cameras GeoJSON FeatureCollection contains >1000 features but we only need a small subset of
+// them. We therefore stream-parse the features with serde_json, deserializing each one into a lightweight (borrowing)
+// RawFeature that only contains the properties we need (others are skipped) and only turn features with configured ids
+// into Camera objects. Property order and additional properties are irrelevant
+
+#[derive(Deserialize)]
+struct RawGeometry {
+    coordinates: Vec<f64>, // [lon, lat, height]
+}
+
+#[derive(Deserialize)]
+struct RawProperties<'a> {
+    #[serde(borrow)] id: Cow<'a,str>,
+    #[serde(borrow)] name: Option<Cow<'a,str>>,
+    fov_lft: Option<[f64;2]>,
+    fov_rt: Option<[f64;2]>,
+    fov_center: Option<[f64;2]>,
+    fov: Option<f64>,
+    az_current: Option<f64>,
+    tilt_current: Option<f64>,
+    zoom_current: Option<f64>,
+    last_frame_ts: Option<i64>, // epoch seconds
+}
+
+#[derive(Deserialize)]
+struct RawFeature<'a> {
+    geometry: Option<RawGeometry>,
+    #[serde(borrow)] properties: RawProperties<'a>,
+}
+
+/// parse the all_cameras GeoJSON `data` and return the cameras with ids from `ids` (see [camera_ids]).
+/// Features without position or last_frame_ts are ignored
+pub fn parse_cameras (data: &[u8], ids: &HashMap<String,Arc<String>>)->Result<Vec<Camera>> {
+    let mut cameras: Vec<Camera> = Vec::with_capacity( ids.len());
+    let mut de = serde_json::Deserializer::from_slice( data);
+    FeatureCollectionSeed{ ids, cameras: &mut cameras }.deserialize( &mut de)?;
+    de.end()?;
+    Ok(cameras)
+}
+
+struct FeatureCollectionSeed<'s> {
+    ids: &'s HashMap<String,Arc<String>>,
+    cameras: &'s mut Vec<Camera>,
+}
+
+impl<'de,'s> DeserializeSeed<'de> for FeatureCollectionSeed<'s> {
+    type Value = ();
+    fn deserialize<D: Deserializer<'de>> (self, deserializer: D)->std::result::Result<(),D::Error> {
+        deserializer.deserialize_map( self)
     }
-
-    Ok( CameraStore::new(map) )
 }
 
-pub fn get_cal_oes_cameras (path: impl AsRef<Path>)->Result<HashMap<String,CalOesCamera>> {
-    let ron = fs::filepath_contents_as_string(path)?;
-    let mut map: HashMap<String,CalOesCamera> = ron::from_str(&ron)?;
+impl<'de,'s> Visitor<'de> for FeatureCollectionSeed<'s> {
+    type Value = ();
 
-    //--- add missing cameras (TODO - this should be added to the source files, not hardcoded)
-    let mut missing_cameras = vec![
-        CalOesCamera::new( "Axis-Almaden1", -121.847187, 37.194245, 62.8, 180.0),
-        CalOesCamera::new( "Axis-Almaden2", -121.847187, 37.194245, 62.8, 180.0),
-        CalOesCamera::new( "Axis-BlackMtSCC", -122.147301, 37.3186, 62.8, 855.0),
-        CalOesCamera::new( "Axis-BlackMtSCC2", -122.147301, 37.3186, 62.8, 855.0),
-    ];
-    for c in missing_cameras.into_iter() { map.insert( c.id.clone(), c); }
+    fn expecting (&self, f: &mut std::fmt::Formatter)->std::fmt::Result { f.write_str("GeoJSON FeatureCollection") }
 
-    Ok( map )
+    fn visit_map<A: MapAccess<'de>> (self, mut map: A)->std::result::Result<(),A::Error> {
+        while let Some(key) = map.next_key::<Cow<'de,str>>()? {
+            if key == "features" {
+                map.next_value_seed( FeaturesSeed{ ids: self.ids, cameras: &mut *self.cameras })?;
+            } else {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+        Ok(())
+    }
 }
 
-pub fn get_default_cal_oes_cameras()->Result<HashMap<String,CalOesCamera>> {
-    let cal_oes_path = pkg_data_dir!().join("CalOesCameras.ron");
-    get_cal_oes_cameras(&cal_oes_path)
+struct FeaturesSeed<'s> {
+    ids: &'s HashMap<String,Arc<String>>,
+    cameras: &'s mut Vec<Camera>,
 }
 
+impl<'de,'s> DeserializeSeed<'de> for FeaturesSeed<'s> {
+    type Value = ();
+    fn deserialize<D: Deserializer<'de>> (self, deserializer: D)->std::result::Result<(),D::Error> {
+        deserializer.deserialize_seq( self)
+    }
+}
 
+impl<'de,'s> Visitor<'de> for FeaturesSeed<'s> {
+    type Value = ();
 
+    fn expecting (&self, f: &mut std::fmt::Formatter)->std::fmt::Result { f.write_str("array of GeoJSON Features") }
+
+    fn visit_seq<A: SeqAccess<'de>> (self, mut seq: A)->std::result::Result<(),A::Error> {
+        while let Some(feature) = seq.next_element::<RawFeature<'de>>()? {
+            if let Some(id) = self.ids.get( feature.properties.id.as_ref()) {
+                if let Some(camera) = camera_from_feature( id.clone(), feature) {
+                    self.cameras.push( camera);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn camera_from_feature (id: Arc<String>, feature: RawFeature)->Option<Camera> {
+    let coords = feature.geometry?.coordinates;
+    if coords.len() < 2 { return None }
+    let p = feature.properties;
+
+    let (lon, lat) = (coords[0], coords[1]);
+    let alt = if coords.len() > 2 { coords[2] } else { 0.0 };
+    let position = GeoPoint3::from_lon_lat_degrees_alt_meters( lon, lat, alt);
+    let pos = position.to_cartesian3();
+
+    let last_update = EpochMillis::from_secs( p.last_frame_ts?);
+    let name = p.name.map( |n| n.to_string()).unwrap_or_else( || id.to_string());
+    let max_fov = Angle90::from_degrees( p.fov.unwrap_or(0.0));
+
+    let p_center = Cartographic::from_degrees( lon, lat, 0.0);
+    let (fov_dist, fov_angle) = match (p.fov_lft, p.fov_rt) {
+        (Some(lft), Some(rt)) => compute_fov( &p_center, &Cartographic::from_degrees( lft[0], lft[1], 0.0), &Cartographic::from_degrees( rt[0], rt[1], 0.0)),
+        _ => (Length::new::<meter>(0.0), Angle90::from_degrees(0.0))
+    };
+
+    let azimut = if let Some(az) = p.az_current {
+        Angle360::from_degrees( az)
+    } else if let Some(c) = p.fov_center { // fixed (non-PTZ) camera
+        Angle360::from_degrees( p_center.bearing_to( &Cartographic::from_degrees( c[0], c[1], 0.0)).to_degrees())
+    } else {
+        Angle360::from_degrees( 0.0)
+    };
+    let tilt = p.tilt_current.map( |t| Angle90::from_degrees(t));
+    let zoom = p.zoom_current;
+
+    Some( Camera{ id, name, position, pos, max_fov, last_update, fov_dist, fov_angle, azimut, tilt, zoom, image: None } )
+}
+
+/// compute distance and angle of the field of view from the camera position and the left and right fov boundary points
+fn compute_fov (p_center: &Cartographic, p_lft: &Cartographic, p_rt: &Cartographic) -> (Length,Angle90) {
+    let a_lft = p_center.bearing_to( p_lft).to_degrees();
+    let mut a_rt = p_center.bearing_to( p_rt).to_degrees();
+    if a_rt < a_lft { a_rt += 360.0; }
+
+    let fov_dist = Length::new::<meter>(p_center.distance_to( p_lft));
+    let fov_angle = Angle90::from_degrees( a_rt - a_lft);
+    (fov_dist, fov_angle)
+}
+
+/* #endregion all_cameras GeoJSON parsing */
 
 /* #region file download functions *************************************************************************************/
 

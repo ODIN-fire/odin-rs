@@ -152,9 +152,8 @@ pub fn read_res_file<P,Q> (
         warp.set_tgt_resolution( res_x, res_y);
         warp.set_tgt_format( driver_name)?;
 
-        // NOTE - we do need explicit control over nodata (e.g. for DEM cases that would get thrown off by -9999)
-        // make sure we use a small but non-zero value for nodata since we can encounter both (0 for coastal sea and nodata for high seas)
-        // note that the nodata value might get used subsequently in SRS conversion / cropping
+        // source nodata pixels are mapped to the target nodata (which defaults to the source nodata). Clients that cannot
+        // handle nodata should replace them with regular values afterwards (see swap_rasterband_value())
         if let Some(nodata) = nodata {
             warp.set_tgt_nodatas(vec![nodata]);
         }

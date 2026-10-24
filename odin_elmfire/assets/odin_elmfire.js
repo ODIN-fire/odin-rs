@@ -25,6 +25,7 @@ import * as edit from "../odin_cesium/editor.js";
 import * as ws from "../odin_server/ws.js";
 import * as main from "../odin_server/main.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
+import * as wf from "../odin_wind/windfield.js";
 
 const MOD_PATH = "odin_elmfire::service::ElmfireService";
 const DEBOUNCE_SECS = 3;
@@ -49,6 +50,9 @@ class FireEntry {
         this.toaLoading = undefined;       // Promise while loading toaDs (to avoid duplicate loads)
         this.toaGen = 0;                   // incremented whenever toaDs is reset so that we can discard outdated loads
         this.toaRender = undefined;        // toa render options of this run (set when the run gets selected)
+
+        //--- wind field display state
+        this.windFields = [];              // timestep index -> { animation, vector, contour } WindFieldVisualizations (created on demand)
     }
 
     // the toa render options for this run. Changes of display parameters only affect the selected run and
@@ -74,8 +78,8 @@ class FireEntry {
 
     // levels (secs since base date) of all timesteps of this run (as shown in timestepView)
     allLevels() {
-        let area = this.ef.output ? this.ef.output.area : null;
-        return area ? area.map( ae => getTimestepSeconds(this, ae)) : [];
+        let timesteps = this.ef.output ? this.ef.output.timesteps : null;
+        return timesteps ? timesteps.map( ts => getTimestepSeconds(this, ts)) : [];
     }
 
     // this is the only place where we set visibility of toa entities - it is computed from the current state:
@@ -136,9 +140,40 @@ class FireEntry {
         });
     }
 
+    // get (or create) the WindFieldVisualization of the given display type for timestep index `idx`.
+    // Returns undefined if this run has no wind field output for this timestep
+    getWindField(idx, displayType) {
+        let wfs = this.ef.output ? this.ef.output.windfields : undefined;
+        if (!wfs || idx < 0 || idx >= wfs.length) return undefined;
+
+        let fields = this.windFields[idx];
+        if (!fields) {
+            let files = wfs[idx];
+            let url = (fname) => `elmfire-data/${this.ef.id}/outputs/${fname}`; // see ElmfireService data route
+            fields = {};
+            fields[wf.AnimDisplay] = new wf.AnimField( url(files.grid), windRender.animRender);
+            fields[wf.VectorDisplay] = new wf.VectorField( url(files.vectors), windRender.vectorRender);
+            fields[wf.ContourDisplay] = new wf.ContourField( url(files.contours), windRender.contourRender);
+            this.windFields[idx] = fields;
+        }
+        return fields[displayType];
+    }
+
+    hasWindFields() {
+        let wfs = this.ef.output ? this.ef.output.windfields : undefined;
+        return (wfs && wfs.length > 0);
+    }
+
+    // release all wind field resources (they get re-loaded on demand)
+    clearWindFields() {
+        this.windFields.forEach( fields => Object.values(fields).forEach( f => f.clear()));
+        this.windFields = [];
+    }
+
     cleanUp() {
         this.removeImgOutputAssets();
         this.removeToa();
+        this.clearWindFields();
     }
 
     getToaBounds() {
@@ -209,16 +244,21 @@ var selectedLevel = undefined;     // level (secs since base date) of selected t
 var layerShow = config.layer.show;
 var repopulatingFireView = false;  // to ignore transient selection changes while re-populating fireView
 
+// the wind field we show (only one at a time): { entry: FireEntry, idx: timestep index } or undefined.
+// The display type is selected with the "wnd" choice (wndCh)
+var shownWind = undefined;
+var windRender = new wf.WindFieldRenderControls( "elmfire.wind", config.windRender, windRenderChanged);
+
 var curCenterAsset = undefined;
 var curIgnitionAssets = [];
 
-var spottingList = [];
+var spottingList = []; // the list of known spotting config files we get from the server
 
 createIcon();
 createWindow();
 
 initFireView();
-initAreaView();
+initTimestepView();
 
 setWindChoices();
 setImgChoices();
@@ -228,6 +268,7 @@ setBarrierChoices();
 
 setInputDebouncers();
 initDisplayControls();
+windRender.initialize();
 
 var dataSource = odinCesium.createDataSource("elmfire", config.layer.show);
 
@@ -278,6 +319,7 @@ function updateElmfires(elmFires) {
             e.toaRender = oldEntry.toaRender;
             oldEntry.cleanUp();
             if (e.isShown) reloads.push(e);
+            if (shownWind && shownWind.entry === oldEntry) shownWind = { entry: e, idx: shownWind.idx };
         }
 
         fireEntries.set(e.id, e);
@@ -285,6 +327,7 @@ function updateElmfires(elmFires) {
 
     updateFireView(); // if the selected run was replaced this calls selectEntry() for the new entry
     reloads.forEach( e => ensureToa(e));
+    updateWindDisplay(); // in case the shown wind field belongs to a replaced run
 }
 
 function handleRemoveMessage(msg) {
@@ -292,10 +335,13 @@ function handleRemoveMessage(msg) {
 
     let e = fireEntries.get(id);
     if (e) {
+        if (shownWind && shownWind.entry === e) shownWind = undefined;
         e.cleanUp(); // removes all display assets of this run
         fireEntries.delete(id);
 
         if (selectedEntry === e) {
+            cleanUpCurAssets();
+
             selectedEntry = null;
             selectedLevel = undefined;
             updateStatsView();
@@ -304,6 +350,15 @@ function handleRemoveMessage(msg) {
         }
         updateFireView();
     }
+}
+
+function cleanUpCurAssets() {
+    dataSource.entities.remove(curCenterAsset);
+    curCenterAsset = null;
+
+    curIgnitionAssets.forEach((a) => dataSource.entities.remove(a));
+    curIgnitionAssets = [];
+    odinCesium.requestRender();
 }
 
 function handleSpottingMessage(newSpottingList) {
@@ -333,8 +388,8 @@ function createWindow() {
                 ui.MenuItem("remove", removeSelectedFire)
             )),
             ui.RowContainer("end")(
-                (statsView = ui.KvTable("elmfire.stats", 8, "17.8rem", "17.8rem")),
-                (timestepView = ui.List("elmfire.area", 8, selectTimeStep))
+                (statsView = ui.KvTable("elmfire.stats", 8, "15.7rem", "15.7rem")),
+                (timestepView = ui.List("elmfire.timesteps", 8, selectTimeStep))
             ),
             ui.VarText(null, "elmfire.error", "30rem")
         ),
@@ -413,7 +468,7 @@ function createWindow() {
                 )
             )
         ),
-        ui.Panel("display parameters", false)(
+        ui.Panel("toa display", false)(
             ui.RowContainer()(
                 ui.ColorField("toa stroke", "fires.toa.stroke_color", true, toaStrokeColorChanged, "2rem"),
                 ui.initSlider("width", "fires.toa.stroke_width", toaStrokeWidthChanged, 1, 3, 1, util.f_0, 1)
@@ -423,7 +478,8 @@ function createWindow() {
                 ui.initSlider("alpha", "fires.toa.fill_alpha", toaFillAlphaChanged, 0, 1, 0.1, util.f_1, 0.7)
             ),
             ui.Button("reset all", resetRendering)
-        )
+        ),
+        windRender.displayPanel("wind display")
     );
 
     ignitionSrc.placeholder = "Elmfire ignition input (NML format)";
@@ -440,7 +496,9 @@ function removeSelectedFire(event) {
     if (selectedEntry) {
         if (window.confirm(`remove fire simulation '${selectedEntry.ef.name}'`)) {
             let id = selectedEntry.id;
-            ws.sendWsMessage( MOD_PATH, "removeElmfire", { id });
+            ws.sendWsMessage(MOD_PATH, "removeElmfire", { id });
+
+            // global asset cleanup happens upon receiving server response msg
         }
     }
 }
@@ -464,20 +522,25 @@ function initFireView() {
         { name: "name", tip: "fire name", width: "11rem", attrs: [], map: e => util.maxString(e.ef.name, 20) },
         { name: "date", tip: "local date of update", width: "10rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalDateHMTimeString(e.ef.date) },
         { name: "h", tip: "length of simulation in [h]", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.ef.nHours },
-        { name: "area", tip: "area [ac]", width: "5rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.ef.output.stats[0].totalArea, 1) },
+        { name: "area", tip: "area [ac]", width: "5rem", attrs: ["fixed", "alignRight"], map: e => totalArea(e) },
         { name: "in", tip: "input types (wind, fixed, spotting, barriers)", width: "3.5rem", attrs: ["fixed", "alignRight"], map: e => inputTypes(e) },
         ui.listItemSpacerColumn(0.8),
         { name: "⏿", tip: "show 30min time-of-arrival isochrones", width: "1.5rem", attrs: [], map: e => ui.createCheckBox(e.isShown, toggleShowToa) }
     ]);
 }
 
-function initAreaView() {
+function totalArea(e) {
+    return (e.ef.output) ? util.formatFloat(e.ef.output.stats[0].totalArea, 1) : '?';
+}
+
+function initTimestepView() {
     ui.setListItemDisplayColumns(timestepView, ["fit", "header"], [
         { name: "dt", tip: "hours from start", width: "2.5rem", attrs: ["fixed", "alignRight"], map: e=> areaItemDt(e) },
         { name: "time", tip: "", width: "4rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalHMTimeString(e.date) },
         { name: "𝚫", tip: "growth in %", width: "3.5rem", attrs: ["fixed", "alignRight"], map: e => e.growth },
         { name: "area", tip: "area [ac]", width: "5rem", attrs: ["fixed", "alignRight"], map: e => util.formatFloat(e.area, 1) },
         ui.listItemSpacerColumn(0.8),
+        { name: "wnd", tip: "show wind field", width: "2rem", attrs:[], map: e => ui.createCheckBox(isShownWind(e), toggleShowWind) },
         { name: "⏿", tip: "show isochrone", width: "1.5rem", attrs: [], map: e => ui.createCheckBox(isRequestedTimeStep(e), toggleShowIso) }
     ]);
 }
@@ -490,6 +553,14 @@ function inputTypes(e) {
     if (e.ef.barriers) t += 'b';
 
     return t;
+}
+
+function isShownWind(ae) {
+    return shownWind !== undefined && shownWind.entry === selectedEntry && timestepIndex(selectedEntry, ae) == shownWind.idx;
+}
+
+function timestepIndex(e, ae) {
+    return (e && e.ef.output) ? e.ef.output.timesteps.indexOf(ae) : -1;
 }
 
 function isRequestedTimeStep(ae) {
@@ -524,8 +595,64 @@ function selectImgOutput() {
     odinCesium.requestRender();
 }
 
+// the "wnd" choice selects the display type of the shown wind field ("-" hides it)
 function selectWndOutput() {
-    // not yet
+    if (shownWind) {
+        if (selectedWindDisplay()) {
+            updateWindDisplay();
+        } else {
+            hideWind();
+            ui.updateListItems(timestepView);
+        }
+    }
+}
+
+function selectedWindDisplay() {
+    switch (ui.getSelectedChoiceValue(wndCh)) {
+        case "anim": return wf.AnimDisplay;
+        case "vec": return wf.VectorDisplay;
+        case "cntr": return wf.ContourDisplay;
+        default: return undefined;
+    }
+}
+
+// show the wind field of shownWind for the selected display type (and hide the other display types).
+// This also applies the current render options since they might have changed while the field was not showing
+function updateWindDisplay() {
+    if (shownWind) {
+        let displayType = selectedWindDisplay();
+        for (let dt of [wf.AnimDisplay, wf.VectorDisplay, wf.ContourDisplay]) {
+            let field = shownWind.entry.getWindField(shownWind.idx, dt);
+            if (field) {
+                if (dt === displayType && layerShow) {
+                    field.setRenderOpts( windRenderOpts(dt));
+                    field.setVisible(true);
+                } else {
+                    field.setVisible(false);
+                }
+            }
+        }
+    }
+}
+
+function hideWind() {
+    if (shownWind) {
+        let fields = shownWind.entry.windFields[shownWind.idx];
+        if (fields) Object.values(fields).forEach( f => f.setVisible(false));
+        shownWind = undefined;
+    }
+}
+
+function windRenderOpts(displayType) {
+    return windRender.renderOpts(displayType);
+}
+
+// called by windRender when the user changed render options of the given display type
+function windRenderChanged(displayType) {
+    if (shownWind && Object.is( selectedWindDisplay(), displayType)) {
+        let field = shownWind.entry.getWindField(shownWind.idx, displayType);
+        if (field) field.setRenderOpts( windRenderOpts(displayType));
+    }
 }
 
 // remove all visible outlines, fills and image assets of all runs. This also clears the fireView and timestepView
@@ -534,9 +661,10 @@ function clearAllAssets() {
     ui.selectChoiceItemIndex(imgCh, 0);
     ui.selectChoiceItemIndex(wndCh, 0);
 
+    shownWind = undefined;
     fireEntries.forEach( e => {
         e.resetDisplayState(); // clears shown runs and requested timesteps
-        e.cleanUp();           // removes loaded toa data (re-loaded on demand) and image assets
+        e.cleanUp();           // removes loaded toa data, wind fields (re-loaded on demand) and image assets
     });
 
     ui.clearSelectedListItem(fireView); // -> selectEntry() clears selectedEntry, selectedLevel and the timestepView
@@ -739,8 +867,8 @@ function createFixedSrc() {
 
     let src =
 `! fixed Elmfire weather and fuel moisture input
-ws   = ${wd.toFixed(0).padStart(4, ' ')}  ! wind speed [mph]
-wd   = ${ws.toFixed(0).padStart(4, ' ')}  ! wind direction [°]
+ws   = ${ws.toFixed(0).padStart(4, ' ')}  ! wind speed [mph]
+wd   = ${wd.toFixed(0).padStart(4, ' ')}  ! wind direction [°]
 
 m1   = ${dfm1.toFixed(0).padStart(4, ' ')}  ! 1h dead fuel moisture [%]
 m10  = ${dfm10.toFixed(0).padStart(4, ' ')}  ! 10h dead fuel moisture [%]
@@ -897,7 +1025,7 @@ function addTimeStepLabels(fireEntry, ds) {
             e.position = pos;
             e.label = new Cesium.LabelGraphics({
                 text: util.formatFloat(dt, 1),
-                font: config.labelFont,
+                font: config.smallLabelFont,
                 fillColor: config.labelColor,
                 showBackground: true,
                 backgroundColor: config.labelBackground,
@@ -1062,6 +1190,32 @@ function toggleShowIso(event) {
     }
 }
 
+// timestepView item "wnd" checkbox - shows the wind field of this timestep. Only one wind field can be shown at a time,
+// i.e. this replaces a previously shown wind field (of any run). The display type is set by the "wnd" choice (wndCh).
+// Note this is executed before the item gets selected, i.e. we have to use the item of the checkbox
+function toggleShowWind(event) {
+    let cb = ui.getCheckBox(event.target);
+    if (cb && selectedEntry) {
+        let ae = ui.getListItemOfElement(cb);
+        if (ae) {
+            hideWind();
+
+            if (ui.isCheckBoxSelected(cb)) {
+                let idx = timestepIndex(selectedEntry, ae);
+                if (selectedEntry.hasWindFields() && idx >= 0) {
+                    if (!selectedWindDisplay()) ui.selectChoiceItemIndex(wndCh, 1); // default to animation
+                    shownWind = { entry: selectedEntry, idx };
+                    updateWindDisplay();
+                } else {
+                    alert("no wind field output for this simulation");
+                }
+            }
+
+            ui.updateListItems(timestepView); // reset other "wnd" checkboxes
+        }
+    }
+}
+
 //--- button click handlers
 
 function createRequest() {
@@ -1201,7 +1355,7 @@ function updateStatsView() {
 function updateAreaView() {
     let e = selectedEntry;
     if (e && e.ef.output) {
-        ui.setListItems(timestepView, e.ef.output.area);
+        ui.setListItems(timestepView, e.ef.output.timesteps);
     } else {
         ui.clearList(timestepView);
     }
@@ -1243,7 +1397,9 @@ function getKvList(ef) {
     let stats = ef.output.stats[0];
     let compStats = ef.output.compStats;
     return [
-        ["date", util.toLocalDateHMTimeString(stats.date)],
+        ["date", util.toLocalDateString(stats.date)],
+        ["time", util.toLocalHMTimeString(stats.date)],
+
         ["t-stop [h]", ef.nHours],
         ["total area [ac]", stats.totalArea],
         ["crown area [ac]", stats.crownArea],
@@ -1270,6 +1426,7 @@ function showFires(cond) {
     layerShow = cond;
     dataSource.show = cond;
     fireEntries.forEach( e => e.updateDisplay());
+    updateWindDisplay(); // wind fields are not part of our dataSource
     odinCesium.requestRender();
 }
 

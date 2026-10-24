@@ -71,6 +71,9 @@ use odin_server::{spa::SpaService,ws_service::ws_msg_from_json};
 
 use static_assertions::assert_impl_all;
 
+pub mod wind;
+use wind::{create_wx_windfields,create_computed_windfields};
+
 pub mod input;
 use input::{create_fixed_input, create_internal_input, create_landfire_input, create_wx_based_input};
 
@@ -147,7 +150,8 @@ struct ElmfireConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ElmfireOutput {
     pub stats: Vec<FireStats>, // at the end of the simulation
-    pub area: Vec<AreaSnapshot>,
+    pub timesteps: Vec<Timestep>,
+    pub windfields: Vec<WindField>,
     pub comp_stats: ComputedStats,
     pub raster_products: Vec<(String,GeoRect)>
 }
@@ -156,18 +160,41 @@ assert_impl_all!( ElmfireOutput : Send,Sync);
 
 /// those we read from the Elmfire generated acres*.csv file
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AreaSnapshot {
+pub struct Timestep {
     pub date: DateTime<Utc>,
     pub area: Area,
     pub growth: Ratio
 }
 
-impl JsonWritable for AreaSnapshot {
+impl JsonWritable for Timestep {
     fn write_json_to (&self, w: &mut JsonWriter) {
         w.write_object(|w| {
             w.write_date_field("date", self.date);
             w.write_f64_field("area", self.area.get::<acre>(), NumFormat::Fp1);
             w.write_f64_field("growth", self.growth.get::<percent>(), NumFormat::Fp0);
+        });
+    }
+}
+
+// timestep associated set of wind field filenames for grid- and vector- CSV filenames and contour GeoJSON filename
+// this is computed from the wind input we use to run Elmfire
+// Note that the Elmfire wind input is for full hours so we have to interpolate to respective Timestep dates.
+// There should be a 1:1 relation between Timestep and WindField vecs
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WindField {
+    pub date: DateTime<Utc>, // this is the same as the corresponding Timestep
+    pub grid: String, // file name for grid CSV (for particle animation)
+    pub vectors: String, // file name for vector CSV (vector display)
+    pub contours: String // file name for windspeed contour GeoJSON
+}
+
+impl JsonWritable for WindField {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w| {
+            w.write_date_field("date", self.date);
+            w.write_field("grid", &self.grid);
+            w.write_field("vectors", &self.vectors);
+            w.write_field("contours", &self.contours);
         });
     }
 }
@@ -424,7 +451,12 @@ impl ElmFire {
         let fl_range = get_band_value_range( &open_dataset( &dir.join("fl_wgs84.tif"))?, 1)?;
 
         let cell_size = Area::new::<square_meter>( (config.lf_res_m as f64).powi(2));
-        let area = compute_areas_from_toa( &dir.join("toa.tif"), &self.start_date, &contour_levels(self.t_start(), self.n_hours), cell_size)?;
+        let timesteps = compute_timesteps_from_toa( &dir.join("toa.tif"), &self.start_date, &contour_levels(self.t_start(), self.n_hours), cell_size)?;
+        let windfields = if self.compute_wind {
+            create_computed_windfields( &self.dir, &self.base_date, &timesteps, config.wind_res_m)?
+        } else {
+            create_wx_windfields( &self.dir, &self.base_date, &timesteps, config.wind_res_m)?
+        };
 
         let path = find_first_match_in_dir( &dir, &STATS_RE).ok_or( op_failed!("no fire_size_stats"))?;
         let stats = parse_fire_stats( &path, self.base_date)?;
@@ -435,7 +467,7 @@ impl ElmFire {
             vs_max: Velocity::new::<foot_per_minute>(vs_range.end)
         };
 
-        Ok( ElmfireOutput { stats, area, comp_stats, raster_products } )
+        Ok( ElmfireOutput { stats, timesteps, windfields, comp_stats, raster_products } )
     }
 
     async fn execute (&self, config: &ElmfireConfig)->Result<ElmfireOutput> {
@@ -515,7 +547,8 @@ pub fn process_raster_file<P: AsRef<Path>> (
     if png_path.as_ref().is_file() { remove_file( &png_path)?; }
 
     let ds = crop_mem_dataset( &ef_ds, idx_bounds)?;
-    let mut ds = warp_to_wgs84_tif( &ds, &wgs84_path, vec![-9999.0])?;
+    let nodatas = vec![-9999.0; ds.raster_count()]; // one per band
+    let mut ds = warp_to_wgs84_tif( &ds, &wgs84_path, nodatas)?;
 
     // up-sampling does not easily work with nodata boundaries. For interpolating resampling algorithms we would have to use
     // an approach like for contour generation, i.e. fill nodata regions with a value that pushes the interpolation into
@@ -581,7 +614,7 @@ pub fn contour_levels (start_secs: i64, n_hours: u32)->Vec<f64> {
 
 /// we compute this ourselves so that we could extend it to get additional information such as growth per 30min interval
 /// we can also control how holes are counted (e.g. water or developed)
-pub fn compute_areas_from_toa<P: AsRef<Path>> (path: P, start: &DateTime<Utc>, levels: &[f64], cell_size: Area)->Result<Vec<AreaSnapshot>> {
+pub fn compute_timesteps_from_toa<P: AsRef<Path>> (path: P, start: &DateTime<Utc>, levels: &[f64], cell_size: Area)->Result<Vec<Timestep>> {
     let ds = open_dataset(path)?;
     let mut vs: Vec<f32> = get_rasterband_as_vec( &ds, 1)?;
     let nodata: f32 = -9999.0;
@@ -597,7 +630,7 @@ pub fn compute_areas_from_toa<P: AsRef<Path>> (path: P, start: &DateTime<Utc>, l
 
     let dt = minutes(30);
     let mut date = *start;
-    let mut areas: Vec<AreaSnapshot> = Vec::with_capacity( levels.len());
+    let mut areas: Vec<Timestep> = Vec::with_capacity( levels.len());
     let mut prev: Area = Area::new::<acre>( 0.0);
     for t in levels.iter() {
         let n = count_cells( &vs, *t as f32, nodata);
@@ -607,7 +640,7 @@ pub fn compute_areas_from_toa<P: AsRef<Path>> (path: P, start: &DateTime<Utc>, l
         let growth: Ratio = Ratio::new::<ratio>(if prev.value == 0.0 { 0.0 } else { (area - prev).value / prev.value });
         prev = area;
 
-        areas.push( AreaSnapshot { date, area, growth });
+        areas.push( Timestep { date, area, growth });
     }
 
     Ok( areas )
@@ -645,8 +678,8 @@ pub fn get_utm_rect_around_point (center: &GeoPoint, dist: Length)->Result<UtmRe
     Ok( utm_rect )
 }
 
-pub fn parse_area<P: AsRef<Path>> (path: P, base_date: DateTime<Utc>)->Result<Vec<AreaSnapshot>> {
-    let mut vs: Vec<AreaSnapshot> = Vec::new();
+pub fn parse_area<P: AsRef<Path>> (path: P, base_date: DateTime<Utc>)->Result<Vec<Timestep>> {
+    let mut vs: Vec<Timestep> = Vec::new();
     let mut ts_last = -100000.0;
     let mut prev: Area = Area::new::<acre>(0.0);
 
@@ -666,7 +699,7 @@ pub fn parse_area<P: AsRef<Path>> (path: P, base_date: DateTime<Utc>)->Result<Ve
             prev = area;
 
             ts_last = ts;
-            vs.push( AreaSnapshot { date, area, growth } )
+            vs.push( Timestep { date, area, growth } )
         }
     }
 
@@ -815,8 +848,13 @@ impl JsonWritable for ElmfireRun {
                                     s.write_json_to(w);
                                 }
                             });
-                            w.write_array_field("area", |w|{
-                                for a in outputs.area.iter() {
+                            w.write_array_field("timesteps", |w|{
+                                for a in outputs.timesteps.iter() {
+                                    a.write_json_to(w);
+                                }
+                            });
+                            w.write_array_field("windfields", |w|{
+                                for a in outputs.windfields.iter() {
                                     a.write_json_to(w);
                                 }
                             });

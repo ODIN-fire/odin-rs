@@ -3,7 +3,8 @@
 uniform sampler2D nextParticlesPosition;
 uniform sampler2D particlesSpeed; // (u, v, w, norm)
 
-// range (min, max)
+// the range (min, max) in which we seed particles (visible part of the grid). Note that lonRange.x is in [0,360)
+// but lonRange.y can exceed 360 if the range crosses the prime meridian
 uniform vec2 lonRange;
 uniform vec2 latRange;
 
@@ -33,8 +34,10 @@ vec3 generateRandomParticle(vec2 seed, float lev) {
     return vec3(randomLon, randomLat, lev);
 }
 
+// particles outside of the seed range are re-seeded (they are not visible or there is no wind data for them)
 bool particleOutbound(vec3 particle) {
-    return particle.y < -90.0 || particle.y > 90.0;
+    float dLon = mod(particle.x - lonRange.x, 360.0); // particle longitudes can be in any representation
+    return dLon > (lonRange.y - lonRange.x) || particle.y < latRange.x || particle.y > latRange.y;
 }
 
 void main() {

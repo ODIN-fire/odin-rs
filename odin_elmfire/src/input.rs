@@ -39,7 +39,7 @@ use odin_landfire::LANDFIRE_PIXEL_RESOLUTION;
 use odin_gdal::{
     CslStringList, GdalDataType, copy_proj, create_dataset, find_rasterband_index,
     get_driver_by_name, get_gtiff_create_opts, get_gtiff_driver, get_rasterband_as_vec,
-    open_dataset, read_rasterband_into_slice, set_rasterband_from_vec, get_raster_info,
+    open_dataset, read_rasterband_into_slice, set_rasterband_from_vec, get_raster_info, replace_nodata_in_file,
     gdal::raster::RasterCreationOptions,
     errors::OdinGdalError,
     geods::{GeoDs, GeoDsImgType, GeoDsSrs},
@@ -493,38 +493,49 @@ pub async fn create_landfire_grids (lf_src: &GeoDs, utm_rect: &UtmRect, pixel_re
     // NOTE - these are i16 grids - Elmfire chokes if nodata is not a rounded value
 
     check_cache_async( dir.join("fbfm40.tif"), async |path|
-        lf_src.get_res_file( "FBFM40", &utm_rect.bbox, srs, res, res, Some(-9999.0), img_type, &path).await
+        lf_src.get_res_file( "FBFM40", &utm_rect.bbox, srs, res, res, Some(NO_DATA), img_type, &path).await
     ).await?;
 
     check_cache_async( dir.join("cbd.tif"), async |path|
-        lf_src.get_res_file( "CBD", &utm_rect.bbox, srs, res, res, Some(-9999.0), img_type, &path).await
+        lf_src.get_res_file( "CBD", &utm_rect.bbox, srs, res, res, Some(NO_DATA), img_type, &path).await
     ).await?;
 
     check_cache_async( dir.join("cbh.tif"), async |path|
-        lf_src.get_res_file( "CBH", &utm_rect.bbox, srs, res, res, Some(-9999.0), img_type, &path).await
+        lf_src.get_res_file( "CBH", &utm_rect.bbox, srs, res, res, Some(NO_DATA), img_type, &path).await
     ).await?;
 
     check_cache_async( dir.join("cc.tif"), async |path|
-        lf_src.get_res_file( "CC", &utm_rect.bbox, srs, res, res, Some(-9999.0), img_type, &path).await
+        lf_src.get_res_file( "CC", &utm_rect.bbox, srs, res, res, Some(NO_DATA), img_type, &path).await
     ).await?;
 
     check_cache_async( dir.join("ch.tif"), async |path|
-        lf_src.get_res_file( "CH", &utm_rect.bbox, srs, res, res, Some(-9999.0), img_type, &path).await
+        lf_src.get_res_file( "CH", &utm_rect.bbox, srs, res, res, Some(NO_DATA), img_type, &path).await
     ).await?;
 
-    check_cache_async( dir.join("slp.tif"), async |path|
-        lf_src.get_res_file( "SlpD", &utm_rect.bbox, srs, res, res, Some(-9999.0), img_type, &path).await
-    ).await?;
+    // the topographic sources use nodata for open sea (and 0.0 for coastal waters). Since Elmfire and WindNinja get thrown
+    // off by nodata values we replace them with physically meaningful values (sea level, flat surface) after retrieval
 
-    check_cache_async( dir.join("asp.tif"), async |path|
-        lf_src.get_res_file( "Asp", &utm_rect.bbox, srs, res, res, Some(-9999.0), img_type, &path).await
-    ).await?;
+    check_cache_async( dir.join("dem.tif"), async |path| {
+        lf_src.get_res_file( "Elev", &utm_rect.bbox, srs, res, res, Some(NO_DATA), img_type, &path).await?;
+        replace_nodata_in_file( &path, 1, SEA_LEVEL_M)
+    }).await?;
 
-    check_cache_async( dir.join("dem.tif"), async |path|
-        lf_src.get_res_file( "Elev", &utm_rect.bbox, srs, res, res, Some(-9999.0), img_type, &path).await
-    ).await?;
+    check_cache_async( dir.join("slp.tif"), async |path| {
+        lf_src.get_res_file( "SlpD", &utm_rect.bbox, srs, res, res, Some(NO_DATA), img_type, &path).await?;
+        replace_nodata_in_file( &path, 1, FLAT_SLOPE)
+    }).await?;
+
+    check_cache_async( dir.join("asp.tif"), async |path| {
+        lf_src.get_res_file( "Asp", &utm_rect.bbox, srs, res, res, Some(NO_DATA), img_type, &path).await?;
+        replace_nodata_in_file( &path, 1, FLAT_ASPECT)
+    }).await?;
 
     Ok(())
 }
+
+const NO_DATA: f64 = -9999.0;
+const SEA_LEVEL_M: f64 = 0.0; // elevation [m]
+const FLAT_SLOPE: f64 = 0.0;  // slope [deg]
+const FLAT_ASPECT: f64 = -1.0; // Landfire aspect value for flat surfaces
 
 /* #endregion landfire */

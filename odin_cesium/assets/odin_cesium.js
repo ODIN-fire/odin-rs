@@ -1512,6 +1512,10 @@ function setViewFromFields() {
     }
 }
 
+export function getCameraPosition() {
+    return viewer.camera.positionCartographic;
+}
+
 export function saveCamera() {
     let camera = viewer.camera;
     let pos = camera.positionCartographic;

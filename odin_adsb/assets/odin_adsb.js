@@ -363,8 +363,11 @@ function handleWsMessages(msgType, msg) {
     }
 }
 
+// snapshots are complete replacements - we get one for each (re-)connect, i.e. this has to remove all previous
+// tracks of this source including their assets (otherwise we would get duplicated entities)
 function handleWsSnapshot (msg) {
     let ts = getOrAddSource( msg.source);
+    for (let te of [...ts.trackEntries.values()]) removeTrackEntry( ts, te);
     ts.trackEntries.clear();
 
     msg.aircraft.forEach( (track) => {

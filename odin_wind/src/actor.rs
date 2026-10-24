@@ -21,21 +21,29 @@ use serde::{Serialize,Deserialize};
 
 use odin_build::pkg_cache_dir;
 use odin_common::{
-    BoundingBox, collections::RingDeque, datetime::{hours,short_utc_datetime_string,utc_now}, fs::{EnvPathBuf, basename, gzip_path, path_as_str, path_str_to_fname, path_to_lossy_string, path_to_unchecked_string, remove_old_files, replace_env_var_path, set_accessed}, geo::GeoRect, pow2, sqrt, utm::{self, UtmPoint, UtmRect, UtmZone}
+    BoundingBox, collections::RingDeque,
+    datetime::{hours,short_utc_datetime_string,utc_now},
+    fs::{
+        EnvPathBuf, basename, path_as_str, path_str_to_fname, path_to_lossy_string, path_to_unchecked_string,
+        remove_old_files, replace_env_var_path, set_accessed
+    },
+    geo::GeoRect, pow2, sqrt,
+    utm::{self, UtmPoint, UtmRect, UtmZone}
 };
 use odin_wx::{WxService, WxServiceList, AddDataSet, RemoveDataSet, WxDataSetRequest, WxFileAvailable};
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_gdal::{
     gdal::Dataset, GdalType, RasterInfo, FillNoDataAlg,
-    copy_full_rasterband, compute_rasterband_lines, get_raster_info, rasterband_index_for,
+    copy_full_rasterband, compute_rasterband_lines, get_raster_info, rasterband_index_for, replace_nodata_in_file,
     warp::{warp_to_raster_info, warp_to_rect, ResampleAlg}
 };
 use crate::{
     errors::{OdinWindError,Result}, op_failed, get_tmp_path, run_wn, get_wn_out_basename,
     wx_10_contour_suffix, wx_10_grid_suffix, wx_10_vector_suffix, wx_80_contour_suffix, wx_80_grid_suffix,
     wx_80_vector_suffix, wx_wgs84_suffix, huvw_contour_suffix, huvw_grid_suffix, huvw_vector_suffix, huvw_wgs84_suffix,
-    purge_old_forecasts, wind_service::{self, WindService},
+    create_grid_csv, create_vector_csv, create_contour_json,
+    purge_old_forecasts, service::{self, WindService},
     write_huvw_csv_cell_vectors, write_huvw_csv_grid, write_windspeed_contour,
     AddWindClient, AddWindClientResponse, ExecSnapshotAction, Forecast, ForecastRegion, ForecastStore, RemoveWindClient,
     RemoveWindClientResponse, SubscribeResponse, WindConfig, WindRegion, WnJob, WnJobRegion, WX_HRRR
@@ -209,7 +217,11 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
             let srs = DemSRS::UTM{epsg};
 
             match self.config.dem.get_res_dem( bbox, srs, dem_res, dem_res, odin_dem::DemImgType::TIF, &path).await {
-                Ok(()) => Ok(path),
+                Ok(()) => {
+                    // WindNinja cannot handle nodata (e.g. for open sea) - replace it with sea level
+                    replace_nodata_in_file( &path, 1, SEA_LEVEL_M)?;
+                    Ok(path)
+                }
                 Err(e) => {
                     error!("DEM download of {:?} failed with {e}", &path);
                     Err( OdinWindError::DemError( format!("DEM download failed: {e}")) )
@@ -285,9 +297,9 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
         let huvw_bands: &[usize] = &[1, 2, 3, 4]; // GDAL band numbers are 1-based - this is our file so we can rely band numbers
         let s_band = 5; // the windspeed band
 
-        Self::create_grid_csv( &forecast.get_wn_path( huvw_grid_suffix()), &huvw_ds, huvw_bands)?;
-        Self::create_vector_csv( &forecast.get_wn_path( huvw_vector_suffix()), &huvw_ds, huvw_bands, forecast.mesh_res)?;
-        Self::create_contour_json( &forecast.get_wn_path( huvw_contour_suffix()), &huvw_ds, s_band)?;
+        create_grid_csv( &forecast.get_wn_path( huvw_grid_suffix()), &huvw_ds, huvw_bands)?;
+        create_vector_csv( &forecast.get_wn_path( huvw_vector_suffix()), &huvw_ds, huvw_bands, forecast.mesh_res)?;
+        create_contour_json( &forecast.get_wn_path( huvw_contour_suffix()), &huvw_ds, s_band)?;
 
         // compute the HRRR based data products (directly from HRRR forecasts)
         let wx_ds = Dataset::open( forecast.wx_path.as_ref())?;
@@ -298,43 +310,19 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
         // resolution and with regular lon,lat grid)
 
         let wx_10_bands: &[usize] = &[7, 1, 2];
-        Self::create_grid_csv( &forecast.get_wn_path( wx_10_grid_suffix()), &wx_ds, wx_10_bands);
-        Self::create_vector_csv( &forecast.get_wn_path( wx_10_vector_suffix()), &wx_ds, wx_10_bands, forecast.mesh_res)?;
-        Self::create_contour_json( &forecast.get_wn_path( wx_10_contour_suffix()), &wx_ds, 5)?;
+        create_grid_csv( &forecast.get_wn_path( wx_10_grid_suffix()), &wx_ds, wx_10_bands);
+        create_vector_csv( &forecast.get_wn_path( wx_10_vector_suffix()), &wx_ds, wx_10_bands, forecast.mesh_res)?;
+        create_contour_json( &forecast.get_wn_path( wx_10_contour_suffix()), &wx_ds, 5)?;
 
         let wx_80_bands: &[usize] = &[7, 3, 4];
-        Self::create_grid_csv( &forecast.get_wn_path( wx_80_grid_suffix()), &wx_ds, wx_80_bands);
-        Self::create_vector_csv( &forecast.get_wn_path( wx_80_vector_suffix()), &wx_ds, wx_80_bands, forecast.mesh_res)?;
-        Self::create_contour_json( &forecast.get_wn_path( wx_80_contour_suffix()), &wx_ds, 6)?;
+        create_grid_csv( &forecast.get_wn_path( wx_80_grid_suffix()), &wx_ds, wx_80_bands);
+        create_vector_csv( &forecast.get_wn_path( wx_80_vector_suffix()), &wx_ds, wx_80_bands, forecast.mesh_res)?;
+        create_contour_json( &forecast.get_wn_path( wx_80_contour_suffix()), &wx_ds, 6)?;
 
         //remove_file( &huvw_wgs84_path)?;
         //remove_file( &wx_wgs84_path)?;
 
         self.finish_forecast(forecast).await
-    }
-
-    fn create_grid_csv (path: &PathBuf, ds: &Dataset, bands: &[usize])->Result<()> {
-        info!("creating grid CSV: {:?}", path);
-        write_huvw_csv_grid( ds, path, bands)?;
-        gzip_path( path)?; // this stores as "*.gz" so we can delete the uncompressed version
-        remove_file( path)?;
-        Ok(())
-    }
-
-    fn create_vector_csv (path: &PathBuf, ds: &Dataset, bands: &[usize], mesh_res: f64)->Result<()> {
-        info!("creating vector CSV: {:?}", path);
-        write_huvw_csv_cell_vectors( ds, path, mesh_res, bands)?;
-        gzip_path( path)?; // this stores as "*.gz" so we can delete the uncompressed version
-        remove_file( path)?;
-        Ok(())
-    }
-
-    fn create_contour_json (path: &PathBuf, ds: &Dataset, band: usize)->Result<()> {
-        info!("creating contour JSON: {:?}", path);
-        write_windspeed_contour( ds, path, band)?;
-        gzip_path( path)?;
-        remove_file( path)?;
-        Ok(())
     }
 
     async fn finish_forecast (&mut self, forecast: Forecast)->Result<()> {
@@ -355,7 +343,9 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
         let huvw_wn_path = forecast.get_wn_output_path(); // the WindNinja huvw output filename (in UTM)
         info!("projecting UTM huvw WindNinja output: {:?} to WGS84 grid: {:?}", huvw_wn_path, path.as_ref());
 
-        let mut huvw_ds = odin_gdal::warp::warp_to_wgs84( &huvw_wn_path, path, vec![-9999.0])?; // note - this has NODATA values around edges
+        let wn_ds = Dataset::open( &huvw_wn_path)?;
+        let nodatas = vec![-9999.0; wn_ds.raster_count()]; // one per band
+        let mut huvw_ds = odin_gdal::warp::warp_to_wgs84_tif( &wn_ds, path, nodatas)?; // note - this has NODATA values around edges
         odin_gdal::fill_nodata( &mut huvw_ds, 50, 3, FillNoDataAlg::InverseDistance)?; // fill NODATA values
 
         //if !keep_utm { std::fs::remove_file( &huvw_wn_path)? }
@@ -458,6 +448,8 @@ async fn wn_loop (hself: ActorHandle<WindActorMsg>, windninja_cmd: EnvPathBuf, c
     }
 }
 
+const SEA_LEVEL_M: f64 = 0.0; // elevation [m] we use for DEM nodata values
+
 /// this has to adhere to our data filename conventions
 fn wn_dem_filename (region: &str, utm_rect: &UtmRect)->PathBuf {
     let mut rn = path_str_to_fname( region);
@@ -535,13 +527,13 @@ pub fn server_subscribe_action (hserver: ActorHandle<SpaServerMsg>) -> impl Data
                     // tell only the requester why it was rejected
                     if let Some(remote_addr) = response.remote_addr {
                         let json =  serde_json::to_string( &response)?;
-                        let ws_msg = ws_msg_from_json( wind_service::MOD_PATH, "rejectForecastRegion", &json);
+                        let ws_msg = ws_msg_from_json( service::MOD_PATH, "rejectForecastRegion", &json);
                         hserver.send_msg( SendWsMsg{ remote_addr, ws_msg}).await;
                     }
 
                 } else {
                     let json = serde_json::to_string( &response.wn_region)?;
-                    let ws_msg = ws_msg_from_json( wind_service::MOD_PATH, "startForecastRegion", &json);
+                    let ws_msg = ws_msg_from_json( service::MOD_PATH, "startForecastRegion", &json);
                     if response.is_new {
                         hserver.send_msg( BroadcastWsMsg{ws_msg}).await; // tell everybody there is a new region
                     } else {
@@ -553,7 +545,7 @@ pub fn server_subscribe_action (hserver: ActorHandle<SpaServerMsg>) -> impl Data
             }
             SubscribeResponse::Remove(response) => {
                 let json = serde_json::to_string( &response)?;
-                let ws_msg = ws_msg_from_json( wind_service::MOD_PATH, "stopForecastRegion", &json);
+                let ws_msg = ws_msg_from_json( service::MOD_PATH, "stopForecastRegion", &json);
                 hserver.send_msg( BroadcastWsMsg{ws_msg}).await;
             }
         }
@@ -565,7 +557,7 @@ pub fn server_subscribe_action (hserver: ActorHandle<SpaServerMsg>) -> impl Data
 pub fn server_update_action (hserver: ActorHandle<SpaServerMsg>) -> impl DataRefAction<Forecast> {
     dataref_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |forecast: &Forecast| {  // update action
         let json = forecast.to_json();
-        let ws_msg = ws_msg_from_json( wind_service::MOD_PATH, "forecast", &json);
+        let ws_msg = ws_msg_from_json( service::MOD_PATH, "forecast", &json);
         hserver.send_msg( BroadcastWsMsg{ws_msg}).await;
         Ok(())
     })

@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -26,7 +26,7 @@ use odin_server::prelude::*;
 use odin_cesium::ImgLayerService;
 
 use crate::{
-    AddWindClient, RemoveWindClient, WindRegion, ExecSnapshotAction, 
+    AddWindClient, RemoveWindClient, WindRegion, ExecSnapshotAction,
     forecast_regions_to_json, load_asset, ForecastStore, PKG_CACHE_DIR
 };
 
@@ -48,6 +48,20 @@ impl<T> WindService <T> where T: 'static + MsgReceiver<ExecSnapshotAction> + Msg
     }
 }
 
+/// add the odin_wind assets and windfield.js visualization modules to the given SpaComponents. This has to be called by all
+/// SpaServices whose JS modules import windfield.js (which might be used in applications that do not include a WindService).
+/// Note that SpaComponents ignores duplicate assets and modules, i.e. it is safe to call this from several services.
+/// The caller is still responsible for serving the wind field data files (as specified by the WindFieldVisualization urls)
+pub fn add_windfield_components (spa: &mut SpaComponents) {
+    spa.add_assets( self_crate!(), load_asset); // windfield.js and wind-particles/* (including GLSL shaders)
+
+    spa.add_module( asset_uri!( "windfield.js" ));
+    spa.add_module( asset_uri!( "wind-particles/windUtils.js" ));
+    spa.add_module( asset_uri!( "wind-particles/particleSystem.js" ));
+    spa.add_module( asset_uri!( "wind-particles/particlesComputing.js" ));
+    spa.add_module( asset_uri!( "wind-particles/particlesRendering.js" ));
+}
+
 #[async_trait]
 impl<T> SpaService for WindService <T> where T: 'static + MsgReceiver<ExecSnapshotAction> + MsgReceiver<AddWindClient> + MsgReceiver<RemoveWindClient> {
     fn add_dependencies (&self, spa_builder: SpaServiceList) -> SpaServiceList {
@@ -58,17 +72,10 @@ impl<T> SpaService for WindService <T> where T: 'static + MsgReceiver<ExecSnapsh
     }
 
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {
-        spa.add_assets( self_crate!(), load_asset);
+        add_windfield_components( spa);
 
         spa.add_module( asset_uri!( "odin_wind_config.js"));
         spa.add_module( asset_uri!( "odin_wind.js" ));
-
-        //--- the visualization support modules
-        spa.add_module( asset_uri!( "windfield.js" ));
-        spa.add_module( asset_uri!( "wind-particles/windUtils.js" ));
-        spa.add_module( asset_uri!( "wind-particles/particleSystem.js" ));
-        spa.add_module( asset_uri!( "wind-particles/particlesComputing.js" ));
-        spa.add_module( asset_uri!( "wind-particles/particlesRendering.js" ));
 
         spa.add_route( |router, spa_server_state| {
             router.route( &format!("/{}/wind-data/{{*unmatched}}", spa_server_state.name.as_str()), get(Self::data_handler))
@@ -83,10 +90,10 @@ impl<T> SpaService for WindService <T> where T: 'static + MsgReceiver<ExecSnapsh
         let remote_addr = conn.remote_addr;
 
         // we send this un-conditionally since we don't know if the wn actor has/produces forecasts
-        let action = dyn_dataref_action!{ 
-            let hself: ActorHandle<SpaServerMsg> = hself.clone(), 
-            let remote_addr: SocketAddr = remote_addr => 
-            |data: &ForecastStore| { 
+        let action = dyn_dataref_action!{
+            let hself: ActorHandle<SpaServerMsg> = hself.clone(),
+            let remote_addr: SocketAddr = remote_addr =>
+            |data: &ForecastStore| {
                 if !data.is_empty() {
                     let json = forecast_regions_to_json(data);
                     let ws_msg = ws_msg_from_json( MOD_PATH, "forecastRegions", &json);
@@ -102,8 +109,8 @@ impl<T> SpaService for WindService <T> where T: 'static + MsgReceiver<ExecSnapsh
     }
 
     /// this is how we get regions from clients. Called from ws input task of respective connection
-    async fn handle_ws_msg (&mut self, 
-        hserver: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr, ws_msg_parts: &WsMsgParts) -> OdinServerResult<WsMsgReaction> 
+    async fn handle_ws_msg (&mut self,
+        hserver: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr, ws_msg_parts: &WsMsgParts) -> OdinServerResult<WsMsgReaction>
     {
         if ws_msg_parts.mod_path == MOD_PATH {
             match ws_msg_parts.msg_type {

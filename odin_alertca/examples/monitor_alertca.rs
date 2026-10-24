@@ -16,7 +16,7 @@
 
 use odin_common::json_writer::{JsonWritable,JsonWriter};
 use odin_actor::prelude::*;
-use odin_alertca::{actor::AlertCaActor, live_connector::LiveAlertCaConnector, load_config, CameraStore, CameraUpdate, get_json_update_msg};
+use odin_alertca::{actor::AlertCaActor, live_connector::LiveAlertCaConnector, load_config, CameraStore, Camera, get_json_update_msg};
 use anyhow::Result;
 
 /* #region monitor actor *****************************************************************/
@@ -55,7 +55,7 @@ run_actor_system!( actor_system => {
                 }
             ),
             dataref_action!( 
-                let hmonitor: ActorHandle<MonitorMsg> = hmonitor.clone() => |updates: &Vec<CameraUpdate>| {
+                let hmonitor: ActorHandle<MonitorMsg> = hmonitor.clone() => |updates: &Vec<Camera>| {
                     let json = get_json_update_msg( &updates);
                     Ok( hmonitor.try_send_msg( Update(json))? )
                 }

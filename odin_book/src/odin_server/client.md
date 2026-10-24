@@ -256,6 +256,28 @@ export function postInitialize() {                            // optional but ne
 Not all JS modules need all these sections. All functions (except postInitialize) are module private and can be named
 at will, although we encourage to use above conventions so that modules are more easy to read.
 
+**JS modules must not have top level await points (neither explicit nor implicit) before their UI initialization.** JS
+modules are evaluated in the order in which the respective `SpaService`s are added to the server (dependencies first),
+and this determines the order of icons and windows. Evaluation of a module only starts after all of its (static) imports
+are evaluated. If any module in this import graph contains a top level `await` (e.g. `const viewer = await odinCesium.viewerReadyPromise;`)
+all modules that directly or indirectly import it become asynchronous - their evaluation is suspended at this point while
+the browser continues with the following modules. Since such promises typically resolve late (e.g. after the virtual globe
+has been initialized) the respective `createIcon()` calls are executed after all other modules, i.e. their icons show up
+at the end of the icon box regardless of service order. Note this also applies to support modules that are imported but do
+not create their own UI (such as `odin_cesium/editor.js` or `odin_wind/windfield.js`).
+
+Code that depends on asynchronously initialized resources should either use promise callbacks:
+
+```javascript
+odinCesium.viewerReadyPromise.then( (viewer) => {           // no top level await
+    viewer.camera.moveEnd.addEventListener( endViewChange);
+});
+```
+
+or resolve them when they are actually used (e.g. from UI callbacks, which can only be executed after module initialization).
+Asynchronous functions (`async function ..`) and `await` *within* functions are fine as long as they are not awaited at the
+top level of the module.
+
 If a module requires static initialization that can change independently of the code this should go into a separate
 `<module-name>_config.js` asset that is kept either outside the repository in the `ODIN_ROOT/asset/` directory tree or
 (if it has sensible non-application specific defaults) in the respective `assets/` directory of the crate that provides
@@ -376,6 +398,17 @@ function handleWsMessages(msgType, msgObj) {
     }
 }
 ```
+
+**Handlers for messages that contain the complete data set (e.g. "snapshot") have to be idempotent.** Clients can receive
+such messages several times: from `SpaService::init_connection()` upon each websocket (re-)connect (`ws.js` closes the
+websocket if the browser tab becomes hidden and re-connects once it is visible again), and from `SpaService::data_available()`
+if the server side data gets (re-)initialized while clients are connected. The respective handler therefore has to replace
+all previous state - entries, Cesium entities (e.g. with `dataSource.entities.removeAll()`), selections and dependent views -
+before processing the message. Otherwise Cesium entities with the same id get added twice, which causes runtime errors.
+
+Note that Cesium data sources created with `odinCesium.createDataSource(..)` can be used immediately, i.e. entities can be
+added before the data source is added to the viewer. Websocket messages are only received after all JS modules have been
+initialized and the viewer is ready since `ws.js` does not connect before its `postInitialize()` call.
 
 #### 3.3.3 main.js - shared types and operations
 

@@ -20,11 +20,16 @@ use anyhow::{anyhow,Result};
 
 use odin_gdal::{gdal::Dataset, get_exterior_data_bounds, warp::warp_to_wgs84_tif, crop_mem_dataset, open_dataset};
 use odin_common::define_cli;
-use odin_elmfire::{contour_levels, load_config, process_contour, process_ef_raster_output};
+use odin_elmfire::{
+    ElmfireRun, contour_levels, load_config, process_contour, process_ef_raster_output, compute_timesteps_from_toa,
+    wind::{create_computed_windfields, create_wx_windfields}
+};
+use uom::si::{f64::Area, area::square_meter};
 
 define_cli! { ARGS [about="process Elmfire raster output from given output dir"] =
     config: Option<String> [help="name of Elmfire config file to use",long],
     t_start: i64 [help="seconds between base date and first ignition", long, default_value="0"],
+    wind: bool [help="also create wind field outputs (requires elmfire.ron in parent of output_dir)", long],
     n_hours: u32 [help="number of hours for isochrones"],
     output_dir: String [help="output directory to process"]
 }
@@ -43,6 +48,26 @@ fn main () -> Result<()> {
     process_contour( &ds, &path, config.small_fire_cells, ARGS.t_start, ARGS.n_hours)?;
 
     println!("generated contour file in {:?}", path);
+
+    if ARGS.wind {
+        let run_dir = dir.parent().ok_or( anyhow!("output_dir has no parent"))?;
+        let run = ElmfireRun::read_from( run_dir.join("elmfire.ron"))?;
+        let ef = &run.fire;
+
+        let cell_size = Area::new::<square_meter>( (config.lf_res_m as f64).powi(2));
+        let timesteps = compute_timesteps_from_toa( &dir.join("toa.tif"), &ef.start_date, &contour_levels( ef.t_start(), ef.n_hours), cell_size)?;
+
+        let windfields = if ef.compute_wind {
+            create_computed_windfields( run_dir, &ef.base_date, &timesteps, config.wind_res_m)?
+        } else {
+            create_wx_windfields( run_dir, &ef.base_date, &timesteps, config.wind_res_m)?
+        };
+
+        println!("generated {} {} wind fields:", windfields.len(), if ef.compute_wind {"WindNinja"} else {"wx"});
+        for wf in &windfields {
+            println!("  {}: {}, {}, {}", wf.date, wf.grid, wf.vectors, wf.contours);
+        }
+    }
 
     Ok(())
 }

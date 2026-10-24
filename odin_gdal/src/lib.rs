@@ -687,6 +687,106 @@ pub fn replace_rasterband_value<T> (ds: &mut Dataset, band_index: usize, old_val
 }
 
 
+/// replace all `src` pixel values of band `band_index` with `tgt` in-place and return the number of replaced pixels.
+/// This processes the band block-by-block (the native unit of tiled/striped datasets), which is fast and memory efficient
+/// even for huge datasets since it does not create a copy. Stored band statistics are removed if pixels were replaced
+/// (as `gdal_edit -unsetstats` does). If `dry_run` is set we only count matching pixels.
+/// Use this e.g. to fix datasets with de-facto nodata values that differ from their declared nodata, or to replace nodata
+/// with regular values for clients that cannot handle nodata.
+/// Note this fails if `src` or `tgt` cannot be represented exactly by the band data type
+pub fn swap_rasterband_value (ds: &mut Dataset, band_index: usize, src: f64, tgt: f64, dry_run: bool)->Result<u64> {
+    macro_rules! cast {
+        ($v:expr, $t:ty) => {{
+            let bv = $v as $t;
+            if bv as f64 != $v { return Err( misc_error( format!("value {} cannot be represented by band type {}", $v, stringify!($t)))) }
+            bv
+        }}
+    }
+
+    if src == tgt { return Err( misc_error( format!("src and tgt values are the same: {src}"))) }
+
+    let mut band = ds.rasterband( band_index)?;
+    let n = match band.band_type() {
+        GdalDataType::UInt8   => swap_band_blocks( &mut band, cast!(src,u8), cast!(tgt,u8), dry_run)?,
+        GdalDataType::Int8    => swap_band_blocks( &mut band, cast!(src,i8), cast!(tgt,i8), dry_run)?,
+        GdalDataType::UInt16  => swap_band_blocks( &mut band, cast!(src,u16), cast!(tgt,u16), dry_run)?,
+        GdalDataType::Int16   => swap_band_blocks( &mut band, cast!(src,i16), cast!(tgt,i16), dry_run)?,
+        GdalDataType::UInt32  => swap_band_blocks( &mut band, cast!(src,u32), cast!(tgt,u32), dry_run)?,
+        GdalDataType::Int32   => swap_band_blocks( &mut band, cast!(src,i32), cast!(tgt,i32), dry_run)?,
+        GdalDataType::UInt64  => swap_band_blocks( &mut band, cast!(src,u64), cast!(tgt,u64), dry_run)?,
+        GdalDataType::Int64   => swap_band_blocks( &mut band, cast!(src,i64), cast!(tgt,i64), dry_run)?,
+        GdalDataType::Float32 => swap_band_blocks( &mut band, cast!(src,f32), cast!(tgt,f32), dry_run)?,
+        GdalDataType::Float64 => swap_band_blocks( &mut band, src, tgt, dry_run)?,
+        t => return Err( misc_error( format!("unsupported band type {}", t.name())))
+    };
+
+    if n > 0 && !dry_run {
+        unset_band_statistics( &mut band)?;
+        drop(band);
+        ds.flush_cache()?;
+    }
+
+    Ok(n)
+}
+
+/// note that GDAL returns full sized buffers for partial edge blocks, i.e. matches outside of the valid raster area
+/// do not write invalid data
+fn swap_band_blocks<T: Copy + GdalType + PartialEq> (band: &mut RasterBand, src: T, tgt: T, dry_run: bool)->Result<u64> {
+    let (cols,rows) = band.size();
+    let (bw,bh) = band.block_size();
+    let mut n_total: u64 = 0;
+
+    for by in 0..rows.div_ceil(bh) {
+        for bx in 0..cols.div_ceil(bw) {
+            let mut buf = band.read_block::<T>( (bx,by))?;
+            let mut n: u64 = 0;
+            for v in buf.data_mut().iter_mut() {
+                if *v == src {
+                    *v = tgt;
+                    n += 1;
+                }
+            }
+            if n > 0 && !dry_run {
+                band.write_block( (bx,by), &mut buf)?;
+            }
+            n_total += n;
+        }
+    }
+
+    Ok(n_total)
+}
+
+/// replace the nodata pixels of band `band_index` in the dataset file `path` with a regular `value` (in-place).
+/// This is for clients that cannot handle nodata (e.g. external executables such as Elmfire and WindNinja, which
+/// get thrown off by DEM nodata values for open sea). Returns the number of replaced pixels (0 if band has no declared nodata).
+/// Note that the band still declares its nodata value afterwards - there just are no pixels with it anymore
+pub fn replace_nodata_in_file<P: AsRef<Path>> (path: P, band_index: usize, value: f64)->Result<u64> {
+    let mut ds = open_dataset_for_update( path)?;
+    let nodata = ds.rasterband( band_index)?.no_data_value();
+    if let Some(nodata) = nodata {
+        swap_rasterband_value( &mut ds, band_index, nodata, value, false)
+    } else {
+        Ok(0)
+    }
+}
+
+/// remove the STATISTICS_* metadata items from the band, e.g. because they don't match modified values anymore
+pub fn unset_band_statistics (band: &mut RasterBand)->Result<()> {
+    if let Some(items) = band.metadata_domain("") {
+        let mut sl = CslStringList::new();
+        for item in items.iter().filter( |i| !i.starts_with("STATISTICS_")) {
+            if let Some((k,v)) = item.split_once('=') {
+                sl.set_name_value( k, v)?;
+            }
+        }
+        unsafe {
+            let domain = CString::new("")?;
+            gdal_sys::GDALSetMetadata( band.c_rasterband() as gdal_sys::GDALMajorObjectH, sl.as_ptr(), domain.as_ptr());
+        }
+    }
+    Ok(())
+}
+
 pub fn get_linear_range<T> (ds: &Dataset, band_index: usize)->Result<LinearRange<f64>>
     where T: GdalValueType + Into<f64> + Sub<Output=T>
 {

@@ -33,7 +33,7 @@ use crate::{
     share_service::{SharedItemType,ShareService,SetShared,RemoveShared}
 };
 
-/// action argument type to announce changes to clients of a SharedStore. Note this does not include the changed value, 
+/// action argument type to announce changes to clients of a SharedStore. Note this does not include the changed value,
 /// which might be expensive to clone.
 #[derive(Debug,Clone)]
 pub struct SharedStoreChange<'a,T> where T: SharedStoreValueConstraints {
@@ -50,11 +50,11 @@ pub enum SharedStoreUpdate<T> where T: SharedStoreValueConstraints {
 }
 
 /// the state of an actor that encapsulates a SharedStore impl
-pub struct SharedStoreActor<T,S,I,C> 
-    where 
-        T: SharedStoreValueConstraints, 
-        S: SharedStore<T>, 
-        I: SharedStoreAction<T> + Send, 
+pub struct SharedStoreActor<T,S,I,C>
+    where
+        T: SharedStoreValueConstraints,
+        S: SharedStore<T>,
+        I: SharedStoreAction<T> + Send,
         C: for<'a> DataAction<SharedStoreChange<'a, T>>
 {
     store: S,
@@ -64,11 +64,11 @@ pub struct SharedStoreActor<T,S,I,C>
     phantom_t: PhantomData<T>
 }
 
-impl <T,S,I,C> SharedStoreActor<T,S,I,C> 
-    where 
-        T: SharedStoreValueConstraints, 
-        S: SharedStore<T>, 
-        I: SharedStoreAction<T> + Send, 
+impl <T,S,I,C> SharedStoreActor<T,S,I,C>
+    where
+        T: SharedStoreValueConstraints,
+        S: SharedStore<T>,
+        I: SharedStoreAction<T> + Send,
         C: for<'a> DataAction<SharedStoreChange<'a, T>>
 {
     pub fn new (store: S, init_action: I, change_action: C)->Self {
@@ -78,6 +78,10 @@ impl <T,S,I,C> SharedStoreActor<T,S,I,C>
     async fn initialize (&mut self)->OdinShareResult<()> {
         self.store.initialize().await?;
         self.init_action.execute( &self.store as &dyn SharedStore<T>).await.map_err(|e| op_failed("init action failed {e}"))
+    }
+
+    async fn terminate (&mut self)->OdinShareResult<()> {
+        self.store.save()
     }
 
     async fn set (&mut self, hself: ActorHandle<SharedStoreActorMsg<T>>, key: String, value: T) {
@@ -103,74 +107,83 @@ impl <T,S,I,C> SharedStoreActor<T,S,I,C>
 
 //--- messages
 
-#[derive(Debug)] 
+#[derive(Debug)]
 pub struct SetSharedStoreEntry<T> {
     pub key: String,
     pub value: T
 }
 
-#[derive(Debug)] 
+#[derive(Debug)]
 pub struct RemoveSharedStoreEntry {
     pub key: String
 }
 
-#[derive(Debug)] 
+#[derive(Debug)]
 pub struct ExecSnapshotAction<T>( pub DynSharedStoreAction<T> );
 
-define_actor_msg_set! { pub SharedStoreActorMsg<T> where T: SharedStoreValueConstraints = 
+define_actor_msg_set! { pub SharedStoreActorMsg<T> where T: SharedStoreValueConstraints =
     SetSharedStoreEntry<T> | RemoveSharedStoreEntry | Query<String,Option<T>> | ExecSnapshotAction<T>
 }
 
 
-impl_actor! { match msg for Actor<SharedStoreActor<T,S,I,C>,SharedStoreActorMsg<T>> 
-    where 
-        T: SharedStoreValueConstraints, 
-        S: SharedStore<T>, 
-        I: SharedStoreAction<T> + Send, 
+impl_actor! { match msg for Actor<SharedStoreActor<T,S,I,C>,SharedStoreActorMsg<T>>
+    where
+        T: SharedStoreValueConstraints,
+        S: SharedStore<T>,
+        I: SharedStoreAction<T> + Send,
         C: for<'a> DataAction<SharedStoreChange<'a, T>>
     as
     _Start_ => cont! {
-        if let Err(e) = self.state.initialize().await {
+        if let Err(e) = self.initialize().await {
             error!("store failed to initialize {e}");
         }
     }
 
     SetSharedStoreEntry<T> => cont! {
         let hself = self.hself.clone();
-        self.state.set( hself, msg.key, msg.value).await;
+        self.set( hself, msg.key, msg.value).await;
     }
     RemoveSharedStoreEntry => cont! {
         let hself = self.hself.clone();
-        self.state.remove( hself, msg.key).await;
+        self.remove( hself, msg.key).await;
     }
     Query<String,Option<T>> => cont! {
-        msg.respond( self.state.store.get(&msg.question).map(|vr| vr.clone())).await;
+        msg.respond( self.store.get(&msg.question).map(|vr| vr.clone())).await;
     }
     ExecSnapshotAction<T> => cont! {
-        msg.0.execute( &self.state.store as &dyn SharedStore<T>).await;
+        msg.0.execute( &self.store as &dyn SharedStore<T>).await;
+    }
+
+    _Terminate_ => stop! {
+        self.terminate().await;
     }
 }
 
 /// spawn a persistent share actor that sends shared item updates to the provided SpaServer.
 /// The shared store is initialized from, and optionally writes to, `ODIN_ROOT/data/odin_share/shared_items.json`.
-/// 
+///
 /// There is no reason a SharedStoreActor cannot be used by other actors within an ODIN actor system but - since shared items
 /// are normally created by users - the primary use case is to provide the storage backend for a SpaServer. We provide this
 /// method to set up required init and change actions to avoid duplicated boilerplate code in applications
-pub fn spawn_server_share_actor (actor_system: &mut ActorSystem, name: &str, hserver: ActorHandle<SpaServerMsg>, path: impl AsRef<Path>, save:bool)->OdinShareResult<ActorHandle<SharedStoreActorMsg<SharedItemType>> >
+pub fn spawn_server_share_actor (
+    actor_system: &mut ActorSystem,
+    name: &str, hserver: ActorHandle<SpaServerMsg>,
+    path: impl AsRef<Path>,
+    save:bool
+)->OdinShareResult<ActorHandle<SharedStoreActorMsg<SharedItemType>> >
 {
     let store_name = arc!(name);
 
     let store = PersistentHashMapStore::new( &path, save).map_err(|e| op_failed(format!("could not open shared store {:?}", path.as_ref())))?;
 
-    let actor_state = SharedStoreActor::new( 
-        store, 
-        shared_store_action!( 
+    let actor_state = SharedStoreActor::new(
+        store,
+        shared_store_action!(
             let hserver: ActorHandle<SpaServerMsg> = hserver.clone(),
-            let sender_id: Arc<String> = store_name.clone() => 
+            let sender_id: Arc<String> = store_name.clone() =>
             |store as &dyn SharedStore<SharedItemType>| announce_data_availability( &hserver, sender_id).await
         ),
-        data_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
+        data_action!( let hserver: ActorHandle<SpaServerMsg> = hserver.clone() =>
             |update: SharedStoreChange<'_,SharedItemType>| broadcast_store_change( &hserver, update).await
         )
     );
@@ -185,7 +198,7 @@ pub async fn announce_data_availability<'a> (hserver: &'a ActorHandle<SpaServerM
 }
 
 /// helper function for the body of a SharedStoreActor change action
-/// This sends change-specific websocket messages to all connected clients of the provided SpaServer actor  
+/// This sends change-specific websocket messages to all connected clients of the provided SpaServer actor
 pub async fn broadcast_store_change<'a> (hserver: &'a ActorHandle<SpaServerMsg>, change: SharedStoreChange<'a,SharedItemType>)->Result<(),OdinActionFailure> {
     match change.update {
         SharedStoreUpdate::Set { hstore, key } => {
@@ -207,4 +220,3 @@ pub async fn broadcast_store_change<'a> (hserver: &'a ActorHandle<SpaServerMsg>,
 
     Ok(())
 }
-

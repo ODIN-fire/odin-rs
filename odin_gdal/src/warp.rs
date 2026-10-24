@@ -51,6 +51,9 @@ pub enum ResampleAlg {
     //LastValue        = GDALResampleAlg::GRA_LAST_VALUE as isize  // NOTE - LastValue is the same as RMS
 }
 
+/// nodata value for source bands without declared nodata if other warp bands do have one (same as gdalwarp)
+const UNUSED_NODATA: c_double = -1.1e20;
+
 lazy_static! {
     static ref RE_META: Regex = Regex::new( r#"(?:(\d+):)?(?:(?:([a-zA-Z_]+)@)?([a-zA-Z_]+)=)?([a-zA-Z_ \%\[\]\(\)\-\=\"\d]+)"#).unwrap();
 }
@@ -133,6 +136,8 @@ pub struct SimpleWarpBuilder <'a> {
     copy_meta: bool,
     meta: Option<Vec<MetaEntry>>,
 
+    init_dest_nodata: bool,           // initialize target pixels before warping (INIT_DEST=NO_DATA or 0 if there are no tgt nodata values)
+
     //--- internal transients
     driver_supports_create: bool
 }
@@ -178,6 +183,8 @@ impl <'a> SimpleWarpBuilder<'a> {
 
             copy_meta: false,
             meta: None,
+
+            init_dest_nodata: true, // gdalwarp default for new target datasets
 
             driver_supports_create
         })
@@ -309,6 +316,14 @@ impl <'a> SimpleWarpBuilder<'a> {
 
     pub fn set_meta (&mut self, me: Vec<MetaEntry>) -> &mut SimpleWarpBuilder<'a> {
         self.meta = Some(me);
+        self
+    }
+
+    /// initialize target pixels before warping, i.e. pixels that are not covered by the source or have src nodata values get the
+    /// tgt nodata values (GDAL warp option INIT_DEST=NO_DATA), or 0 if there are no tgt nodata values. This is the default (as in gdalwarp).
+    /// If turned off target pixels keep whatever value the target driver initializes them with (e.g. 0 for MEM datasets)
+    pub fn set_init_dest_nodata (&mut self, init_dest_nodata: bool) -> &mut SimpleWarpBuilder<'a> {
+        self.init_dest_nodata = init_dest_nodata;
         self
     }
 
@@ -549,7 +564,10 @@ impl <'a> SimpleWarpBuilder<'a> {
             warp_options.dfWarpMemoryLimit = 1073741824 as c_double; // 1G
 
             self.set_bands( warp_options, n_bands)?;
-            self.set_no_data_values( warp_options, tgt_ds);
+            if let Err(e) = self.set_no_data_values( warp_options, tgt_ds) {
+                gdal_sys::GDALDestroyWarpOptions(c_warp_options); // tgt_ds is closed by its owner
+                return Err(e)
+            }
 
             warp_options.eResampleAlg = self.resample_alg.clone() as c_uint;
 
@@ -651,45 +669,107 @@ impl <'a> SimpleWarpBuilder<'a> {
             }
 
         } else { // no src/dst band specs - process all bands
-            warp_options.nBandCount = 0;
-            warp_options.panSrcBands = null_mut();  // TODO - check if that now works with warp API
-            warp_options.panDstBands = null_mut();
-        }
-
-        Ok(())
-    }
-
-    fn set_no_data_values (&self, warp_options: &mut GDALWarpOptions, tgt_ds: &mut Dataset) ->Result<()> {
-
-        if let Some(nodatas) = &self.src_nodatas {
-            warp_options.padfSrcNoDataReal = self.create_no_datas( nodatas)?;
-        }
-
-        /* TODO has no effect
-        let n_output_bands = if let Some(tgt_bands) = &self.tgt_bands { tgt_bands.len() } else { n_input_bands };
-        warp_options.padfDstNoDataReal = self.create_no_datas( n_output_bands, &self.tgt_nodata)?;
-        */
-
-        // NOTE - most GDAL raster drivers (including GTiff) don't support per-band target nodata values
-
-        if let Some(nodatas) = &self.tgt_nodatas {
-            for i in 0..nodatas.len() {
-                let band_index = if let Some(tgt_bands) = &self.tgt_bands { tgt_bands[i] as usize } else { i+1 };
-                let mut band = tgt_ds.rasterband(band_index)?;
-                band.set_no_data_value( Some(nodatas[i]))?;
+            // NOTE - we have to set an explicit band mapping here. GDALCreateWarpOperation clones the warp options based on
+            // nBandCount before it initializes a default band mapping, i.e. with nBandCount = 0 nodata arrays would be lost
+            warp_options.nBandCount = n_tgt_bands as c_int;
+            unsafe {
+                let c_src_bands = gdal_sys::CPLMalloc(std::mem::size_of::<c_int>() * n_tgt_bands) as *mut c_int;
+                let c_tgt_bands = gdal_sys::CPLMalloc(std::mem::size_of::<c_int>() * n_tgt_bands) as *mut c_int;
+                for i in 0..n_tgt_bands {
+                    *(c_src_bands.offset(i as isize)) = (i+1) as c_int;
+                    *(c_tgt_bands.offset(i as isize)) = (i+1) as c_int;
+                }
+                warp_options.panSrcBands = c_src_bands;
+                warp_options.panDstBands = c_tgt_bands;
             }
         }
-        //warp_options.padfDstNoDataReal = self.create_no_datas(  &self.tgt_nodatas)?;
 
         Ok(())
     }
 
-    fn create_no_datas (&self, no_datas: &Vec<c_double>)->Result<*mut f64> {
-        let n_bands = no_datas.len();
+    /// set src/tgt nodata values and the target initialization. This follows (a subset of) gdalwarp behavior for new target datasets:
+    ///  - if no src nodata values are explicitly set we use the nodata values declared by the source bands
+    ///  - if no tgt nodata values are explicitly set we use the src nodata values (if all warped bands have one)
+    ///  - if we have tgt nodata values the target is initialized with them (INIT_DEST=NO_DATA), otherwise with 0 (INIT_DEST=0)
+    /// This means source pixels with nodata values are mapped to target nodata values
+    fn set_no_data_values (&self, warp_options: &mut GDALWarpOptions, tgt_ds: &mut Dataset) ->Result<()> {
+        let n_warp_bands = self.get_n_warp_bands();
+
+        let src_nodatas = if self.src_nodatas.is_some() { self.src_nodatas.clone() } else { self.get_declared_src_nodatas()? };
+        if let Some(nodatas) = &src_nodatas {
+            warp_options.padfSrcNoDataReal = self.create_no_datas( nodatas, n_warp_bands)?;
+        }
+
+        // NOTE - most GDAL raster drivers (including GTiff) don't support per-band target nodata values
+        let tgt_nodatas = if self.tgt_nodatas.is_some() {
+            self.tgt_nodatas.clone()
+        } else if src_nodatas.as_ref().is_some_and( |vs| !vs.contains( &UNUSED_NODATA)) {
+            src_nodatas // only if all warp bands have src nodata values
+        } else {
+            None
+        };
+
+        if let Some(nodatas) = &tgt_nodatas {
+            for i in 0..n_warp_bands {
+                let band_index = if let Some(tgt_bands) = &self.tgt_bands { tgt_bands[i] as usize } else { i+1 };
+                let mut band = tgt_ds.rasterband(band_index)?;
+                band.set_no_data_value( Some(nodatas[i.min(nodatas.len()-1)]))?;
+            }
+            // INIT_DEST=NO_DATA uses the warp dst nodata values, not the ones stored in the target bands
+            warp_options.padfDstNoDataReal = self.create_no_datas( nodatas, n_warp_bands)?;
+        }
+
+        if self.init_dest_nodata {
+            let init_value = if tgt_nodatas.is_some() { "NO_DATA" } else { "0" };
+            unsafe {
+                let key = CString::new("INIT_DEST")?;
+                let value = CString::new(init_value)?;
+                warp_options.papszWarpOptions = gdal_sys::CSLSetNameValue( warp_options.papszWarpOptions, key.as_ptr(), value.as_ptr());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// get the nodata values declared by the source bands we warp. Returns None if none of them declares a nodata value.
+    /// Bands without nodata get a value that should not occur in the data (as gdalwarp does)
+    fn get_declared_src_nodatas (&self) -> Result<Option<Vec<c_double>>> {
+        let band_indices: Vec<usize> = if let Some(src_bands) = &self.src_bands {
+            src_bands.iter().map(|i| *i as usize).collect()
+        } else {
+            (1..=self.src_ds.raster_count()).collect()
+        };
+
+        let mut has_nodata = false;
+        let mut nodatas: Vec<c_double> = Vec::with_capacity( band_indices.len());
+        for i in band_indices {
+            if let Some(nodata) = self.src_ds.rasterband(i)?.no_data_value() {
+                has_nodata = true;
+                nodatas.push( nodata);
+            } else {
+                nodatas.push( UNUSED_NODATA);
+            }
+        }
+
+        Ok( if has_nodata { Some(nodatas) } else { None } )
+    }
+
+    /// the number of bands processed by the warp operation (GDAL expects that many entries in nodata arrays)
+    fn get_n_warp_bands (&self) -> usize {
+        if let Some(src_bands) = &self.src_bands { src_bands.len() } else { self.src_ds.raster_count() }
+    }
+
+    /// create a CPLMalloc'ed nodata array with `n_bands` entries, which is freed by GDALDestroyWarpOptions.
+    /// If there are fewer `no_datas` values than bands we repeat the last one to avoid out-of-bounds reads by GDAL
+    fn create_no_datas (&self, no_datas: &Vec<c_double>, n_bands: usize)->Result<*mut f64> {
+        if no_datas.is_empty() {
+            return Err(OdinGdalError::MiscError("empty nodata values".to_string()))
+        }
+
         unsafe {
             let c_no_datas = gdal_sys::CPLMalloc(std::mem::size_of::<c_double>() * n_bands) as *mut c_double;
             for i in 0..n_bands {
-                *(c_no_datas.offset(i as isize)) = no_datas[i] // FIXME - doesn't work
+                *(c_no_datas.offset(i as isize)) = no_datas[i.min(no_datas.len()-1)];
             }
             Ok(c_no_datas)
         }

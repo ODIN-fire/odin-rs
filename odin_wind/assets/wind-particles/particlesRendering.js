@@ -144,6 +144,7 @@ export class ParticlesRendering {
         //if (interval.z == 0) interval.z = 1; // this is used as a quotient in shaders - avoid divZero
 
         let clr = new Cesium.Cartesian4( userInput.color.red, userInput.color.green, userInput.color.blue, userInput.color.alpha);
+        let speedColors = speedColorUniforms( userInput);
 
         this.primitives = {
             segments: new CustomPrimitive({
@@ -192,8 +193,26 @@ export class ParticlesRendering {
                     H: function() {
                         return particlesComputing.windTextures.H;
                     },
+                    U: function() {
+                        return particlesComputing.windTextures.U;
+                    },
+                    V: function() {
+                        return particlesComputing.windTextures.V;
+                    },
+                    W: function() {
+                        return particlesComputing.windTextures.W;
+                    },
                     color: function() {
                         return clr;
+                    },
+                    speedColors: function() {
+                        return speedColors.colors;
+                    },
+                    nSpeedColors: function() {
+                        return speedColors.n;
+                    },
+                    colorBySpeed: function() {
+                        return speedColors.enabled;
                     }
                 },
                 vertexShaderSource: new Cesium.ShaderSource({
@@ -357,6 +376,16 @@ export class ParticlesRendering {
         map.color = function() {
             return clr;
         };
+        const speedColors = speedColorUniforms( userInput);
+        map.speedColors = function() {
+            return speedColors.colors;
+        };
+        map.nSpeedColors = function() {
+            return speedColors.n;
+        };
+        map.colorBySpeed = function() {
+            return speedColors.enabled;
+        };
 
         map = primitives.trails.uniformMap;
         const fadeOpacity = userInput.fadeOpacity;
@@ -364,4 +393,19 @@ export class ParticlesRendering {
             return fadeOpacity;
         };
     }
+}
+// has to match MAX_SPEED_COLORS in segmentDraw.vert
+const MAX_SPEED_COLORS = 16;
+
+// the uniform values for wind speed dependent particle colors (userInput.colors are in 5mph steps). The shader uniform
+// array has a fixed size, i.e. we have to pad the colors
+function speedColorUniforms (userInput) {
+    let colors = userInput.colors || [];
+    let n = Math.min( colors.length, MAX_SPEED_COLORS);
+    let a = [];
+    for (let i=0; i<MAX_SPEED_COLORS; i++) {
+        let c = (n > 0) ? colors[Math.min(i, n-1)] : userInput.color;
+        a.push( new Cesium.Cartesian4( c.red, c.green, c.blue, c.alpha));
+    }
+    return { colors: a, n: n, enabled: (userInput.colorBySpeed && n > 0) ? 1.0 : 0.0 };
 }

@@ -222,9 +222,8 @@ pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: 
         warp.set_tgt_resolution( res_x, res_y);
         warp.set_tgt_format( driver_name)?;
 
-        // make sure we use a small but non-zero value for nodata since we can encounter both (0 for coastal sea and nodata for high seas)
-        // note that the nodata value might get used subsequently in SRS conversion / cropping
-        warp.set_tgt_nodatas(vec![0.01234]);
+        // source nodata is mapped to the target nodata, which defaults to the source nodata. Clients that cannot handle
+        // nodata (e.g. WindNinja) have to replace it with regular values (see odin_gdal::replace_nodata_in_file())
 
         if let Some(opts) = &create_opts { warp.set_create_options( opts); }
         warp.exec()?;

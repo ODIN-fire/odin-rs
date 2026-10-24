@@ -27,7 +27,7 @@ use odin_hrrr::{self, HrrrActor, HrrrConfig, HrrrService, schedule::{HrrrSchedul
 use odin_wind::{
     actor::{WindActor,WindActorMsg, server_subscribe_action, server_update_action},
     ForecastStore, Forecast,
-    wind_service::WindService
+    service::WindService
 };
 
 run_actor_system!( actor_system => {
@@ -35,7 +35,7 @@ run_actor_system!( actor_system => {
     let pre_wx = PreActorHandle::new( &actor_system, "wx", 8);
 
     // spawn a shared store actor - the JS module only allows forecast region requests for shared GeoRects
-    let hshare = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), false)?;
+    let hshare = spawn_server_share_actor(&mut actor_system, "share", pre_server.to_actor_handle(), default_shared_items(), true)?;
 
     let wxs: WxServiceList = vec_boxed![ HrrrService::new_basic( pre_wx.to_actor_handle()) ];
     //let wxs: WxServiceList = vec_boxed![ OpenMeteoService::new_basic_ifs( pre_wx.to_actor_handle()) ];

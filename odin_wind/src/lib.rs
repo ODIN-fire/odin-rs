@@ -15,7 +15,7 @@
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    fs::File, io::{BufWriter,Write}, net::SocketAddr,
+    fs::{File, remove_file}, io::{BufWriter,Write}, net::SocketAddr,
     path::{Path,PathBuf}, sync::Arc, time::Duration, ffi::OsStr,
 };
 use axum::Json;
@@ -27,7 +27,12 @@ use lazy_static::lazy_static;
 use odin_macro::public_struct;
 use odin_build::{define_load_asset, define_load_config, pkg_cache_dir};
 use odin_common::{
-    BoundingBox, atan, atan2, cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque, cos, datetime, fs::{EnvPathBuf, odin_data_filename, path_str_to_fname, replace_env_var_path, replace_filename }, geo::GeoRect, json_writer::{JsonWritable,JsonWriter}, push_all_str, ron::{TypedCompactRon, from_typed_compact_ron, to_typed_compact_ron}, sin, sqrt, strings::extract_json_payload_object, utm::UtmRect
+    BoundingBox, atan, atan2, cartesian3::Cartesian3, cartographic::Cartographic, collections::RingDeque, cos, datetime,
+    fs::{EnvPathBuf, odin_data_filename, path_str_to_fname, replace_env_var_path, replace_filename, gzip_path},
+    geo::GeoRect, json_writer::{JsonWritable,JsonWriter}, push_all_str,
+    ron::{TypedCompactRon, from_typed_compact_ron, to_typed_compact_ron},
+    sin, sqrt, strings::extract_json_payload_object,
+    utm::UtmRect
 };
 use odin_action::DynDataRefAction;
 use odin_actor::{info,debug};
@@ -43,8 +48,8 @@ pub mod errors;
 use errors::{Result,OdinWindError};
 
 use crate::errors::op_failed;
-pub mod wind_service;
-pub use wind_service::WindService;
+pub mod service;
+pub use service::WindService;
 
 pub mod server;
 pub mod server_client;
@@ -408,6 +413,40 @@ pub fn forecast_regions_to_json (fcs: &ForecastStore)->String {
     });
 
     w.to_string()
+}
+
+//--- derived windfield product generation
+// the input `ds` is the WGS84 huvw dataset, either WindNinja output or wx based (10m or 80m).
+// Those can come from the same file(s) using different band sets (which is the case for direct wx datasets)
+
+/// create the wind field CSV file that is the basis for client side particle animation from the provided
+/// WGS84 huvw `ds` dataset using `bands` (1-based) and store it as `path`
+pub fn create_grid_csv (path: &PathBuf, ds: &Dataset, bands: &[usize])->Result<()> {
+    info!("creating grid CSV: {:?}", path);
+    write_huvw_csv_grid( ds, path, bands)?;
+    gzip_path( path)?; // this stores as "*.gz" so we can delete the uncompressed version
+    remove_file( path)?;
+    Ok(())
+}
+
+/// create the wind vector CSV file that is the basis for client side vector display from the provided
+/// WGS84 huvw `ds` dataset using `bands` (1-based) and store it as `path`
+pub fn create_vector_csv (path: &PathBuf, ds: &Dataset, bands: &[usize], mesh_res: f64)->Result<()> {
+    info!("creating vector CSV: {:?}", path);
+    write_huvw_csv_cell_vectors( ds, path, mesh_res, bands)?;
+    gzip_path( path)?; // this stores as "*.gz" so we can delete the uncompressed version
+    remove_file( path)?;
+    Ok(())
+}
+
+/// create the GeoJSON contour file that is the basis for client side contour (polygon) rendering from the provided
+/// WGS84 huvw `ds` dataset using `bands` (1-based) and store it as `path`
+pub fn create_contour_json (path: &PathBuf, ds: &Dataset, band: usize)->Result<()> {
+    info!("creating contour JSON: {:?}", path);
+    write_windspeed_contour( ds, path, band)?;
+    gzip_path( path)?;
+    remove_file( path)?;
+    Ok(())
 }
 
 // this is saving huvw data as a CSV grid with the wind speed components for each grid position

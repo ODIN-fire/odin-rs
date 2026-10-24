@@ -87,6 +87,35 @@ export function ImageWindow (title, id, closeAction, imgUri, caption,
         resizeObserver.observe(cc);
     });
 
+    // replace the image (and optionally title and caption) without changing window size, scale and scroll offsets (unless
+    // we are in 'fit' mode, in which case we re-scale to the new image size). The new image is only shown once it is loaded
+    imageViewer.setImage = (newUri, newTitle=undefined, newCaption=undefined) => {
+        let newImg = new Image();
+        newImg.addEventListener('load', () => {
+            let scrollLeft = cc.scrollLeft;
+            let scrollTop = cc.scrollTop;
+
+            img = newImg;
+            imgUri = newUri;
+            imgWidth = newImg.naturalWidth;
+            imgHeight = newImg.naturalHeight;
+
+            if (isFullScale) {
+                fullScaleActivated = true; // don't reset fullScale if this triggers a slider change event (which is synchronous)
+                scaleFromSize( cc.offsetWidth, cc.offsetHeight);
+                fullScaleActivated = false;
+            }
+            redrawImage();
+
+            cc.scrollLeft = scrollLeft;
+            cc.scrollTop = scrollTop;
+        });
+        newImg.src = newUri; // kicks off async loading
+
+        if (newTitle !== undefined) ui.setWindowTitle( imageViewer, newTitle);
+        if (newCaption !== undefined) label.innerText = newCaption;
+    };
+
     function toggleFullScale (event) {
         isFullScale = ui.isCheckBoxSelected(event.target);
         if (isFullScale) {

@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -19,10 +19,10 @@
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_share::prelude::*;
-use odin_wind::{ 
-    actor::{WindActorMsg, server_subscribe_action, server_update_action}, 
+use odin_wind::{
+    actor::{WindActorMsg, server_subscribe_action, server_update_action},
     server_client::WindServerClient,
-    wind_service::WindService
+    service::WindService
 };
 
 run_actor_system!( actor_system => {
@@ -34,7 +34,7 @@ run_actor_system!( actor_system => {
     let hwind = spawn_actor!( actor_system, "wind", WindServerClient::new(
         odin_wind::load_config("wind_client.ron")?,
         server_subscribe_action( pre_server.to_actor_handle()),
-        server_update_action( pre_server.to_actor_handle()) 
+        server_update_action( pre_server.to_actor_handle())
     ))?;
 
     let hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(
@@ -45,5 +45,5 @@ run_actor_system!( actor_system => {
             .add( build_service!( => WindService::new( hwind) ))
     ))?;
 
-    Ok(())   
+    Ok(())
 });

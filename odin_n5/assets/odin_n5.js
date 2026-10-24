@@ -386,7 +386,15 @@ function handleWsMessages(msgType, msg) {
     }
 }
 
+// snapshots are complete replacements - we get one for each (re-)connect and server side data (re-)initialization,
+// i.e. this has to remove all previous state (otherwise we would get duplicated entities)
 function handleSnapshotMsg (msg) {
+    n5DataSource.entities.removeAll();
+    deviceEntries.clear();
+    selectedDeviceEntry = null;
+    ui.clearList( dataView);
+    ui.clearList( alertView);
+
     msg.devices.forEach( (device) => {
         device.data = data.CircularBuffer.fromArray( device.data, config.maxHistory);
         device.alerts = data.CircularBuffer.fromArray( device.alerts, config.maxHistory);

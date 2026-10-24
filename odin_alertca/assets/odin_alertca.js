@@ -43,18 +43,25 @@ class CameraAssets {
     }
 }
 
+// the client side representation of an AlertCalifornia camera. Note that cameras can move, i.e. position can change
 class CameraEntry {
     constructor (camera) {
-        this.id = camera.id;
-        this.label = getLabel( this.id);
-        this.camera = camera;
+        this.id = camera.id;      // not human readable
+        this.name = camera.name;  // used as label
+        this.label = camera.name;
 
-        this.pos = camera.pos;
+        this.position = camera.position; // { lon, lat, alt }
+        this.pos = toCartesian3( camera.pos);
+        this.maxFov = camera.maxFov;
+
+        this.data = data.CircularBuffer.fromArray( camera.data ? camera.data : [], config.maxHistory);
+        this.alerts = data.CircularBuffer.fromArray( camera.alerts ? camera.alerts : [], config.maxHistory);
+
         this.assets = this.createAssets();
     }
 
     latestData () {
-        let data = this.camera.data;
+        let data = this.data;
         return (data.length == 0) ? null : data.last();
     }
 
@@ -69,8 +76,6 @@ class CameraEntry {
     }
 
     createSymbolEntity () {
-        let camera = this.camera;
-
         let clr = this.hasRecentAlerts() ? config.alertColor : config.color;
         let data = this.latestData();
         let azimut = data ? data.azimut : 0;
@@ -117,9 +122,7 @@ class CameraEntry {
     }
 
     addFovEntity (data) {
-        if (this.assets.viewshed) {
-            cameraDataSource.entities.remove(entity); // there can only be one
-        }
+        this.removeFovEntity(); // there can only be one
 
         let pos = this.pos;
         let pi2 = Math.PI/2;
@@ -164,9 +167,10 @@ class CameraEntry {
         return false; // not yet
     }
 
+    // camera has not been updated for more than config.maxAlertAge seconds
     isInactive () {
         let d = this.latestData();
-        return (!d || (Date.now() - d.date) > config.inactiveDuration);
+        return (!d || (Date.now() - d.date) > config.maxAlertAge * 1000);
     }
 
     removeSymbolEntityLabel () {
@@ -177,16 +181,38 @@ class CameraEntry {
         this.assets.symbol.label.text = newLabel;
     }
 
-    updateData (newData) {
-        this.camera.data.push( newData);
-        if (this.assets.symbol) {
-            this.assets.symbol.billboard.rotation = util.toRadians( 360 - newData.azimut)
+    // merge a camera object from a snapshot or update message (data contains only new states for updates)
+    update (camera) {
+        if (camera.data) camera.data.forEach( d => this.data.push(d));
+        if (camera.alerts) camera.alerts.forEach( a => this.alerts.push(a));
+        this.maxFov = camera.maxFov;
+
+        if (camera.name && camera.name !== this.name) {
+            this.name = camera.name;
+            this.label = camera.name;
+            if (this.assets.symbol && this.assets.symbol.label) this.replaceSymbolEntityLabel( this.label);
+        }
+
+        if (!samePosition( this.position, camera.position)) { // camera has moved
+            this.position = camera.position;
+            this.pos = toCartesian3( camera.pos);
+            if (this.assets.symbol) this.assets.symbol.position = this.pos;
+            this.removeFovEntity(); // no longer valid
+        }
+
+        let d = this.latestData();
+        if (d && this.assets.symbol) {
+            this.assets.symbol.billboard.rotation = util.toRadians( 360 - d.azimut);
         }
     }
 }
 
-function getLabel (id) {
-    return id.substring( id.indexOf("-")+1);
+function toCartesian3 (p) {
+    return new Cesium.Cartesian3( p.x, p.y, p.z);
+}
+
+function samePosition (p1, p2) {
+    return p2 && (p1.lon == p2.lon) && (p1.lat == p2.lat) && (p1.alt == p2.alt);
 }
 
 /* #endregion types */
@@ -201,6 +227,9 @@ var selectedCameraEntry = null;
 var dataView = undefined;
 var alertView = undefined;
 
+var showLatestCb = undefined;
+var latestImage = undefined; // { data, window } of the image window that is automatically shown in "show latest" mode
+
 createIcon();
 createWindow();
 
@@ -213,6 +242,8 @@ initAlertsView();
 
 odinCesium.setEntitySelectionHandler( cameraSelection);
 odinCesium.initLayerPanel("alert-ca", config, showAlertCa);
+
+setInterval( () => ui.updateListItems( cameraView), 60000); // update inactive status of cameras
 console.log("odin_alertca initialized");
 
 /* #endregion initialization */
@@ -229,7 +260,11 @@ function createWindow() {
             (cameraView = ui.List("alertca.cameras", 10, selectCameraEntry,null,null,zoomToCamera)),
         ),
         ui.Panel("data", true)(
-            (dataView = ui.List( "alertca.data", 10)),
+            ui.RowContainer("start")(
+                (showLatestCb = ui.CheckBox("show latest", toggleShowLatest, "alertca.showLatest", false)),
+                ui.HorizontalSpacer(0.5),
+                (dataView = ui.List( "alertca.data", 10))
+            )
         ),
         ui.Panel("alerts", true)(
             (alertView = ui.List( "alertca.alerts", 5))
@@ -242,10 +277,10 @@ function initCameraView() {
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "", width: "2.2rem", attrs: [], map: e => e.hasRecentAlerts() ?  "⚠️" : ""},
-            { name: "id", width: "10rem", attrs: ["alignLeft"], map: e => e.label },
+            { name: "name", width: "12rem", attrs: ["alignLeft"], map: e => util.maxString( e.name, 24) },
             ui.listItemSpacerColumn(0.5),
-            { name: "stat", tip: "inactive/offline/overdue status", width: "2rem", attrs:["alignRight"], map: e => e.isInactive() ? "🔺" : "✓" },
-            { name: "data", tip: "number of data points", width: "3rem", attrs:["fixed", "alignRight"], map: e => e.camera.data.length },
+            { name: "stat", tip: "not updated within max alert age", width: "2rem", attrs:["alignRight"], map: e => e.isInactive() ? "🔺" : "✓" },
+            { name: "data", tip: "number of data points", width: "3rem", attrs:["fixed", "alignRight"], map: e => e.data.length },
             ui.listItemSpacerColumn(0.5),
             { name: "last report", width: "9rem", attrs: ["fixed", "alignRight"], map: e => e.latestDateString() }
         ])
@@ -259,8 +294,8 @@ function initDataView() {
             { name: "show", tip: "show image", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.window, toggleShowImage) },
             { name: "fov", tip: "show fov", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.fovAsset, toggleShowFov) },
             ui.listItemSpacerColumn(0.5),
-            { name: "dir", tip: "camera direction", width: "3rem", attrs: ["fixed", "alignRight"], map: e => util.f_1.format( e.azimut) },
-            { name: "zoom", tip: "zoom factor", width: "3rem", attrs: ["fixed", "alignRight"], map: e => util.f_1.format( e.zoom) },
+            { name: "dir", tip: "camera direction", width: "2.5rem", attrs: ["fixed", "alignRight"], map: e => util.f_0.format( e.azimut) },
+            { name: "zoom", tip: "zoom factor (only for PTZ cameras)", width: "3rem", attrs: ["fixed", "alignRight"], map: e => (e.zoom !== undefined) ? util.f_1.format( e.zoom) : "-" },
             ui.listItemSpacerColumn(0.5),
             { name: "date", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString(e.date) }
         ])
@@ -288,6 +323,8 @@ function toggleShowImage(event) {
                 ui.removeWindow(data.window);
                 data.window = null;
             } else {
+                if (isShowLatest()) setShowLatest(false); // explicit image selection disables "show latest" mode
+
                 setTimeout(() => { // otherwise the mouseUp will put the focus back on dataView
                     let uri = "./alertca-data/" + data.image;
                     let w = wnd.ImageWindow(
@@ -302,6 +339,93 @@ function toggleShowImage(event) {
             }
         }
     }
+}
+
+//--- "show latest" mode: automatically show the latest image of the selected camera. This is mutually exclusive with
+//    explicitly shown images (dataView "show" checkboxes) to avoid automatically appearing image viewers
+
+function isShowLatest() {
+    return ui.isCheckBoxSelected( showLatestCb);
+}
+
+function setShowLatest (cond) {
+    ui.setCheckBox( showLatestCb, cond);
+    if (!cond) closeLatestImage();
+}
+
+function toggleShowLatest (event) {
+    let cb = ui.getCheckBox(event.target);
+    if (cb) {
+        if (ui.isCheckBoxSelected(cb)) {
+            closeExplicitImages(); // uncheck "show" items
+            showLatestImage();
+        } else {
+            closeLatestImage();
+        }
+    }
+}
+
+// show the latest image of the selected camera if we are in "show latest" mode. If we already have a latest image window
+// we just update its image, which keeps window position, size, scale and scroll offsets
+function showLatestImage() {
+    if (!isShowLatest() || !selectedCameraEntry) return;
+
+    let data = selectedCameraEntry.latestData();
+    if (!data || !data.image) return;
+    if (latestImage && Object.is( latestImage.data, data)) return; // already showing
+
+    let uri = "./alertca-data/" + data.image;
+    if (latestImage) {
+        latestImage.window.setImage( uri, imageTitle(data));
+        latestImage.data = data;
+
+    } else {
+        let x, y;
+        let r = ui.getWindowRect("alertca");
+        if (r) { // place it to the right of our window
+            x = r.right + 10;
+            y = r.top;
+        }
+
+        let w = wnd.ImageWindow(
+            imageTitle(data), null,
+            () => latestImageClosed(w),
+            uri, "",
+            config.imageWidth, config.imageHeight,
+            x, y
+        );
+        latestImage = { data, window: w };
+    }
+}
+
+function closeLatestImage() {
+    if (latestImage) {
+        let w = latestImage.window;
+        latestImage = undefined; // before we remove it so that latestImageClosed() knows this was not a user action
+        ui.removeWindow(w);
+    }
+}
+
+// closeAction of latest image windows. If the user closes the window we turn off "show latest" mode
+function latestImageClosed (w) {
+    if (latestImage && Object.is( latestImage.window, w)) {
+        latestImage = undefined;
+        ui.setCheckBox( showLatestCb, false);
+    }
+}
+
+// close all image windows that were explicitly opened with dataView "show" checkboxes
+function closeExplicitImages() {
+    for (let ce of cameraEntries.values()) {
+        ce.data.forEach( (data) => {
+            if (data.window) {
+                let w = data.window;
+                data.window = null;
+                ui.removeWindow(w);
+            }
+        });
+    }
+    ui.updateListItems( dataView);
 }
 
 function imageTitle (data) {
@@ -331,8 +455,9 @@ function selectCameraEntry(event) {
     if (ce) {
         selectedCameraEntry = ce;
 
-        ui.setListItems( dataView, ce.camera.data.toReversed());
-        ui.setListItems( alertView, ce.camera.alerts.toReversed());
+        ui.setListItems( dataView, ce.data.toReversed());
+        ui.setListItems( alertView, ce.alerts.toReversed());
+        showLatestImage();
     }
 }
 
@@ -361,7 +486,7 @@ function zoomToCamera (event) {
     if (lv) {
         let ce = ui.getSelectedListItem(lv);
         if (ce) {
-            let position = ce.camera.position;
+            let position = ce.position;
             let pos = Cesium.Cartographic.fromDegrees( position.lon, position.lat, config.zoomHeight);
 
             odinCesium.zoomTo( Cesium.Cartographic.toCartesian(pos));
@@ -381,20 +506,30 @@ function handleWsMessages(msgType, msg) {
     }
 }
 
-function handleSnapshotMsg (msg) {
-    msg.cameras.forEach( (camera) => {
-        camera.data = data.CircularBuffer.fromArray( camera.data, config.maxHistory);
-        camera.alerts = data.CircularBuffer.fromArray( camera.alerts ? camera.alerts : [], config.maxHistory);
+// snapshots are complete replacements - we get one for each (re-)connect and server side data initialization,
+// i.e. this has to remove all previous state (otherwise we would get duplicated entities)
+function handleSnapshotMsg(msg) {
+    closeLatestImage(); // belongs to a camera we remove
+    cameraDataSource.entities.removeAll();
+    cameraEntries.clear();
+    selectedCameraEntry = null;
+    ui.clearList( dataView);
+    ui.clearList( alertView);
 
+    msg.cameras.forEach( (camera) => {
         let ce = new CameraEntry( camera);
         ce.date = msg.date;
         cameraEntries.set( ce.id, ce);
     });
 
     deDuplicateCameraEntries(); // for cameras at the same location
+    setCameraViewItems();
+}
 
+function setCameraViewItems() {
     let cameraList = [...cameraEntries.values()].sort( sortCameras);
     ui.setListItems( cameraView, cameraList);
+    if (selectedCameraEntry) ui.setSelectedListItem( cameraView, selectedCameraEntry);
 }
 
 function deDuplicateCameraEntries() {
@@ -407,7 +542,7 @@ function deDuplicateCameraEntries() {
                 if (ces.length > 1) {
                     let lbl = ces[0].label;
                     let last = lbl.charAt( lbl.length-1);
-                    ces[0].replaceSymbolEntityLabel(((last > "0" && last <= "9") ? lbl.substring(0,lbl.length-1) : lbl));
+                    ces[0].replaceSymbolEntityLabel(((last > "0" && last <= "9") ? lbl.substring(0,lbl.length-1).trim() : lbl));
                     ces[0].isGroup = true;
 
                     for (let i=1; i<ces.length; i++) {
@@ -425,34 +560,44 @@ function samePos (pos1, pos2) {
 }
 
 function sortCameras (a,b) {
-    if (a.id < b.id) return -1;
-    else if (a.id > b.id) return 1;
+    if (a.name < b.name) return -1;
+    else if (a.name > b.name) return 1;
     else return 0;
 }
 
+// changes contain the same camera objects as snapshots, but data only contains new states. Changes can also contain
+// cameras we did not have before
 function handleUpdateMsg (msg) {
-    msg.changes.forEach( (update) => {
-        let id = update.id;
-        let data = update.data;
-        let alerts = update.alerts;
+    let hasNewCameras = false;
 
-        let ce = cameraEntries.get(id);
+    msg.changes.forEach( (camera) => {
+        let ce = cameraEntries.get( camera.id);
         if (ce) {
             ce.date = msg.date;
-            ce.updateData( data);
-            if (alerts && alerts.length > 0) {
-                alerts.forEach( (a)=> ce.camera.alerts.push( a));
+            ce.update( camera);
+            ui.updateListItem( cameraView, ce);
+
+            if (Object.is( selectedCameraEntry, ce)) {
+                ui.setListItems( dataView, ce.data.toReversed());
+                if (camera.alerts && camera.alerts.length > 0) ui.setListItems( alertView, ce.alerts.toReversed());
+                showLatestImage();
             }
 
-            ui.updateListItem( cameraView, ce);
-            if (Object.is( selectedCameraEntry, ce)) {
-                ui.setListItems( dataView, ce.camera.data.toReversed());
-                if (alerts && alerts.length > 0) ui.setListItems( alertView, ce.camera.alerts.toReversed());
-            }
+        } else { // new camera
+            ce = new CameraEntry( camera);
+            ce.date = msg.date;
+            cameraEntries.set( ce.id, ce);
+            hasNewCameras = true;
         }
     });
 
-    ui.updateListItems( cameraView);
+    if (hasNewCameras) {
+        deDuplicateCameraEntries();
+        setCameraViewItems();
+    } else {
+        ui.updateListItems( cameraView);
+    }
+    odinCesium.requestRender();
 }
 
 /* #endregion websock handlers */

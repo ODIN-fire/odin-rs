@@ -147,14 +147,17 @@ export function viewRectangleToLonLatRange(viewRectangle) {
 }
 
 
+// seed particles within the visible part of the grid (viewerParameters.seedLonRange/seedLatRange, see ParticleSystem).
+// Note the seed longitude range can extend beyond 360 if it crosses the prime meridian - shaders handle this
 export function randomizeParticles(data, maxParticles, viewerParameters) {
+    let lonRange = viewerParameters.seedLonRange || new Cesium.Cartesian2(data.lon.min, data.lon.max);
+    let latRange = viewerParameters.seedLatRange || new Cesium.Cartesian2(data.lat.min, data.lat.max);
+
     var array = new Float32Array(4 * maxParticles);
     for (var i = 0; i < maxParticles; i++) {
         const j = 4*i;
-        //array[j] = Cesium.Math.randomBetween(viewerParameters.lonRange.x, viewerParameters.lonRange.y);
-        //array[j + 1] = Cesium.Math.randomBetween(viewerParameters.latRange.x, viewerParameters.latRange.y);
-        array[j] = Cesium.Math.randomBetween(data.lon.min, data.lon.max);
-        array[j + 1] = Cesium.Math.randomBetween(data.lat.min, data.lat.max);
+        array[j] = Cesium.Math.randomBetween(lonRange.x, lonRange.y);
+        array[j + 1] = Cesium.Math.randomBetween(latRange.x, latRange.y);
         array[j + 2] = Cesium.Math.randomBetween(data.lev.min, data.lev.max);
         array[j + 3] = 0.0;
     }

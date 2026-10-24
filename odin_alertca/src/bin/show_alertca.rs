@@ -21,7 +21,7 @@ use odin_alertca::{
     actor::AlertCaActor, 
     alertca_service::AlertCaService, 
     live_connector::LiveAlertCaConnector, 
-    load_config, CameraStore, CameraUpdate, get_json_update_msg
+    load_config, CameraStore, Camera, get_json_update_msg
 };
 use anyhow::Result;
 
@@ -50,7 +50,7 @@ run_actor_system!( actor_system => {
                 }
             ),
             dataref_action!( 
-                let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |updates: &Vec<CameraUpdate>| {
+                let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => |updates: &Vec<Camera>| {
                     let ws_msg = get_json_update_msg( &updates);
                     Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
                 }

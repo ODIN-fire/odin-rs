@@ -31,7 +31,7 @@ use odin_wx::{WxServiceList,WxFileAvailable};
 use odin_wind::{self, WindActor,WindActorMsg, server_subscribe_action, server_update_action, WindService};
 use odin_adsb::{actor::AdsbActor,adsb_service::AdsbService, sbs::SbsConnector};
 use odin_n5::{self, n5_service::N5Service, actor::N5Actor, live_connector::LiveN5Connector};
-use odin_alertca::{self,actor::AlertCaActor, alertca_service::AlertCaService, live_connector::LiveAlertCaConnector, CameraStore, CameraUpdate};
+use odin_alertca::{self,actor::AlertCaActor, alertca_service::AlertCaService, live_connector::LiveAlertCaConnector, CameraStore, Camera};
 use odin_fires::{fire_service::FireService};
 use odin_fems::{self, FemsStore, FemsStation, actor::FemsActor,service::FemsService};
 use odin_landfire::{service::LandfireService,LandfireConfig};

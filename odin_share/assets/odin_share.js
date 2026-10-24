@@ -349,7 +349,7 @@ function createDataWindow() {
         ),
         ui.Panel("item", true)(
             ui.RowContainer()(
-                (keyEntry = ui.TextInput( "key","share.data.obj.key", "20rem", {isFixed: true, placeHolder: "enter item key", changeAction: keyChanged})),
+                (keyEntry = ui.TextInput( "key","share.data.obj.key", "20rem", {isFixed: true, placeHolder: "enter item key", changeAction: keyChanged, noAutocomplete: true})),
                 (complChoice = ui.Choice( "compl", "share.data.obj.compl", completeKey, "8rem")),
             ),
             ui.RowContainer()(
@@ -923,10 +923,10 @@ function createRectEntity(e) {
 
     // Cesium rect properties do not support outlines that are clampToGround so we turn this into a polygon
     let points = [];
-    points.push( new Cesium.Cartesian3.fromDegrees( d.west, d.north));
-    points.push( new Cesium.Cartesian3.fromDegrees( d.east, d.north));
-    points.push( new Cesium.Cartesian3.fromDegrees( d.east, d.south));
-    points.push( new Cesium.Cartesian3.fromDegrees( d.west, d.south));
+    points.push( Cesium.Cartesian3.fromDegrees( d.west, d.north));
+    points.push( Cesium.Cartesian3.fromDegrees( d.east, d.north));
+    points.push( Cesium.Cartesian3.fromDegrees( d.east, d.south));
+    points.push( Cesium.Cartesian3.fromDegrees( d.west, d.south));
     points.push( points[0]);
 
     return new Cesium.Entity({

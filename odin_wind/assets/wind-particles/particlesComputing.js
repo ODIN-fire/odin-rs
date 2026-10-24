@@ -190,13 +190,11 @@ export class ParticlesComputing {
                     particlesSpeed: function() {
                         return that.particlesTextures.particlesSpeed;
                     },
-                    lonRange: function() {
-                        //return viewerParameters.lonRange;
-                        return new Cesium.Cartesian2(data.lon.min, data.lon.max);
+                    lonRange: function() { // visible part of the grid (updated in place by ParticleSystem)
+                        return viewerParameters.seedLonRange;
                     },
                     latRange: function() {
-                        //return viewerParameters.latRange;
-                        return new Cesium.Cartesian2(data.lat.min, data.lat.max);
+                        return viewerParameters.seedLatRange;
                     },
                     randomCoefficient: function() {
                         var randomCoefficient = Math.random();

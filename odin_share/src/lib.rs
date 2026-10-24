@@ -38,7 +38,7 @@ trait_set! {
 /// object-safe part of SharedStore get access
 pub trait SharedStoreReadAccess<T>: Debug + Send + Sync where T: SharedStoreValueConstraints {
     fn len(&self)->usize;
-    
+
     fn contains_key (&self, k: &str)->bool;
 
     fn ref_iter<'a>(&'a self)->Box<dyn Iterator<Item=(&'a String,&'a T)> + 'a>;
@@ -73,7 +73,7 @@ pub trait SharedStore<T> : SharedStoreReadAccess<T> + Send + Sync
     fn save (&self)->Result<(),OdinShareError>;
 
     // override if store isn't initialized upon construction
-    async fn initialize (&self)->Result<(),OdinShareError> { 
+    async fn initialize (&self)->Result<(),OdinShareError> {
         Ok(()) // initialized upon construction
     }
 
@@ -171,7 +171,7 @@ fn canonical_key(mut key: String)->Option<String> {
     // start/end trim
     k = k.trim_start_matches('/');
     k = k.trim_end_matches('/');
-    
+
     if k == k0 {
         println!("not changed");
         Some(key) // nothing changed
@@ -197,12 +197,12 @@ impl<T> SharedStoreReadAccess<T> for HashMap<String,T>
         Ok( Box::new( self.iter().filter( move |(k,v)| glob.is_match(k) ).map( |(ref_k,ref_v)| (ref_k.clone(),ref_v.clone())) ) )
     }
 
-    fn len(&self)->usize { 
-        HashMap::len(self) 
+    fn len(&self)->usize {
+        HashMap::len(self)
     }
 
-    fn contains_key (&self, k: &str)->bool { 
-        HashMap::contains_key(self, k) 
+    fn contains_key (&self, k: &str)->bool {
+        HashMap::contains_key(self, k)
     }
 
     fn ref_iter<'a>(&'a self)->Box<dyn Iterator<Item=(&'a String,&'a T)> + 'a> {
@@ -296,12 +296,12 @@ impl<T> SharedStoreReadAccess<T> for PersistentHashMapStore<T>
         Ok( Box::new( self.map.iter().filter( move |(k,v)| glob.is_match(k) ).map( |(ref_k,ref_v)| (ref_k.clone(),ref_v.clone())) ) )
     }
 
-    fn len(&self)->usize { 
-        self.map.len() 
+    fn len(&self)->usize {
+        self.map.len()
     }
 
-    fn contains_key (&self, k: &str)->bool { 
-        self.map.contains_key(k) 
+    fn contains_key (&self, k: &str)->bool {
+        self.map.contains_key(k)
     }
 
     fn to_json (&self)->Result<String,OdinShareError> {
@@ -326,18 +326,19 @@ impl<T> SharedStore<T> for PersistentHashMapStore<T>
 
     fn save (&self)->Result<(),OdinShareError> {
         if self.save {
-            let file = File::open(&self.path)?;
+            println!("saving changed store to {:?}", self.path);
+            let file = File::create(&self.path)?;
             serde_json::to_writer_pretty(file, &self.map)?;
         }
         Ok(())
     }
 }
 
-impl<T> Debug for PersistentHashMapStore<T> 
+impl<T> Debug for PersistentHashMapStore<T>
     where T: SharedStoreValueConstraints
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!( f, "ref PersistentHashMapStore<{}>", any::type_name::<T>()) 
+        write!( f, "ref PersistentHashMapStore<{}>", any::type_name::<T>())
     }
 }
 

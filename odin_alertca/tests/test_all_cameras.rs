@@ -1,9 +1,9 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
+ * Copyright © 2025, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -14,58 +14,58 @@
 
 #![allow(unused)]
 
-use std::{path::{Path,PathBuf},fs::File,io::Read};
-use chrono::{DateTime,Utc,NaiveDate,NaiveTime,TimeZone};
-use std::io::Cursor;
-use ron;
-use odin_common::{
-    extract_all, extract_fields, extract_ordered, 
-    fs::{filepath_contents, filepath_contents_as_string},
-    u8extractor::{AsyncCsvExtractor, CsvFieldExtractor, CsvStr, MemMemFinder, SimpleU8Finder, U8Readable, read_val}
-};
-use odin_alertca::{create_cameras, get_cal_oes_cameras, AlertCaConfig, Camera, CameraStore};
-use odin_alertca::live_connector::PropertyFinder;
+use std::path::Path;
+use chrono::DateTime;
+use odin_common::fs::filepath_contents;
+use odin_alertca::{camera_ids, parse_cameras, AlertCaConfig, Camera, CameraStore};
 
+/// run with "cargo test --test test_all_cameras test_camera_update -- --nocapture"
 #[test]
 fn test_camera_update () {
-    let cal_oes_cameras = get_cal_oes_cameras("resources/CalOesCameras.ron").unwrap();
-    let path = Path::new("resources/all_cameras-v3.json");
+    let path = Path::new("resources/all_cameras.json");
     let config: AlertCaConfig = odin_build::load_config_path("configs/sf_bay_area.ron").unwrap();
-    let finder = PropertyFinder::new();
-
-    let mut store = create_cameras(&config, &cal_oes_cameras).unwrap();
+    let ids = camera_ids( &config);
 
     let contents = filepath_contents(&path).unwrap();
-    let mut data: &[u8] = contents.as_slice();
-    let mut updated: Vec<&Camera> = Vec::with_capacity(config.cameras.len());
 
     let t0 = std::time::SystemTime::now();
-    while let Some(i0) = finder.id.find_key(data) { 
-        let i1 = i0 + finder.id.len();
-        if let Some((id,len)) = read_val::<&str>( data, i1) {
-            if let Some(camera) = store.get( id) { // this is a camera we care about        
-                let bs = &data[i1+len..];
-                extract_all!{ bs ?
-                    let last_frame_ts: i64 = finder.last_frame_ts,
-                    let fov_lft: [f64;2] = finder.fov_lft,
-                    let fov_rt: [f64;2] = finder.fov_rt,
-                    let az_current: f64 = finder.az_current,
-                    let tilt_current: f64 = finder.tilt_current,
-                    let zoom_current: f64 = finder.zoom_current => {
-                        println!("{}, {:?}, {:?}, {:?}, {}, {}, {}", 
-                                  id, DateTime::from_timestamp_millis( last_frame_ts*1000).unwrap(), 
-                                  fov_lft, fov_rt, az_current, tilt_current, zoom_current);
-                        updated.push( camera);
-                    }
-                }
-            }
-            data = &data[i1+len..];
-        } else {
-            data = &data[i1..];
-        }
-    }
+    let cameras = parse_cameras( &contents, &ids).unwrap();
     let t1 = std::time::SystemTime::now();
-    println!("update time: {} µsec", t1.duration_since(t0).unwrap().as_micros());
 
-    assert!( updated.len() == config.cameras.len())
+    for c in &cameras {
+        println!("{:25} {:28} {:10.5} {:9.5} {:6.0}m  {:?}  fov: {:3.0}° {:6.0}m  az: {:3.0}  tilt: {:?}  zoom: {:?}",
+                 c.id, c.name, c.position.longitude_degrees(), c.position.latitude_degrees(), c.position.altitude_meters(),
+                 DateTime::from_timestamp_millis( c.last_update.millis()).unwrap(),
+                 c.fov_angle.degrees(), c.fov_dist.get::<uom::si::length::meter>(), c.azimut.degrees(),
+                 c.tilt.map(|t| t.degrees()), c.zoom);
+    }
+    println!("parse time: {} µsec", t1.duration_since(t0).unwrap().as_micros());
+    println!("parsed {} cameras for {} configured ids", cameras.len(), config.cameras.len());
+
+    assert_eq!( cameras.len(), config.cameras.len());
+    for c in &cameras {
+        assert!( config.cameras.iter().any( |id| id.as_str() == c.id.as_str()));
+        assert!( !c.name.is_empty());
+        assert!( c.position.altitude_meters() > 0.0);
+    }
+
+    // check values of a PTZ camera and a fixed camera (az/tilt/zoom are null in the GeoJSON)
+    let almaden1 = cameras.iter().find( |c| c.id.as_str() == "almaden-cam01").unwrap();
+    assert_eq!( almaden1.name, "Almaden 1");
+    assert!( (almaden1.position.longitude_degrees() - -121.847187).abs() < 1e-6);
+    assert!( (almaden1.position.latitude_degrees() - 37.194245).abs() < 1e-6);
+    assert!( almaden1.tilt.is_some() && almaden1.zoom.is_some());
+
+    let almaden2 = cameras.iter().find( |c| c.id.as_str() == "almaden-cam02").unwrap();
+    assert!( almaden2.tilt.is_none() && almaden2.zoom.is_none());
+    assert!( almaden2.fov_angle.degrees() > 0.0);
+
+    // store initialization and JSON snapshot
+    let mut store = CameraStore::new( config.max_history);
+    store.update_all( cameras);
+    assert_eq!( store.len(), config.cameras.len());
+
+    let msg = store.get_json_snapshot_msg();
+    assert!( msg.contains("\"name\":\"Almaden 1\""));
 }
+

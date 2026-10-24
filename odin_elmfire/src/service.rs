@@ -24,9 +24,12 @@ use axum::{
     response::{Response,IntoResponse},
 };
 use async_trait::async_trait;
+use odin_wind::WindService;
 use serde::Deserialize;
 use serde_json;
 use chrono::{DateTime,Utc};
+use uom::si::{velocity::mile_per_hour,length::kilometer,ratio::percent};
+use uom::si::f64::{Velocity,Length,Ratio};
 
 use odin_common::{
     angle::Angle360,
@@ -37,8 +40,7 @@ use odin_common::{
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_cesium::ImgLayerService;
-use uom::si::{velocity::mile_per_hour,length::kilometer,ratio::percent};
-use uom::si::f64::{Velocity,Length,Ratio};
+use odin_wind::service::add_windfield_components;
 
 use crate::{
     CACHE_DIR, DATA_DIR, ElmFire, ElmfireRun, FIXED_DIR, FixedInputStep, NML_RE, SPOTTING_DIR,
@@ -96,6 +98,8 @@ impl SpaService for ElmfireService {
 
     fn add_components (&self, spa: &mut SpaComponents) -> OdinServerResult<()>  {
         spa.add_assets( self_crate!(), load_asset);
+
+        add_windfield_components(spa); // we depend on Javascript modules to visualize wind fields (but don't need a full WindService)
 
         spa.add_module( asset_uri!( "odin_elmfire_config.js"));
         spa.add_module( asset_uri!( "odin_elmfire.js" ));

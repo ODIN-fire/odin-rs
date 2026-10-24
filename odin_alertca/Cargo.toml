@@ -15,7 +15,6 @@ odin_cesium = { workspace = true }
 odin_job = { workspace = true }
 odin_common = { workspace = true }
 odin_macro = { workspace = true }
-odin_dem = { workspace = true }
 
 futures = { workspace = true }
 tokio = { workspace = true }
@@ -24,7 +23,6 @@ reqwest = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
-geojson = { workspace = true }
 chrono = { workspace = true }
 uom = { workspace = true }
 async-trait = { workspace = true }

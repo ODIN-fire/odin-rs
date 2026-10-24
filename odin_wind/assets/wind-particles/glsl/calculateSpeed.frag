@@ -21,58 +21,51 @@ uniform float speedFactor;
 in vec2 v_textureCoordinates;
 out vec4 fragColor;
 
-vec2 mapPositionToNormalizedIndex2D(vec3 lonLatLev) {
-    // ensure the range of longitude and latitude
-    lonLatLev.x = mod(lonLatLev.x, 360.0);
-    lonLatLev.y = clamp(lonLatLev.y, -90.0, 90.0);
+// NOTE - grid lookup is done in index space with texelFetch since textures use NEAREST sampling. Longitudes are
+// measured from the western grid boundary modulo 360 so that grids crossing the prime meridian (where minimum.x is
+// normalized to [0,360) and maximum.x can exceed 360) and particle positions in any longitude representation work.
+// Grid rows are stored north to south (as in the grid CSV), i.e. texture row 0 is the northern most row
 
-    vec3 index3D = vec3(0.0);
-    index3D.x = (lonLatLev.x - minimum.x) / interval.x;
-    index3D.y = (lonLatLev.y - minimum.y) / interval.y;
-    index3D.z = (interval.z != 0.0) ? (lonLatLev.z - minimum.z) / interval.z : 1.0; // WATCH OUT - interval.z might be 0
-    //index3D.z = (lonLatLev.z - minimum.z) / interval.z; // WATCH OUT - interval.z must not be 0 (checked in particlesComputing.js as GPUs don't like branches)
+// fractional (col, row-from-south, lev) index of a position
+vec3 gridIndex(vec3 lonLatLev) {
+    float width = maximum.x - minimum.x;
+    float dLon = mod(lonLatLev.x - minimum.x, 360.0);
+    if (dLon > 180.0 + width / 2.0) dLon -= 360.0; // west of grid
 
-    // the st texture coordinate corresponding to (col, row) index
-    // example
-    // data array is [0, 1, 2, 3, 4, 5], width = 3, height = 2
-    // the content of texture will be
-    // t 1.0
-    //    |  3 4 5
-    //    |
-    //    |  0 1 2
-    //   0.0------1.0 s
-
-    vec2 index2D = vec2(index3D.x, index3D.z * dimension.y + index3D.y);
-    vec2 normalizedIndex2D = vec2(index2D.x / dimension.x, 1.0 - index2D.y / (dimension.y * dimension.z));
-    return normalizedIndex2D;
+    return vec3(
+        dLon / interval.x,
+        (lonLatLev.y - minimum.y) / interval.y,
+        (interval.z != 0.0) ? (lonLatLev.z - minimum.z) / interval.z : 0.0  // WATCH OUT - interval.z might be 0
+    );
 }
 
-float getWindComponent(sampler2D componentTexture, vec3 lonLatLev) {
-    vec2 normalizedIndex2D = mapPositionToNormalizedIndex2D(lonLatLev);
-    float result = texture(componentTexture, normalizedIndex2D).r;
-    return result;
+float gridValue(sampler2D componentTexture, int col, int iy, int iz) {
+    int nx = int(dimension.x);
+    int ny = int(dimension.y);
+    int nz = int(dimension.z);
+    col = clamp(col, 0, nx - 1);
+    iy = clamp(iy, 0, ny - 1);
+    iz = clamp(iz, 0, nz - 1);
+    int row = iz * ny + (ny - 1 - iy);
+    return texelFetch(componentTexture, ivec2(col, row), 0).r;
 }
 
 float interpolateTexture(sampler2D componentTexture, vec3 lonLatLev) {
-    float lon = lonLatLev.x;
-    float lat = lonLatLev.y;
-    float lev = lonLatLev.z;
+    vec3 idx = gridIndex(lonLatLev);
+    float x0 = floor(idx.x);
+    float y0 = floor(idx.y);
+    float fx = idx.x - x0;
+    float fy = idx.y - y0;
+    int i = int(x0);
+    int j = int(y0);
+    int k = int(round(idx.z));
 
-    float lon0 = floor(lon / interval.x) * interval.x;
-    float lon1 = lon0 + 1.0 * interval.x;
-    float lat0 = floor(lat / interval.y) * interval.y;
-    float lat1 = lat0 + 1.0 * interval.y;
+    float v00 = gridValue(componentTexture, i,   j,   k);
+    float v10 = gridValue(componentTexture, i+1, j,   k);
+    float v01 = gridValue(componentTexture, i,   j+1, k);
+    float v11 = gridValue(componentTexture, i+1, j+1, k);
 
-    float lon0_lat0 = getWindComponent(componentTexture, vec3(lon0, lat0, lev));
-    float lon1_lat0 = getWindComponent(componentTexture, vec3(lon1, lat0, lev));
-    float lon0_lat1 = getWindComponent(componentTexture, vec3(lon0, lat1, lev));
-    float lon1_lat1 = getWindComponent(componentTexture, vec3(lon1, lat1, lev));
-
-    float lon_lat0 = mix(lon0_lat0, lon1_lat0, lon - lon0);
-    float lon_lat1 = mix(lon0_lat1, lon1_lat1, lon - lon0);
-    float lon_lat = mix(lon_lat0, lon_lat1, lat - lat0);
-
-    return lon_lat;
+    return mix( mix(v00, v10, fx), mix(v01, v11, fx), fy);
 }
 
 vec3 linearInterpolation(vec3 lonLatLev) {
