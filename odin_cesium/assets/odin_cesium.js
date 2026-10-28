@@ -1940,7 +1940,10 @@ export function enterGeoLine (processResult, onMouseMove=undefined) {
         }
     }
 
-    function onCancel () { cleanUpEnter(polyEntity); }
+    function onCancel() {
+        cleanUpEnter(polyEntity);
+        processResult(null);
+    }
 
     enterPolyline( points, 2, {onEnter, onCancel, onAddPoint, onMouseMove});
 }
@@ -1976,7 +1979,10 @@ export function enterGeoLineString (processResult) {
         processResult( new main.GeoLineString(pts));
     }
 
-    function onCancel () { cleanUpEnter(polyEntity); }
+    function onCancel() {
+        cleanUpEnter(polyEntity);
+        processResult(null);
+    }
 
     enterPolyline( points, 0, {onEnter, onCancel, onAddPoint});
 }
@@ -2007,7 +2013,10 @@ export function enterGeoPolygon (processResult) {
         processResult( new main.GeoPolygon(pts));
     }
 
-    function onCancel () { cleanUpEnter(polyEntity); }
+    function onCancel() {
+        cleanUpEnter(polyEntity);
+        processResult(null);
+    }
 
     enterPolyline( points, 0, {onEnter, onCancel, onAddPoint});
 }
@@ -2037,7 +2046,10 @@ export function enterGeoRect (processResult) {
         processResult( main.GeoRect.fromWSENdeg( rect.west, rect.south, rect.east, rect.north));
     }
 
-    function onCancel () { cleanUpEnter(rectEntity); }
+    function onCancel() {
+        cleanUpEnter(rectEntity);
+        processResult(null);
+    }
 
     enterRect( rect, points, { onEnter, onCancel, onAddPoint });
 }
@@ -2187,7 +2199,10 @@ export function enterGeoCircle (processResult) {
         processResult( new main.GeoCircle( util.toDegrees(geo.lon), util.toDegrees(geo.lat), radius));
     }
 
-    function onCancel () { cleanUp(); }
+    function onCancel() {
+        cleanUp();
+        processResult(null);
+    }
 
     enterPolyline( points, 2, { onEnter, onCancel, onAddPoint, onMouseMove: updateRadius });
 }

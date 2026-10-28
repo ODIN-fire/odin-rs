@@ -22,6 +22,11 @@ USE_CONSTANT_LH   = .FALSE.
 MLH_FILENAME      = 'lh'
 USE_CONSTANT_LW   = .FALSE.
 MLW_FILENAME      = 'lw'
+
+{% if use_barriers %}
+USE_BARRIERS      = .TRUE.
+BARRIER_FILENAME  = 'barriers'
+{% endif %}
 /
 
 &OUTPUTS

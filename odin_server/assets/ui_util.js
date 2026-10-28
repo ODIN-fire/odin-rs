@@ -557,8 +557,16 @@ export function isNumber(v) {
     return Number.isFinite(v);
 }
 
-export function isString(v) {
-    return typeof v === 'string';
+export function isString(obj) {
+    return (typeof obj === 'string' || obj instanceof String);
+}
+
+export function isHtmlElementWithType(obj, expectedTag) {
+  if (!(obj instanceof HTMLElement)) {
+    return false;
+  }
+
+  return obj.tagName.toUpperCase() === expectedTag.toUpperCase();
 }
 
 //--- geo & math

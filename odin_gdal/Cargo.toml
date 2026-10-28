@@ -63,3 +63,6 @@ odin_server = { workspace = true }
 ## inline crate-specific resources (configs and assets) into the executable (see odin_build)
 embedded_resources = []
 trace_server = []
+
+[dev-dependencies]
+uom = { workspace = true }

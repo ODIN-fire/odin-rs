@@ -16,8 +16,8 @@
 
 use std::{path::{Path,PathBuf},collections::HashMap, time::Duration, str::FromStr, sync::Arc};
 use tokio::time::sleep;
-use uom::si::f64::{Angle, Length, Ratio};
-use uom::si::{ratio::{ratio,percent}, length::{meter,kilometer,inch}, angle::{degree}, velocity::{meter_per_second,mile_per_hour}, thermodynamic_temperature::degree_celsius};
+use uom::si::f64::{Angle, Length, Ratio, ThermodynamicTemperature};
+use uom::si::{ratio::{ratio,percent}, length::{meter,kilometer,inch,foot}, angle::{degree}, velocity::{meter_per_second,mile_per_hour}, thermodynamic_temperature::{degree_celsius,degree_fahrenheit}};
 use chrono::{DateTime, Timelike, Utc};
 use interp::{interp_slice, InterpMode};
 use reqwest::Client;
@@ -40,6 +40,7 @@ use odin_gdal::{
     CslStringList, GdalDataType, copy_proj, create_dataset, find_rasterband_index,
     get_driver_by_name, get_gtiff_create_opts, get_gtiff_driver, get_rasterband_as_vec,
     open_dataset, read_rasterband_into_slice, set_rasterband_from_vec, get_raster_info, replace_nodata_in_file,
+    draw::{draw_geo_line, draw_geo_line_string},
     gdal::raster::RasterCreationOptions,
     errors::OdinGdalError,
     geods::{GeoDs, GeoDsImgType, GeoDsSrs},
@@ -52,7 +53,7 @@ use odin_openmeteo::{
     dataset::{Fw21Data, MinimalSfcData}, get_forecast_url, get_time_step_range,
     grid::{GridAlgorithm, UtmGrid}, ids::ModelId, queries::{get_annual_precip, get_fw21_grid}
 };
-use crate::{CACHE_DIR, ElmfireConfig, ElmFire, FixedInputStep, WX_DT, errors::{OdinElmfireError,Result,op_failed}, get_utm_rect_around_point};
+use crate::{CACHE_DIR, ElmfireConfig, ElmFire, Barrier, BarrierValue, fixed::FixedInput, WX_DT, errors::{OdinElmfireError,Result,op_failed}, get_utm_rect_around_point};
 
 
 fn check_cache<F,T,E> (path: PathBuf, f:F) -> Result<()>
@@ -121,28 +122,26 @@ pub fn create_internal_input (ef: &ElmFire, config: &ElmfireConfig) -> Result<()
 
 /* #endregion internal */
 
-/* #region fixed steps ****************************************************************************************************/
+/* #region fixed input ****************************************************************************************************/
 
-pub async fn create_fixed_input (ef: &ElmFire, config: &ElmfireConfig, steps: &[FixedInputStep]) -> Result<()> {
-    if steps.is_empty() {
-        return Err( op_failed!("empty fixed input steps"))
-    }
+pub async fn create_fixed_input (ef: &ElmFire, config: &ElmfireConfig, fixed: &FixedInput) -> Result<()> {
+    fixed.check()?;
 
     let dir = ef.dir.join("inputs");
 
-    create_fixed_wind_input( ef, config, steps, &dir).await?;
-    create_fixed_fuel_moisture_input( ef, config, steps, &dir)?;
+    create_fixed_wind_input( ef, config, fixed, &dir).await?;
+    create_fixed_fuel_moisture_input( ef, config, fixed, &dir)?;
 
     Ok(())
 }
 
-/// create the ws, wd tifs either directly from the fixed input steps or from WindNinja output
-async fn create_fixed_wind_input (ef: &ElmFire, config: &ElmfireConfig, steps: &[FixedInputStep], dir: &PathBuf) -> Result<()> {
-    if ef.compute_wind { // use FixedInputSteps to create WindNinja input and use WindNinja output as Elmfire input
+/// create the ws, wd tifs either directly from the fixed input values or from WindNinja output
+async fn create_fixed_wind_input (ef: &ElmFire, config: &ElmfireConfig, fixed: &FixedInput, dir: &PathBuf) -> Result<()> {
+    if ef.compute_wind { // use fixed input values to create WindNinja input and use WindNinja output as Elmfire input
         let wind_dir = dir.join("wn");
         ensure_writable_dir( &wind_dir)?;
 
-        let wx_paths = create_fixed_wn_input_steps( ef, config, steps, &wind_dir)?;
+        let wx_paths = create_fixed_wn_input_steps( ef, config, fixed, &wind_dir)?;
         run_wn_steps( ef, config, &wx_paths, &wind_dir, dir).await?
 
     } else {
@@ -159,12 +158,12 @@ async fn create_fixed_wind_input (ef: &ElmFire, config: &ElmfireConfig, steps: &
         let xsize = (x_width / dpix).round() as usize;
         let ysize = (y_height / dpix).round() as usize;
 
-        let band_vals: Vec<f64> = extend( steps.iter().map( |s| s.ws.get::<mile_per_hour>()).collect(), n_steps);
+        let band_vals = FixedInput::hourly_values( &fixed.ws, n_steps, |v| v.get::<mile_per_hour>());
         grid::create_const_grid_ds::<f32,_>(
             &driver, &dir.join("ws.tif"), epsg, bbox.west, bbox.east, bbox.south, bbox.north, xsize, ysize, &band_vals, -9999.0, &create_opts
         )?;
 
-        let band_vals: Vec<f64> = extend( steps.iter().map( |s| s.wd.degrees()).collect(), n_steps);
+        let band_vals = FixedInput::hourly_values( &fixed.wd, n_steps, |v| v.degrees());
         grid::create_const_grid_ds::<f32,_>(
             &driver, &dir.join("wd.tif"), epsg, bbox.west, bbox.east, bbox.south, bbox.north, xsize, ysize, &band_vals, -9999.0, &create_opts
         )?;
@@ -173,8 +172,8 @@ async fn create_fixed_wind_input (ef: &ElmFire, config: &ElmfireConfig, steps: &
     Ok(())
 }
 
-/// create the m1, m10, m100, lh, lw tifs from the fixed input steps
-fn create_fixed_fuel_moisture_input (ef: &ElmFire, config: &ElmfireConfig, steps: &[FixedInputStep], dir: &PathBuf) -> Result<()> {
+/// create the m1, m10, m100, lh, lw tifs from the fixed input values
+fn create_fixed_fuel_moisture_input (ef: &ElmFire, config: &ElmfireConfig, fixed: &FixedInput, dir: &PathBuf) -> Result<()> {
     let bbox = &ef.utm_rect.bbox;
     let x_width = bbox.east - bbox.west;
     let y_height = bbox.north - bbox.south;
@@ -188,27 +187,27 @@ fn create_fixed_fuel_moisture_input (ef: &ElmFire, config: &ElmfireConfig, steps
     let xsize = (x_width / dpix).round() as usize;
     let ysize = (y_height / dpix).round() as usize;
 
-    let band_vals: Vec<f64> = extend( steps.iter().map( |s| s.m1.get::<percent>()).collect(), n_steps);
+    let band_vals = FixedInput::hourly_values( &fixed.m1, n_steps, |v| v.get::<percent>());
     grid::create_const_grid_ds::<f32,_>(
         &driver, &dir.join("m1.tif"), epsg, bbox.west, bbox.east, bbox.south, bbox.north, xsize, ysize, &band_vals, -9999.0, &create_opts
     )?;
 
-    let band_vals: Vec<f64> = extend( steps.iter().map( |s| s.m10.get::<percent>()).collect(), n_steps);
+    let band_vals = FixedInput::hourly_values( &fixed.m10, n_steps, |v| v.get::<percent>());
     grid::create_const_grid_ds::<f32,_>(
         &driver, &dir.join("m10.tif"), epsg, bbox.west, bbox.east, bbox.south, bbox.north, xsize, ysize, &band_vals, -9999.0, &create_opts
     )?;
 
-    let band_vals: Vec<f64> = extend( steps.iter().map( |s| s.m100.get::<percent>()).collect(), n_steps);
+    let band_vals = FixedInput::hourly_values( &fixed.m100, n_steps, |v| v.get::<percent>());
     grid::create_const_grid_ds::<f32,_>(
         &driver, &dir.join("m100.tif"), epsg, bbox.west, bbox.east, bbox.south, bbox.north, xsize, ysize, &band_vals, -9999.0, &create_opts
     )?;
 
-    let band_vals: Vec<f64> = extend( steps.iter().map( |s| s.lh.get::<percent>()).collect(), n_steps);
+    let band_vals = FixedInput::hourly_values( &fixed.lh, n_steps, |v| v.get::<percent>());
     grid::create_const_grid_ds::<f32,_>(
         &driver, &dir.join("lh.tif"), epsg, bbox.west, bbox.east, bbox.south, bbox.north, xsize, ysize, &band_vals, -9999.0, &create_opts
     )?;
 
-    let band_vals: Vec<f64> = extend( steps.iter().map( |s| s.lw.get::<percent>()).collect(), n_steps);
+    let band_vals = FixedInput::hourly_values( &fixed.lw, n_steps, |v| v.get::<percent>());
     grid::create_const_grid_ds::<f32,_>(
         &driver, &dir.join("lw.tif"), epsg, bbox.west, bbox.east, bbox.south, bbox.north, xsize, ysize, &band_vals, -9999.0, &create_opts
     )?;
@@ -216,21 +215,10 @@ fn create_fixed_fuel_moisture_input (ef: &ElmFire, config: &ElmfireConfig, steps
     Ok(())
 }
 
-fn extend<T: Clone> (mut vs: Vec<T>, n: usize)->Vec<T> {
-    let len = vs.len();
-    if len <= n {
-        for i in len..n {
-            vs.push( vs[len-1].clone())
-        }
-    }
-    vs
-}
-
-/// create HRRR conform WindNinja wx input tifs (one per hour) with const band values from the fixed input steps
+/// create HRRR conform WindNinja wx input tifs (one per hour) with const band values from the fixed input values
 /// note this is not async since the driver is not Send. Datasets are dropped (written) before we return
-fn create_fixed_wn_input_steps (ef: &ElmFire, config: &ElmfireConfig, steps: &[FixedInputStep], wind_dir: &PathBuf)->Result<Vec<PathBuf>> {
+fn create_fixed_wn_input_steps (ef: &ElmFire, config: &ElmfireConfig, fixed: &FixedInput, wind_dir: &PathBuf)->Result<Vec<PathBuf>> {
     let n_steps = (ef.n_hours+1) as usize;
-    let steps = extend( steps.to_vec(), n_steps); // repeat last step if we have fewer than n_steps
 
     let driver = get_gtiff_driver();
     let create_opts = get_gtiff_create_opts();
@@ -244,16 +232,23 @@ fn create_fixed_wn_input_steps (ef: &ElmFire, config: &ElmfireConfig, steps: &[F
     let ysize = ((n - s) / dpix).round() as usize;
 
     let mut paths: Vec<PathBuf> = Vec::with_capacity(n_steps);
-    for (i,step) in steps.iter().take(n_steps).enumerate() {
+    for i in 0..n_steps {
         let date = ef.base_date + hours(i as u64);
+
+        // last value is used if there are less values than hours. ws and wd are mandatory (see FixedInput::check()),
+        // tcc and t2 are optional (0% and 0°F as before)
+        let ws = FixedInput::value_at( &fixed.ws, i).ok_or( op_failed!("no fixed ws values"))?;
+        let wd = FixedInput::value_at( &fixed.wd, i).ok_or( op_failed!("no fixed wd values"))?;
+        let tcc = FixedInput::value_at( &fixed.tcc, i).unwrap_or( Ratio::new::<percent>(0.0));
+        let t2 = FixedInput::value_at( &fixed.t2, i).unwrap_or( ThermodynamicTemperature::new::<degree_fahrenheit>(0.0));
         let path = wind_dir.join( odin_data_filename( &ef.name, Some(date), &[ &config.wx_model ], Some("tif")));
 
         // HRRR band order and units: TMP [C], TCDC [%], UGRD [m/s], VGRD [m/s]
         // wd is the meteorological direction the wind is coming from
-        let spd = step.ws.get::<meter_per_second>();
-        let u = -spd * step.wd.sin();
-        let v = -spd * step.wd.cos();
-        let band_vals = [ step.t2.get::<degree_celsius>(), step.tcc.get::<percent>(), u, v ];
+        let spd = ws.get::<meter_per_second>();
+        let u = -spd * wd.sin();
+        let v = -spd * wd.cos();
+        let band_vals = [ t2.get::<degree_celsius>(), tcc.get::<percent>(), u, v ];
 
         let mut ds = grid::create_const_grid_ds::<f32,_>(
             &driver, &path, epsg, w, e, s, n, xsize, ysize, &band_vals, -9999.0, &create_opts
@@ -267,7 +262,7 @@ fn create_fixed_wn_input_steps (ef: &ElmFire, config: &ElmfireConfig, steps: &[F
 }
 
 
-/* #endregion  fixed steps */
+/* #endregion  fixed input */
 
 /* #region actual weather inputs (combined NFDRS and wind inputs) *********************************************************/
 
@@ -539,3 +534,39 @@ const FLAT_SLOPE: f64 = 0.0;  // slope [deg]
 const FLAT_ASPECT: f64 = -1.0; // Landfire aspect value for flat surfaces
 
 /* #endregion landfire */
+
+/* #region barriers ****************************************************************************************/
+
+/// create a "barriers.tif" input file that has the same bbox, SRS and pixel resolution as the "fbfm40.tif".
+/// The dataset has a single f32 band with values that are the Barrier.width values (in [ft]) of the
+/// barriers that cross respective cells. All other cells have a 0.0 value
+/// This uses the odin_gdal::draw functions to burn respective cell values into the produced dataset for each
+/// of the Barrier.value geometries in self.barriers
+pub fn create_barrier_input( ef: &ElmFire, config: &ElmfireConfig)->Result<()> {
+    let dir = ef.dir.join("inputs");
+    let path = dir.join("barriers.tif");
+
+    let fbfm_ds = open_dataset( dir.join("fbfm40.tif"))?;
+    let (w,h) = fbfm_ds.raster_size();
+
+    let mut ds = create_dataset( &get_gtiff_driver(), &path, w, h, 1, GdalDataType::Float32, Some(get_gtiff_create_opts()))?;
+    copy_proj( &fbfm_ds, &mut ds)?; // same bbox, SRS and pixel resolution
+    ds.rasterband(1).and_then( |mut band| band.fill(0.0, None)).map_err( OdinGdalError::from)?; // cells without barriers
+
+    // crossing barriers should use the maximum width (e.g. a VLAT drop crossed by a hand line). Since the rasterizer
+    // replaces cell values we draw barriers in ascending width order, i.e. the widest barrier is drawn last
+    let mut barriers: Vec<&Barrier> = ef.barriers.iter().collect();
+    barriers.sort_by( |a,b| a.width.value.total_cmp( &b.width.value));
+
+    for barrier in barriers {
+        let width_ft = barrier.width.get::<foot>();
+        match &barrier.value {
+            BarrierValue::GeoLine(line) => draw_geo_line( &mut ds, line, width_ft)?,
+            BarrierValue::GeoLineString(line_string) => draw_geo_line_string( &mut ds, line_string, width_ft)?,
+        }
+    }
+
+    Ok(()) // ds gets written when it is dropped
+}
+
+/* #endregion barriers */

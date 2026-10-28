@@ -373,7 +373,7 @@ function createDataWindow() {
                 ui.CheckBox("label stats", toggleLabelStats, null, renderOpts.labelStats),
                 ui.CheckBox("fill", toggleFillAreas, null, renderOpts.fill),
                 ui.HorizontalSpacer(0.6),
-                ui.ColorField("color", "share.data.color", true, colorChanged),
+                ui.ColorField("color", "share.data.color", true, "2rem", { changeAction: colorChanged }),
             ),
 
             ui.Slider("fill alpha", "share.data.fill.alpha", fillAlphaChanged),

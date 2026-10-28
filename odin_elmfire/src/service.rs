@@ -43,7 +43,7 @@ use odin_cesium::ImgLayerService;
 use odin_wind::service::add_windfield_components;
 
 use crate::{
-    CACHE_DIR, DATA_DIR, ElmFire, ElmfireRun, FIXED_DIR, FixedInputStep, NML_RE, SPOTTING_DIR,
+    CACHE_DIR, DATA_DIR, ElmFire, ElmfireRun, FIXED_DIR, FixedInput, Barrier, Ignition, NML_RE, SPOTTING_DIR,
     actor::{ElmfireActorMsg, ElmfireStore, ExecSnapshotAction, RemoveElmFire},
     errors::{OdinElmfireError, Result},
     fixed, get_contents, get_saved_list, load_asset, remove_contents, save_contents
@@ -250,10 +250,10 @@ struct ElmfireRequest {
     n_hours: u32,
     size: f64,          // of bbox sides in km
     compute_wind: bool, // compute micro-grid wind
-    ignitions: String,
-    fixed: Option<String>, // use fixed wx and fuel values instead of wx reports/forecast
+    ignitions: Vec<Ignition>,
+    fixed: Option<FixedInput>, // use fixed wx and fuel values instead of wx reports/forecast
     spotting: Option<String>,
-    barriers: Option<String>
+    barriers: Vec<Barrier>
 }
 
 impl TryFrom<ElmfireRequest> for ElmFire {

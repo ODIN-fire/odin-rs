@@ -324,9 +324,9 @@ export class GeoPolygon {
         return (
             (Array.isArray(o.exterior) && o.exterior.every( p=> GeoPoint.checkType(p))) &&
             (o.interiors == undefined ||
-                (Array.isArray(o.interiors) && o.interiors.every( a=> {
+                (Array.isArray(o.interiors) && o.interiors.every( a=>
                     Array.isArray(a) && a.every( p=> GeoPoint.checkType(p))
-                }))
+                ))
             )
         )
     }

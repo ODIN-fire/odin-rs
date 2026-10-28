@@ -110,7 +110,7 @@
     --menuitem-font: var(--font);
     --menuitem-height: 1.1rem;
     --menuitem-color: var(--color);
-    --menuitem-background: rgb(64, 64, 64);
+    --menuitem-background: rgb(50, 50, 100);
     --menuitem-selection-color: rgb(255, 255, 255);
     --menuitem-selection-background: rgb(64, 64, 200);
     /* data fields */

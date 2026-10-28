@@ -21,6 +21,7 @@ pub mod dem;
 pub mod geods;
 pub mod geods_srv;
 pub mod colorize;
+pub mod draw;
 
 use lazy_static::lazy_static;
 use static_init::{constructor};

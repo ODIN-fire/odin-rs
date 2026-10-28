@@ -43,11 +43,35 @@ export const config = {
     ]),
     defaultLfm: 1,
 
+    fixedLh: [25, 30, 35],
+    defaultLh: 1,
+
+    fixedLw: [55, 60, 65],
+    defaultLw: 1,
+
     fixedT2: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110],  // temperature at 2m
     defaultT2: 8,
 
     fixedTcc: [0, 30, 70, 100], // pervent total cloud coverage
     defaultTcc: 0,
+
+    barrierWidths: [5, 10, 15, 20, 25, 30, 40, 50],
+    barrierRender: {
+        lineWidth: 3, // [pixel]
+        colors: { // per barrier type
+            'SEAT-drop': Cesium.Color.fromCssColorString('#ff8c00'),
+            'LAT-drop': Cesium.Color.fromCssColorString('#ff3030'),
+            'VLAT-drop': Cesium.Color.fromCssColorString('#c00000'),
+            'dozer-line': Cesium.Color.fromCssColorString('#cd853f'),
+            'hand-line': Cesium.Color.fromCssColorString('#f0e68c'),
+        },
+        defaultColor: Cesium.Color.fromCssColorString('#ff00ff'),
+    },
+    handLineWidth: 5,
+    dozerLineWidth: 10,
+    seatDropWidth: 20,
+    latDropWidth: 30,
+    vlatDropWidth: 50,
 
     pointSize: 4,
     pointColor: Cesium.Color.RED,
@@ -60,6 +84,9 @@ export const config = {
     ignPointOutlineColor: Cesium.Color.YELLOW,
     ignPointOutlineWidth: 1,
     ignPointDC: new Cesium.DistanceDisplayCondition( 0, 50000),
+    ignLineColor: Cesium.Color.RED,
+    ignLineWidth: 3, // [pixel]
+    ignitionDelays: [0, 10, 15, 20, 30, 45, 60, 90, 120, 180], // [min] after dtg for new ignitions
 
     labelColor: Cesium.Color.YELLOW,
     labelFont: '14px sans-serif',

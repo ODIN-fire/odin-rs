@@ -32,7 +32,8 @@ use uom::si::{
 use odin_macro::public_struct;
 use odin_common::{
     fs::{filepath_contents_as_string, filestem, matching_files_in_dir, set_filepath_contents},
-    angle::Angle360
+    angle::Angle360,
+    json_writer::{JsonWritable, JsonWriter}
 };
 use crate::{DATA_DIR, NML_RE, errors::{Result,OdinElmfireError, nml_parse_error, op_failed}};
 
@@ -41,33 +42,135 @@ lazy_static! {
     pub static ref NML_NUM_ARR_RE: Regex = Regex::new(r#"[ \t]*([a-zA-Z0-9]+)[ \t]*=[ \t]*([0-9. \t,+-eE]+)(?:[ \t]*(?:!.*)?)"#).unwrap();
 }
 
-/// structure with given wx and fuel data values for the same time point.
-/// Used to construct time/location dependent Elmfire inputs for wind and fuel moisture
-/// Also used to synthesize WindNinja (HRRR compatible) input when computing local wind
+/// given (fixed) wx and fuel moisture input values. Each variable is a vector of hourly values (starting at the
+/// base date of the Elmfire run). If a vector has less values than simulated hours its last value is used for the
+/// remaining hours (see [FixedInput::value_at]).
+/// Used to construct time dependent Elmfire inputs for wind and fuel moisture, and to synthesize WindNinja (HRRR
+/// compatible) input when computing local wind.
+/// Note that this has to be kept compatible with odin_elmfire.js `getFixed()` / `updateFixedEntries()`, which use
+/// objects with value arrays in UI units: `{ws: [..mph], wd: [..deg], m1: [..%], .., tcc: [..%], t2: [..°F]}`
 #[derive(Debug,Clone, Serialize, Deserialize)]
-#[public_struct]
-struct FixedInputStep {
-    ws: Velocity,  // wind speed
-    wd: Angle360,  // wind direction
+pub struct FixedInput {
+    #[serde(with="vec_mph")]
+    pub ws: Vec<Velocity>,  // wind speed
+    pub wd: Vec<Angle360>,  // wind direction (where the wind is coming from)
 
-    m1: Ratio,     // 1h dead fuel moisture
-    m10: Ratio,    // 10h dead fuel moisture
-    m100: Ratio,   // 100h dead fuel moisture
-    lh: Ratio,     // live herbaceous fuel moisture
-    lw: Ratio,     // live woody fuel moisture
+    #[serde(with="vec_percent")]
+    pub m1: Vec<Ratio>,     // 1h dead fuel moisture
+    #[serde(with="vec_percent")]
+    pub m10: Vec<Ratio>,    // 10h dead fuel moisture
+    #[serde(with="vec_percent")]
+    pub m100: Vec<Ratio>,   // 100h dead fuel moisture
+    #[serde(with="vec_percent")]
+    pub lh: Vec<Ratio>,     // live herbaceous fuel moisture
+    #[serde(with="vec_percent")]
+    pub lw: Vec<Ratio>,     // live woody fuel moisture
 
-    // those are only used when synthesizing WindNinja (HRRR) input
-    tcc: Ratio,     // total cloud cover
-    t2: ThermodynamicTemperature, // 2m temperature
+    // those are optional and only used when synthesizing WindNinja (HRRR) input
+    #[serde(with="vec_percent", default)]
+    pub tcc: Vec<Ratio>,    // total cloud cover
+    #[serde(with="vec_fahrenheit", default)]
+    pub t2: Vec<ThermodynamicTemperature>, // 2m temperature
 }
 
-pub fn parse_file<P: AsRef<Path>> (path: P, n_steps: usize)->Result<Vec<FixedInputStep>> {
+impl FixedInput {
+    /// create from primitive values in UI units (mph, degrees, percent, fahrenheit)
+    pub fn from_values (
+        ws_mph: &[f64], wd_deg: &[f64],
+        m1: &[f64], m10: &[f64], m100: &[f64],
+        lh: &[f64], lw: &[f64],
+        tcc: &[f64], t2_f: &[f64]
+    )->Result<Self> {
+        let pct = |vs: &[f64]| vs.iter().map( |v| Ratio::new::<percent>(*v)).collect::<Vec<Ratio>>();
+
+        let fixed = FixedInput {
+            ws: ws_mph.iter().map( |v| Velocity::new::<mile_per_hour>(*v)).collect(),
+            wd: wd_deg.iter().map( |v| Angle360::from_degrees(*v)).collect(),
+            m1: pct(m1), m10: pct(m10), m100: pct(m100), lh: pct(lh), lw: pct(lw),
+            tcc: pct(tcc),
+            t2: t2_f.iter().map( |v| ThermodynamicTemperature::new::<degree_fahrenheit>(*v)).collect(),
+        };
+        fixed.check()?;
+        Ok(fixed)
+    }
+
+    /// check that all mandatory variables have at least one value
+    pub fn check (&self)->Result<()> {
+        let missing: Vec<&str> = [
+            ("ws", self.ws.is_empty()), ("wd", self.wd.is_empty()),
+            ("m1", self.m1.is_empty()), ("m10", self.m10.is_empty()), ("m100", self.m100.is_empty()),
+            ("lh", self.lh.is_empty()), ("lw", self.lw.is_empty())
+        ].iter().filter( |(_,is_empty)| *is_empty).map( |(name,_)| *name).collect();
+
+        if missing.is_empty() { Ok(()) } else { Err( op_failed!("missing fixed input values for: {}", missing.join(","))) }
+    }
+
+    /// the value for hour `i` - if there are less values the last one is used. Returns None for empty vectors
+    pub fn value_at<T: Copy> (vs: &[T], i: usize)->Option<T> {
+        if vs.is_empty() { None } else { Some( vs[i.min(vs.len()-1)]) }
+    }
+
+    /// `n` hourly values (padded with the last value if required), converted with `f`
+    pub fn hourly_values<T: Copy> (vs: &[T], n: usize, f: impl Fn(T)->f64)->Vec<f64> {
+        (0..n).filter_map( |i| Self::value_at(vs, i).map(&f)).collect()
+    }
+}
+
+/// written in the same units as used by the UI (mph, degrees, percent, fahrenheit)
+impl JsonWritable for FixedInput {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        let mph = |vs: &[Velocity]| vs.iter().map( |v| round1(v.get::<mile_per_hour>())).collect::<Vec<f64>>();
+        let deg = |vs: &[Angle360]| vs.iter().map( |v| round1(v.degrees())).collect::<Vec<f64>>();
+        let pct = |vs: &[Ratio]| vs.iter().map( |v| round1(v.get::<percent>())).collect::<Vec<f64>>();
+        let fahrenheit = |vs: &[ThermodynamicTemperature]| vs.iter().map( |v| round1(v.get::<degree_fahrenheit>())).collect::<Vec<f64>>();
+
+        w.write_object( |w| {
+            w.write_slice_field( "ws", &mph(&self.ws));
+            w.write_slice_field( "wd", &deg(&self.wd));
+            w.write_slice_field( "m1", &pct(&self.m1));
+            w.write_slice_field( "m10", &pct(&self.m10));
+            w.write_slice_field( "m100", &pct(&self.m100));
+            w.write_slice_field( "lh", &pct(&self.lh));
+            w.write_slice_field( "lw", &pct(&self.lw));
+            w.write_slice_field( "tcc", &pct(&self.tcc));
+            w.write_slice_field( "t2", &fahrenheit(&self.t2));
+        })
+    }
+}
+
+fn round1 (v: f64)->f64 { (v * 10.0).round() / 10.0 }
+
+/// serde support for vectors of uom quantities that are (de)serialized in non-SI units (rounded to 0.1)
+macro_rules! define_vec_serde {
+    ($mod_name:ident, $qty:ty, $unit:ty) => {
+        mod $mod_name {
+            use serde::{Deserialize, Deserializer, Serializer, ser::SerializeSeq};
+
+            pub fn serialize<S: Serializer> (vs: &Vec<$qty>, s: S)->std::result::Result<S::Ok, S::Error> {
+                let mut seq = s.serialize_seq( Some(vs.len()))?;
+                for v in vs { seq.serialize_element( &super::round1( v.get::<$unit>()))?; }
+                seq.end()
+            }
+
+            pub fn deserialize<'de, D: Deserializer<'de>> (d: D)->std::result::Result<Vec<$qty>, D::Error> {
+                Ok( Vec::<f64>::deserialize(d)?.into_iter().map( |v| <$qty>::new::<$unit>(v)).collect() )
+            }
+        }
+    };
+}
+define_vec_serde!( vec_mph, uom::si::f64::Velocity, uom::si::velocity::mile_per_hour);
+define_vec_serde!( vec_percent, uom::si::f64::Ratio, uom::si::ratio::percent);
+define_vec_serde!( vec_fahrenheit, uom::si::f64::ThermodynamicTemperature, uom::si::thermodynamic_temperature::degree_fahrenheit);
+
+//--- NML support (e.g. for command line tools that read fixed input from files)
+
+pub fn parse_file<P: AsRef<Path>> (path: P)->Result<FixedInput> {
     let content = filepath_contents_as_string(path)?;
-    parse_fixed_wx_lines( content.as_str(), n_steps)
+    parse_fixed_wx_lines( content.as_str())
 }
 
-/// parse input with NML (Fortran Name List) formatted key=val,.. entries
-pub fn parse_fixed_wx_lines (src: &str, n_steps: usize)->Result<Vec<FixedInputStep>> {
+/// parse input with NML (Fortran Name List) formatted key=val,.. entries, e.g. "ws = 20,25,30"
+pub fn parse_fixed_wx_lines (src: &str)->Result<FixedInput> {
     let mut ws: Vec<f64> = Vec::with_capacity(0);
     let mut wd: Vec<f64> = Vec::with_capacity(0);
     let mut m1: Vec<f64> = Vec::with_capacity(0);
@@ -95,7 +198,7 @@ pub fn parse_fixed_wx_lines (src: &str, n_steps: usize)->Result<Vec<FixedInputSt
         }
     }
 
-    get_fixed_steps( n_steps, &ws, &wd, &m1, &m10, &m100, &lh, &lw, &tcc, &t2)
+    FixedInput::from_values( &ws, &wd, &m1, &m10, &m100, &lh, &lw, &tcc, &t2)
 }
 
 pub fn parse_nml_array_line (line: &str)->Result<Option<(String,Vec<f64>)>> {
@@ -117,60 +220,4 @@ pub fn parse_nml_array_line (line: &str)->Result<Option<(String,Vec<f64>)>> {
     } else {
         Err( nml_parse_error!("invalid line: {}", line) )
     }
-}
-
-pub fn fixed_src_from_steps (steps: &[FixedInputStep])->String {
-    let ws = steps.iter().map( |s| format!("{:.1}",s.ws.get::<mile_per_hour>())).collect::<Vec<String>>().join(",");
-    let wd = steps.iter().map( |s| format!("{:.0}", s.wd.degrees())).collect::<Vec<String>>().join(",");
-    let m1 = steps.iter().map( |s| format!("{:.0}", s.m1.get::<percent>())).collect::<Vec<String>>().join(",");
-    let m10 = steps.iter().map( |s| format!("{:.0}", s.m10.get::<percent>())).collect::<Vec<String>>().join(",");
-    let m100 = steps.iter().map( |s| format!("{:.0}", s.m100.get::<percent>())).collect::<Vec<String>>().join(",");
-    let lh = steps.iter().map( |s| format!("{:.0}", s.lh.get::<percent>())).collect::<Vec<String>>().join(",");
-    let lw = steps.iter().map( |s| format!("{:.0}", s.lw.get::<percent>())).collect::<Vec<String>>().join(",");
-
-    format!("ws={ws}\nwd={wd}\nm1={m1}\nm10={m10}\nm100={m100}\nlh={lh}\nlw={lw}\n")
-}
-
-/// turn lists of primitive input values into a vec of FxiedInputSteps. All provided input value slices have to be non-empty.
-/// If an input value slice has not enough elements for a time step it is filled up with the last element
-pub fn get_fixed_steps (
-    n_steps: usize,
-    ws_mph: &[f64], wd_deg: &[f64],
-    m1: &[f64], m10: &[f64], m100: &[f64],
-    lh: &[f64], lw: &[f64],
-    tcc: &[f64], t2: &[f64]
-)->Result<Vec<FixedInputStep>>
-{
-    if ws_mph.is_empty() || wd_deg.is_empty() || m1.is_empty() || m10.is_empty() || m100.is_empty() || lh.is_empty() || lw.is_empty(){
-        return Err( op_failed!("missing FixedInputStep component"))
-    }
-
-    let mut vs: Vec<FixedInputStep> = Vec::with_capacity( n_steps);
-
-    let ws_len = ws_mph.len();
-    let wd_len = wd_deg.len();
-    let m1_len = m1.len();
-    let m10_len = m10.len();
-    let m100_len = m100.len();
-    let lh_len = lh.len();
-    let lw_len = lw.len();
-    let tcc_len = tcc.len();
-    let t2_len = t2.len();
-
-    for i in 0..n_steps {
-        let ws = Velocity::new::<mile_per_hour>( if i < ws_len { ws_mph[i] } else { ws_mph[ws_len-1] });
-        let wd = Angle360::from_degrees( if i < wd_len { wd_deg[i] } else { wd_deg[wd_len-1] });
-        let m1 = Ratio::new::<percent>( if i < m1_len { m1[i] } else { m1[m1_len-1] });
-        let m10 = Ratio::new::<percent>( if i < m10_len { m10[i] } else { m10[m10_len-1] });
-        let m100 = Ratio::new::<percent>( if i < m100_len { m100[i] } else { m100[m100_len-1] });
-        let lh = Ratio::new::<percent>( if i < lh_len { lh[i] } else { lh[lh_len-1] });
-        let lw = Ratio::new::<percent>( if i < lw_len { lw[i] } else { lw[lw_len-1] });
-
-        let tcc = Ratio::new::<percent>( if !tcc.is_empty() {if i < tcc_len { tcc[i]} else {tcc[tcc_len-1]}} else {0.0} );
-        let t2 = ThermodynamicTemperature::new::<degree_fahrenheit>( if !t2.is_empty() {if i < t2_len { t2[i]} else {t2[t2_len-1]}} else {0.0} );
-
-        vs.push( FixedInputStep{ws,wd, m1,m10,m100,lh,lw, tcc,t2});
-    }
-
-    Ok( vs )
 }

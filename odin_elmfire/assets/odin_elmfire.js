@@ -18,10 +18,8 @@
 import { config } from "./odin_elmfire_config.js";
 
 import * as util from "../odin_server/ui_util.js";
-import * as data from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
 import * as code from "../odin_server/ui_code_input.js";
-import * as edit from "../odin_cesium/editor.js";
 import * as ws from "../odin_server/ws.js";
 import * as main from "../odin_server/main.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
@@ -29,6 +27,18 @@ import * as wf from "../odin_wind/windfield.js";
 
 const MOD_PATH = "odin_elmfire::service::ElmfireService";
 const DEBOUNCE_SECS = 3;
+
+// standard user entered barrier types we know about
+const BARRIER_SEAT_DROP = 'SEAT-drop';
+const BARRIER_LAT_DROP = 'LAT-drop';
+const BARRIER_VLAT_DROP = 'VLAT-drop';
+const BARRIER_DOZER_LINE = 'dozer-line';
+const BARRIER_HAND_LINE = 'hand-line';
+const BARRIER_FILE = 'file';
+
+// ignition types (see odin_elmfire::Ignition)
+const IGNITION_POINT = 'point';
+const IGNITION_LINE = 'line';
 
 /* #region ElmfireEntry ************************************************************************************/
 
@@ -216,6 +226,217 @@ class FireEntry {
     }
 }
 
+// note that this has to be kept compatible with odin_elmfire::Barrier
+class Barrier {
+    constructor(barrierType,name,value,width) {
+        this.barrierType = barrierType;
+        this.name = name;
+        this.value = value; // main.GeoLine or main.GeoLineString
+        this.width = width; // [ft]
+
+        this.asset = undefined; // Cesium entity (only exists while this is one of the barrierEntries)
+    }
+
+    // only serialize the odin_elmfire::Barrier fields (not the Cesium asset)
+    toJSON() {
+        return { barrierType: this.barrierType, name: this.name, value: this.value, width: this.width };
+    }
+
+    positions() {
+        let v = this.value;
+        let pts = v.points ? v.points : (v.start && v.end) ? [v.start, v.end] : [];
+        return pts.map( p => Cesium.Cartesian3.fromDegrees( p.lon, p.lat));
+    }
+
+    createAsset() {
+        this.removeAsset();
+
+        let positions = this.positions();
+        if (positions.length >= 2) {
+            let r = config.barrierRender;
+            let clr = r.colors[this.barrierType] || r.defaultColor;
+
+            this.asset = new Cesium.Entity({
+                position: positions[0],
+                polyline: {
+                    positions,
+                    clampToGround: true,
+                    width: r.lineWidth,
+                    material: clr
+                },
+                label: {
+                    text: this.name,
+                    font: config.labelFont,
+                    fillColor: clr,
+                    showBackground: true,
+                    backgroundColor: config.labelBackground,
+                    horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+                    verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                    pixelOffset: config.labelOffset,
+                    distanceDisplayCondition: config.labelDC,
+                    heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                    disableDepthTestDistance: Number.POSITIVE_INFINITY
+                }
+            });
+            dataSource.entities.add( this.asset);
+            odinCesium.requestRender();
+        }
+    }
+
+    removeAsset() {
+        if (this.asset) {
+            dataSource.entities.remove( this.asset);
+            this.asset = undefined;
+            odinCesium.requestRender();
+        }
+    }
+}
+
+// note that this has to be kept compatible with odin_elmfire::Ignition
+class Ignition {
+    constructor(id,ignitionType,date,value) {
+        this.id = id;
+        this.ignitionType = ignitionType; // IGNITION_POINT or IGNITION_LINE
+        this.date = date;   // epoch millis
+        this.value = value; // main.GeoPoint or main.GeoLineString
+
+        this.asset = undefined; // Cesium entity (only exists while this is one of the ignitionEntries)
+    }
+
+    // only serialize the odin_elmfire::Ignition fields (not the Cesium asset)
+    toJSON() {
+        return { id: this.id, ignitionType: this.ignitionType, date: this.date, value: this.value };
+    }
+
+    isPoint() { return this.ignitionType === IGNITION_POINT; }
+
+    nPoints() { return this.isPoint() ? 1 : this.value.points.length; }
+
+    // point ignitions at the simulation center are not rendered since this is already shown by the center symbol
+    isAtCenter() {
+        let loc = ui.getLocation(locEntry);
+        return loc && this.isPoint() && isSameLocation(loc, this.value);
+    }
+
+    createAsset() {
+        this.removeAsset();
+        if (this.isAtCenter()) return;
+
+        if (this.isPoint()) {
+            let p = this.value;
+            this.asset = new Cesium.Entity({
+                position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat),
+                point: {
+                    pixelSize: config.ignPointSize,
+                    color: config.ignPointColor,
+                    outlineColor: config.ignPointOutlineColor,
+                    outlineWidth: config.ignPointOutlineWidth,
+                    heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                    distanceDisplayCondition: config.ignPointDC,
+                },
+                label: this.createLabel()
+            });
+
+        } else {
+            let positions = this.value.points.map( p => Cesium.Cartesian3.fromDegrees(p.lon, p.lat));
+            if (positions.length < 2) return;
+
+            this.asset = new Cesium.Entity({
+                position: positions[0],
+                polyline: {
+                    positions,
+                    clampToGround: true,
+                    width: config.ignLineWidth,
+                    material: config.ignLineColor
+                },
+                label: this.createLabel()
+            });
+        }
+
+        dataSource.entities.add( this.asset);
+        odinCesium.requestRender();
+    }
+
+    createLabel() {
+        return {
+            text: this.id.toString(),
+            horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+            verticalOrigin: Cesium.VerticalOrigin.TOP,
+            font: config.labelFont,
+            fillColor: config.labelColor,
+            showBackground: true,
+            backgroundColor: config.labelBackground,
+            backgroundPadding: new Cesium.Cartesian2( 3,3),
+            pixelOffset: config.labelOffset,
+            distanceDisplayCondition: config.ignPointDC,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            disableDepthTestDistance: Number.MAX_SAFE_INTEGER,
+        };
+    }
+
+    removeAsset() {
+        if (this.asset) {
+            dataSource.entities.remove( this.asset);
+            this.asset = undefined;
+            odinCesium.requestRender();
+        }
+    }
+}
+
+class FixedEntry {
+    static choiceWidth = "3.4rem";
+
+    constructor(type, uom, choiceItems, selIdx, minVal, maxVal, maxLen, values = []) {
+        this.type = type;
+        this.uom = uom;
+        this.ch = ui.createChoice(null, FixedEntry.choiceWidth, choiceItems, selIdx, {numeric: true, pad: -3});
+        this.minVal = minVal;
+        this.maxVal = maxVal;
+        this.maxLen = maxLen;
+        this.values = values;
+    }
+
+    lastValue() {
+        return (this.values.length == 0) ? null : this.values[this.values.length - 1];
+    }
+
+    pushValue() {
+        let selChoice = ui.getSelectedChoiceItem(this.ch);
+        let x = selChoice;
+        if (this.values.length < this.maxLen) this.values.push(x);
+    }
+
+    popValue() {
+        this.values.pop();
+    }
+
+    getHour(n) {
+        let len = this.values.length;
+        if (len == 0 || n >= len) return '';
+        return this.values[n];
+    }
+
+    setHour(idx, v) {
+        if (idx < this.maxLen) {
+            let values = this.values;
+
+            if (idx < values.length) {
+                values[idx] = v;
+            } else {
+                let selChoice = ui.getSelectedChoiceItem(this.ch);
+                for (let i = values.length; i < idx - 1; i++) {
+                    values.push(selChoice);
+                }
+                values.push(v);
+            }
+        }
+    }
+
+    clear() {
+        this.values = [];
+    }
+}
+
 /* #endregion ElmfireEntry */
 
 var render = util.levelOneCloneOf( config.render);
@@ -227,15 +448,26 @@ var imgCh = undefined;
 var wndCh = undefined;
 var nameEntry = undefined;
 var locEntry = undefined;
+var pickNowBtn = undefined;
 var dtgEntry = undefined;
-var ignitionSrc = undefined;
-var fixedSrc = undefined;
+var ignitionView = undefined;
+var ignitionTypeCh = undefined;
+var ignitionDelayEntry = undefined;
+var addIgnBtn = undefined;
+var fixedView = undefined;
 var spottingSrc = undefined;
-var barrierSrc = undefined;
+var barrierView = undefined;
+var barrierBtn = undefined;
+var barrierTypeCh = undefined;
+var barrierWidthCh = undefined;
+var barrierEntry = undefined;
 
 var statsView = undefined;
 
 var fireEntries = new Map();  // id -> FireEntry
+var barrierEntries = [];
+var ignitionEntries = []; // current ignitions (from selectedEntry or user input)
+var fixedEntries = [];
 
 // UI state
 var showSelectedEntryMode = true;  // do we automatically show all isochrones of a run upon selecting it (or only requested timesteps)
@@ -250,20 +482,23 @@ var shownWind = undefined;
 var windRender = new wf.WindFieldRenderControls( "elmfire.wind", config.windRender, windRenderChanged);
 
 var curCenterAsset = undefined;
-var curIgnitionAssets = [];
 
-var spottingList = []; // the list of known spotting config files we get from the server
+var spottingFileList = []; // the list of known spotting config files we get from the server
+var barrierFileList = []; // the list of known barrier (GeoJSON) files we get from the server
 
 createIcon();
 createWindow();
 
 initFireView();
 initTimestepView();
+initIgnitionView();
+initFixedView();
+initBarrierView();
 
 setWindChoices();
 setImgChoices();
 setIncidentChoices();
-setFixedWxChoices();
+initFixedEntries();
 setBarrierChoices();
 
 setInputDebouncers();
@@ -292,6 +527,9 @@ function handleWsMessages(msgType, msg) {
             return true;
         case "spotting":
             handleSpottingMessage(msg);
+            return true;
+        case "barriers":
+            handleBarriersMessage(msg);
             return true;
         default:
             return false;
@@ -356,14 +594,18 @@ function cleanUpCurAssets() {
     dataSource.entities.remove(curCenterAsset);
     curCenterAsset = null;
 
-    curIgnitionAssets.forEach((a) => dataSource.entities.remove(a));
-    curIgnitionAssets = [];
+    clearIgnitions();
     odinCesium.requestRender();
 }
 
 function handleSpottingMessage(newSpottingList) {
-    spottingList = ["-", ...newSpottingList]; // prepend a none-choice
+    spottingFileList = ["-", ...newSpottingList]; // prepend a none-choice
     updateSpottingsChoices();
+}
+
+function handleBarriersMessage(newBarrierList) {
+    barrierFileList = newBarrierList;
+    updateBarrierChoices();
 }
 
 //--- view initialization
@@ -394,57 +636,54 @@ function createWindow() {
             ui.VarText(null, "elmfire.error", "30rem")
         ),
         ui.Panel("input", false)(
-            ui.RowContainer()(
-                ui.Button("clear all", clearIncident),
-                ui.HorizontalSpacer(2),
-                ui.Button("pick now", pickNow),
-                ui.Button("simulate", createRequest)
-            ),
-            ui.RowContainer()(
-                (nameEntry = ui.TextInput("name", "elmfire.name", "11rem", { placeHolder: "event name" })),
-                ui.HorizontalSpacer(0.5),
-                ui.Choice("hours", "elmfire.nHours", null, "3rem"),
-                ui.HorizontalSpacer(0.5),
-                ui.Choice("grid [km]", "elmfire.size", null, "3rem"),
-                ui.HorizontalSpacer(0.5),
-                ui.CheckBox( "comp wind", null, "elmfire.computeWind")
-            ),
-
-            ui.RowContainer()(
-                (locEntry = ui.LocationEntry("loc", "elmfire.location", pickLocation)),
-                ui.HorizontalSpacer(0.5),
-                (dtgEntry = ui.DTGEntry("dtg", "elmfire.date"))
+            ui.RowContainer('start')(
+                ui.ColumnContainer('start')(
+                    (nameEntry = ui.TextInput("name", "elmfire.name", "14.9rem", { placeHolder: "event name", labelWidth: "4rem" })),
+                    (dtgEntry = ui.DTGEntry("date", "elmfire.date", {labelWidth: "4rem"})),
+                    (locEntry = ui.LocationEntry("loc", "elmfire.location", pickLocation, {labelWidth: "4rem"}))
+                ),
+                ui.HorizontalSpacer(0.3),
+                ui.ColumnContainer('end')(
+                    ui.CheckBox( "comp wind", null, "elmfire.computeWind"),
+                    ui.Choice("hours", "elmfire.nHours", null, "3rem"),
+                    ui.Choice("grid [km]", "elmfire.size", null, "3rem")
+                ),
+                ui.HorizontalSpacer(0.3),
+                ui.ColumnContainer()(
+                    (pickNowBtn = ui.Button("pick", pickNow, "4rem")),
+                    ui.Button("run", createRequest, "4rem"),
+                    ui.Button("clear", clearIncident, "4rem")
+                )
             ),
 
             ui.VerticalSpacer(0.3),
             ui.TabbedContainer()(
                 ui.Tab("ignitions", true)(
-                    (ignitionSrc = code.CodeInput("elmfire.ignitionSrc", "nml-highlight", "fortran-namelist", "35rem", "11lh")),
+                    ui.RowContainer("end")(
+                        (ignitionView = ui.List("elmfire.ignitions", 6, selectIgnition)),
+                        ui.HorizontalSpacer(0.2),
+                        ui.ColumnContainer("center")(
+                            ui.RowContainer()(
+                                ui.Button("del", deleteIgnition, "4rem"),
+                                ui.Button("clear", clearIgnitions, "4rem")
+                            )
+                        )
+                    ),
                     ui.RowContainer()(
-                        ui.Button("clear", clearIgnitions),
-                        ui.HorizontalSpacer(1.0),
-                        ui.Button("add point", addIgnitionPoint),
-                        ui.Button("add line", addIgnitionLine),
-                        ui.Button("check", checkIgnitions)
+                        (ignitionTypeCh = ui.Choice(null, "elmfire.ignitionType", null, "6.5rem")),
+                        (ignitionDelayEntry = ui.HMEntry(null, "elmfire.ignitionDelay")),
+                        ui.HorizontalSpacer(0.2),
+                        ui.Button("edit", editIgnition, "4rem"),
+                        (addIgnBtn = ui.Button("pick", addIgnition, "4rem"))
                     )
                 ),
                 ui.Tab("fixed wx", false)(
-                    (fixedSrc = code.CodeInput("elmfire.fixedSrc", "nml-highlight", "fortran-namelist", "35rem", "11lh")),
+                    (fixedView = ui.List("elmfire.fixed", 8)),
                     ui.RowContainer()(
-                        ui.Choice("wd", "elmfire.fixedWd", null, "3.5rem", "3rem"),
-                        ui.Choice("ws", "elmfire.fixedWs", null, "3.5rem", "3rem"),
-                        ui.Choice("t2", "elmfire.t2", null, "3.5rem", "3rem"),
-                        ui.Choice("tcc", "elmfire.tcc", null, "3.5rem", "3rem"),
-                        ui.HorizontalSpacer(1.0),
-                        ui.Button("create", createFixedSrc, "4rem")
-                    ),
-                    ui.RowContainer()(
-                        ui.Choice("m1", "elmfire.fixedM1", null, "3.5rem", "3rem"),
-                        ui.Choice("m10", "elmfire.fixedM10", null, "3.5rem", "3rem"),
-                        ui.Choice("m100", "elmfire.fixedM100", null, "3.5rem", "3rem"),
-                        ui.Choice("lfm", "elmfire.lfMoisture", null, "3.5rem", "3rem"),
-                        ui.HorizontalSpacer(1.0),
-                        ui.Button("clear", clearFixed, "4rem")
+                        ui.Button("clear", clearFixed),
+                        ui.HorizontalSpacer(1),
+                        ui.Button("－", popFixedColumn, "2.2rem"),
+                        ui.Button("＋", pushFixedColumn, "2.2rem")
                     )
                 ),
                 ui.Tab("spotting", false)(
@@ -458,23 +697,33 @@ function createWindow() {
                     )
                 ),
                 ui.Tab("barriers", false)(
-                    (barrierSrc = code.CodeInput("elmfire.barrierSrc", "nml-highlight", "fortran-namelist", "35rem", "11lh")),
+                    ui.RowContainer("end")(
+                        (barrierView = ui.List("elmfire.barriers", 6, selectBarrier)),
+                        ui.ColumnContainer("center")(
+                            ui.RowContainer()(
+                                ui.Button("del", deleteBarrier, "4rem"),
+                                ui.Button("clear", clearBarriers, "4rem")
+                            )
+                        )
+                    ),
                     ui.RowContainer()(
-                        ui.Button("clear", clearBarriers),
-                        ui.HorizontalSpacer(1.0),
-                        ui.Button("line", pickBarrierLine),
-                        ui.Choice("width [ft]", "elmfire.barrierWidth", null, "3rem")
+                        (barrierEntry = ui.TextInput("", "elmfire.barrierName", "9.9rem")),
+                        (barrierTypeCh = ui.Choice(null, "elmfire.barrierChoice", selectBarrierChoice, "9.1rem")),
+                        (barrierWidthCh = ui.Choice(null, "elmfire.barrierWidth", null, "3.1rem")),
+                        ui.HorizontalSpacer(0.8),
+                        ui.Button("edit", editBarrier, "4rem"),
+                        (barrierBtn = ui.Button("pick", addBarrier, "4rem"))
                     )
                 )
             )
         ),
         ui.Panel("toa display", false)(
             ui.RowContainer()(
-                ui.ColorField("toa stroke", "fires.toa.stroke_color", true, toaStrokeColorChanged, "2rem"),
+                ui.ColorField("toa stroke", "fires.toa.stroke_color", true, "2rem", { changeAction: toaStrokeColorChanged }),
                 ui.initSlider("width", "fires.toa.stroke_width", toaStrokeWidthChanged, 1, 3, 1, util.f_0, 1)
             ),
             ui.RowContainer()(
-                ui.ColorField("toa fill", "fires.toa.fill_color", true, toaFillColorChanged, "2rem"),
+                ui.ColorField("toa fill", "fires.toa.fill_color", true, "2rem", { changeAction: toaFillColorChanged }),
                 ui.initSlider("alpha", "fires.toa.fill_alpha", toaFillAlphaChanged, 0, 1, 0.1, util.f_1, 0.7)
             ),
             ui.Button("reset all", resetRendering)
@@ -482,10 +731,7 @@ function createWindow() {
         windRender.displayPanel("wind display")
     );
 
-    ignitionSrc.placeholder = "Elmfire ignition input (NML format)";
-    fixedSrc.placeholder = "Elmfire fixed wind and fuel moisture input (NML format)";
     spottingSrc.placeholder = "Elmfire spotting input (NML format)";
-    barrierSrc.placeholder = "Elmfire barrier input (NML format)";
 
     return view;
 }
@@ -545,12 +791,65 @@ function initTimestepView() {
     ]);
 }
 
+function initIgnitionView() {
+    ui.setListItemDisplayColumns(ignitionView, ["fit", "header"], [
+        { name: "id", tip: "ignition id (shown as label)", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.id },
+        { name: "date", tip: "time of ignition", width: "11rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalDateHMTimeString(e.date) },
+        ui.listItemSpacerColumn(1.4),
+        { name: "type", tip: "ignition type (point or line)", width: "4rem", attrs: [], map: e => e.ignitionType },
+        ui.listItemSpacerColumn(1.3),
+        { name: "Δt", tip: "hours and minutes after first ignition", width: "3.5rem", attrs: ["fixed", "alignRight"], map: e => ignitionDelayString(e) },
+        ui.listItemSpacerColumn(0.8),
+    ]);
+}
+
+function ignitionDelayString(ign) {
+    let t0 = ui.getDTGEntryEpochMillis(dtgEntry);
+    let t1 = ign.date;
+    let d = t1 - t0;
+    let dh = Math.floor(d / 3600000);
+    let dm = Math.round((d % 3600000) / 60000);
+
+    let hm = `${dh < 10 ? '0' + dh : dh}:${dm < 10 ? '0' + dm : dm}`;
+    return hm;
+}
+
+function initFixedView() {
+    ui.setListItemDisplayColumns(fixedView, ["fit", "header"], [
+        { name: "type", tip: "fixed input type", width: "3rem", attrs: [], map: e => e.type },
+        { name: "1h", tip: "1st hour", width: "2.8rem", attrs: ['fixed', 'alignRight'], map: e => e.getHour(0), edit: (evt)=> editHour(0, evt)},
+        { name: "2h", tip: "2nd hour", width: "2.8rem", attrs:['fixed','alignRight'], map: e => e.getHour(1), edit: (evt)=> editHour(1, evt)},
+        { name: "3h", tip: "3rd hour", width: "2.8rem", attrs:['fixed','alignRight'], map: e => e.getHour(2), edit: (evt)=> editHour(2, evt)},
+        { name: "4h", tip: "4th hour", width: "2.8rem", attrs:['fixed','alignRight'], map: e => e.getHour(3), edit: (evt)=> editHour(3, evt)},
+        { name: "5h", tip: "5th hour", width: "2.8rem", attrs:['fixed','alignRight'], map: e => e.getHour(4), edit: (evt)=> editHour(4, evt)},
+        { name: "6h", tip: "6th hour", width: "2.8rem", attrs:['fixed','alignRight'], map: e => e.getHour(5), edit: (evt)=> editHour(5, evt)},
+        { name: "7h", tip: "7th hour", width: "2.8rem", attrs:['fixed','alignRight'], map: e => e.getHour(6), edit: (evt)=> editHour(6, evt)},
+        { name: "8h", tip: "8th hour", width: "2.8rem", attrs: ['fixed', 'alignRight'], map: e => e.getHour(7), edit: (evt) => editHour(7, evt) },
+        ui.listItemSpacerColumn(0.8),
+        { name: "values", tip: "value choices", width: FixedEntry.choiceWidth, attrs: [], map: e => e.ch },
+        ui.listItemSpacerColumn(0.1),
+        { name: '', tip: null, width:"2rem", attrs: ["small"], map: e => e.uom },
+        { name: '', tip: null, width: "1.5rem", attrs: ['alignCenter'], map: e => ui.createInlineButton("-", () => popFixed(e)) },
+        { name: '', tip: null, width: "1.5rem", attrs: ['alignCenter'], map: e => ui.createInlineButton("+", () => pushFixed(e)) }
+    ]);
+}
+
+function initBarrierView() {
+    ui.setListItemDisplayColumns(barrierView, ["fit", "header"], [
+        { name: "name", tip: "fire name", width: "10rem", attrs: [], map: e => util.maxString(e.name, 20) },
+        ui.listItemSpacerColumn(1.4),
+        { name: "type", tip: "barrier type (hand-/dozer-line, seat-/lat-/vlat-drop)", width: "7rem", attrs: [], map: e => e.barrierType },
+        ui.listItemSpacerColumn(1.4),
+        { name: "width", tip: "barrier line width [ft]", width: "3rem", attrs:["fixed","alignRight"], map: e=> e.width }
+    ]);
+}
+
 function inputTypes(e) {
     let t = "";
     if (e.ef.computeWind) t += 'w';
     if (e.ef.fixed) t += 'f';
     if (e.ef.spotting) t += 's';
-    if (e.ef.barriers) t += 'b';
+    if (e.ef.barriers && e.ef.barriers.length > 0) t += 'b';
 
     return t;
 }
@@ -692,44 +991,61 @@ function setIncidentChoices() {
     // this is in [km]
     ui.setChoiceItems("elmfire.nHours", [3, 4, 5, 6, 7, 8], 1);
     ui.setChoiceItems("elmfire.size", [24, 30, 42, 60], 0);
+    ui.setChoiceItems(ignitionTypeCh, [IGNITION_POINT, IGNITION_LINE], 0);
 }
 
-function setFixedWxChoices() {
-    // initialize from config so that we can override based on configured location
-    ui.setChoiceItems("elmfire.fixedWs", config.fixedWs, config.defaultWs);
-    ui.setChoiceItems("elmfire.fixedWd", config.fixedWd, config.defaultWd);
-    ui.setChoiceItems("elmfire.fixedM1", config.fixedM1, config.defaultM1);
-    ui.setChoiceItems("elmfire.fixedM10", config.fixedM10, config.defaultM10);
-    ui.setChoiceItems("elmfire.fixedM100", config.fixedM100, config.defaultM100);
-    ui.setChoiceItems("elmfire.lfMoisture", [...config.lfmMap.keys()], config.defaultLfm);
-    ui.setChoiceItems("elmfire.t2", config.fixedT2, config.defaultT2);
-    ui.setChoiceItems("elmfire.tcc", config.fixedTcc, config.defaultTcc);
+function initFixedEntries() {
+    let maxHours = 8;
+    fixedEntries.push(new FixedEntry("ws", "mph", config.fixedWs, config.defaultWs, 0, 200, maxHours));
+    fixedEntries.push(new FixedEntry("wd", "°", config.fixedWd, config.defaultWd, 0, 359, maxHours));
+    fixedEntries.push(new FixedEntry("m1", "%", config.fixedM1, config.defaultM1, 0, 100, maxHours));
+    fixedEntries.push(new FixedEntry("m10", "%", config.fixedM10, config.defaultM10, 0, 100, maxHours));
+    fixedEntries.push(new FixedEntry("m100", "%", config.fixedM100, config.defaultM100, 0, 100, maxHours));
+    fixedEntries.push(new FixedEntry("lh", "%", config.fixedLh, config.defaultLh, 0, 100, maxHours));
+    fixedEntries.push(new FixedEntry("lw", "%", config.fixedLw, config.defaultLw, 0, 100, maxHours));
+    fixedEntries.push(new FixedEntry("t2", "°F", config.fixedT2, config.defaultT2, 0, 130, maxHours));
+    fixedEntries.push(new FixedEntry("tcc", "%", config.fixedTcc, config.defaultTcc, 0, 100, maxHours));
+
+    ui.setListItems(fixedView, fixedEntries);
+}
+
+// are there some fixedEntries that still need values
+// Valid cases are either all have at least one value or none has any value. Report types of all other ones
+function getMissingFixed() {
+    let missing = [];
+    fixedEntries.forEach(fe => {
+        if (fe.values.length == 0) missing.push(fe.type);
+    });
+    return missing.length < fixedEntries.length ? missing : [];
+}
+
+// the fixed wx input as an object with value arrays for each type ({ws: [..], wd: [..], ..} - see odin_elmfire::FixedInput),
+// or undefined if no fixed values were entered
+function getFixed() {
+    if (fixedEntries.every( fe => fe.values.length == 0)) return undefined;
+
+    let fixed = {};
+    fixedEntries.forEach( fe => fixed[fe.type] = fe.values);
+    return fixed;
 }
 
 function updateSpottingsChoices() {
-    ui.setChoiceItems("elmfire.savedSpottings", spottingList, 0)
+    ui.setChoiceItems("elmfire.savedSpottings", spottingFileList, 0)
 }
 
 function setBarrierChoices() {
-    ui.setChoiceItems("elmfire.barrierWidth", [15,20,25,30,40], 0)
+    let barrierChoices = [BARRIER_HAND_LINE,BARRIER_DOZER_LINE,"---", BARRIER_SEAT_DROP,BARRIER_LAT_DROP,BARRIER_VLAT_DROP]; // the standard user-creatable entries
+    if (barrierFileList.length > 0) {
+        barrierChoices.push("---");
+        barrierChoices.push(...barrierFileList);
+    }
+    ui.setChoiceItems("elmfire.barrierChoice", barrierChoices, 0);
+    ui.setChoiceItems("elmfire.barrierWidth", config.barrierWidths, 0);
 }
 
 function setInputDebouncers() {
-    ignitionSrc.addEventListener('input', util.debounce(processIgnitionChange, DEBOUNCE_SECS));
     locEntry.addEventListener('input', util.debounce(processLocationChange, DEBOUNCE_SECS));
     nameEntry.addEventListener('input', util.debounce(processNameChange, DEBOUNCE_SECS));
-}
-
-function processIgnitionChange() {
-    let igns = getIgnitions();
-    if (curIgnitionAssets) removeIgnitionAssets();
-
-    if (igns) {
-        curIgnitionAssets = createIgnitionEntities(igns);
-        curIgnitionAssets.forEach((a) => dataSource.entities.add(a));
-    }
-
-    odinCesium.requestRender();
 }
 
 function processLocationChange() {
@@ -753,6 +1069,8 @@ function processLocationChange() {
         }
         odinCesium.requestRender();
     }
+
+    ignitionEntries.forEach( ign => ign.createAsset()); // visibility of point ignitions depends on center location
 }
 
 function processNameChange() {
@@ -785,103 +1103,145 @@ function setLocation(loc) {
     processLocationChange();
 }
 
-function setIgnitionCode(src) {
-    code.setCode(ignitionSrc, src);
-    processIgnitionChange();
+//--- ignitions
+
+// the date for new ignitions: dtg + selected delay. If there is no dtg yet we set it to now
+function newIgnitionDate() {
+    let t = ui.getDTGEntryEpochMillis(dtgEntry);
+    if (!t) {
+        let t = Math.round(Date.now() / 60000) * 60000; // round to full minute
+        ui.setDTGEntryEpochMillis(dtgEntry, t);
+        return t;
+    } else {
+        let delay = ui.getHMValue(ignitionDelayEntry) || new ui.HMValue(0, 0);
+        return t + delay.milliseconds();
+    }
 }
 
-function addIgnitionLine() {
+function nextIgnitionId() {
+    return ignitionEntries.reduce( (maxId, ign) => Math.max(maxId, ign.id), 0) + 1;
+}
+
+function roundedGeoPoint(p) {
+    return new main.GeoPoint( util.roundToDecimals(p.lon, 4), util.roundToDecimals(p.lat, 4));
+}
+
+function isSameLocation(p1, p2) {
+    return Math.abs(p1.lon - p2.lon) < 0.00005 && Math.abs(p1.lat - p2.lat) < 0.00005; // locations are rounded to 4 decimals
+}
+
+function editIgnition() {
     // TBD
 }
 
+function addIgnition() {
+    let ignType = ui.getSelectedChoiceValue(ignitionTypeCh);
+    switch (ignType) {
+        case IGNITION_POINT : addIgnitionPoint(); break;
+        case IGNITION_LINE: addIgnitionLine(); break;
+    }
+}
+
+// interactively pick a point ignition. This sets the location and dtg if they are not yet set
 function addIgnitionPoint() {
+    ui.setButtonActive(addIgnBtn, true);
     odinCesium.enterGeoPoint((loc) => {
         if (loc) {
-            loc.lat = util.roundToDecimals(loc.lat, 4);
-            loc.lon = util.roundToDecimals(loc.lon, 4);
-
-            let t = ui.getDTGEntryEpochMillis(dtgEntry);
-            if (!t) {
-                ui.setDTGEntryEpochMillis(dtgEntry, Date.now());
-                t = ui.getDTGEntryEpochMillis(dtgEntry);
-            }
-            if (!ui.getLocation(locEntry)) {
-                setLocation( loc);
-            }
-
-            let t0 = Math.round((t % 3600000) / 1000);
-            let src = addPointIgnitionSource(loc, t0);
-            setIgnitionCode(src);
+            let p = roundedGeoPoint(loc);
+            let date = newIgnitionDate();
+            if (!ui.getLocation(locEntry)) setLocation(p);
+            addIgnitionEntry( new Ignition( nextIgnitionId(), IGNITION_POINT, date, p));
         }
+        ui.setButtonActive(addIgnBtn, false);
     });
 }
 
-function checkIgnitions() {
-    let src = code.getCode(ignitionSrc);
-    let loc = ui.getLocation(locEntry);
-    if (loc) {
-        try {
-            let igns = parseIgnitions(src, loc);
-            return true;
-        } catch (e) { alert(e) }
-    } else { alert("no center location set") }
-    return false;
+// interactively pick a line ignition (a line string that gets broken up into lines for Elmfire)
+function addIgnitionLine() {
+    ui.setButtonActive(addIgnBtn, true);
+    odinCesium.enterGeoLineString((geoLineString) => {
+        if (geoLineString && geoLineString.points.length >= 2) {
+            let pts = geoLineString.points.map( p => roundedGeoPoint(p));
+            let date = newIgnitionDate();
+            if (!ui.getLocation(locEntry)) setLocation(pts[0]);
+            addIgnitionEntry( new Ignition( nextIgnitionId(), IGNITION_LINE, date, new main.GeoLineString(pts)));
+        }
+        ui.setButtonActive(addIgnBtn, false);
+    });
 }
 
-// this one does not report parse errors but just returns ignitions
-function getIgnitions() {
-    let src = code.getCode(ignitionSrc);
-    let loc = ui.getLocation(locEntry);
-    if (loc) {
-        try {
-            return parseIgnitions(src, loc);
-        } catch (e) { return null; }
-    } else { return null; }
+function addIgnitionEntry(ign) {
+    ign.createAsset();
+    ignitionEntries.push(ign);
+    ui.setListItems(ignitionView, ignitionEntries);
 }
 
+function selectIgnition() {
+    let ign = ui.getSelectedListItem(ignitionView);
+    if (ign) {
+        let t0 = ui.getDTGEntryEpochMillis(dtgEntry);
+        let t1 = idn.date.getTime();
+        let delay = ui.HMValue.fromMillis( t1 - t0);
+        ui.setHMValue(ignitionDelayEntry, delay);
+    }
+}
+
+// "del" button: remove the selected ignition (and its asset)
+function deleteIgnition() {
+    let ign = ui.getSelectedListItem(ignitionView);
+    if (ign) {
+        ign.removeAsset();
+        ignitionEntries = ignitionEntries.filter( e => !Object.is(e, ign));
+        ui.removeListItem(ignitionView, ign);
+    } else {
+        alert("please select ignition to delete");
+    }
+}
+
+// "clear" button: remove all ignitionEntries (and their assets)
 function clearIgnitions() {
-    code.setCode(ignitionSrc, "");
-    removeIgnitionAssets();
+    ignitionEntries.forEach( ign => ign.removeAsset());
+    ignitionEntries = [];
+    ui.setListItems(ignitionView, ignitionEntries);
 }
 
-function removeIgnitionAssets() {
-    curIgnitionAssets.forEach((a) => dataSource.entities.remove(a));
-    curIgnitionAssets = [];
-    odinCesium.requestRender();
+// replace ignitionEntries with the ignitions of a received (or locally created) Elmfire run (see odin_elmfire::Ignition)
+function setIgnitions(ignitions) {
+    ignitionEntries.forEach( ign => ign.removeAsset());
+    ignitionEntries = ignitions ? ignitions.map( ign => new Ignition( ign.id, ign.ignitionType, ign.date, toGeoValue(ign.value))) : [];
+    ignitionEntries.forEach( ign => ign.createAsset());
+    ui.setListItems(ignitionView, ignitionEntries);
+}
+
+function pushFixedColumn() {
+    fixedEntries.forEach((e) => e.pushValue());
+    ui.updateListItems(fixedView);
+}
+
+function popFixedColumn() {
+    fixedEntries.forEach((e) => e.popValue());
+    ui.updateListItems(fixedView);
 }
 
 function clearFixed() {
-    code.setCode(fixedSrc, "");
+    fixedEntries.forEach((e) => e.clear());
+    ui.updateListItems(fixedView);
 }
 
-function createFixedSrc() {
-    let ws = ui.getSelectedChoiceValue("elmfire.fixedWs");
-    let wd = ui.getSelectedChoiceValue("elmfire.fixedWd");
-    let t2 = ui.getSelectedChoiceValue("elmfire.t2");
-    let tcc = ui.getSelectedChoiceValue("elmfire.tcc");
+function pushFixed(fe) {
+    fe.pushValue();
+    ui.updateListItem(fixedView, fe);
+}
 
-    let dfm1 = ui.getSelectedChoiceValue("elmfire.fixedM1");
-    let dfm10 = ui.getSelectedChoiceValue("elmfire.fixedM10");
-    let dfm100 = ui.getSelectedChoiceValue("elmfire.fixedM100");
-    let lfms = config.lfmMap.get(ui.getSelectedChoiceValue("elmfire.lfMoisture"));
+function editHour(n, event) {
+    ui.editListItemField(event.target, (item, newValue) => {
+        item.setHour(n, newValue);
+    });
+}
 
-    let src =
-`! fixed Elmfire weather and fuel moisture input
-ws   = ${ws.toFixed(0).padStart(4, ' ')}  ! wind speed [mph]
-wd   = ${wd.toFixed(0).padStart(4, ' ')}  ! wind direction [°]
-
-m1   = ${dfm1.toFixed(0).padStart(4, ' ')}  ! 1h dead fuel moisture [%]
-m10  = ${dfm10.toFixed(0).padStart(4, ' ')}  ! 10h dead fuel moisture [%]
-m100 = ${dfm100.toFixed(0).padStart(4, ' ')}  ! 100h dead fuel moisture [%]
-
-lh   = ${lfms[0].toFixed(0).padStart(4, ' ')}  ! live herbaceous fuel moisture [%]
-lw   = ${lfms[1].toFixed(0).padStart(4, ' ')}  ! live woody fuel moisture [%]
-
-t2   = ${t2.toFixed(0).padStart(4, ' ')}  ! temperature at 2m [F]
-tcc  = ${tcc.toFixed(0).padStart(4, ' ')}  ! total cloud covarage [%]
-`;
-
-    code.setCode(fixedSrc, src);
+function popFixed(fe) {
+    fe.popValue();
+    ui.updateListItem(fixedView, fe);
 }
 
 function saveSpotting() {
@@ -892,12 +1252,147 @@ function clearSpotting() {
     code.setCode(spottingSrc, "");
 }
 
-function pickBarrierLine() {
-    // TBD
+function selectBarrierChoice(event) {
+    let e = ui.getChoice(event.target);
+    if (e) {
+        let bType = ui.getSelectedChoiceValue(e);
+        if (bType) {
+            switch (bType) {
+                case BARRIER_SEAT_DROP:
+                    ui.setButtonValue(barrierBtn, "pick");
+                    ui.selectChoiceItem(barrierWidthCh, config.seatDropWidth);
+                    break;
+                case BARRIER_LAT_DROP:
+                    ui.setButtonValue(barrierBtn, "pick");
+                    ui.selectChoiceItem(barrierWidthCh, config.latDropWidth);
+                    break;
+                case BARRIER_VLAT_DROP:
+                    ui.setButtonValue(barrierBtn, "pick");
+                    ui.selectChoiceItem(barrierWidthCh, config.vlatDropWidth);
+                    break;
+                case BARRIER_DOZER_LINE:
+                    ui.setButtonValue(barrierBtn, "pick");
+                    ui.selectChoiceItem(barrierWidthCh, config.dozerLineWidth);
+                    break;
+                case BARRIER_HAND_LINE:
+                    ui.setButtonValue(barrierBtn, "pick");
+                    ui.selectChoiceItem(barrierWidthCh, config.handLineWidth);
+                    break;
+                default:
+                    ui.setButtonValue(barrierBtn, "add");
+            }
+        }
+    }
 }
 
+function addBarrier() {
+    let barrierType = ui.getSelectedChoiceValue(barrierTypeCh);
+
+    if (isUserBarrier(barrierType)) { // we need a name and then interactively pick positions
+        let barrierName = ui.getFieldValue(barrierEntry);
+        if (!barrierName || barrierName.length == 0) {
+            alert("please enter name for new " + barrierType + " barrier");
+            return;
+        }
+        let barrierWidth = ui.getSelectedChoiceValue(barrierWidthCh);
+
+        if (barrierType === BARRIER_SEAT_DROP || barrierType === BARRIER_LAT_DROP || barrierType === BARRIER_VLAT_DROP) {
+            ui.setButtonActive(barrierBtn, true);
+            odinCesium.enterGeoLine((geoLine) => {
+                ui.setButtonActive(barrierBtn, false);
+                if (geoLine) addBarrierEntry( new Barrier(barrierType, barrierName, geoLine, barrierWidth));
+            });
+        } else if (barrierType === BARRIER_DOZER_LINE || barrierType === BARRIER_HAND_LINE) {
+            ui.setButtonActive(barrierBtn, true);
+            odinCesium.enterGeoLineString((geoLineString) => {
+                ui.setButtonActive(barrierBtn, false);
+                if (geoLineString) addBarrierEntry(new Barrier(barrierType, barrierName, geoLineString, barrierWidth));
+            });
+        }
+
+    } else { // file selection, no name required
+        // TBD - for file selections the selected type is used as the name and the value, and the type is set to BARRIER_FILE
+    }
+}
+
+function editBarrier() {
+    let be = ui.getSelectedListItem(barrierView);
+    if (be) {
+        // TBD - only lines and drops can be edited
+    }
+}
+
+// add (or replace) a user entered barrier. Note that barriers are identified by name
+function addBarrierEntry(be) {
+    be.createAsset();
+
+    let idx = barrierEntries.findIndex((e) => e.name == be.name);
+    if (idx >= 0) {
+        barrierEntries[idx].removeAsset();
+        barrierEntries[idx] = be;
+    } else {
+        barrierEntries.push(be);
+    }
+    ui.setListItems(barrierView, barrierEntries);
+}
+
+function isUserBarrier(barrier) {
+    return (barrier === BARRIER_SEAT_DROP || barrier === BARRIER_LAT_DROP || barrier === BARRIER_VLAT_DROP ||
+        barrier === BARRIER_DOZER_LINE || barrier === BARRIER_HAND_LINE);
+}
+
+// "del" button: remove the selected barrier (and its asset)
+function deleteBarrier() {
+    let be = ui.getSelectedListItem(barrierView);
+    if (be) {
+        be.removeAsset();
+        barrierEntries = barrierEntries.filter( e => !Object.is(e, be));
+        ui.removeListItem(barrierView, be);
+
+        if (ui.getFieldValue(barrierEntry) == be.name) ui.clearField(barrierEntry);
+    } else {
+        alert("please select barrier to delete");
+    }
+}
+
+function selectBarrier() {
+    let selBarrier = ui.getSelectedListItem(barrierView);
+    if (selBarrier) {
+        ui.setField(barrierEntry, selBarrier.name);
+        ui.setSelectedChoiceValue(barrierTypeCh, selBarrier.barrierType);
+        ui.setSelectedChoiceValue(barrierWidthCh, selBarrier.width);
+    }
+}
+
+// "clear" button: remove all barrierEntries (and their assets)
 function clearBarriers() {
-    code.setCode(barrierSrc, "");
+    barrierEntries.forEach( be => be.removeAsset());
+    barrierEntries = [];
+    ui.setListItems(barrierView, barrierEntries);
+    ui.clearField(barrierEntry);
+}
+
+// replace barrierEntries with the barriers of a received (or locally created) Elmfire run (see odin_elmfire::Barrier).
+// Only the current barrierEntries are rendered
+function setBarriers(barriers) {
+    barrierEntries.forEach( be => be.removeAsset());
+    barrierEntries = barriers ? barriers.map( b => new Barrier( b.barrierType, b.name, toGeoValue(b.value), b.width)) : [];
+    barrierEntries.forEach( be => be.createAsset());
+    ui.setListItems(barrierView, barrierEntries);
+}
+
+// turn deserialized barrier/ignition values back into main.GeoPoint, main.GeoLine or main.GeoLineString objects
+function toGeoValue(v) {
+    let geoPoint = (p) => new main.GeoPoint( p.lon, p.lat);
+    if (v.points) {
+        return new main.GeoLineString( v.points.map( geoPoint));
+    } else if (v.start && v.end) {
+        return new main.GeoLine( geoPoint(v.start), geoPoint(v.end));
+    } else if (v.lon !== undefined && v.lat !== undefined) {
+        return geoPoint(v);
+    } else {
+        return v;
+    }
 }
 
 function clearIncident() {
@@ -911,8 +1406,21 @@ function clearIncident() {
     clearBarriers();
 }
 
+// interactively pick a point ignition at the current time, which also sets location and dtg
 function pickNow() {
-    addIgnitionPoint();
+    ui.setButtonActive(pickNowBtn, true);
+    odinCesium.enterGeoPoint((loc) => {
+        if (loc) {
+            let p = roundedGeoPoint(loc);
+            let date = Date.now();
+            ui.setDTGEntryEpochMillis(dtgEntry, date);
+            date = ui.getDTGEntryEpochMillis(dtgEntry); // might be rounded
+            setLocation(p);
+            addIgnitionEntry( new Ignition( nextIgnitionId(), IGNITION_POINT, date, p));
+            ui.updateListItems(ignitionView); // dtg changed
+        }
+        ui.setButtonActive(pickNowBtn, false);
+    });
 }
 
 function pickLocation() {
@@ -1243,21 +1751,33 @@ function createRequest() {
     // note - this should be kept in sync with odin_elmfire::ElmFire::new()
     let id = FireEntry.getId(name, date, pos);
 
-    let ignitions = code.getCode(ignitionSrc);
-    if (ignitions.length == 0) {
+    if (ignitionEntries.length == 0) {
         alert("no ignitions");
         return;
-    } else if (!checkIgnitions()) {
+    }
+    // ignitions have to be within the simulated time window (starting at the full hour of date)
+    let tBase = date - (date % 3600000);
+    let tEnd = date + nHours * 3600000;
+    let invalid = ignitionEntries.find( ign => ign.date < tBase || ign.date > tEnd);
+    if (invalid) {
+        alert(`ignition ${invalid.id} is outside of simulation time window`);
+        return;
+    }
+    let ignitions = ignitionEntries.map( ign => ign.toJSON()); // without Cesium assets
+
+    let missingFixed = getMissingFixed();
+    if (missingFixed.length > 0) {
+        alert(`missing "fixed wx entries: ${missingFixed.join()}`);
         return;
     }
 
     let computeWind = ui.isCheckBoxSelected("elmfire.computeWind");
-
     let elmfire = { id, name, nHours, size, date, pos, computeWind, ignitions };
 
-    let fixed = code.getCode(fixedSrc);
-    if (fixed.length > 0) {
-        // TODO - should do some sanitizing here
+    //--- now set the optional elmfire inputs
+
+    let fixed = getFixed();
+    if (fixed) {
         elmfire.fixed = fixed;
     }
 
@@ -1265,6 +1785,9 @@ function createRequest() {
     if (spotting.length > 0) {
         elmfire.spotting = spotting;
     }
+
+    let barriers = barrierEntries.map( be => be.toJSON()); // possibly empty, without Cesium assets
+    elmfire.barriers = barriers;
 
     updateElmfires( [elmfire], elmfire);
     // set list selection
@@ -1310,7 +1833,10 @@ function selectEntry() {
         if (entry) entry.isShown = true;
     }
 
-    if (prevEntry) prevEntry.updateDisplay(); // removes its fill (and in showSelectedEntryMode its outlines)
+    if (prevEntry) {
+        prevEntry.removeImgOutputAssets(); // the "img" choice only applies to the selected run
+        prevEntry.updateDisplay(); // removes its fill (and in showSelectedEntryMode its outlines)
+    }
     if (entry) {
         entry.setToaRender(); // following selections use the current display parameters
         entry.updateDisplay();
@@ -1322,7 +1848,11 @@ function selectEntry() {
     updateStatsView();
     updateAreaView();
     updateErrorView();
-    if (entry) updateInput(); // don't clear input when de-selecting (user might be entering a new run)
+    if (entry) { // don't clear input when de-selecting (user might be entering a new run)
+        updateInput();
+        setIgnitions( entry.ef.ignitions); // replaces (and renders) ignitionEntries
+        setBarriers( entry.ef.barriers); // replaces (and renders) barrierEntries
+    }
 }
 
 // select a timestep from the timestepView. Only the selected timestep of the selectedEntry is filled (if its outline is visible)
@@ -1375,10 +1905,8 @@ function updateInput() {
         ui.setDTGEntryEpochMillis(dtgEntry, ef.date);
         ui.setCheckBox("elmfire.computeWind", ef.computeWind);
 
-        setIgnitionCode( ef.ignitions);
-        code.setCode(fixedSrc, ef.fixed);
+        updateFixedEntries(ef.fixed);
         code.setCode(spottingSrc, ef.spotting);
-        code.setCode(barrierSrc, ef.barriers);
 
     } else {
         ui.clearField(nameEntry);
@@ -1387,10 +1915,22 @@ function updateInput() {
         ui.setCheckBox("elmfire.computeWind", false);
 
         clearIgnitions();
-        code.clearCode(fixedSrc);
+        clearFixed();
         code.clearCode(spottingSrc);
-        code.clearCode(barrierSrc);
     }
+}
+
+function updateFixedEntries(efFixed) {
+    fixedEntries.forEach(fe => fe.clear());
+
+    if (efFixed) {
+        Object.keys(efFixed).forEach( t => {
+            let fe = fixedEntries.find(fe => fe.type == t);
+            if (fe) fe.values = [...efFixed[t]]; // copy so that editing entries does not change the run
+        })
+    }
+
+    ui.updateListItems(fixedView);
 }
 
 function getKvList(ef) {
@@ -1449,7 +1989,7 @@ function delSpotting() {
 }
 
 function updateSpottingView() {
-    ui.setListItems(spottingListView, spottingList);
+    ui.setListItems(spottingListView, spottingFileList);
 }
 
 
@@ -1531,159 +2071,6 @@ function toaFillAlphaChanged(event) {
     if (selectedEntry) selectedEntry.setToaRender();
 }
 
-//--- NML parsing
-
-const RE_VAR = / *([a-zA-Z0-9_]+)(?:\((\d+)\))?[ \t]*=[ \t]*([0-9. \t,+-eE]+)(?: *!.*)?/;
-const RE_IGNORE = /^ *(?:!.*)?$/;
-const RE_T_IGN = /T_IGN\(\d+\) *=/;
-const RE_NUM_IGN = /^ *NUM_IGNITIONS *= *(\d)+(?: *!.*)?$/;
-
-class PointIgnition {
-    constructor(geoPoint, t) {
-        this.geoPoint = geoPoint;
-        this.t = t;
-    }
-}
-
-class LineIgnition {
-    constructor(geoStart, geoEnd, t) {
-        this.geoStart = geoStart;
-        this.geoEnd = geoEnd;
-        this.t = t;
-    }
-}
-
-class Ignitions {
-    constructor() {
-        this.pointIgnitions = [];
-        this.lineIgnitions = [];
-    }
-}
-
-/// parse valid content for SIMULATOR section
-function parseIgnitions(src, geoCenter) {
-    let ignitions = new Ignitions();
-    let xIgn = [], yIgn = [], tIgn = [];
-    let numIgn = 0;
-    let xStart = [], yStart = [], xEnd = [], yEnd = [], tLine = [];
-
-    let s = src.trim();
-    if (s.length == 0) return ignitions;
-
-    for (const line of s.split('\n')) {
-        if (!line || line.length == 0 || RE_IGNORE.test(line)) continue;
-
-        let groups = line.match(RE_NUM_IGN);
-        if (groups) {
-            numIgn =groups[1];
-            continue;
-        }
-
-        groups = line.match(RE_VAR);
-        if (groups) {
-            let varName = groups[1];
-            let idx = groups[2];
-            let vs = groups[3].split(',');
-            if (vs.length == 1 && idx >= 1) {
-                idx--; // Namelist indices are 1-based
-                let value = Number.parseFloat(vs[0].trim());
-                switch (varName) {
-                    case "X_IGN": xIgn[idx] = value; break;
-                    case "Y_IGN": yIgn[idx] = value; break;
-                    case "T_IGN": tIgn[idx] = value; break;
-                    case "NUM_IGNITIONS": numIgn = value; break;
-                    case "X_START": xStart[idx] = value; break;
-                    case "Y_START": yStart[idx] = value; break;
-                    case "X_END": xEnd[idx] = value; break;
-                    case "Y_END": yEnd[idx] = value; break;
-                    case "T_LINE_IGN": tLine[idx] = value; break;
-
-                    default: throw "unknown input variable: " + varName;
-                }
-            } else throw "invalid value (expected one number): " + groups[3];
-
-            continue;
-        }
-
-        throw "malformed input line: " + line;
-    }
-
-    //--- sanity checks
-    xIgn = util.removeUndefinedItems(xIgn);
-    yIgn = util.removeUndefinedItems(yIgn);
-    tIgn = util.removeUndefinedItems(tIgn);
-    if ((xIgn.length != yIgn.length) || (xIgn.length != tIgn.length)) throw "inconsistent point ignition lengths";
-
-    xStart = util.removeUndefinedItems(xStart);
-    yStart = util.removeUndefinedItems(yStart);
-    xEnd = util.removeUndefinedItems(xEnd);
-    yEnd = util.removeUndefinedItems(yEnd);
-    tLine = util.removeUndefinedItems(tLine);
-    if ((xStart.length != yStart.length) || (xStart.length != tLine.length) || (xStart.length != xEnd.length) || (xStart.length != yEnd.length)) {
-        throw "inconsistent line ignition lengths";
-    }
-
-    let utmCenter = util.latLon2Utm(geoCenter.lat, geoCenter.lon);
-
-    if (xIgn.length > 0) {
-        ignitions.pointIgnitions = getPointIgnitions( xIgn, yIgn, tIgn, utmCenter.utmZone, utmCenter.band);
-    }
-    if (xStart.length > 0) {
-        ignitions.lineIgnitions = getLineIgnitions(xStart, yStart, xEnd, yEnd, tLine, utmZone, utmBand);
-    }
-
-    return ignitions;
-}
-
-function getPointIgnitions(xIgn, yIgn, tIgn, utmZone, utmBand) {
-    let igns = [];
-    for (let i = 0; i < xIgn.length; i++) {
-        let geoPt = util.utmToLatLon( xIgn[i], yIgn[i], utmZone, utmBand);
-        igns.push( new PointIgnition(geoPt, tIgn[i]));
-    }
-    return igns;
-}
-
-function getLineIgnitions(xStart, yStart, xEnd, yEnd, tLine, utmZone, utmBand) {
-    let igns = [];
-    for (let i = 0; i < xStart.length; i++) {
-        let geoStart = util.utmToLatLon(xStart[i], yStart[i], utmZone, utmBand);
-        let geoEnd = util.utmToLatLon(xEnd[i], yEnd[i], utmZone, utmBand);
-        igns.push( new LineIgnition( geoStart, geoEnd, tLine[i]));
-    }
-    return igns;
-}
-
-function addPointIgnitionSource(loc, t) {
-    let src = code.getCode(ignitionSrc);
-    let n = (src.match(RE_T_IGN) || []).length + 1;
-
-    if (n > 1) {
-        src = src.replace(RE_NUM_IGN, `NUM_IGNITIONS = ${n}`);
-
-    } else {
-        if (src.length == 0) {
-            src =
-`! Elmfire ignition specification
-NUM_IGNITIONS = 1
-`;
-        } else {
-            src += `
-NUM_IGNITIONS = 1
-`;
-        }
-    }
-    let utm = util.latLon2Utm(loc.lat, loc.lon);
-    src += `
-T_IGN(${n}) = ${t.toString().padStart(8, ' ')}  ! secs from base hour (${Math.round(t/60)} min)
-X_IGN(${n}) = ${utm.easting.toFixed(0).padStart(8, ' ')}  ! UTM easting (zone ${utm.utmZone}) ${loc.lon.toFixed(4)}°
-Y_IGN(${n}) = ${utm.northing.toFixed(0).padStart(8, ' ')}  ! UTM northing (band ${utm.band}) ${loc.lat.toFixed(4)}°
-`;
-
-    return src;
-}
-
-
 function createSymEntity( name, pos) {
     let entity = new Cesium.Entity({
         position: Cesium.Cartesian3.fromDegrees( pos.lon, pos.lat),
@@ -1722,50 +2109,4 @@ function createSymEntity( name, pos) {
     });
 
     return entity
-}
-
-function createIgnitionEntities(igns) {
-    let entities = [];
-
-    let pis = igns.pointIgnitions;
-    for (let i = 0; i < pis.length; i++) {
-        let pi = pis[i];
-        let pos = pi.geoPoint;
-
-        let entity = new Cesium.Entity({
-            position: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat),
-            // TODO - should we add a label here?
-            point: {
-                pixelSize: config.ignPointSize,
-                color: config.ignPointColor,
-                outlineColor: config.ignPointOutlineColor,
-                outlineWidth: config.ignPointOutlineWidth,
-                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-                //disableDepthTestDistance:Number.MAX_SAFE_INTEGER,
-                distanceDisplayCondition: config.ignPointDC,
-            }
-        });
-
-        let loc = ui.getLocation(locEntry);
-        if (loc && (Math.abs(loc.lat - pos.lat) > 0.001 || Math.abs(loc.lon - pos.lon) > 0.001)) {
-            entity.label = {
-                text: (i + 1).toString(),
-                horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
-                verticalOrigin: Cesium.VerticalOrigin.TOP,
-                font: config.labelFont,
-                fillColor: config.labelColor,
-                showBackground: true,
-                backgroundColor: config.labelBackground,
-                backgroundPadding: new Cesium.Cartesian2( 3,3),
-                pixelOffset: config.labelOffset,
-                distanceDisplayCondition: config.ignPointDC,
-                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-                disableDepthTestDistance:Number.MAX_SAFE_INTEGER,
-            }
-        }
-
-        entities.push(entity);
-    }
-
-    return entities;
 }

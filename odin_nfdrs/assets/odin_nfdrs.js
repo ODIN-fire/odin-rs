@@ -594,9 +594,11 @@ function clearArea() {
 }
 
 function pickArea (event) { // mouse selection
-    odinCesium.enterGeoRect( (rect) => {
-        ui.setField("nfdrs.bounds", util.degreesToString([rect.west, rect.south, rect.east, rect.north], util.fmax_3));
-        setArea(rect);
+    odinCesium.enterGeoRect((rect) => {
+        if (rect) {
+            ui.setField("nfdrs.bounds", util.degreesToString([rect.west, rect.south, rect.east, rect.north], util.fmax_3));
+            setArea(rect);
+        }
     });
 }
 

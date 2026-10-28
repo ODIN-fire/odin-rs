@@ -105,7 +105,7 @@ If micro-grid wind is used, a WindNinja installation is also required (see [odin
   the `elmfire.data` input file (from the `templates/elmfire.askama` template), execute ELMFIRE and process its output
 - `input.rs` : creation of the ELMFIRE input rasters for a simulation - landfire fuels and topography, weather and NFDRS fuel
   moisture based inputs, fixed inputs, and WindNinja based micro-grid wind
-- `fixed.rs` : parsing of fixed (user provided) hourly input steps (`FixedInputStep`)
+- `fixed.rs` : fixed (user provided) hourly wx and fuel moisture input values (`FixedInput`), including NML parsing for command line tools
 - `actor.rs` : [odin_actor](../odin_actor/odin_actor.md) based `ElmfireActor` that manages and executes simulation requests
   (`ElmFire` messages) and stores their results in an `ElmfireStore`
 - `service.rs` : defines `ElmfireService` - a [odin_server](../odin_server/odin_server.md) based `odin_server::spa::SpaService`

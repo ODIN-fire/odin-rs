@@ -1036,3 +1036,18 @@ for (let i = 0; i < 15; i++) _rand(); // warm up shuffle
 export function pseudoRandom() {
     return _rand();
 }
+
+export class HMValue {
+    constructor(hours, minutes) {
+        this.hours = hours;
+        this.minutes = minutes;
+    }
+
+    milliseconds() {
+        return this.hours * 3600000 + this.minutes * 60000;
+    }
+
+    static fromMillis(ms) {
+        return new HMValue(Math.floor(ms / 3600000), Math.round((ms % 3600000) / 60000));
+    }
+}

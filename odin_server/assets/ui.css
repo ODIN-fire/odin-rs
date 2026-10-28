@@ -416,9 +416,13 @@ input.ui_field.num {
     font: var(--mono-font);
 }
 
+/* HM entry */
+
+
+
 /* DTG entry */
 
-div.ui_dtg_entry {
+div.ui_dtg_entry, .ui_hm_entry {
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -458,6 +462,11 @@ div.ui_dtg_btn {
     background: transparent;
     width: 1.6rem;
     text-align: center;
+}
+
+div.ui_dtg_btn:hover {
+    color: var(--button-hover-color);
+    background: var(--button-hover-background);
 }
 
 /* LocationEntry */
@@ -721,6 +730,7 @@ div.ui_choice_value {
     width: var(--choice-value-width);
     height: var(--field-height);
     vertical-align: middle;
+    white-space: pre;
     overflow: hidden;
 }
 
@@ -888,6 +898,19 @@ div.ui_radio_label {
     color: var(--button-color-pressed);
 }
 
+/* inline buttons (just rendered as text) */
+
+div.ui_inline_btn {
+    display: inline-block;
+    color: var(--border-color);
+    background: transparent;
+    text-align: center;
+}
+
+div.ui_inline_btn:hover {
+    color: var(--button-hover-color);
+    background: var(--button-hover-background);
+}
 
 /* list boxes */
 
@@ -987,6 +1010,10 @@ div.ui_list_subitem.edit {
     color: var(--input-data-color);
 }
 
+div.ui_list_subitem.small {
+    font-size: smaller;
+}
+
 div.ui_list_subitem.edit.active {
     position: relative;
     border: var(--border)
@@ -1020,6 +1047,10 @@ div.ui_list_subitem.align_left {
 
 div.ui_list_subitem.align_right {
     text-align: right;
+}
+
+div.ui_list_subitem.align_center {
+    text-align: center;
 }
 
 /* trees */
@@ -1122,7 +1153,9 @@ div.ui_popup_menu {
 }
 
 div.ui_popup_menu hr {
-    border: 1px inset var(--border-color);
+    border: none;
+    border-top: 1px inset var(--menuitem-color);
+    width: 100%;
 }
 
 div.ui_menuitem {

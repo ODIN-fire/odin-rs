@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -33,11 +33,11 @@ var selSat = undefined;
 var selSatOnly = false;
 
 // to store OverpassEntries (all of them - not filtered by satellite or region)
-var upcomingEntries = [];  
+var upcomingEntries = [];
 var completedEntries = [];
 
-// the filtered OverpassEntries shown in the upcoming/past lists 
-var shownUpcomingEntries = []; 
+// the filtered OverpassEntries shown in the upcoming/past lists
+var shownUpcomingEntries = [];
 var shownCompletedEntries = [];
 
 var moveTimer = undefined; // set once we get the first upcoming overpass
@@ -62,7 +62,7 @@ var areaInfoText = undefined;
 
 function resetData () {
     satelliteEntries = [];
-    upcomingEntries = [];  
+    upcomingEntries = [];
     completedEntries = [];
 }
 
@@ -86,7 +86,7 @@ class OverpassEntry {
         this.start = o.start;
         this.end = o.end;
 
-        this.meanSwathWidth = o.meanSwathWidth; 
+        this.meanSwathWidth = o.meanSwathWidth;
         this.meanGpDist = gpSecantFromSwathWidth(o.meanSwathWidth); // cartesian3 distance between ground point and swath horizon
 
         this.track = undefined; // dynamically loaded ground track points
@@ -96,7 +96,7 @@ class OverpassEntry {
         this.showSwath = false;
 
         // the data for this overpass - set when we get a hotspots message
-        this.hsList = undefined; 
+        this.hsList = undefined;
     }
 
     stats () {
@@ -448,13 +448,13 @@ function filterOverpasses (overpasses) {
 
 // note this returns a new array with all overpasses, sorted by ascending overpass end times
 function allOverpasses() {
-    return completedEntries.toReversed().concat( upcomingEntries); 
+    return completedEntries.toReversed().concat( upcomingEntries);
 }
 
 // the ascending end time ordered list of all showing overpasses (selected satellites)
 function allShowingOverpasses() {
     return completedEntries.filter( (oe)=>isSatShowing(oe.satId)).toReversed()
-        .concat( upcomingEntries.filter((oe)=>isSatShowing(oe.satId))); 
+        .concat( upcomingEntries.filter((oe)=>isSatShowing(oe.satId)));
 }
 
 function isAreaOverpass(oe) {
@@ -482,7 +482,7 @@ function isAreaOverpass(oe) {
 
 function updateHotspots() {
     // if hsList is still in flight this will be called again after it was loaded
-    if (selCompleted && selCompleted.hsList && selCompleted.hsList.hotspots){ 
+    if (selCompleted && selCompleted.hsList && selCompleted.hsList.hotspots){
         ui.setListItems(hotspotView, selCompleted.hsList.hotspots);
         setHotspotAssets();
     } else {
@@ -540,7 +540,7 @@ function sortInOverpass (newEntry, now) {
             } else if (isSameOverpass(newEntry, e)) {
                 return; // we already have this one
             }
-        }  
+        }
         completedEntries.push( newEntry);
 
     } else { // upcoming overpass - next on top
@@ -563,8 +563,8 @@ function sortInOverpass (newEntry, now) {
 
 function isSameOverpass (a, b) {
     let maxDeltaMs = 1000;
-    return (a.satId == b.satId) 
-            &&  (Math.abs(a.start - b.start) < maxDeltaMs) 
+    return (a.satId == b.satId)
+            &&  (Math.abs(a.start - b.start) < maxDeltaMs)
             &&  (Math.abs(a.end - b.end) < maxDeltaMs);
 }
 
@@ -637,7 +637,7 @@ function handleHotspotMessage(hotspots) {
     });
 }
 
-function loadHotspots (oe) { 
+function loadHotspots (oe) {
     let url = "orbital-data/" + oe.hsList.fname;
     fetch(url).then( (response) => {
         if (response.ok) {
@@ -654,7 +654,7 @@ function computeHotspotFootprints (hotspots) {
     for (let h of hotspots) {
         let lon = h.lon;
         let lat = h.lat;
-        h.geoPos = Cesium.Cartographic.fromDegrees( lon, lat); 
+        h.geoPos = Cesium.Cartographic.fromDegrees( lon, lat);
 
         h.area.push( h.area[0]); // close polygon
     }
@@ -665,7 +665,7 @@ function showOrbital(cond) {
     if (areaAsset) areaAsset.show = cond;
     odinCesium.requestRender();
  }
- 
+
 
 function showHotspotAssets(isVisible) {
     if (hsPointPrimitive) hsPointPrimitive.show = isVisible;
@@ -716,9 +716,9 @@ function setHotspotAssets() {
                                     distanceDisplayCondition: areaDCAttr
                                 }
                             }));
-                            
+
                             if (i == selIdx) { // points and (small footprint) outlines are only shown for the selected overpass
-                                let position = h.pos; 
+                                let position = h.pos;
 
                                 // points are not Geometries - PointPrimitives do not support clamp-to-ground so we have project to ellipsoid surface
                                 if (!odinCesium.isUsingTopoTerrain()) {
@@ -749,9 +749,9 @@ function setHotspotAssets() {
                                         }
                                     }));
                                 }
- 
+
                             }
-                        } 
+                        }
                     }
                 }
             }
@@ -764,7 +764,7 @@ function setHotspotAssets() {
 }
 
 function isSmallFootprintHotspot (h) {
-    return Math.min( h.scan, h.track) < smallFootprintLength; 
+    return Math.min( h.scan, h.track) < smallFootprintLength;
 }
 
 function setFootprintAssets (geoms) {
@@ -775,14 +775,14 @@ function setFootprintAssets (geoms) {
             //asynchronous: true,
             //releaseGeometryInstances: true,
             //vertexCacheOptimize: true,
-            
+
             appearance: new Cesium.PerInstanceColorAppearance({
                 faceForward: true,
                 flat: true,
                 translucent: true,
                 //renderState: { depthTest: { enabled: false, } }, // this makes it appear always on top but translucent
             }),
-        });       
+        });
         odinCesium.addPrimitive(hsFootprintPrimitive);
     }
 }
@@ -876,9 +876,9 @@ function clearHotspotAssets() {
 
         if (hsOutlinePrimitive) {
             odinCesium.removePrimitive(hsOutlinePrimitive);
-            hsOutlinePrimitive = undefined;     
+            hsOutlinePrimitive = undefined;
         }
-    
+
         if (hsPointPrimitive) {
             odinCesium.removePrimitive(hsPointPrimitive);
             hsPointPrimitive = undefined;
@@ -939,7 +939,7 @@ function toggleFollowLatest(event){
 function toggleAreaHotspotsOnly(event){
     areaHotspotsOnly = ui.isCheckBoxSelected(event);
     if (area) {
-        updateHotspots(); 
+        updateHotspots();
         showHotspots();
     }
 }
@@ -950,7 +950,7 @@ function toggleShowOrbital(event) {
 
 function selectCompleted(event) {
     selCompleted = ui.getSelectedListItem(completedView);
-    updateHotspots(); 
+    updateHotspots();
     showHotspots();
 }
 
@@ -989,9 +989,11 @@ function clearArea() {
 }
 
 function pickArea(event) { // mouse selection
-    odinCesium.enterGeoRect( (rect) => {
-        ui.setField("orbital.bounds", util.degreesToString([rect.west, rect.south, rect.east, rect.north], util.fmax_3));
-        setArea(rect)
+    odinCesium.enterGeoRect((rect) => {
+        if (rect) {
+            ui.setField("orbital.bounds", util.degreesToString([rect.west, rect.south, rect.east, rect.north], util.fmax_3));
+            setArea(rect)
+        }
     });
 }
 
@@ -1143,7 +1145,7 @@ function findClosestIndex (ps, p) {
           let i_last = i;
           i = Math.trunc((l + r)/2);
           if (i == i_last) { break; }
-    
+
           di = distSquared( ps[i], p);
           dl = di - distSquared( ps[i-1], p);
           dr = distSquared( ps[i+1], p) - di;

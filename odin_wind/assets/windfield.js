@@ -191,7 +191,7 @@ export class WindFieldVisualization {
             let i = Math.floor( spd / 2.2352); // renderOpts colors are in 5mph steps
             if (i >= renderOpts.colors.length) {
                 i = renderOpts.colors.length-1;
-            } 
+            }
             return renderOpts.colors[i];
         } else {
             return null;
@@ -279,9 +279,9 @@ export class AnimField extends WindFieldVisualization {
         let hs, us, vs, ws; // the data arrays
         let hMin = 1e6, uMin = 1e6, vMin = 1e6, wMin = 1e6;
         let hMax = -1e6, uMax = -1e6, vMax = -1e6, wMax = -1e6;
-    
+
         let i = 0;
-    
+
         function procLine (line) {
             if (i > 1) { // grid data line
                 let values = util.parseCsvValues(line);
@@ -290,7 +290,7 @@ export class AnimField extends WindFieldVisualization {
                     const u = values[1];
                     const v = values[2];
                     const w = values[3];
-    
+
                     if (h < hMin) hMin = h;
                     if (h > hMax) hMax = h;
                     if (u < uMin) uMin = u;
@@ -299,7 +299,7 @@ export class AnimField extends WindFieldVisualization {
                     if (v > vMax) vMax = v;
                     if (w < wMin) wMin = w;
                     if (w > wMax) wMax = w;
-    
+
                     const j = i-2;
                     hs[j] = h;
                     us[j] = u;
@@ -316,7 +316,7 @@ export class AnimField extends WindFieldVisualization {
                     ny = parseInt(m[4]);
                     y0 = Number(m[5]);
                     dy = Number(m[6]);
-    
+
                     let len = (nx * ny);
                     hs = new Float32Array(len);
                     us = new Float32Array(len);
@@ -326,7 +326,7 @@ export class AnimField extends WindFieldVisualization {
             }
             i++;
         };
-    
+
         function axisData (nv,v0,dv) {
             let a = new Float32Array(nv);
             for (let i=0, v=v0; i<nv; i++, v += dv) { a[i] = v; }
@@ -338,10 +338,10 @@ export class AnimField extends WindFieldVisualization {
                 vMin = a[0];
                 vMax = a[nv-1];
             }
-        
+
             return { array: a, min: vMin, max: vMax };
         }
-    
+
         let url = this.dataUrl();
 
         this.loading = true;
@@ -350,7 +350,7 @@ export class AnimField extends WindFieldVisualization {
         this.loading = false;
 
         console.log("loaded ", i-2, " grid points from ", url);
-    
+
         let data = {
             dimensions: { lon: nx, lat: ny, lev:1 },
             lon: axisData(nx, x0 < 0 ? 360 + x0 : x0, dx),  // normalize to 0..360
@@ -566,9 +566,9 @@ export class ContourField extends WindFieldVisualization {
     async loadContoursFromUrl() {
         let url = this.dataUrl();
 
-        let geoJsonRenderOpts = { 
-            material: this.renderOpts.colors[0], 
-            strokeWidth: this.renderOpts.lineWidth, 
+        let geoJsonRenderOpts = {
+            material: this.renderOpts.colors[0],
+            strokeWidth: this.renderOpts.lineWidth,
             //fill: this.renderOpts.colors[0]
         };
 
@@ -720,7 +720,7 @@ export class WindFieldRenderControls {
             ui.RowContainer()(
                 ui.CheckBox("anim speed colors", (e)=>this.animColorBySpeedChanged(e), this.id("anim.color_by_speed"), this.render.anim.colorBySpeed),
                 ui.HorizontalSpacer(1),
-                ui.ColorField("anim color", this.id("anim.color"), true, (e)=>this.animColorChanged(e), "2rem")
+                ui.ColorField("anim color", this.id("anim.color"), true, "2rem", { changeAction: (e) => this.animColorChanged(e) })
             ),
 
             ui.ColumnContainer("align_right")(
@@ -740,7 +740,7 @@ export class WindFieldRenderControls {
     }
 
     // the wind speed color fields (in 5mph steps) as a grid of narrow fields
-    colorRows (callback, colorsPerRow=3) {
+    colorRows (changeAction, colorsPerRow=3) {
         let colors = this.render.colors;
         let rows = [];
         let fields = [];
@@ -748,7 +748,7 @@ export class WindFieldRenderControls {
         for (let i=0; i<colors.length; i++) {
             let spd = i*5;
             let lbl = (i < colors.length-1) ? `${spd}-${spd+5}mph` : `>${spd}mph`;
-            fields.push( ui.ColorField( lbl, this.id(`color${i}`), true, callback, "2rem", "5rem"));
+            fields.push(ui.ColorField(lbl, this.id(`color${i}`), true, "2rem", { changeAction, labelWidth: "5rem" }));
 
             if (fields.length == colorsPerRow || i == colors.length-1) {
                 rows.push( ui.RowContainer()( ...fields));

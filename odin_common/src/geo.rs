@@ -285,6 +285,17 @@ impl SerializeTrait for GeoLine {
 
 impl_deserialize_struct!{ GeoLine::from_geo_points( start, end) }
 
+/// corresponds to main.js GeoLine: `{"start":{"lon":..,"lat":..},"end":{"lon":..,"lat":..}}`
+impl JsonWritable for GeoLine {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object( |w| {
+            w.write_json_field("start", &self.start());
+            w.write_json_field("end", &self.end());
+        })
+    }
+}
+
+
 /* #endregion GeoLine */
 
 
@@ -469,11 +480,26 @@ impl GeoCircle {
         GeoCircle { lon, lat, radius }
     }
 
+    #[inline] pub fn lon (&self)->Longitude { self.lon }
+    #[inline] pub fn lat (&self)->Latitude { self.lat }
+    #[inline] pub fn radius (&self)->Length { self.radius }
+
     pub fn area (&self) -> Area {
         use std::f64::consts::PI;
         let radius = self.radius.get::<meter>();
         let a = PI * radius * radius;
         Area::new::<square_meter>(a)
+    }
+}
+
+/// corresponds to main.js GeoCircle: `{"lon":..,"lat":..,"radius":..}` (degrees and meters)
+impl JsonWritable for GeoCircle {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object( |w| {
+            w.write_f64_field("lon", self.lon.degrees(), NumFormat::Fp5);
+            w.write_f64_field("lat", self.lat.degrees(), NumFormat::Fp5);
+            w.write_f64_field("radius", self.radius.get::<meter>(), NumFormat::Fp1);
+        })
     }
 }
 
@@ -507,6 +533,17 @@ impl SerializeTrait for GeoLineString {
     }
 }
 impl_deserialize_struct!{ GeoLineString::from_geo_points( points) }
+
+/// corresponds to main.js GeoLineString: `{"points":[{"lon":..,"lat":..},..]}`
+impl JsonWritable for GeoLineString {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object( |w| {
+            w.write_array_field("points", |w| {
+                for p in self.0.points() { GeoPoint::from_point(p).write_json_to(w); }
+            })
+        })
+    }
+}
 
 
 /* #endregion GeoLineString */
@@ -638,6 +675,27 @@ impl SerializeTrait for GeoPolygon {
 }
 
 impl_deserialize_struct!{ GeoPolygon::from_geo_points(exterior,interiors = Vec::new()) }
+
+/// corresponds to main.js GeoPolygon: `{"exterior":[{"lon":..,"lat":..},..], "interiors":[[{"lon":..,"lat":..},..],..]}`.
+/// As with serde serialization `interiors` is only written if there are interior rings
+impl JsonWritable for GeoPolygon {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object( |w| {
+            w.write_array_field("exterior", |w| {
+                for p in self.0.exterior().points() { GeoPoint::from_point(p).write_json_to(w); }
+            });
+            if self.has_interiors() {
+                w.write_array_field("interiors", |w| {
+                    for ring in self.0.interiors() {
+                        w.write_array( |w| {
+                            for p in ring.points() { GeoPoint::from_point(p).write_json_to(w); }
+                        });
+                    }
+                });
+            }
+        })
+    }
+}
 
 /* #endregion GeoPolygon */
 

@@ -52,9 +52,10 @@ use odin_build::{define_load_asset, define_load_config, pkg_cache_dir, pkg_data_
 use odin_macro::public_struct;
 use odin_common::{
     BoundingBox, IndexBounds2D, angle::Angle360, apply_index_margin, as_min_max,
-    datetime::{self, as_minutes, full_hour, hours, minutes, secs_f64, short_utc_datetime_string, to_epoch_millis},
+    datetime::{self, as_minutes, full_hour, hours, minutes, secs_f64, short_utc_datetime_string, to_epoch_millis, ser_epoch_millis, de_from_epoch_millis},
     fs::{ EnvPathBuf, ensure_writable_dir, filepath_contents_as_string, filestem, find_first_match_in_dir, matching_files_in_dir, path_as_str, set_filepath_contents},
-    geo::{GeoPoint,GeoRect}, json_writer::{JsonEscapedStr, JsonWritable, JsonWriter, NumFormat}, run_captured_cmd,
+    geo::{GeoPoint,GeoRect, GeoLine, GeoLineString},
+    json_writer::{JsonEscapedStr, JsonWritable, JsonWriter, NumFormat}, run_captured_cmd,
     utm::{UtmPoint, UtmRect, geo_to_utm, try_geo_to_utm_zone},
 };
 use odin_gdal::{
@@ -75,7 +76,7 @@ pub mod wind;
 use wind::{create_wx_windfields,create_computed_windfields};
 
 pub mod input;
-use input::{create_fixed_input, create_internal_input, create_landfire_input, create_wx_based_input};
+use input::{create_fixed_input, create_internal_input, create_landfire_input, create_wx_based_input, create_barrier_input};
 
 pub mod actor;
 
@@ -83,12 +84,11 @@ pub mod service;
 pub use service::ElmfireService;
 
 pub mod fixed;
-use fixed::{FixedInputStep,parse_fixed_wx_lines};
+pub use fixed::FixedInput;
 
 pub mod errors;
 use errors::{OdinElmfireError,Result,op_failed};
 
-use crate::fixed::parse_nml_array_line;
 
 lazy_static! {
     pub static ref CACHE_DIR: PathBuf = { pkg_cache_dir!() };
@@ -249,6 +249,171 @@ impl JsonWritable for ComputedStats {
     }
 }
 
+/// note that this has to be kept compatible with the odin_elmfire.js BarrierEntry class
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all="camelCase")]
+pub struct Barrier {
+    name: String,
+    barrier_type: String,
+    #[serde(with="length_ft")]
+    width: Length, // (de)serialized in feet (as used by the UI)
+    value: BarrierValue,
+}
+
+/// untagged since odin_elmfire.js sends plain (odin_server/main.js) GeoLineString `{points}` and GeoLine `{start,end}` objects
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BarrierValue {
+    GeoLineString(GeoLineString),
+    GeoLine(GeoLine),
+}
+
+/// serde support for lengths that are (de)serialized as feet
+mod length_ft {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use uom::si::{f64::Length, length::foot};
+
+    /// rounded to 1ft (avoids conversion artifacts such as 9.999999999999998)
+    pub fn serialize<S: Serializer> (len: &Length, s: S)->Result<S::Ok, S::Error> {
+        s.serialize_f64( len.get::<foot>().round())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>> (d: D)->Result<Length, D::Error> {
+        Ok( Length::new::<foot>( f64::deserialize(d)?))
+    }
+}
+
+impl JsonWritable for BarrierValue {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        match self {
+            BarrierValue::GeoLine(value) => value.write_json_to( w),
+            BarrierValue::GeoLineString(value) => value.write_json_to( w)
+        }
+    }
+}
+
+impl JsonWritable for Barrier {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w| {
+            w.write_field( "name", &self.name);
+            w.write_field( "barrierType", &self.barrier_type);
+            w.write_f64_field( "width", self.width.get::<foot>(), NumFormat::Fp0);
+            w.write_json_field( "value", &self.value);
+        });
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all="camelCase")]
+pub struct Ignition {
+    id: usize,
+    ignition_type: String,
+    #[serde(serialize_with="ser_epoch_millis", deserialize_with="de_from_epoch_millis")]
+    date: DateTime<Utc>, // epoch millis (as sent by odin_elmfire.js and written by JsonWritable)
+    value: IgnitionValue
+}
+
+impl Ignition {
+    pub fn new_point (id: usize, date: DateTime<Utc>, p: GeoPoint)->Self {
+        Ignition { id, ignition_type: "point".to_string(), date, value: IgnitionValue::Point(p) }
+    }
+
+    pub fn new_line_string (id: usize, date: DateTime<Utc>, ls: GeoLineString)->Self {
+        Ignition { id, ignition_type: "line".to_string(), date, value: IgnitionValue::LineString(ls) }
+    }
+}
+
+/// create the NML source for a list of ignitions. Note that the elmfire.data NML format according
+/// to https://elmfire.io/ELMFIRE_Guide.pdf only supports point and line ignitions. The format is
+///
+/// ```text
+/// NUM_IGNITIONS = <number of point ignitions>
+/// T_IGN(1) = <full secs between first point ignition date and base_date>
+/// X_IGN(1) = <UTM easting of first ignition point>
+/// Y_IGN(1) = <UTM northing of first ignition point>
+/// ...
+/// T_LINE_IGN(1) = <full secs between first line ignition date and base_date>
+/// X_LINE_IGN_START(1) = <UTM easting of first line ignition start point>
+/// Y_LINE_IGN_START(1) = <UTM northing of first line ignition start point>
+/// X_LINE_IGN_END(1) = <UTM easting of first line ignition end point>
+/// Y_LINE_IGN_END(1) = <UTM northing of first line ignition end point>
+/// ...
+/// ```
+/// Since elmfire does not (yet?) support lineStrings we have to break up GeoLineString values
+/// into separate lines that all have the same T_LINE_IGN value.
+/// All ignition points are converted into the UTM zone of `geo_center` (the center of the simulation grid), even if
+/// they are located in a neighboring zone. Ignition points that cannot be converted cause an error
+fn ignitions_to_nml (base_date: DateTime<Utc>, geo_center: &GeoPoint, ignitions: &[Ignition])->Result<String> {
+    let utm_zone = geo_to_utm( geo_center).ok_or( op_failed!("invalid simulation center {geo_center}"))?.utm_zone;
+    let utm = |p: &GeoPoint| try_geo_to_utm_zone( p, utm_zone);
+
+    let mut points: Vec<(i64,UtmPoint)> = Vec::new();               // (t_ign, point)
+    let mut lines: Vec<(i64,UtmPoint,UtmPoint)> = Vec::new();       // (t_line_ign, start, end) - one per GeoLineString leg
+
+    for ign in ignitions {
+        let t = (ign.date - base_date).num_seconds();
+        match &ign.value {
+            IgnitionValue::Point(p) => {
+                points.push( (t, utm(p)?));
+            }
+            IgnitionValue::LineString(ls) => {
+                let utm_ps: Vec<UtmPoint> = ls.as_geo_points().iter().map( |p| utm(p)).collect::<std::result::Result<_,_>>()?;
+                for leg in utm_ps.windows(2) {
+                    lines.push( (t, leg[0].clone(), leg[1].clone()));
+                }
+            }
+        }
+    }
+
+    let mut s = String::with_capacity( 64 + points.len()*64 + lines.len()*128);
+
+    s.push_str( &format!("NUM_IGNITIONS = {}\n", points.len())); // only point ignitions
+    for (i, (t, p)) in points.iter().enumerate() {
+        let idx = i+1;
+        s.push_str( &format!("T_IGN({}) = {}\n", idx, t));
+        s.push_str( &format!("X_IGN({}) = {:.0}\n", idx, p.easting));
+        s.push_str( &format!("Y_IGN({}) = {:.0}\n", idx, p.northing));
+    }
+
+    for (i, (t, p0, p1)) in lines.iter().enumerate() {
+        let idx = i+1;
+        s.push_str( &format!("T_LINE_IGN({}) = {}\n", idx, t));
+        s.push_str( &format!("X_LINE_IGN_START({}) = {:.0}\n", idx, p0.easting));
+        s.push_str( &format!("Y_LINE_IGN_START({}) = {:.0}\n", idx, p0.northing));
+        s.push_str( &format!("X_LINE_IGN_END({}) = {:.0}\n", idx, p1.easting));
+        s.push_str( &format!("Y_LINE_IGN_END({}) = {:.0}\n", idx, p1.northing));
+    }
+
+    Ok(s)
+}
+
+impl JsonWritable for Ignition {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w| {
+            w.write_field( "id", self.id);
+            w.write_date_field( "date", self.date);
+            w.write_field("ignitionType", &self.ignition_type);
+            w.write_json_field( "value", &self.value);
+        });
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum IgnitionValue {
+    Point(GeoPoint),
+    LineString(GeoLineString)
+}
+
+impl JsonWritable for IgnitionValue {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        match self {
+            IgnitionValue::Point(value) => value.write_json_to( w),
+            IgnitionValue::LineString(value) => value.write_json_to( w),
+        }
+    }
+}
+
 /// this captures the data we need to run a simulation on a single incident
 #[derive(Debug, Clone, Serialize, Deserialize)]
 //#[public_struct]
@@ -267,12 +432,12 @@ pub struct ElmFire {
     pub compute_wind: bool,  // do we use microgrid (computed) wind or just plain wx forecasts?
 
     //--- mandatory inputs
-    pub ignitions: String,
+    pub ignitions: Vec<Ignition>, // converted into elmfire.data NML by ignitions_to_nml()
 
     //--- optional inputs
-    pub fixed: Option<String>, // if set use provided (fixed) wind- and fuel-moisture input
+    pub fixed: Option<FixedInput>, // if set use provided (fixed) wind- and fuel-moisture input
     pub spotting: Option<String>,
-    pub barriers: Option<String>,
+    pub barriers: Vec<Barrier>,
 
     pub dir: PathBuf, // where we keep inputs and outputs of this run
 }
@@ -289,10 +454,10 @@ impl ElmFire {
         start_date: DateTime<Utc>,
         n_hours: u32,
         compute_wind: bool,
-        ignitions: String,
-        fixed: Option<String>,
+        ignitions: Vec<Ignition>,
+        fixed: Option<FixedInput>,
         spotting: Option<String>,
-        barriers: Option<String>
+        barriers: Vec<Barrier>
 
     )->Result<Self>
     {
@@ -310,14 +475,13 @@ impl ElmFire {
         bbox_size: Length,
         n_hours: u32,
         compute_wind: bool,
-        fixed_wx: Option<String>,
+        fixed_wx: Option<FixedInput>,
         spotting: Option<String>,
-        barriers: Option<String>
+        barriers: Vec<Barrier>
     ) -> Result<Self>
     {
         let id = Self::get_id( &name, &geo_point, &date);
-        let base_date = full_hour(&date);
-        let ignitions = point_ignition_src( &[(geo_point, (date - base_date).num_seconds())])?;
+        let ignitions = vec![ Ignition::new_point( 1, date, geo_point) ];
 
         Self::new( id, name, geo_point, bbox_size, date, n_hours, compute_wind, ignitions, fixed_wx, spotting, barriers)
     }
@@ -364,12 +528,15 @@ impl ElmFire {
         // this needs to be called before creating wx inputs since we need the DEM dataset if wind is computed
         create_landfire_input( &self, config).await?;
 
-        if let Some(src) = &self.fixed { // run (mostly) on provided inputs
-            let steps = parse_fixed_wx_lines( &src, self.n_hours as usize)?;
-            create_fixed_input( &self, config, &steps).await?;
+        if let Some(fixed) = &self.fixed { // run (mostly) on provided inputs
+            create_fixed_input( &self, config, fixed).await?;
 
         } else { // acquire live data from external sources
             create_wx_based_input( &self, config).await?; // this includes wind and computed (NFDRS) fuel moisture
+        }
+
+        if !self.barriers.is_empty() { // this uses the fbfm40.tif and hence has to come last
+            create_barrier_input( &self, config)?;
         }
 
         self.create_datafile(config)
@@ -379,6 +546,7 @@ impl ElmFire {
         let input_dir = self.dir.join("inputs");
         let output_dir = self.get_output_dir();
         let scratch_dir = self.dir.join("scratch");
+        let ignitions = ignitions_to_nml( self.base_date, &self.geo_center, &self.ignitions)?;
 
         let contents = ElmfireDataTemplate {
             input_dir: path_as_str( &input_dir)?,
@@ -393,9 +561,9 @@ impl ElmFire {
             x_min: self.utm_rect.x_min(),
             y_min: self.utm_rect.y_min(),
             n_steps: (self.n_hours + 1) as usize,
-            ignitions: self.ignitions.as_str(),
-            spotting: self.spotting.as_ref().map(|s| s.as_str())
-            // barriers are specified in the INPUTS section (USE_BARRIERS=.TRUE. and BARRIER_FILENAME=...)
+            ignitions: ignitions.as_str(),
+            spotting: self.spotting.as_ref().map(|s| s.as_str()),
+            use_barriers: !self.barriers.is_empty()
         }.to_string();
 
         let path = input_dir.join("elmfire.data");
@@ -663,7 +831,7 @@ struct ElmfireDataTemplate<'a> {
     n_steps: usize,
     ignitions: &'a str,
     spotting: Option<&'a str>,
-    // note that barriers are specified in the INPUTS section
+    use_barriers: bool,
 }
 
 
@@ -826,18 +994,24 @@ impl JsonWritable for ElmfireRun {
             w.write_field( "nHours", fire.n_hours);
             w.write_field( "computeWind", fire.compute_wind);
 
+            w.write_array_field( "ignitions", |w| {
+                for ignition in &fire.ignitions { ignition.write_json_to(w); }
+            });
+
             // NOTE - no '\n' in JSON strings allowed, we have to escape/un-escape manually
-            w.write_field( "ignitions", JsonEscapedStr(&fire.ignitions));
 
             if let Some(fixed) = fire.fixed.as_ref() {
-                w.write_field( "fixed", JsonEscapedStr(fixed))
+                w.write_json_field( "fixed", fixed); // object with value arrays in UI units
             }
             if let Some(spotting) = fire.spotting.as_ref() {
                 w.write_field( "spotting", JsonEscapedStr(spotting))
             }
-            if let Some(barriers) = fire.barriers.as_ref() {
-                w.write_field( "barriers", JsonEscapedStr(barriers))
-            }
+
+            w.write_array_field( "barriers", |w| {
+                for barrier in &fire.barriers {
+                    barrier.write_json_to(w);
+                }
+            });
 
             if let Some(result) = &self.result {
                 match result {
@@ -920,3 +1094,109 @@ pub fn remove_contents<P: AsRef<Path>> (dir: P, name: &str)->Result<()> {
 }
 
 /* #endregion stored namelist support */
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ignitions_to_nml () {
+        let base_date: DateTime<Utc> = DateTime::parse_from_rfc3339("2026-10-09T00:00:00Z").unwrap().to_utc();
+        let ms = |s: &str| DateTime::parse_from_rfc3339(s).unwrap().timestamp_millis(); // dates are sent as epoch millis
+        let json = format!( r#"[
+            {{"id":1, "ignitionType":"point", "date":{}, "value":{{"lon":-121.9021,"lat":37.1682}}}},
+            {{"id":2, "ignitionType":"line", "date":{},
+             "value":{{"points":[{{"lon":-121.95,"lat":37.15}},{{"lon":-121.93,"lat":37.16}},{{"lon":-121.91,"lat":37.16}}]}}}},
+            {{"id":3, "ignitionType":"point", "date":{}, "value":{{"lon":-121.88,"lat":37.18}}}}
+        ]"#, ms("2026-10-09T00:52:00Z"), ms("2026-10-09T01:30:00Z"), ms("2026-10-09T02:00:00Z"));
+        let ignitions: Vec<Ignition> = serde_json::from_str( &json).unwrap();
+
+        let geo_center = GeoPoint::from_lon_lat_degrees( -121.9021, 37.1682);
+        let nml = ignitions_to_nml( base_date, &geo_center, &ignitions).unwrap();
+        println!("{nml}");
+
+        assert!( nml.starts_with("NUM_IGNITIONS = 2\n")); // only point ignitions
+        assert!( nml.contains("T_IGN(1) = 3120\n"));     // 52min
+        assert!( nml.contains("X_IGN(1) = 597473\n"));
+        assert!( nml.contains("Y_IGN(1) = 4114096\n"));
+        assert!( nml.contains("T_IGN(2) = 7200\n"));
+
+        // 3 point line string -> 2 line ignitions with the same time
+        assert!( nml.contains("T_LINE_IGN(1) = 5400\n"));
+        assert!( nml.contains("T_LINE_IGN(2) = 5400\n"));
+        assert!( !nml.contains("T_LINE_IGN(3)"));
+
+        // legs are connected: end of leg 1 is start of leg 2
+        let value = |key: &str| nml.lines().find( |l| l.starts_with(key)).unwrap().split('=').nth(1).unwrap().trim().to_string();
+        assert_eq!( value("X_LINE_IGN_END(1)"), value("X_LINE_IGN_START(2)"));
+        assert_eq!( value("Y_LINE_IGN_END(1)"), value("Y_LINE_IGN_START(2)"));
+
+        // JsonWritable and serde (de)serialization use the same date format (epoch millis)
+        let mut w = JsonWriter::new();
+        ignitions[0].write_json_to( &mut w);
+        let ign: Ignition = serde_json::from_str( w.as_str()).unwrap();
+        assert_eq!( ign.date, ignitions[0].date);
+        let ign: Ignition = serde_json::from_str( &serde_json::to_string( &ignitions[0]).unwrap()).unwrap();
+        assert_eq!( ign.date, ignitions[0].date);
+    }
+
+    #[test]
+    fn test_ignition_zone () {
+        // -119.99 is in UTM zone 11 but the simulation center (-120.05) is in zone 10 - the ignition has to be in zone 10
+        let base_date: DateTime<Utc> = DateTime::parse_from_rfc3339("2026-10-09T00:00:00Z").unwrap().to_utc();
+        let date = base_date.timestamp_millis() + 600_000;
+        let ignitions: Vec<Ignition> = serde_json::from_str( &format!(
+            r#"[{{"id":1, "ignitionType":"point", "date":{date}, "value":{{"lon":-119.99,"lat":37.5}}}}]"#)).unwrap();
+
+        let geo_center = GeoPoint::from_lon_lat_degrees( -120.05, 37.5);
+        let nml = ignitions_to_nml( base_date, &geo_center, &ignitions).unwrap();
+        println!("{nml}");
+
+        let center = geo_to_utm( &geo_center).unwrap();
+        let x: f64 = nml.lines().find( |l| l.starts_with("X_IGN(1)")).unwrap().split('=').nth(1).unwrap().trim().parse().unwrap();
+        assert!( (x - center.easting).abs() < 10_000.0); // ~5km east of center in the same zone (not ~500km off)
+    }
+
+    #[test]
+    fn test_datafile_ignitions () {
+        let date: DateTime<Utc> = DateTime::parse_from_rfc3339("2026-10-09T00:52:00Z").unwrap().to_utc();
+        let mut ef = ElmFire::from_point_ignition( "ignitionTest".to_string(), date, GeoPoint::from_lon_lat_degrees( -121.9021, 37.1682),
+                                                  Length::new::<kilometer>(24.0), 4, false, None, None, Vec::new()).unwrap();
+        let ls = GeoLineString::from_geo_points( vec![ GeoPoint::from_lon_lat_degrees(-121.95,37.15), GeoPoint::from_lon_lat_degrees(-121.93,37.16), GeoPoint::from_lon_lat_degrees(-121.91,37.16) ]);
+        ef.ignitions.push( Ignition::new_line_string( 2, date + minutes(38), ls));
+
+        let dir = std::env::temp_dir().join("odin_elmfire_datafile_test");
+        let _ = std::fs::remove_dir_all( &dir);
+        std::fs::create_dir_all( dir.join("inputs")).unwrap();
+        ef.dir = dir.clone();
+
+        let config: ElmfireConfig = load_config("elmfire.ron").unwrap();
+        let path = ef.create_datafile( &config).unwrap();
+        let data = std::fs::read_to_string( &path).unwrap();
+        let _ = std::fs::remove_dir_all( &dir);
+
+        let ign_section: Vec<&str> = data.lines().filter( |l| l.contains("IGN")).collect();
+        println!("{}", ign_section.join("\n"));
+
+        assert!( data.contains("NUM_IGNITIONS = 1\n"));
+        assert!( data.contains("T_IGN(1) = 3120\n"));   // 52min after base date
+        assert!( data.contains("X_IGN(1) = 597473\n"));
+        assert!( data.contains("Y_IGN(1) = 4114096\n"));
+        assert!( data.contains("T_LINE_IGN(1) = 5400\n")); // 52+38min
+        assert!( data.contains("T_LINE_IGN(2) = 5400\n"));
+
+        // client JSON contains the ignitions as Ignition objects
+        let run = ElmfireRun{ fire: Arc::new(ef), result: None };
+        let mut w = JsonWriter::new();
+        run.write_json_to( &mut w);
+        let json: serde_json::Value = serde_json::from_str( w.as_str()).unwrap();
+        let igns = json["ignitions"].as_array().unwrap();
+        assert_eq!( igns.len(), 2);
+        assert_eq!( igns[0]["ignitionType"], "point");
+        assert_eq!( igns[1]["value"]["points"].as_array().unwrap().len(), 3);
+
+        // and they deserialize back into Ignitions (as sent by the client in ElmfireRequests)
+        let igns1: Vec<Ignition> = serde_json::from_value( json["ignitions"].clone()).unwrap();
+        assert_eq!( igns1.len(), 2);
+    }
+}

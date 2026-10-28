@@ -25,7 +25,7 @@ use odin_common::{
     datetime::parse_utc_datetime, define_cli, fs::{file_contents_as_string, filepath_contents_as_string, path_as_str}, geo::{GeoPoint,GeoRect}, run_captured_cmd, strings::parse_comma_separated, utm::{UtmPoint,UtmRect, try_geo_to_utm}
 };
 use odin_elmfire::{
-    CACHE_DIR, DATA_DIR, load_config, ElmfireConfig, ElmFire, fixed::get_fixed_steps, get_utm_rect_around_point,
+    CACHE_DIR, DATA_DIR, load_config, ElmfireConfig, ElmFire, get_utm_rect_around_point,
     errors::OdinElmfireError,
     fixed::parse_file
 };
@@ -56,11 +56,10 @@ async fn main ()->Result<()> {
     let n_hours = ARGS.fc_hours;
 
     let spotting = ARGS.spotting.as_ref().map(|p| filepath_contents_as_string(Path::new(p))).and_then(|res| res.ok());
-    //let fixed_inputs = parse_file( &ARGS.fixed, n_hours as usize + 1)?;
-    let fixed_src = filepath_contents_as_string( &ARGS.fixed)?;
+    let fixed = parse_file( &ARGS.fixed)?;
 
     let mut ef = ElmFire::from_point_ignition(
-        ARGS.name.clone(), ARGS.date, geo_center, bbox_size, n_hours, ARGS.compute_wind, Some(fixed_src), spotting, None)?;
+        ARGS.name.clone(), ARGS.date, geo_center, bbox_size, n_hours, ARGS.compute_wind, Some(fixed), spotting, Vec::new())?;
     let data_file_path = ef.create_inputs( &config).await?;
 
     if !ARGS.dry_run {

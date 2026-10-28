@@ -13,7 +13,7 @@
  */
 import * as main from "./main.js";
 import * as util from "./ui_util.js";
-import { ExpandableTreeNode } from "./ui_data.js";
+import { ExpandableTreeNode, HMValue } from "./ui_data.js";
 
 
 //--- module initialization
@@ -1038,13 +1038,13 @@ function getIconBox() {
 
 //--- input element functions
 
-export function Button (text, action, minWidth=null, eid=null) {
+export function Button (value, action, minWidth=null, eid=null) {
     let e = createElement("INPUT", "ui_button");
     if (eid) e.setAttribute("id", eid);
 
     e.type = "button";
     e.tabIndex = 0; // make button tab-traversable (not default on Safari)
-    e.value = text;
+    e.value = value;
 
     if (minWidth) setWidthStyle(e,minWidth);
 
@@ -1081,6 +1081,13 @@ export function setButtonActive(o, isActive) {
     }
 }
 
+export function setButtonValue(o, newValue) {
+    let e = getButton(o);
+    if (e) {
+        e.value = newValue;
+    }
+}
+
 export function getButton (o) {
     let e = elementOf(o);
     if (e) {
@@ -1088,6 +1095,15 @@ export function getButton (o) {
         if (eCls.contains("ui_button")) return e;
     }
     return undefined;
+}
+
+// for inline rendered buttons (e.g. in Lists)
+export function createInlineButton(label, action, width) {
+    let e = createElement("DIV", "ui_inline_btn");
+    e.addEventListener("click", (e) => action());
+    e.innerText = label;
+    if (width) e.style.width = width;
+    return e;
 }
 
 //--- passive text (no user input, only programmatic)
@@ -1160,15 +1176,24 @@ export function clearVarText(o) {
 
 //--- fields
 
-function genField (inputType, extraCls, label, eid, changeAction) {
+function genField (inputType, extraCls, label, eid, opts) {
     let e = createElement("DIV", "ui_field");
     extraCls.forEach( cls=> e.classList.add(cls));
 
-    if (label && label.length > 0) e.setAttribute("data-label", label);
+    if (label && label.length > 0) {
+        e.setAttribute("data-label", label);
+        if (opts && opts.labelWidth) e.setAttribute("data-labelwidth", opts.labelWidth);
+    }
+
     e.setAttribute("data-type", inputType);
     if (eid) e.setAttribute("data-id", eid);
-    if (changeAction) {
-        if (changeAction instanceof Function) e.addEventListener("change", changeAction); else e.onchange= changeAction;
+
+    if (opts && opts.placeHolder) e.setAttribute('data-placeholder', opts.placeHolder);
+    if (opts && opts.noAutocomplete) e.setAttribute("data-autocomplete", "off");
+
+    if (opts && opts.changeAction) {
+        let action = opts.changeAction;
+        if (action instanceof Function) e.addEventListener("change", action); else e.onchange= action;
     }
 
     return e;
@@ -1182,10 +1207,7 @@ export function TextInput (label, eid, width, opts = {}) {
     let extraCls = !opts.isDisabled ? ["input"] : [];
     if (opts.isFixed) extraCls.push("fixed");
     if (opts.alignRight) extraCls.push("align_right");
-    let e = genField("text", extraCls, label, eid, opts.changeAction);
-
-    e.setAttribute("data-placeholder", opts.placeHolder ? opts.placeHolder : "");
-    if (opts.noAutocomplete) e.setAttribute("data-autocomplete", "off");
+    let e = genField("text", extraCls, label, eid, opts);
 
     if (width) e.setAttribute("data-width", width);
     if (!label || label.length == 0) e.style.width = width;
@@ -1196,7 +1218,7 @@ export function TextInput (label, eid, width, opts = {}) {
 export function DateTimeInput(label, eid, width, opts = {}) {
     let extraCls = !opts.isDisabled ? ["input"] : [];
     if (opts.isFixed) extraCls.push("fixed");
-    let e = genField("datetime-local", extraCls, label, eid, opts.changeAction);
+    let e = genField("datetime-local", extraCls, label, eid, opts);
 
     if (width) e.setAttribute("data-width", width);
     if (!label || label.length == 0) e.style.width = width;
@@ -1207,7 +1229,7 @@ export function DateTimeInput(label, eid, width, opts = {}) {
 export function TimeInput(label, eid, width, opts = {}) {
     let extraCls = !opts.isDisabled ? ["input"] : [];
     if (opts.isFixed) extraCls.push("fixed");
-    let e = genField("datetime-local", extraCls, label, eid, opts.changeAction);
+    let e = genField("datetime-local", extraCls, label, eid, opts);
 
     if (width) e.setAttribute("data-width", width);
     if (!label || label.length == 0) e.style.width = width;
@@ -1215,24 +1237,22 @@ export function TimeInput(label, eid, width, opts = {}) {
     return e;
 }
 
-///////////////////  FIXME - those should use opt object
-export function TextField (label, eid, isInput, changeAction) {
+export function TextField(label, eid, isInput, opts = {}) {
     let extraCls = isInput ? ["input"] : [];
-    return genField("text", extraCls, label, eid, changeAction);
+    return genField("text", extraCls, label, eid, opts);
 }
 
-export function NumField (label, eid, isInput, changeAction) {
-    let extraCls = isInput ? ["fixed","input","alignRight"] : ["fixed","alignRight"];
-    return genField("text", extraCls, label, eid, changeAction);
-}
-
-export function ColorField (label, eid, isInput, changeAction, width = null, labelWidth = null){
-    let extraCls = isInput ? ["input"] : [];
-    let e = genField("color", extraCls, label, eid, changeAction);
+export function NumField(label, eid, isInput, width, opts = {}) {
+    let extraCls = isInput ? ["fixed", "input", "alignRight"] : ["fixed", "alignRight"];
+    let e = genField("text", extraCls, label, eid, opts);
     if (width) e.setAttribute("data-width", width);
-    if (labelWidth) {
-        e.setAttribute("data-labelWidth", labelWidth);
-    }
+    return e;
+}
+
+export function ColorField(label, eid, isInput, width, opts = {}){
+    let extraCls = isInput ? ["input"] : [];
+    let e = genField("color", extraCls, label, eid, opts);
+    if (width) e.setAttribute("data-width", width);
     return e;
 }
 //////////////////
@@ -1393,11 +1413,123 @@ export function triggerInputEvent(o) {
     }
 }
 
+//--- HMEntry
+
+export function HMEntry(label, eid, opts = null) {
+    let e = createElement("DIV", "ui_hm_entry");
+    if (label) e.setAttribute("data-label", label);
+    if (eid) e.setAttribute("id", eid);
+
+    if (opts && opts.isTime) {
+        e._isTime = opts.isTime; // restrict hours to 0..23
+    }
+
+    return e;
+}
+
+function initializeHMEntry(e) {
+    if (e.tagName == "DIV" && e.children.length == 0) {
+        let id = e.dataset.id;
+        let labelText = e.dataset.label;
+
+        if (labelText) {
+            let label = createElement("DIV", "ui_field_label", labelText);
+            e.appendChild(label);
+        }
+
+        let wrapper = createElement("DIV", "ui_dtg_wrapper");
+
+        let eHour = createElement("INPUT", "ui_dtg_field ui_dtg_2 input");
+        setDtgFieldAttrs(eHour, "HH", 2, (e._isTime ? 23 : 99));
+        eHour.value = '00';
+        wrapper.appendChild(eHour);
+        e._uiHour = eHour;
+
+        wrapper.append(':');
+        let eMin = createElement("INPUT", "ui_dtg_field ui_dtg_2 input");
+        setDtgFieldAttrs(eMin, "MM", 2, 59);
+        eMin.value = '00';
+        wrapper.appendChild(eMin);
+        e._uiMinute = eMin;
+
+        let dialBtn = createElement("DIV", "ui_dtg_btn");
+        dialBtn.append("↕︎");
+        wrapper.appendChild(dialBtn);
+        dialBtn.addEventListener("wheel", (event) => {
+            handleWheelEvent(e, event);
+        });
+        dialBtn.addEventListener("click", (event) => {
+            eHour.value = '00';
+            eMin.value = '00';
+        });
+
+        e.appendChild(wrapper);
+    }
+}
+registerUiClassInitializer("ui_hm_entry", initializeHMEntry);
+
+function handleWheelEvent(e, event) {
+    let h = parseInt(e._uiHour.value, 10);
+    let m = parseInt(e._uiMinute.value, 10);
+
+    if (event.deltaY < 0) {
+        if (m == 59) {
+            if (!e._isTime || h < 24) {
+                m = 0;
+                h += 1;
+            }
+        } else {
+            m += 1;
+        }
+    } else {
+        if (m == 0 && h > 0) {
+            m = 59;
+            h -= 1;
+        } else {
+            if (m > 0) {
+                m -= 1;
+            }
+        }
+    }
+
+    e._uiHour.value = leadZero(h);
+    e._uiMinute.value = leadZero(m);
+}
+
+export function getHMEntry(o) {
+    let e = elementOf(o);
+    if (e && e.classList.contains("ui_hm_entry")) {
+        return e;
+    }
+    throw "not a HM entry";
+}
+
+export function getHMValue(o) {
+    let e = getHMEntry(o);
+    if (e) {
+        return new HMValue(e._uiHour.value, e._uiMinute.value);
+    }
+}
+
+export function setHMValue(o, newHM) {
+    let e = getHMEntry(o);
+    if (e) {
+        if (Object.hasOwn("hours") && Object.hasOwn("minutes")) {
+            let h = e._isTime ? Math.min(23, Math.abs(newHM.hours)) : Math.min(99, Math.abs(newHM.hours));
+            let m = Math.min(59, Math.abs(newHM.minutes));
+            e._uiHour.value = leadZero(h);
+            e._uiMinute.value = leadZero(m);
+        }
+    }
+}
+
+
 //--- DTGEntry
 
 export function DTGEntry(label, eid, opts = {}) {
     let e = createElement("DIV", "ui_dtg_entry");
     if (label) e.setAttribute("data-label", label);
+    if (opts.labelWidth) e.setAttribute("data-labelwidth", opts.labelWidth);
     if (eid) e.setAttribute("id", eid);
 
     return e;
@@ -1407,9 +1539,11 @@ function initializeDTGEntry(e) {
     if (e.tagName == "DIV" && e.children.length == 0) {
         let id = e.dataset.id;
         let labelText = e.dataset.label;
+        let labelWidth = e.dataset.labelwidth;
 
         if (labelText) {
             let label = createElement("DIV", "ui_field_label", labelText);
+            if (labelWidth) label.style.width = labelWidth;
             e.appendChild(label);
         }
 
@@ -1484,15 +1618,29 @@ function setDtgFieldAttrs(e, placeholder, length, max=null) {
     //e.setAttribute("max", max);
 
     if (max) {
-        e.onchange = (event) => {
+        e.addEventListener( 'change', (event) => {
             let val = event.target.value;
             if (val > max) {
-                event.target.value = null;
+                e.value = null;
                 beep();
             } else if (val < 10) {
-                event.target.value = leadZero(val);
+                e.value = leadZero(val);
             }
-        };
+        });
+        e.addEventListener('keydown', (event) => {
+            switch (event.code) {
+                case 'ArrowUp': {
+                    let v = parseInt(e.value) + 1;
+                    e.value = leadZero( v <= max ? v : 0);
+                    break;
+                }
+                case 'ArrowDown': {
+                    let v = parseInt(e.value) - 1;
+                    e.value = leadZero( v < 0 ? max : v);
+                    break;
+                }
+            }
+        })
     }
 }
 
@@ -1565,9 +1713,10 @@ function leadZero(n) {
 
 //--- Location input
 
-export function LocationEntry(label, eid, pickHandler) {
+export function LocationEntry(label, eid, pickHandler, opts = {}) {
     let e = createElement("DIV", "ui_loc_entry");
     if (label) e.setAttribute("data-label", label);
+    if (opts.labelWidth) e.setAttribute("data-labelwidth", opts.labelWidth);
     if (eid) e.setAttribute("id", eid);
 
     if (pickHandler) e._uiPick = pickHandler;
@@ -1609,8 +1758,10 @@ function initializeLocationEntry(e) {
         }
 
         let labelText = e.dataset.label;
+        let labelWidth = e.dataset.labelwidth;
         if (labelText) {
             let label = createElement("DIV", "ui_field_label", labelText);
+            if (labelWidth) label.style.width = labelWidth;
             e.appendChild(label);
         }
 
@@ -1621,14 +1772,14 @@ function initializeLocationEntry(e) {
         wrapper.appendChild(eLon);
         eLon.addEventListener("paste", pasteHandler);
         e._uiLon = eLon;
-        wrapper.append(" °lon");
+        wrapper.append("°λ");
 
         let eLat = createElement("INPUT", "ui_loc_field ui_loc_lat_field input");
         setLocFieldAttrs(eLat, "-90..90", 9, -90, 90);
         wrapper.appendChild(eLat);
         eLat.addEventListener("paste", pasteHandler);
         e._uiLat = eLat;
-        wrapper.append(" °lat");
+        wrapper.append("°φ");
 
         let pickBtn = createElement("DIV", "ui_loc_btn");
         pickBtn.append("⨁");
@@ -2362,7 +2513,7 @@ export function getSlider(o) {
 export function Choice (label, eid, changeAction=null, width=null, labelWidth=null) {
     let e = createElement("DIV", "ui_choice");
 
-    e.setAttribute("data-label", label);
+    if (label) e.setAttribute("data-label", label);
     if (eid) e.setAttribute("data-id", eid);
     if (width) e.setAttribute("data-width", width);
     if (labelWidth) {
@@ -2381,7 +2532,7 @@ export function Choice (label, eid, changeAction=null, width=null, labelWidth=nu
 }
 
 // for list item initialization
-export function createChoice (changeAction, width, items, selIdx) {
+export function createChoice(changeAction, width, items, selIdx=0, opts = {}) {
     let e = createElement("DIV", "ui_choice");
     e.setAttribute("data-width", width);
 
@@ -2390,6 +2541,9 @@ export function createChoice (changeAction, width, items, selIdx) {
     } else {
         e.onclick = changeAction; // expr.
     }
+
+    if (opts.numeric) e.setAttribute("data-num", true);
+    if (opts.pad) e.setAttribute("data-pad", opts.pad);
 
     initializeChoice(e);
 
@@ -2420,6 +2574,9 @@ function initializeChoice (e) {
         field._uiSelIndex = -1;
         field._uiItems = [];
 
+        if (e.dataset.num) field.classList.add("num");
+        if (e.dataset.pad) field._uiPad = e.dataset.pad;
+
         e.appendChild(field);
     }
 }
@@ -2448,22 +2605,32 @@ export function setChoiceItems(o, items, selIndex = -1) {
             var i = 0;
             let menu = createElement("DIV", "ui_popup_menu");
             for (let item of items) {
-                let itemLabel = getItemLabel(item);
-                let idx = i;
-                let mi = createElement("DIV", "ui_menuitem", itemLabel);
-                mi.addEventListener("click", (event) => {
-                    event.preventDefault();
-                    e.innerText = mi.innerText;
-                    if (e._uiSelIndex >= 0) { menu.children[e._uiSelIndex].classList.remove('checked'); }
-                    e._uiSelIndex = idx;
-                    mi.classList.add('checked');
-                    choice.dispatchEvent(new Event('change'));
-                });
-                if (selIndex == i) {
-                    mi.classList.add('checked');
-                    e.innerText = itemLabel;
+                if (util.isString(item) && item.startsWith("---")) {
+                    let sep = createElement("HR");
+                    menu.appendChild(sep);
+                } else if (util.isHtmlElementWithType(item, "HR")) {
+                    menu.appendChild(item);
+
+                } else {
+                    let itemLabel = getItemLabel(item);
+                    let idx = i;
+                    let mi = createElement("DIV", "ui_menuitem", itemLabel);
+                    mi.addEventListener("click", (event) => {
+                        event.preventDefault();
+
+                        e.innerText = e._uiPad ? padItem( mi.innerText, e._uiPad, ' ') : mi.innerText;
+
+                        if (e._uiSelIndex >= 0) { menu.children[e._uiSelIndex].classList.remove('checked'); }
+                        e._uiSelIndex = idx;
+                        mi.classList.add('checked');
+                        choice.dispatchEvent(new Event('change'));
+                    });
+                    if (selIndex == i) {
+                        mi.classList.add('checked');
+                        e.innerText = e._uiPad ? padItem( mi.innerText, e._uiPad, ' ') : mi.innerText;
+                    }
+                    menu.appendChild(mi);
                 }
-                menu.appendChild(mi);
                 i += 1;
             }
 
@@ -2474,6 +2641,18 @@ export function setChoiceItems(o, items, selIndex = -1) {
                 event.preventDefault();
             });
         }
+    }
+}
+
+
+
+function padItem(item, paddedLength, padChar) {
+    if (paddedLength == 0) {
+        return items;
+    } else if (paddedLength < 0) {
+        return item.toString().padStart(-paddedLength, padChar);
+    } else {
+        return item.toString().padEnd(paddedLength, padChar);
     }
 }
 
@@ -2511,6 +2690,15 @@ export function selectChoiceItemIndex(o, selIndex) {
     }
 }
 
+export function getSelectedChoiceItem(o) {
+    let e = getChoice(o);
+    if (e) {
+        if (e._uiSelIndex >= 0) {
+            return e._uiItems[e._uiSelIndex];
+        }
+    }
+}
+
 export function selectChoiceItem(o, item) {
     let e = getChoice(o);
     if (e) {
@@ -2522,7 +2710,7 @@ export function selectChoiceItem(o, item) {
 export function getSelectedChoiceValue(o) {
     let e = getChoice(o);
     if (e) {
-        let choiceName =  e.innerText;
+        let choiceName =  e.innerText.trim();
         return e._uiItems.find( it=> choiceName === getItemLabel(it));
     }
 }
@@ -2543,7 +2731,7 @@ export function CheckBox (label, action, eid=null, isSelected=false, width=null,
 
     if (isSelected) _addClass(e, "checked");
 
-    e.setAttribute("data-label", label);
+    if (label) e.setAttribute("data-label", label);
     if (eid) e.setAttribute("id", eid);
     if (action instanceof Function) {
         e.addEventListener("click", action);
@@ -2559,7 +2747,7 @@ export function CheckBox (label, action, eid=null, isSelected=false, width=null,
 
 function initializeCheckBox(e) {
     let labelText = e.dataset.label;
-    if (_hasNoChildElements(e)) {
+    if (labelText && _hasNoChildElements(e)) {
         _addCheckBoxComponents(e, labelText);
         e.setAttribute("tabindex", "0");
     }
@@ -3006,7 +3194,7 @@ export function setListItemDisplayColumns(o, listAttrs, colSpecs) {
         let re = createElement("DIV", "ui_list_item");
         let he = (listAttrs.includes("header")) ? createElement("DIV", "ui_list_header") : null;
 
-        colSpecs.forEach(cs => {
+        colSpecs.forEach((cs) => {
             let ce = createElement("DIV", "ui_list_subitem");
 
             ce._uiMapFunc = cs.map;
@@ -3206,8 +3394,9 @@ function _cloneRowPrototype(proto) {
         if (pe._uiEditFunc) {
             ce._uiEditFunc = pe._uiEditFunc;
             ce.addEventListener("dblclick", (event) => {
-                if (event.shiftKey) {
+                if (event.altKey) {
                     ce._uiEditFunc(event);
+                    // don't stop propagation here since we might also select the item
                 }
             });
         }
@@ -4079,6 +4268,10 @@ export function MenuItem (text, action=null, eid=null, isChecked=false, isDisabl
     return createMenuItem(text, action, eid, isChecked, isDisabled);
 }
 
+export function MenuItemSeparator() {
+    return createElement("HR");
+}
+
 export function SubMenu (text, action=null, eid=null, isChecked=false, isDisabled=false) {
     return function (...subItems) {
         const e = createMenuItem(text, action, eid, isChecked, isDisabled);
@@ -4451,6 +4644,8 @@ function _setAlignment(e, attrs) {
         _addClass(e, "align_left");
     } else if (attrs.includes("alignRight")) {
         _addClass(e, "align_right");
+    } else if (attrs.includes("alignCenter")) {
+        _addClass(e, "align_center");
     }
 }
 

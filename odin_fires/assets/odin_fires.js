@@ -95,7 +95,7 @@ function getFireDataItems (e) {
 
 async function loadPerimeter (e, perimeter) {
     let url = `fire-data/${e.fireSummary.year}/${e.fireSummary.name}/perimeters/${perimeter.id}.geojson`;
-    
+
     fetch(url).then( (response) => {
         if (response.ok) {
             let data = response.json();
@@ -238,8 +238,8 @@ function createWindow() {
         ),
         ui.Panel("display parameters", false)(
             ui.Slider("stroke width", "fires.perimeter.stroke_width", perimeterStrokeWidthChanged),
-            ui.ColorField("stroke color", "fires.perimeter.stroke_color", true, perimeterStrokeColorChanged),
-            ui.ColorField("fill color", "fires.perimeter.fill_color", true, perimeterFillColorChanged),
+            ui.ColorField("stroke color", "fires.perimeter.stroke_color", true, "3rem", { changeAction: perimeterStrokeColorChanged }),
+            ui.ColorField("fill color", "fires.perimeter.fill_color", true, "3rem", { changeAction: perimeterFillColorChanged }),
             ui.Slider("fill opacity", "fires.perimeter.opacity", perimeterFillOpacityChanged),
             ui.Slider("dim factor", "fires.perimeter.dim_factor", perimeterDimFactorChanged),
         )
@@ -374,7 +374,7 @@ function selectPerimeter(event) {
             if (selectedFire) selectedFire.displayPerimeter(selectedPerimeter,true);
             ui.updateListItem(firePerimeterView,selectedPerimeter);
         }
-    } 
+    }
 }
 
 function updateFireDataView() {

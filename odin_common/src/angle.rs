@@ -224,6 +224,15 @@ macro_rules! define_angle_deserializer {
                             Err(E::custom(format!("degrees out of range: {}", value)))
                         }
                     }
+
+                    // JSON numbers without fraction (e.g. from Javascript JSON.stringify(-122.0) -> "-122") are reported as integers
+                    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> where E: de::Error {
+                        self.visit_f64( value as f64)
+                    }
+
+                    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> where E: de::Error {
+                        self.visit_f64( value as f64)
+                    }
                 }
 
                 deserializer.deserialize_f64( AngleVisitor)
