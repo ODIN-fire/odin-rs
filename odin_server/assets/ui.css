@@ -1175,7 +1175,9 @@ div.ui_menuitem.checked::before {
     content: "\2713 \2003"
 }
 
-div.ui_menuitem:not([class*="disabled"]):hover {
+/* hover rendering is suppressed while the user navigates popups with the keyboard (see ui.js _popupKeyHandler) */
+body:not(.ui_popup_kbd_nav) div.ui_menuitem:not([class*="disabled"]):hover,
+div.ui_menuitem.highlighted:not([class*="disabled"]) {
     color: var(--menuitem-selection-color);
     background: var(--menuitem-selection-background);
 }

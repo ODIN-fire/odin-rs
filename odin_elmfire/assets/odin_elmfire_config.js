@@ -21,7 +21,7 @@ export const config = {
     labelMaxNeighborPts: 400, // max number of neighbor isochrone vertices used to compute label position gaps
 
     //--- fixed wx input defaults
-    fixedWs: [5, 10, 15, 20, 30, 40, 50, 60],
+    fixedWs: [5, 10, 15, 20, 25, 30, 35, 40, 50, 60],
     defaultWs: 2,
 
     fixedWd: [0, 45, 90, 135, 180, 225, 270, 315],
@@ -36,13 +36,6 @@ export const config = {
     fixedM100: [0, 10, 20, 30],
     defaultM100: 1,
 
-    lfmMap: new Map([ // live fuel moisture categories (herbaceous, woody) in %
-        ["low", [25, 55]],
-        ["med", [30, 60]],
-        ["high", [35, 65]]
-    ]),
-    defaultLfm: 1,
-
     fixedLh: [25, 30, 35],
     defaultLh: 1,
 
@@ -55,7 +48,7 @@ export const config = {
     fixedTcc: [0, 30, 70, 100], // pervent total cloud coverage
     defaultTcc: 0,
 
-    barrierWidths: [5, 10, 15, 20, 25, 30, 40, 50],
+    barrierWidths: [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 90],
     barrierRender: {
         lineWidth: 3, // [pixel]
         colors: { // per barrier type
@@ -67,11 +60,11 @@ export const config = {
         },
         defaultColor: Cesium.Color.fromCssColorString('#ff00ff'),
     },
-    handLineWidth: 5,
-    dozerLineWidth: 10,
-    seatDropWidth: 20,
-    latDropWidth: 30,
-    vlatDropWidth: 50,
+    handLineWidth: 8,
+    dozerLineWidth: 12,
+    seatDropWidth: 60,
+    latDropWidth: 90,
+    vlatDropWidth: 130,
 
     pointSize: 4,
     pointColor: Cesium.Color.RED,

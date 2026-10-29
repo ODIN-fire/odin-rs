@@ -2615,6 +2615,9 @@ export function setChoiceItems(o, items, selIndex = -1) {
                     let itemLabel = getItemLabel(item);
                     let idx = i;
                     let mi = createElement("DIV", "ui_menuitem", itemLabel);
+                    mi.addEventListener("mouseenter", () => { // keyboard navigation continues from here
+                        if (!_isKbdNav()) _setMenuHighlight(menu, mi);
+                    });
                     mi.addEventListener("click", (event) => {
                         event.preventDefault();
 
@@ -2707,6 +2710,7 @@ export function selectChoiceItem(o, item) {
     }
 }
 
+// the value currently shown in the text field
 export function getSelectedChoiceValue(o) {
     let e = getChoice(o);
     if (e) {
@@ -4223,6 +4227,13 @@ function createTooltip (e, text) {
 
 var _uiActivePopupMenus = [];
 window.addEventListener("click", _windowPopupClickHandler);
+window.addEventListener("keydown", _popupKeyHandler, true); // capture phase so that we get keys before list handlers
+window.addEventListener("mousemove", _popupMouseMoveHandler, true);
+
+// keyboard navigation mode: since browsers do not allow to move the mouse pointer we have to suppress CSS hover
+// rendering while the user navigates popups with the keyboard (see ui.css). This ends with the next real mouse move
+const KBD_NAV_CLS = "ui_popup_kbd_nav";
+var _lastMousePos = { x: -1, y: -1 };
 
 export function PopupMenu (eid=null) {
     return function (children) {
@@ -4250,12 +4261,14 @@ function createMenuItem (text, action=null, eid=null, isChecked=false, isDisable
     }
     if (eid) e.setAttribute("id", eid);
 
-    e.addEventListener("mouseenter", _menuItemHandler);
+    e.addEventListener("mouseenter", (event) => { if (!_isKbdNav()) _menuItemHandler(event); }); // see _popupMouseMoveHandler
+    e._uiHoverHandler = _menuItemHandler;
 
     e.addEventListener("click", (event) => {
         event.stopPropagation();
-        closeAllActivePopups();
+        if (e.classList.contains("disabled")) return;
 
+        closeAllActivePopups();
         if (e._uiAction) { e._uiAction(event) }
     });
 
@@ -4286,11 +4299,88 @@ function _windowPopupClickHandler(event) {
     closeAllActivePopups();
 }
 
-function menuItemKeydownHandler(event) {
-    console.log("@@ mi key", event);
-    if (event.key === 'Escape') {
-        event.stopPropagation();
-        closeAllActivePopups();
+// keyboard navigation for the innermost active popup. Note that we only consume the keys we process
+function _popupKeyHandler(event) {
+    let menu = _peekTop(_uiActivePopupMenus);
+    if (!menu) return;
+
+    switch (event.key) {
+        case "Escape":
+            closeAllActivePopups();
+            break;
+        case "ArrowDown":
+            _startKbdNav();
+            _moveMenuHighlight(menu, 1);
+            break;
+        case "ArrowUp":
+            _startKbdNav();
+            _moveMenuHighlight(menu, -1);
+            break;
+        case "ArrowRight": { // open submenu of highlighted item (no-op for items without submenu)
+            _startKbdNav();
+            let mi = _getMenuHighlight(menu);
+            if (mi && _firstChildWithClass(mi, "ui_popup_menu")) _activateMenuItem(mi);
+            break;
+        }
+        case "ArrowLeft": // close innermost submenu (no-op for top level popup)
+            _startKbdNav();
+            _closeTopSubmenu();
+            break;
+        case "Enter": {
+            let mi = _getMenuHighlight(menu);
+            if (mi) _activateMenuItem(mi);
+            break;
+        }
+        default:
+            return; // not for us
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+}
+
+// the (direct) menuitems of a popup that can be selected - this skips separators and disabled items
+function _selectableMenuItems(menu) {
+    return Array.from(menu.children).filter( c => c.classList.contains("ui_menuitem") && !c.classList.contains("disabled"));
+}
+
+function _getMenuHighlight(menu) {
+    return Array.from(menu.children).find( c => c.classList.contains("highlighted"));
+}
+
+function _setMenuHighlight(menu, mi) {
+    for (const c of menu.children) c.classList.remove("highlighted");
+    if (mi) mi.classList.add("highlighted");
+}
+
+// move highlight up (dir < 0) or down (dir > 0) with wrap-around. If there is no highlight yet we start at the checked
+// item (e.g. current choice), or the first/last item
+function _moveMenuHighlight(menu, dir) {
+    let items = _selectableMenuItems(menu);
+    if (items.length == 0) return;
+
+    let cur = _getMenuHighlight(menu);
+    let idx = items.indexOf(cur);
+    if (idx < 0) {
+        let checked = items.findIndex( c => c.classList.contains("checked"));
+        idx = (checked >= 0) ? checked : (dir > 0 ? 0 : items.length - 1);
+    } else {
+        idx = (idx + dir + items.length) % items.length;
+    }
+
+    let mi = items[idx];
+    _setMenuHighlight(menu, mi);
+    mi.scrollIntoView({ block: "nearest" });
+}
+
+// trigger the highlighted menuitem as if it was clicked. Items with a submenu open it (and highlight its first item)
+function _activateMenuItem(mi) {
+    let sub = _firstChildWithClass(mi, "ui_popup_menu");
+    if (sub) {
+        if (_peekTop(_uiActivePopupMenus) !== sub) _menuItemHandler({ target: mi });
+        _moveMenuHighlight(sub, 1);
+    } else {
+        mi.click(); // this runs the click handlers which close all popups
     }
 }
 
@@ -4299,6 +4389,43 @@ function closeAllActivePopups() {
         p.style.visibility = "hidden";
     }
     _uiActivePopupMenus = [];
+    document.body.classList.remove(KBD_NAV_CLS);
+}
+
+// close the innermost submenu (if there is one). The highlight stays on the parent menuitem
+function _closeTopSubmenu() {
+    if (_uiActivePopupMenus.length > 1) {
+        let sub = _uiActivePopupMenus.pop();
+        sub.style.visibility = "hidden";
+        _setMenuHighlight(sub, null);
+    }
+}
+
+function _startKbdNav() {
+    document.body.classList.add(KBD_NAV_CLS);
+}
+
+function _isKbdNav() {
+    return document.body.classList.contains(KBD_NAV_CLS);
+}
+
+// a real mouse move ends keyboard navigation and applies the hover behavior to the menuitem under the pointer (mouseenter
+// events are ignored during keyboard navigation and precede mousemove events). Note that browsers might send synthetic
+// mouse events without position change (e.g. after scrolling), which we ignore
+function _popupMouseMoveHandler(event) {
+    let moved = (event.clientX != _lastMousePos.x || event.clientY != _lastMousePos.y);
+    _lastMousePos.x = event.clientX;
+    _lastMousePos.y = event.clientY;
+
+    if (moved && _isKbdNav()) {
+        document.body.classList.remove(KBD_NAV_CLS);
+
+        let mi = event.target.closest ? event.target.closest("div.ui_menuitem") : null;
+        if (mi && mi.parentNode) {
+            if (mi._uiHoverHandler) mi._uiHoverHandler({ target: mi }); // highlight and (possibly) open/close submenus
+            else _setMenuHighlight(mi.parentNode, mi);
+        }
+    }
 }
 
 function _menuItemHandler(event) {
@@ -4306,38 +4433,58 @@ function _menuItemHandler(event) {
     let sub = _firstChildWithClass(mi, "ui_popup_menu");
     let currentTop = _peekTop(_uiActivePopupMenus);
 
+    if (mi.parentNode) _setMenuHighlight(mi.parentNode, mi); // keyboard navigation continues from here
+
     if (currentTop !== mi.parentNode) {
         _uiActivePopupMenus.pop();
         currentTop.style.visibility = "hidden";
     }
 
     if (sub) {
+        // compute position in viewport coordinates (to the right of the menu item if there is space, otherwise to the left)
         let rect = mi.getBoundingClientRect();
-        let left = (rect.right + sub.scrollWidth <= window.innerWidth) ? rect.right : rect.left - sub.scrollWidth;
-        let top = (rect.top + sub.scrollHeight <= window.innerHeight) ? rect.top : rect.bottom - sub.scrollHeight;
+        let w = sub.offsetWidth;  // includes border (visibility:hidden still has layout)
+        let h = sub.offsetHeight;
+        let x = (rect.right + w <= window.innerWidth) ? rect.right : rect.left - w;
+        let y = (rect.top + h <= window.innerHeight) ? rect.top : rect.bottom - h;
 
-        sub.style.left = left + "px";
-        sub.style.top = top + "px";
+        // style.left/top are relative to the containing block, which is the enclosing (absolute positioned) popup
+        _setPopupPosition( sub, mi.parentNode, x, y);
         sub.style.visibility = "visible";
 
         _uiActivePopupMenus.push(sub);
     }
 }
 
+// set the position of an absolute positioned popup from viewport coordinates x,y. Note that style.left/top are relative
+// to the padding box of the containing block, i.e. we have to subtract its viewport position and border widths
+function _setPopupPosition (popup, containingBlock, x, y) {
+    x = Math.max(0, x);
+    y = Math.max(0, y);
+
+    if (containingBlock) {
+        let cr = containingBlock.getBoundingClientRect();
+        x -= cr.left + containingBlock.clientLeft;
+        y -= cr.top + containingBlock.clientTop;
+    }
+
+    popup.style.left = x + "px";
+    popup.style.top = y + "px";
+}
+
 export function popupMenu(event, o) {
     event.preventDefault();
     let popup = getPopupMenu(o);
     if (popup) {
-        //let left = _computePopupLeft(event.pageX, popup.scrollWidth);
-        //let top = _computePopupTop(event.pageY, popup.scrollHeight);
+        // make sure we show the whole popup - this has to be computed in viewport coordinates
+        let w = popup.offsetWidth;  // includes border (visibility:hidden still has layout)
+        let h = popup.offsetHeight;
+        let x = Math.min( event.clientX, window.innerWidth - w);
+        let y = Math.min( event.clientY, window.innerHeight - h);
 
-        let pr = nearestParentWithClass(event.target, "ui_window").getBoundingClientRect();
-
-        let left = event.clientX - pr.left;
-        let top = event.clientY - pr.top;
-
-        popup.style.left = left + "px";
-        popup.style.top = top + "px";
+        // style.left/top are relative to the containing block, which is the enclosing (absolute positioned) window
+        _setPopupPosition( popup, nearestParentWithClass(event.target, "ui_window"), x, y);
+        _setMenuHighlight( popup, null); // keyboard navigation starts fresh
         popup.style.visibility = "visible";
 
         _uiActivePopupMenus.push(popup);
@@ -4377,14 +4524,12 @@ export function isMenuItemDisabled(o) {
 export function setMenuItemDisabled(o, isDisabled = true) {
     let e = getMenuItem(o);
     if (e) {
+        // the click handler (see createMenuItem) and keyboard navigation check the "disabled" class
         if (isDisabled) {
             e.classList.add("disabled");
-            e.removeEventListener("click", e._uiAction);
-            e.removeEventListener("keydown", menuItemKeydownHandler);
+            e.classList.remove("highlighted");
         } else {
             e.classList.remove("disabled");
-            e.addEventListener("click", e._uiAction);
-            e.addEventListener("keydown", menuItemKeydownHandler);
         }
     }
 }
@@ -4810,16 +4955,6 @@ function _setDisabled(e, isDisabled) {
     else _removeClass(e, "disabled");
 }
 
-
-// FIXME - this assumes the popup dimensions are much smaller than the window dimensions
-
-function _computePopupLeft(pageX, w) {
-    return (pageX + w > window.innerWidth) ? pageX - w : pageX;
-}
-
-function _computePopupTop(pageY, h) {
-    return (pageY + h > window.innerHeight) ? pageY - h : pageY;
-}
 
 function _peekTop(array) {
     let len = array.length;

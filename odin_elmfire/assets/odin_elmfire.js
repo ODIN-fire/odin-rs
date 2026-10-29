@@ -136,7 +136,7 @@ class FireEntry {
                 if (prod && prodRender) {
                     let entity = createRasterEntity(`elmfire-data/${this.ef.id}/outputs/${prod.file}`, prod.bbox, prodRender);
                     this.assets[key] = entity;
-                    dataSource.entities.add(entity);
+                    imgDataSource.entities.add(entity);
                 }
             }
         }
@@ -145,7 +145,7 @@ class FireEntry {
     removeImgOutputAssets() {
         let assets = this.assets;
         Object.keys(assets).forEach((key) => {
-            dataSource.entities.remove(assets[key]);
+            imgDataSource.entities.remove(assets[key]);
             assets[key] = null;
         });
     }
@@ -505,6 +505,10 @@ setInputDebouncers();
 initDisplayControls();
 windRender.initialize();
 
+// z-order of our rendered entities (bottom to top): images (imgDataSource), toa isochrones (one FireEntry.toaDs per run),
+// barrier/ignition/fire entities (dataSource). Since data sources are rendered in order of addition we create imgDataSource
+// first, and raise dataSource to the top whenever we add a toaDs (see loadToa())
+var imgDataSource = odinCesium.createDataSource("elmfire-img", config.layer.show);
 var dataSource = odinCesium.createDataSource("elmfire", config.layer.show);
 
 ws.addWsHandler( MOD_PATH, handleWsMessages);
@@ -1180,7 +1184,7 @@ function selectIgnition() {
     let ign = ui.getSelectedListItem(ignitionView);
     if (ign) {
         let t0 = ui.getDTGEntryEpochMillis(dtgEntry);
-        let t1 = idn.date.getTime();
+        let t1 = ign.date.getTime();
         let delay = ui.HMValue.fromMillis( t1 - t0);
         ui.setHMValue(ignitionDelayEntry, delay);
     }
@@ -1359,8 +1363,8 @@ function selectBarrier() {
     let selBarrier = ui.getSelectedListItem(barrierView);
     if (selBarrier) {
         ui.setField(barrierEntry, selBarrier.name);
-        ui.setSelectedChoiceValue(barrierTypeCh, selBarrier.barrierType);
-        ui.setSelectedChoiceValue(barrierWidthCh, selBarrier.width);
+        ui.selectChoiceItem(barrierTypeCh, selBarrier.barrierType);
+        ui.selectChoiceItem(barrierWidthCh, selBarrier.width);
     }
 }
 
@@ -1460,7 +1464,8 @@ function loadToa(e) {
         e.toaDs = ds;
         e.toaLoading = undefined;
         e.updateDisplay(); // apply current display state before it gets added
-        odinCesium.addDataSource(ds);
+        // isochrones have to be rendered below our barrier/ignition/fire entities. Note this has to be done after ds was added
+        odinCesium.addDataSource(ds).then( () => odinCesium.raiseDataSourceToTop(dataSource));
         console.log("loaded ", url);
         return ds;
 
@@ -1965,6 +1970,7 @@ function fireSelection() {
 function showFires(cond) {
     layerShow = cond;
     dataSource.show = cond;
+    imgDataSource.show = cond;
     fireEntries.forEach( e => e.updateDisplay());
     updateWindDisplay(); // wind fields are not part of our dataSource
     odinCesium.requestRender();

@@ -996,8 +996,10 @@ export function createDataSource (name, show) {
     return dataSrc;
 }
 
+// note this returns a Promise that is resolved once the data source has been added, which is required to change the
+// order of data sources (e.g. raiseDataSourceToTop())
 export function addDataSource(dataSrc) {
-    viewerReadyPromise.then( (viewer) => viewer.dataSources.add(dataSrc));
+    return viewerReadyPromise.then( (viewer) => viewer.dataSources.add(dataSrc));
 }
 
 export function removeDataSource(dataSrc) {
@@ -1012,8 +1014,28 @@ export function toggleDataSource(dataSrc) {
     }
 }
 
+export function raiseDataSource(dataSrc, levels = 1) {
+    while (levels-- > 0) viewer.dataSources.raise(dataSrc);
+}
+
+export function raiseDataSourceToTop(dataSrc) {
+    viewer.dataSources.raiseToTop(dataSrc);
+}
+
+export function lowerDataSource(dataSrc, levels = 1) {
+    while (levels-- > 0) viewer.dataSources.lower(dataSrc);
+}
+
 export function isDataSourceShowing(dataSrc) {
     return viewer.dataSources.contains(dataSrc);
+}
+
+export function lowerDataSourceToBottom(dataSrc) {
+    viewer.dataSources.lowerToBottom(dataSrc);
+}
+
+export function zIndexOfDataSource(dataSrc) {
+    return viewer.dataSources.indexOf(dataSrc);
 }
 
 export function addPrimitive(prim) {
