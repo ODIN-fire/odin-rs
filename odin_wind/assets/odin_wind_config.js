@@ -33,10 +33,10 @@ export const config = {
     //--- wind field render options (see odin_wind/windfield.js WindFieldRenderControls)
     windRender: {
         colors: windSpeedColors, // in 5mph steps - used by all display types
-        lineWidth: 1.9,          // [pixel] particle trails, vector lines and contour outlines
+        lineWidth: 1.5,          // [pixel] particle trails, vector lines and contour outlines
 
         anim: {
-            particlesTextureSize: 64, // sqrt of number of particles if the view is completely covered by the wind field
+            particlesTextureSize: 50, // sqrt of number of particles if the view is completely covered by the wind field
             speedFactor: 0.12,
             particleHeight: 0.0,
             fadeOpacity: 0.99,

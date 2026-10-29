@@ -26,14 +26,10 @@ import * as settings from "../odin_server/ui_settings.js";
 const MOD_PATH = "odin_cesium::CesiumService";
 const VIEW_PATTERN = util.glob2regexp("{view/**,**/view/**,**/view}");
 
-const metricScaleUnits = [ 1000000, 500000, 100000, 50000, 10000, 5000, 1000, 500, 100, 50, 10 ]; // in meters
-const usMileScaleUnits = [ 1000, 500, 100, 50, 10, 5, 1, 0.25 ];
-const usYardScaleUnits = [ 500, 100, 50, 10 ];
 
 const UI_POSITIONS = "race-ui-positions";
 const LOCAL = "local-";  // prefix for local position set names
 
-const WGS84BoundingSphere = Cesium.BoundingSphere.fromEllipsoid(Cesium.Ellipsoid.WGS84);
 
 const ORTHO_PITCH = -Math.PI/2;
 const TERRAIN_HEIGHT = 100000; // in meters
@@ -126,8 +122,8 @@ var positionsView = undefined;
 
 var isSelectedView = false;
 
-var mapScale; // canvas to show map scale
 export var isMetric = true;
+var metricChangeHandlers = []; // functions to call when isMetric changes (e.g. ruler.js)
 
 const centerOrientation = {
     heading: Cesium.Math.toRadians(0.0),
@@ -165,7 +161,6 @@ createTimeWindow();
 initViewWindow();
 initLayerWindow();
 settings.initSettingsWindow();
-initMapScale();
 
 // pointer / camera position fields
 let cameraLat = ui.getField("view.camera.latitude");
@@ -840,7 +835,16 @@ function setTargetFrameRate(fr) {
 function toggleIsMetric (event) {
     let cb = event.target;
     isMetric = ui.isCheckBoxSelected(cb);
-    updateScale();
+    metricChangeHandlers.forEach( h=> h(isMetric));
+}
+
+export function registerMetricChangeHandler (handler) {
+    metricChangeHandlers.push(handler);
+}
+
+export function releaseMetricChangeHandler (handler) {
+    let idx = metricChangeHandlers.findIndex(h => h === handler);
+    if (idx >= 0) metricChangeHandlers.splice(idx,1);
 }
 
 export function lowerFrameRateWhile(action, lowFr) {
@@ -1145,186 +1149,7 @@ function updateCamera() {
     */
 
     //saveCamera();
-    updateScale();
 }
-
-/* #region map scale ************************************************************/
-
-
-function initMapScale() {
-    mapScale = ui.MoveableCanvas(["ui_mapscale"], {right: 50, bottom: 10});
-    mapScale.width = config.scale.width;
-    mapScale.height = config.scale.height;
-
-    ui.showMoveableCanvas(mapScale);
-}
-
-function updateScale () {
-    withMetersPerPixel( (dPixel)=> {
-        let scale = isMetric ? getMetricScale(dPixel) : getUsScale(dPixel);
-        drawScale( scale, dPixel);
-    });
-}
-
-function withMetersPerPixel (f) {
-    let w = viewer.scene.canvas.clientWidth;
-    let h = viewer.scene.canvas.clientHeight;
-
-    // FIXME - this returns 0 if we get close (no tile level?). It also won't cover terrain height, which would cause
-    // problems as we zoom in (where we need distances most)
-    //let dPixel = viewer.scene.camera.getPixelSize( WGS84BoundingSphere, w, h);  // distance [m] per pixel
-    //if (dPixel) return dPixel;
-
-    // the hard way to work around this - compute two rays close to the center of the canvas and deduce distance from
-    // respective ellipsoid points. Note this does not account yet for elevation at the center
-    let dx = 2;
-    let camera = viewer.scene.camera;
-    let wp = new Cesium.Cartesian2( Math.round(w/2), Math.round(h/2)); // center window coordinates
-    let ray1 = camera.getPickRay(wp);
-    wp.x += dx; // add dx horizontal pixels
-    let ray2 = camera.getPickRay(wp);
-
-    let cp = ray1.origin;
-    let geo = util.ecefToGeo( cp.x, cp.y, cp.z);
-    let cameraHeight = geo.alt; // of camera above ellipsoid
-
-    if (cameraHeight < 80000) { // factor in terrain height
-        geo = new Cesium.Cartographic( geo.lon, geo.lat);
-        geo.height = viewer.scene.globe.getHeight(geo);
-        cameraHeight -= geo.height; // subtract the terrain elevation from the camera height
-    }
-
-    let p1 = Cesium.Cartesian3.add( ray1.origin,
-        Cesium.Cartesian3.multiplyByScalar( ray1.direction, cameraHeight,new Cesium.Cartesian3()), new Cesium.Cartesian3());
-    let p2 = Cesium.Cartesian3.add( ray2.origin,
-                Cesium.Cartesian3.multiplyByScalar( ray2.direction, cameraHeight, new Cesium.Cartesian3()), new Cesium.Cartesian3());
-    let dist = Cesium.Cartesian3.distance( p1, p2, new Cesium.Cartesian3());
-    let dPixel = dist / dx;
-
-    f( dPixel)
-}
-
-function getMetricScale (dPixel) {
-    let unit, nUnits, unitPx, label, tickBase;
-    let maxWidth = config.scale.width;
-
-    outer: for ( let i=0; i < metricScaleUnits.length; i++) {
-        unit = metricScaleUnits[i];
-        unitPx = unit / dPixel;
-
-        let nu = [5,4,3,2];
-        for (let j=0; j<nu.length; j++) {
-            nUnits = nu[j];
-            if ((unitPx * nUnits) <= maxWidth) break outer;
-        }
-    }
-
-    if (unit >= 1000) {
-        tickBase = unit / 1000;
-        label = `${tickBase * nUnits} km`;
-    } else {
-        tickBase = unit;
-        label = `${tickBase * nUnits} m`;
-    }
-
-    return { unit, nUnits, unitPx, tickBase, label }
-}
-
-function getUsScale (dPixel) {
-    let unit, nUnits, unitPx, label, tickBase;
-    let maxWidth = config.scale.width;
-
-    //--- start with US miles
-    for ( let i=0; i < usMileScaleUnits.length; i++) {
-        unit = usMileScaleUnits[i];
-        unitPx = (unit * util.metersPerUsMile) / dPixel;
-
-        let nu = mileTicks(unit);
-        for (let j=0; j<nu.length; j++) {
-            nUnits = nu[j];
-            if ((unitPx * nUnits) <= maxWidth) {
-                return { unit, nUnits, unitPx, tickBase: unit, label: `${unit * nUnits} mi` };
-            }
-        }
-    }
-
-    //--- switch to yards
-    for ( let i=0; i < usYardScaleUnits.length; i++) {
-        unit = usYardScaleUnits[i];
-        unitPx = (unit * util.metersPerYard) / dPixel;
-
-        let nu = i % 2 ? mOdd : mEven;
-        for (let j=0; j<nu.length; j++) {
-            nUnits = nu[j];
-            if ((unitPx * nUnits) <= maxWidth) {
-                return { unit, nUnits, unitPx, tickBase: unit, label: `${unit * nUnits} yd` };
-            }
-        }
-    }
-}
-
-function mileTicks (unit) {
-    if (unit > 0.25) {
-        return [5,4,3,2];
-    } else if (unit == 0.25) {
-        return [4,2];
-    }
-}
-
-function drawScale ( scale, dPixel ) {
-    let unit = scale.unit;
-    let nUnits = scale.nUnits;
-    let label = scale.label;
-    let unitPx = scale.unitPx;
-    let tickBase = scale.tickBase;
-    //console.log("@@ unit:", unit, ", nUnits:", nUnits, ", label:", label, ", dPixel:", dPixel);
-
-    let clr = config.scale.cssColor;
-    let xMargin = 12;
-
-    let canvasHeight = mapScale.clientHeight;
-    let canvasWidth = Math.ceil( 2* xMargin + (unitPx * nUnits));
-    mapScale.width = canvasWidth;
-
-    let ctx = mapScale.getContext("2d");
-    ctx.clearRect(0,0,canvasWidth,canvasHeight);
-
-    ctx.fillStyle = clr;
-    ctx.strokeStyle = clr;
-    ctx.textAlign = "center";
-
-    let y = canvasHeight / 2;
-
-    //--- the bar
-    ctx.beginPath();
-    ctx.lineWidth = 2;
-    ctx.moveTo( xMargin, y);
-    ctx.lineTo( xMargin + (nUnits * unitPx), y);
-    ctx.closePath();
-    ctx.stroke();
-
-    //--- the ticks
-    if (unitPx > 25) {
-        ctx.font = config.scale.smallFont;
-        ctx.beginPath();
-        for (let i = 0; i<=nUnits; i++) {
-            let x = xMargin + (i*unitPx);
-            ctx.moveTo(x, y);
-            ctx.lineTo(x, y + 5);
-
-            ctx.fillText( tickBase * i, x, y+14);
-        }
-        ctx.closePath();
-        ctx.stroke();
-    }
-
-    //--- the length string
-    ctx.font = config.scale.font;
-    let x = Math.round( xMargin + (nUnits * unitPx) / 2);
-    ctx.fillText( label, x, y - 3);
-}
-
-/* #endregion map scale */
 
 //--- 2nd level event handlers
 

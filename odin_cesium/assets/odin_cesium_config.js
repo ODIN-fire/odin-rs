@@ -43,8 +43,8 @@ export const config = {
     scale: {
       width: 400, // this is a max width - actual width will be computed
       height: 30,
-      right: 30,
-      bottom: 5,
+      right: 50, // initial position of ruler (distance of right end from window border)
+      bottom: 10,
       cssColor: "rgb(0,255,0)",
       font: "14px sans-serif",
       smallFont: "11px sans-serif"

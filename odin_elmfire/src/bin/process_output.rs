@@ -21,7 +21,7 @@ use anyhow::{anyhow,Result};
 use odin_gdal::{gdal::Dataset, get_exterior_data_bounds, warp::warp_to_wgs84_tif, crop_mem_dataset, open_dataset};
 use odin_common::define_cli;
 use odin_elmfire::{
-    ElmfireRun, contour_levels, load_config, process_contour, process_ef_raster_output, compute_timesteps_from_toa,
+    ElmfireRun, contour_levels, load_config, process_toa_contours, process_ef_raster_output, compute_timesteps_from_toa,
     wind::{create_computed_windfields, create_wx_windfields}
 };
 use uom::si::{f64::Area, area::square_meter};
@@ -43,11 +43,12 @@ fn main () -> Result<()> {
         println!("generated {} with bbox {:?}", fname, geo_rect);
     }
 
-    let path = dir.join("toa.geojson");
+    let line_path = dir.join("toa.geojson");
+    let poly_path = dir.join("toa_poly.geojson");
     let ds = open_dataset( &dir.join("toa_wgs84.tif"))?;
-    process_contour( &ds, &path, config.small_fire_cells, ARGS.t_start, ARGS.n_hours)?;
+    process_toa_contours( &ds, &line_path, &poly_path, config.small_fire_cells, ARGS.t_start, ARGS.n_hours)?;
 
-    println!("generated contour file in {:?}", path);
+    println!("generated contour files {:?} and {:?}", line_path, poly_path);
 
     if ARGS.wind {
         let run_dir = dir.parent().ok_or( anyhow!("output_dir has no parent"))?;

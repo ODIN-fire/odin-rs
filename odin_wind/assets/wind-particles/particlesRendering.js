@@ -17,6 +17,8 @@
 import * as Util from "./windUtils.js";
 import { CustomPrimitive } from "./customPrimitive.js";
 
+const LINE_WIDTH_ADJUSTMENT = 2.0;
+
 export class ParticlesRendering {
 
     constructor(context, data, userInput, viewerParameters, particlesComputing) {
@@ -172,7 +174,7 @@ export class ParticlesRendering {
                         return viewerParameters.pixelSize;
                     },
                     lineWidth: function() {
-                        return userInput.lineWidth;
+                        return userInput.lineWidth * LINE_WIDTH_ADJUSTMENT;
                     },
                     particleHeight: function() {
                         return userInput.particleHeight;
@@ -363,7 +365,7 @@ export class ParticlesRendering {
         let primitives = this.primitives;
 
         let map = primitives.segments.uniformMap;
-        const lineWidth = userInput.lineWidth;
+        const lineWidth = userInput.lineWidth * LINE_WIDTH_ADJUSTMENT;
         map.lineWidth = function() {
             return lineWidth;
         };

@@ -1,4 +1,5 @@
 const windSpeedColors = [ // in 5mph increments
+    // TODO - adjust to make higher windspeed stand out on darker background
     Cesium.Color.fromCssColorString("#d9cfff"), // < 5mph
     Cesium.Color.fromCssColorString("#20d4f8"), // < 10mph
     Cesium.Color.fromCssColorString("#0bd25e"), // < 15mph
@@ -76,19 +77,19 @@ export const config = {
     ignPointColor: Cesium.Color.RED,
     ignPointOutlineColor: Cesium.Color.YELLOW,
     ignPointOutlineWidth: 1,
-    ignPointDC: new Cesium.DistanceDisplayCondition( 0, 50000),
+    ignPointDC: new Cesium.DistanceDisplayCondition( 0, 30000),
     ignLineColor: Cesium.Color.RED,
     ignLineWidth: 3, // [pixel]
     ignitionDelays: [0, 10, 15, 20, 30, 45, 60, 90, 120, 180], // [min] after dtg for new ignitions
 
     labelColor: Cesium.Color.YELLOW,
     labelFont: '14px sans-serif',
-    smallLabelFont: '12px sans-serif',
+    smallLabelFont: '11px sans-serif',
     labelBackground: Cesium.Color.fromCssColorString('#00000080'),
     labelOffset: new Cesium.Cartesian2( 8, 0),
-    labelDC: new Cesium.DistanceDisplayCondition(0, 70000),
+    labelDC: new Cesium.DistanceDisplayCondition(0, 50000),
 
-    billboardDC: new Cesium.DistanceDisplayCondition(0, 70000),
+    billboardDC: new Cesium.DistanceDisplayCondition(0, 50000),
     billboardColor: Cesium.Color.YELLOW,
 
     zoomHeight: 10000,
@@ -98,10 +99,10 @@ export const config = {
     //--- wind field render options (see odin_wind/windfield.js WindFieldRenderControls)
     windRender: {
         colors: windSpeedColors, // in 5mph steps - used by all display types
-        lineWidth: 1.9,          // [pixel] particle trails, vector lines and contour outlines
+        lineWidth: 1.5,          // [pixel] particle trails, vector lines and contour outlines
 
         anim: {
-            particlesTextureSize: 64, // sqrt of number of particles if the view is completely covered by the wind field
+            particlesTextureSize: 50, // sqrt of number of particles if the view is completely covered by the wind field
             speedFactor: 0.12,
             particleHeight: 0.0,
             fadeOpacity: 0.99,

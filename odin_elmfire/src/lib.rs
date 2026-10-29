@@ -60,7 +60,7 @@ use odin_common::{
 };
 use odin_gdal::{
     colorize::to_cmap,
-    contour::to_fixed_level_geo_json, copy_mem_dataset, crop_dataset, crop_mem_dataset,
+    copy_mem_dataset, crop_dataset, crop_mem_dataset,
     geods::GeoDs,
     get_band_value_range, get_exterior_data_bounds, get_geo_rect, get_gtiff_create_opts, get_gtiff_driver, get_mem_driver,
     get_raster_info, get_rasterband_as_vec, get_resolution, open_dataset, read_rasterband_into_slice, replace_rasterband_value,
@@ -85,6 +85,9 @@ pub use service::ElmfireService;
 
 pub mod fixed;
 pub use fixed::FixedInput;
+
+pub mod toa;
+pub use toa::{contour_levels, process_toa_contours};
 
 pub mod errors;
 use errors::{OdinElmfireError,Result,op_failed};
@@ -612,7 +615,7 @@ impl ElmFire {
         let raster_products = process_ef_raster_output(config, &dir)?;
 
         let ds = open_dataset( &dir.join("toa_wgs84.tif"))?;
-        process_contour( &ds, &dir.join("toa.geojson"), config.small_fire_cells, self.t_start(), self.n_hours)?;
+        process_toa_contours( &ds, &dir.join("toa.geojson"), &dir.join("toa_poly.geojson"), config.small_fire_cells, self.t_start(), self.n_hours)?;
 
         let flin_range = get_band_value_range( &open_dataset( &dir.join("flin_wgs84.tif"))?, 1)?;
         let vs_range = get_band_value_range( &open_dataset( &dir.join("vs_wgs84.tif"))?, 1)?;
@@ -731,25 +734,6 @@ pub fn process_raster_file<P: AsRef<Path>> (
     Ok(ds)
 }
 
-pub fn process_contour<P: AsRef<Path>> (ds: &Dataset, json_path: P, cell_threshold: usize, start_secs: i64, n_hours: u32)->Result<()> {
-    let (n_cols, n_rows) = ds.raster_size(); // this is already cropped so no need to crop again
-    let mut ds = copy_mem_dataset(ds)?;
-
-    // fill nodata (before we potentially upsample so that nodata positions are preserved)
-    let max_toa = ((n_hours + 1) * 3600) as f32;
-    replace_rasterband_value( &mut ds, 1, -9999.0, max_toa)?;
-
-    if n_cols * n_rows < cell_threshold {
-        let (x_res, y_res) = get_resolution(&ds)?;
-        ds = warp_to_res_mem( &ds, x_res / 2.0, y_res / 2.0, ResampleAlg::CubicSpline)?;
-    }
-
-    let levels = contour_levels( start_secs, n_hours);
-    to_fixed_level_geo_json( &ds, 1, &levels, json_path)?;
-
-    Ok(())
-}
-
 /// generate (UTM-based) Elmfire ignitions source for given ignition-points
 /// note that all points need to have the same utm_zone
 pub fn point_ignition_src (igns: &[(GeoPoint,i64)])->Result<String> {
@@ -763,21 +747,6 @@ pub fn point_ignition_src (igns: &[(GeoPoint,i64)])->Result<String> {
     }
 
     Ok( s )
-}
-
-/// the time steps (in seconds) for which we want to compute time-of-arival contour isochrones
-/// this starts 30min after first ignition and covers n_hours (from first ignition)
-pub fn contour_levels (start_secs: i64, n_hours: u32)->Vec<f64> {
-    let mut levels: Vec<f64> = Vec::with_capacity( n_hours as usize *2);
-    let t_max = (start_secs + (n_hours as i64 * 3600) + 1) as f64;
-    let mut t = (start_secs + 1800) as f64;
-
-    while (t < t_max) {
-        levels.push(t);
-        t += 1800.0;
-    }
-
-    levels
 }
 
 /// we compute this ourselves so that we could extend it to get additional information such as growth per 30min interval

@@ -56,8 +56,9 @@ class FireEntry {
         //--- isochrone (time-of-arrival) display state. Entity visibility is only set in updateDisplay()
         this.isShown = false;              // == "show" checkbox in fireView
         this.shownTimeSteps = new Set();   // explicitly requested levels (secs) in mode B
-        this.toaDs = undefined;            // the spread isochrone polylines/polygons (loaded on demand)
-        this.toaLoading = undefined;       // Promise while loading toaDs (to avoid duplicate loads)
+        this.toaDs = undefined;            // the spread isochrone polylines and labels (loaded on demand)
+        this.toaPolyDs = undefined;        // the cumulative burn area polygons (with holes), one per level (loaded with toaDs)
+        this.toaLoading = undefined;       // Promise while loading toaDs/toaPolyDs (to avoid duplicate loads)
         this.toaGen = 0;                   // incremented whenever toaDs is reset so that we can discard outdated loads
         this.toaRender = undefined;        // toa render options of this run (set when the run gets selected)
 
@@ -95,28 +96,43 @@ class FireEntry {
     // this is the only place where we set visibility of toa entities - it is computed from the current state:
     //  - outlines (polylines) are shown if the run is shown and we are in showSelectedEntryMode (only the selected
     //    run can be shown in this mode) or if the respective level was explicitly requested
-    //  - only the selected timestep of the selectedEntry is filled, and only if its outline is visible
+    //  - only the cumulative burn area polygon (toaPolyDs) of the selected timestep of the selectedEntry is filled, and
+    //    only if its outline is visible. Since this polygon includes holes we get a uniform alpha for the whole burn area
     updateDisplay() {
         let ds = this.toaDs;
         if (ds) {
             ds.show = layerShow;
-            let isSel = (this === selectedEntry);
             for (const e of ds.entities.values) {
-                let lvl = getPropValue(e.properties, "level");
-                let showOutline = this.isShown && (showSelectedEntryMode || this.shownTimeSteps.has(lvl));
+                let showOutline = this.isOutlineShown( getPropValue(e.properties, "level"));
                 if (e.polyline) e.polyline.show = showOutline;
                 if (e.label) e.label.show = showOutline; // only label visible outlines
-                if (e.polygon) e.polygon.fill = showOutline && isSel && (selectedLevel !== undefined) && (lvl == selectedLevel);
             }
-            odinCesium.requestRender();
         }
+
+        let polyDs = this.toaPolyDs;
+        if (polyDs) {
+            polyDs.show = layerShow;
+            let isSel = (this === selectedEntry) && (selectedLevel !== undefined);
+            for (const e of polyDs.entities.values) {
+                let lvl = getPropValue(e.properties, "level");
+                if (e.polygon) e.polygon.fill = isSel && (lvl == selectedLevel) && this.isOutlineShown(lvl);
+            }
+        }
+
+        if (ds || polyDs) odinCesium.requestRender();
+    }
+
+    isOutlineShown(lvl) {
+        return this.isShown && (showSelectedEntryMode || this.shownTimeSteps.has(lvl));
     }
 
     // remove loaded toa data (outdated loads that are still in progress will be discarded)
     removeToa() {
         this.toaGen++;
         if (this.toaDs) odinCesium.removeDataSource(this.toaDs);
+        if (this.toaPolyDs) odinCesium.removeDataSource(this.toaPolyDs);
         this.toaDs = undefined;
+        this.toaPolyDs = undefined;
         this.toaLoading = undefined;
     }
 
@@ -202,22 +218,27 @@ class FireEntry {
     // this does not affect visibility but only how entities are rendered if they are visible
     // visibility changes on areaEntry selection and explicit request via checkbox
     updateToaRendering() {
+        let renderOpts = this.getToaRender();
         let ds = this.toaDs;
-        if (ds) {
-            let renderOpts = this.getToaRender();
-            let fillMaterial = new Cesium.ColorMaterialProperty(renderOpts.fill.withAlpha(renderOpts.alpha));
+        let polyDs = this.toaPolyDs;
 
+        if (ds) {
             ds.entities.values.forEach( entity => {
-                if (entity.polygon) {
-                    entity.polygon.material = fillMaterial;
-                }
                 if (entity.polyline) {
                     entity.polyline.width = renderOpts.strokeWidth;
                     entity.polyline.material = renderOpts.stroke;
                 }
             });
-            odinCesium.requestRender();
         }
+
+        if (polyDs) {
+            let fillMaterial = new Cesium.ColorMaterialProperty(renderOpts.fill.withAlpha(renderOpts.alpha));
+            polyDs.entities.values.forEach( entity => {
+                if (entity.polygon) entity.polygon.material = fillMaterial;
+            });
+        }
+
+        if (ds || polyDs) odinCesium.requestRender();
     }
 
     // note - this should be kept in sync with odin_elmfire::ElmFire::get_id
@@ -505,9 +526,11 @@ setInputDebouncers();
 initDisplayControls();
 windRender.initialize();
 
-// z-order of our rendered entities (bottom to top): images (imgDataSource), toa isochrones (one FireEntry.toaDs per run),
-// barrier/ignition/fire entities (dataSource). Since data sources are rendered in order of addition we create imgDataSource
-// first, and raise dataSource to the top whenever we add a toaDs (see loadToa())
+// z-order of our rendered entities (bottom to top): images (imgDataSource), toa burn area polygons and isochrones (one
+// FireEntry.toaPolyDs and toaDs per run), barrier/ignition/fire entities (dataSource). Since data sources are rendered in
+// order of addition we create imgDataSource first, and lower each toaPolyDs/toaDs we add right below dataSource (in this
+// order, see loadToa()). This keeps the z-order of data sources from
+// other modules relative to ours unchanged
 var imgDataSource = odinCesium.createDataSource("elmfire-img", config.layer.show);
 var dataSource = odinCesium.createDataSource("elmfire", config.layer.show);
 
@@ -1447,65 +1470,87 @@ function ensureToa(e) {
     return e.toaLoading;
 }
 
+// load both the isochrone outlines (toa.geojson) and the cumulative burn area polygons (toa_poly.geojson)
 function loadToa(e) {
     let gen = e.toaGen;
-    let url = `elmfire-data/${e.ef.id}/outputs/toa.geojson`;
+    let baseUrl = `elmfire-data/${e.ef.id}/outputs`;
+    let lineUrl = `${baseUrl}/toa.geojson`;
+    let polyUrl = `${baseUrl}/toa_poly.geojson`;
     let toaRender = e.getToaRender();
-    let renderOpts = {
+    let lineOpts = {
         stroke: toaRender.stroke,
-        strokeWidth: toaRender.strokeWidth,
-        fill: toaRender.fill.withAlpha(toaRender.alpha)
+        strokeWidth: toaRender.strokeWidth
+    };
+    let polyOpts = {
+        fill: toaRender.fill.withAlpha(toaRender.alpha),
+        clampToGround: true
     };
 
-    return Cesium.GeoJsonDataSource.load(url, renderOpts).then( (ds) => {
+    return Promise.all([
+        Cesium.GeoJsonDataSource.load(lineUrl, lineOpts),
+        Cesium.GeoJsonDataSource.load(polyUrl, polyOpts).catch( (reason) => { // not fatal - we just don't have fills
+            console.log("failed to load: ", polyUrl, ", reason: ", reason);
+            return undefined;
+        })
+    ]).then( ([ds, polyDs]) => {
         if (gen !== e.toaGen) return undefined; // entry was reset or replaced while we were loading
 
-        addPolygons(e, ds);
+        removeContourArtifacts(ds);
+        addTimeStepLabels(e, ds);
+        if (polyDs) initPolygons(polyDs);
+
         e.toaDs = ds;
+        e.toaPolyDs = polyDs;
         e.toaLoading = undefined;
-        e.updateDisplay(); // apply current display state before it gets added
-        // isochrones have to be rendered below our barrier/ignition/fire entities. Note this has to be done after ds was added
-        odinCesium.addDataSource(ds).then( () => odinCesium.raiseDataSourceToTop(dataSource));
-        console.log("loaded ", url);
+        e.updateDisplay(); // apply current display state before they get added
+
+        // isochrones have to be rendered below our barrier/ignition/fire entities and polygons below the isochrones, i.e. we
+        // first add and lower polyDs, then ds. Note that lowering has to be done after the respective data source was added
+        let polyAdded = polyDs ? odinCesium.addDataSource(polyDs).then( () => lowerBelowDataSource(polyDs)) : Promise.resolve();
+        polyAdded
+            .then( () => odinCesium.addDataSource(ds))
+            .then( () => lowerBelowDataSource(ds));
+        console.log("loaded ", lineUrl, polyUrl);
         return ds;
 
     }).catch( (reason) => {
         if (gen === e.toaGen) e.toaLoading = undefined;
-        console.log("failed to load: ", url, ", reason: ", reason);
+        console.log("failed to load: ", lineUrl, ", reason: ", reason);
         return undefined;
     });
 }
 
-function addPolygons(fireEntry, ds) {
-    let toaRender = fireEntry.getToaRender();
-    let fillMaterial = new Cesium.ColorMaterialProperty(toaRender.fill.withAlpha(toaRender.alpha));
+// move ds (which has to be already added) right below our dataSource (if it is not already below)
+function lowerBelowDataSource(ds) {
+    let levels = odinCesium.zIndexOfDataSource(ds) - odinCesium.zIndexOfDataSource(dataSource);
+    if (levels > 0) odinCesium.lowerDataSource(ds, levels);
+    odinCesium.requestRender();
+}
+
+// remove small contour artifacts (outlines with less than config.contourThreshold vertices)
+function removeContourArtifacts(ds) {
     let removed = [];
 
     for (const e of ds.entities.values) {
-        if (e.polyline) {
-            let nPoints = e.polyline.positions._value.length;
-            if (nPoints > config.contourThreshold) {
-                if (!e.polygon) {
-                    e.polygon = {
-                        hierarchy: e.polyline.positions._value,
-                        material: fillMaterial,
-                        outline: false,
-                        //heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-                        fill: false // set when we select a time step
-                    };
-                    e.addProperty('polygon');
-                }
-            } else { // remove small contour artifacts (can't do this while we iterate over entities)
-                removed.push(e);
-            }
+        if (e.polyline && e.polyline.positions._value.length <= config.contourThreshold) {
+            removed.push(e); // can't remove while we iterate over entities
         }
     }
 
     for (const e of removed) {
         ds.entities.remove(e);
     }
+}
 
-    addTimeStepLabels(fireEntry, ds);
+// burn area polygons are only filled for the selected level (see FireEntry.updateDisplay()). Ground polygons don't
+// support outlines (which are provided by the isochrone polylines anyways)
+function initPolygons(polyDs) {
+    for (const e of polyDs.entities.values) {
+        if (e.polygon) {
+            e.polygon.outline = false;
+            e.polygon.fill = false;
+        }
+    }
 }
 
 // add a label with the timestep in hours (corresponding to the timestepView "dt" column) to the largest outline

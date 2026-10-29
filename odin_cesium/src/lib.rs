@@ -93,6 +93,7 @@ impl SpaService for CesiumService {
         //--- add JS modules
         spa.add_module( asset_uri!("odin_cesium_config.js"));
         spa.add_module( asset_uri!("odin_cesium.js"));
+        spa.add_module( asset_uri!("ruler.js"));
 
         spa.add_module( asset_uri!("editor_config.js"));
         spa.add_module( asset_uri!("editor.js"));
