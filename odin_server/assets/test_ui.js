@@ -40,6 +40,7 @@ let textEntry = undefined;
 let list1View = undefined;
 let choice = undefined;
 let codeArea = undefined;
+let slider = undefined;
 
 createIcon();
 createWindow();
@@ -58,8 +59,9 @@ function createWindow() {
         (textEntry = ui.TextInput("area","orbital.bounds", "20rem", { placeHolder: "enter lat,lon bounds", changeAction: setAreaFromInput, isFixed: true })),
         (list1View = ui.List("list1", 8, selectEntry)),
         (choice = ui.Choice("chose", "test.cb")),
-        (codeArea = code.CodeInput(null, "nml-highlight", "fortran-namelist", "30rem", "10lh"))
+        (codeArea = code.CodeInput(null, "nml-highlight", "fortran-namelist", "30rem", "10lh")),
         //(codeArea = code.CodeInput(null, "json-highlight", "JSON", "30rem", "10lh"))
+        (slider = ui.initSlider("alpha", "slider", sliderChanged, 0, 1, 0.1, util.f_2, 0.5))
     )
   )
 }
@@ -118,4 +120,8 @@ function editDate(event) {
             alert("invalid date input - enter 'mm/dd HH:MM:SS");
         }
     });
+}
+
+function sliderChanged(event) {
+    console.log("slider changed", event);
 }

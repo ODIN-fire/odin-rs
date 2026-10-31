@@ -31,6 +31,10 @@ pub mod evt_cats;
 pub mod errors;
 use errors::{Result,op_failed, OdinLandfireError};
 
+pub mod cmap;
+pub mod wms;
+use wms::WmsConfig;
+
 pub mod service;
 
 lazy_static! {
@@ -38,16 +42,10 @@ lazy_static! {
     pub static ref LANDFIRE_PIXEL_RESOLUTION: Length = { Length::new::<meter>(30.0) };
 }
 
-/// this can be used for both WMS and ODIN queries. The layer paths do not include file extensions
-/// (png for WMS and tif for own)
+/// configuration for LandfireService
 #[derive(Deserialize,Debug)]
 pub struct LandfireConfig {
-    pub wms_layers: HashMap<String,EnvPathBuf>,
-    pub wms_capabilities: Option<EnvPathBuf>, // only for WMS
-
-    pub tms_layers: HashMap<String,EnvPathBuf>,
-
-    pub color_maps: HashMap<String,EnvPathBuf>,
+    pub wms: WmsConfig, // WMS layers for display (computed directly from landfire.gov GeoTIFFs)
 
     pub datasets: HashMap<String,EnvPathBuf>, // for internal queries
 }

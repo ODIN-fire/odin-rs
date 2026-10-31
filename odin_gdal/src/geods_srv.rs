@@ -75,19 +75,106 @@ fn default_max_cache() -> u64 { 1024*1024*100 } // 100MB - wouldn't be enough if
 
 //--- the WMS queries
 
-#[derive(Deserialize,Debug)]
-pub struct WmsQuery {
-    service: String,
-    request: String,
-    version: String,
+/// the subset of WMS requests we support. This is what Cesium.WebMapServiceImageryProvider needs, plus GetCapabilities
+#[derive(Debug)]
+pub enum WmsRequest {
+    GetCapabilities,
+    GetMap(WmsGetMap)
+}
 
-    crs: Option<String>,
-    bbox: Option<String>,
-    width: Option<u32>,
-    height: Option<u32>,
-    format: Option<String>,
-    styles: Option<String>,
-    layers: Option<String>,
+/// a parsed and normalized WMS GetMap request
+#[derive(Debug)]
+pub struct WmsGetMap {
+    pub version: String,
+    pub layers: Vec<String>,
+    pub styles: Vec<String>,
+    pub srs: GeoDsSrs,
+    pub bbox: BoundingBox<f64>, // normalized to x/y order (lon,lat for geographic CRS), regardless of WMS version
+    pub width: u32,
+    pub height: u32,
+    pub img_type: GeoDsImgType,
+    pub transparent: bool,
+    pub params: HashMap<String,String> // all request parameters with lowercase keys (for vendor specific parameters)
+}
+
+/// WMS ServiceException (we only support the XML exception format)
+#[derive(Debug)]
+pub struct WmsException {
+    pub code: Option<&'static str>, // one of the WMS exception codes such as "LayerNotDefined"
+    pub msg: String
+}
+
+impl WmsException {
+    pub fn new (code: Option<&'static str>, msg: impl ToString)->Self { WmsException{ code, msg: msg.to_string() } }
+    pub fn missing (param: &str)->Self { Self::new( Some("MissingParameterValue"), format!("missing or invalid {} parameter", param.to_uppercase())) }
+}
+
+impl IntoResponse for WmsException {
+    fn into_response(self) -> axum::response::Response {
+        let code_attr = if let Some(code) = self.code { format!(" code=\"{code}\"") } else { String::new() };
+        let body = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
+<ServiceExceptionReport version="1.3.0" xmlns="http://www.opengis.net/ogc">
+  <ServiceException{code_attr}>{}</ServiceException>
+</ServiceExceptionReport>
+"#, xml_escape( &self.msg));
+        (StatusCode::BAD_REQUEST, [(http::header::CONTENT_TYPE, "text/xml")], body).into_response()
+    }
+}
+
+pub fn xml_escape (s: &str)->String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// parse WMS request parameters. Parameter names are case insensitive according to the WMS spec. We support both
+/// WMS 1.1.1 (SRS) and 1.3.0 (CRS) - note that WMS 1.3.0 uses lat,lon axis order for EPSG:4326 BBOX values, which we
+/// normalize into x,y order
+pub fn parse_wms_request (query: &HashMap<String,String>)->std::result::Result<WmsRequest,WmsException> {
+    let params: HashMap<String,String> = query.iter().map( |(k,v)| (k.to_lowercase(), v.clone())).collect();
+
+    if let Some(service) = params.get("service") && !service.eq_ignore_ascii_case("WMS") {
+        return Err( WmsException::new( Some("InvalidParameterValue"), "unsupported SERVICE"))
+    }
+
+    match params.get("request").map( |s| s.as_str()) {
+        Some(r) if r.eq_ignore_ascii_case("GetCapabilities") => Ok( WmsRequest::GetCapabilities ),
+        Some(r) if r.eq_ignore_ascii_case("GetMap") => parse_get_map( params).map( |gm| WmsRequest::GetMap(gm)),
+        Some(_) => Err( WmsException::new( Some("OperationNotSupported"), "unsupported REQUEST")),
+        None => Err( WmsException::missing("request"))
+    }
+}
+
+fn parse_get_map (params: HashMap<String,String>)->std::result::Result<WmsGetMap,WmsException> {
+    let version = params.get("version").cloned().unwrap_or( "1.3.0".to_string());
+    let is_v13 = version.starts_with("1.3");
+
+    let srs_spec = if is_v13 { params.get("crs") } else { params.get("srs") }
+        .or_else( || params.get("crs")).or_else( || params.get("srs")) // be lenient
+        .ok_or( WmsException::missing( if is_v13 {"crs"} else {"srs"}))?;
+    let srs = GeoDsSrs::from_srs_spec( srs_spec).ok_or( WmsException::new( Some("InvalidCRS"), format!("unsupported CRS {srs_spec}")))?;
+
+    let bbox = params.get("bbox").and_then( |s| parse_array::<f64,4>( s, ',').ok()).ok_or( WmsException::missing("bbox"))?;
+    let bbox = if is_v13 && matches!( srs, GeoDsSrs::WGS84) { // EPSG:4326 in WMS 1.3.0 is lat,lon
+        BoundingBox::from_wsen( &[bbox[1], bbox[0], bbox[3], bbox[2]])
+    } else {
+        BoundingBox::from_wsen( &bbox)
+    };
+    if bbox.west >= bbox.east || bbox.south >= bbox.north {
+        return Err( WmsException::new( Some("InvalidParameterValue"), "invalid BBOX"))
+    }
+
+    let width = params.get("width").and_then( |s| s.parse::<u32>().ok()).filter( |w| *w > 0).ok_or( WmsException::missing("width"))?;
+    let height = params.get("height").and_then( |s| s.parse::<u32>().ok()).filter( |h| *h > 0).ok_or( WmsException::missing("height"))?;
+
+    let format = params.get("format").ok_or( WmsException::missing("format"))?;
+    let img_type = GeoDsImgType::for_mime_type( format).ok_or( WmsException::new( Some("InvalidFormat"), format!("unsupported FORMAT {format}")))?;
+
+    let layers: Vec<String> = params.get("layers").map( |s| s.split(',').filter( |l| !l.is_empty()).map( |l| l.to_string()).collect()).unwrap_or_default();
+    if layers.is_empty() { return Err( WmsException::missing("layers")) }
+    let styles: Vec<String> = params.get("styles").map( |s| s.split(',').map( |l| l.to_string()).collect()).unwrap_or_default();
+
+    let transparent = params.get("transparent").map( |s| s.eq_ignore_ascii_case("true")).unwrap_or(false);
+
+    Ok( WmsGetMap{ version, layers, styles, srs, bbox, width, height, img_type, transparent, params } )
 }
 
 // we also support a non-WMS single layer query API with a choice between
@@ -147,7 +234,7 @@ pub async fn run_wms_server (config_path: String) -> Result<()> {
         let capability_path = Some(capability_path.clone());
         let cache_dir = cache_dir.clone();
 
-        move |query: Query<WmsQuery>| { get_wms_handler( query, layer_paths, capability_path, cache_dir) }
+        move |query: Query<HashMap<String,String>>| { get_wms_handler( query, layer_paths, capability_path, cache_dir) }
     }));
 
     router = add_cors_layer( router);
@@ -242,54 +329,37 @@ fn spawn_cache_cleanup_task (cache_dir: Arc<PathBuf>, max_cache: u64)->Result<Ab
 
 //--- WMS route handlers
 
-pub async fn get_wms_handler (Query(q): Query<WmsQuery>, layer_paths: Arc<HashMap<String,EnvPathBuf>>, capabilities_path: Option<Arc<EnvPathBuf>>, cache_dir: Arc<PathBuf>) -> impl IntoResponse {
-    if q.request == "GetMap" { // this is the hot path
-        if let Some(bbox) = q.bbox
-        && let Ok(bbox) = parse_array::<f64,4>(&bbox, ',')
-        && let Some(width) = q.width
-        && let Some(height) = q.height
-        && let Some(crs) = q.crs
-        && let Some(fmt) = q.format
-        && let Some(layers) = q.layers {
-            if let Some(srs) = GeoDsSrs::from_srs_spec( &crs)
-            && let Some(img_type) = GeoDsImgType::for_mime_type( &fmt) {
-                // WMS bbox is min_x,min_y,max_x,max_y (caller has to make sure)
-                let bbox = BoundingBox::from_wsen(&bbox);
+pub async fn get_wms_handler (Query(q): Query<HashMap<String,String>>, layer_paths: Arc<HashMap<String,EnvPathBuf>>, capabilities_path: Option<Arc<EnvPathBuf>>, cache_dir: Arc<PathBuf>) -> axum::response::Response {
+    match parse_wms_request( &q) {
+        Ok(WmsRequest::GetMap(gm)) => { // this is the hot path
+            if gm.layers.len() > 1 { // the complex case - superimposed layers
+                let layers: Vec<EnvPathBuf> = gm.layers.iter().flat_map( |layer| layer_paths.get(layer).cloned() ).collect();
+                if layers.len() == gm.layers.len() {
+                    serve_multiple_layers( layers, gm.bbox, gm.srs, gm.width, gm.height, None, gm.img_type).await
+                } else {
+                    WmsException::new( Some("LayerNotDefined"), "unsupported layers").into_response()
+                }
 
-                if layers.contains(',') { // the complex case - superimposed layers
-                    let mut layers = layers.split(',').flat_map( |layer| layer_paths.get(layer) ).collect::<Vec<&EnvPathBuf>>();
-                    if !layers.is_empty() {
-                        serve_multiple_layers( layers, &bbox, srs, width, height, None, img_type).await.into_response() // WMS does not serve tiffs
-                    } else {
-                        (StatusCode::BAD_REQUEST, "unsupported layers").into_response()
-                    }
-
-                } else { // this is the main path
-                    if let Some(ds_file) = layer_paths.get( &layers) {
-                        serve_single_layer( ds_file, &bbox, srs, width, height, None, img_type).await.into_response() // WMS does not serve tiffs
-                    } else {
-                        (StatusCode::BAD_REQUEST, "unsupported layer").into_response()
-                    }
+            } else { // this is the main path
+                if let Some(ds_file) = layer_paths.get( &gm.layers[0]) {
+                    serve_single_layer( ds_file.clone(), gm.bbox, gm.srs, gm.width, gm.height, None, gm.img_type).await
+                } else {
+                    WmsException::new( Some("LayerNotDefined"), "unsupported layer").into_response()
+                }
+            }
+        }
+        Ok(WmsRequest::GetCapabilities) => {
+            if let Some(capabilities_path) = capabilities_path {
+                if capabilities_path.is_file() {
+                    odin_server::file_response( capabilities_path.as_ref(), false).await.into_response()
+                } else {
+                    (StatusCode::INTERNAL_SERVER_ERROR, "capabilities file not found").into_response()
                 }
             } else {
-                (StatusCode::BAD_REQUEST, "unsupported GetMap format or CRS").into_response()
+                (StatusCode::NOT_IMPLEMENTED, "no capabilities").into_response()
             }
-        } else {
-            (StatusCode::BAD_REQUEST, "missing WMS GetMap parameters").into_response()
         }
-
-    } else if q.request == "GetCapabilities" {
-        if let Some(capabilities_path) = capabilities_path {
-            if capabilities_path.is_file() {
-                odin_server::file_response( capabilities_path.as_ref(), false).await.into_response()
-            } else {
-                (StatusCode::INTERNAL_SERVER_ERROR, "capabilities file not found").into_response()
-            }
-        } else {
-            (StatusCode::NOT_IMPLEMENTED, "no capabilities").into_response()
-        }
-    } else {
-        (StatusCode::BAD_REQUEST, "unsupported REQUEST param").into_response()
+        Err(e) => e.into_response()
     }
 }
 
@@ -303,10 +373,13 @@ fn overlay_images (path: impl AsRef<Path>, imgs: &Vec<PathBuf>)->Result<()> {
 }
 
 
-async fn serve_single_layer (ds_file: &EnvPathBuf, bbox: &BoundingBox<f64>, srs: GeoDsSrs, width: u32, height: u32, nodata: Option<f64>, img_type: GeoDsImgType) -> impl IntoResponse {
-    match read_layer_file( ds_file, bbox, srs, width, height, nodata, img_type) {
-        Ok(path) =>  odin_server::file_response( &path, true).await.into_response(),
-        Err(e) => server_error("failed to create GetMap file").into_response()
+// note that GDAL calls are blocking and hence have to be executed in a spawn_blocking() context so that we don't block the
+// async runtime when processing concurrent requests (e.g. map tiles)
+async fn serve_single_layer (ds_file: EnvPathBuf, bbox: BoundingBox<f64>, srs: GeoDsSrs, width: u32, height: u32, nodata: Option<f64>, img_type: GeoDsImgType) -> axum::response::Response {
+    let res = tokio::task::spawn_blocking( move || read_layer_file( &ds_file, &bbox, srs, width, height, nodata, img_type)).await;
+    match res {
+        Ok(Ok(path)) =>  odin_server::file_response( &path, false).await.into_response(),
+        _ => server_error("failed to create GetMap file").into_response()
     }
 }
 
@@ -319,32 +392,27 @@ fn read_layer_file (ds_file: &EnvPathBuf, bbox: &BoundingBox<f64>, srs: GeoDsSrs
     }
 }
 
-async fn serve_multiple_layers ( layers: Vec<&EnvPathBuf>, bbox: &BoundingBox<f64>, srs: GeoDsSrs, width: u32, height: u32, nodata: Option<f64>, img_type: GeoDsImgType) -> impl IntoResponse {
-    if let Ok(path) = get_local_wh_overlay_file_path( &layers, bbox, srs, width, height, img_type) {
-        if path.is_file() {
-            odin_server::file_response( &path, true).await.into_response()
-
-        } else {
+async fn serve_multiple_layers ( layers: Vec<EnvPathBuf>, bbox: BoundingBox<f64>, srs: GeoDsSrs, width: u32, height: u32, nodata: Option<f64>, img_type: GeoDsImgType) -> axum::response::Response {
+    let res = tokio::task::spawn_blocking( move || {
+        let layer_refs: Vec<&EnvPathBuf> = layers.iter().collect();
+        let path = get_local_wh_overlay_file_path( &layer_refs, &bbox, srs, width, height, img_type)?;
+        if !path.is_file() {
             let mut layer_files: Vec<PathBuf> = Vec::with_capacity(layers.len());
-            for ds_file in layers {
+            for ds_file in &layers {
                 match read_layer_file( ds_file, &bbox, srs, width, height, nodata, img_type) {
                     Ok(path) => layer_files.push(path),
                     Err(e) => eprintln!("failed to retrieve layer image {e}")
                 }
             }
-
-            if !layer_files.is_empty() {
-                if overlay_images( &path, &layer_files).is_ok() {
-                    odin_server::file_response( &path, true).await.into_response()
-                } else {
-                    (StatusCode::INTERNAL_SERVER_ERROR, "failed to combine layers").into_response()
-                }
-            } else {
-                (StatusCode::INTERNAL_SERVER_ERROR, "failed to retrieve layer files").into_response()
-            }
+            if layer_files.is_empty() { return Err( misc_error("failed to retrieve layer files".into())) }
+            overlay_images( &path, &layer_files)?;
         }
-    } else {
-        (StatusCode::INTERNAL_SERVER_ERROR, "layer filename error").into_response()
+        Ok(path)
+    }).await;
+
+    match res {
+        Ok(Ok(path)) => odin_server::file_response( &path, false).await.into_response(),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, "failed to combine layers").into_response()
     }
 }
 

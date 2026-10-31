@@ -98,15 +98,31 @@ pub async fn yield_now () {
     task::yield_now().await;
 }
 
+// we provide our own spawn() and spawn_blocking() so that we can use the tokio::task::Builder to associate task names
+// in order to show them in the tokio-console (see https://github.com/tokio-rs/console) for debugging/inspection.
+// The downside is that this requires the `tokio_unstable` configuration, which has to be enabled through
+// RUSTFLAGS="--cfg tokio_unstable" or a .cargo/config.toml like so:
+//
+// ```
+// [build]
+// rustflags = ["--cfg", "tokio_unstable"]
+// ```
+//
+// We therefore put this behind a `tokio_console` feature so that external users without respective RUSTFLAGS settings
+// don't stumble over a missing "no tokio::task::Builder.." compile error. If they want to use tokio_console they still have
+// to set respective RUSTFLAGS though
+
 #[inline]
 pub fn spawn<F>(name: &str, future: F) -> Result<JoinHandle<F::Output>>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
 {
-    Ok(task::Builder::new()
-        .name(name)
-        .spawn(future)?)
+    #[cfg(feature = "tokio_console")]
+    return Ok(task::Builder::new().name(name).spawn(future)?);
+
+    #[cfg(not(feature = "tokio_console"))]
+    Ok( task::spawn( future) )
 }
 
 #[inline]
@@ -115,9 +131,11 @@ pub fn spawn_blocking<F,R> (name: &str, fn_once: F) -> Result<JoinHandle<F::Outp
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static
 {
-    Ok(task::Builder::new()
-        .name(name)
-        .spawn_blocking( fn_once)?)
+    #[cfg(feature = "tokio_console")]
+    return Ok(task::Builder::new().name(name).spawn_blocking( fn_once)?);
+
+    #[cfg(not(feature = "tokio_console"))]
+    Ok( task::spawn_blocking( fn_once) )
 }
 
 // these functions can be used to communicate back to the actor once the spawn_blocking() executed FnOnce is done

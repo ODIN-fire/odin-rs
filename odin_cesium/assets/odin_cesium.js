@@ -308,7 +308,9 @@ async function setImageryLayers() {
     for (let i = 0; i < imagerySources.length; i++) {
         let src = imagerySources[i];
 
-        let opts = { show: src.show }; // TODO - add other non-render opts here (rectangle, cutoutRectangle, max/minTerrainLevel, ..)
+        // optional ImageryLayer constructor options such as rectangle, cutoutRectangle, min/maxTerrainLevel or texture
+        // filters (e.g. NEAREST for categorical data that should not be interpolated)
+        let opts = { ...src.layerOpts, show: src.show };
         if (src.render) {
             if (src.render.alphaColor) opts.colorToAlpha = Cesium.Color.fromCssColorString(src.render.alphaColor);
             if (typeof src.render.alphaColorThreshold !== 'undefined') opts.colorToAlphaThreshold = src.render.alphaColorThreshold;

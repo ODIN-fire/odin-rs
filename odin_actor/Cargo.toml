@@ -46,6 +46,5 @@ default = ["tokio_kanal"]
 tokio_kanal = ["dep:kanal"]
 tokio_flume = ["dep:flume"]
 tui = ["dep:ratatui", "dep:crossterm"]
+tokio_console = []
 embedded_resources = []
-
-

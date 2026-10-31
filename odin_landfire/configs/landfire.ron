@@ -2,25 +2,57 @@
 
 LandfireConfig (
 
-    /* WMS is very inefficient for display purposes - use TMS
-    wms_layers: {
-        "LF2025_EVT_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT_CONUS.png",
-        //... and many more - note this can be *very* slow for large data sets (vrt can help to some degree)
-    },
-    wme_capabilities: Some("$ODIN_ROOT/data/LF_CONUS-capabilities.xml")
-    */
+    // WMS layers are computed directly from the (tiled) landfire.gov GeoTIFFs, i.e. there are no derived data products.
+    // Each layer has one or more WMS styles (the first one is the default, selected with the GetMap STYLES parameter):
+    //  - Csv(path): landfire.gov CSV color map (for categorical data)
+    //  - Alpha(min,max): maps values to the alpha channel of a (client requested) COLOR - the [min,max] value range is
+    //    the default and can be overridden by the client (VRANGE). Values <= min are transparent
+    // Nodata pixels (declared band nodata, 'nodata' values and "Fill-NoData" values of CSV color maps) are rendered with
+    // the client requested NDCOLOR (transparent by default). Note that many landfire.gov GeoTIFFs declare 32767 as nodata
+    // but predominantly use -9999 (e.g. for ocean and outside CONUS)
+    wms: (
+        title: "ODIN Landfire WMS",
+        max_cache: 1073741824, // 1GB of cached GetMap images
+        max_renders: 4, // max number of concurrent GetMap image computations (~55 tiles/sec for 256x256 images)
+        max_downsample: 16.0, // requests with pixels larger than this factor times the 30m data cells get transparent images
+        layers: [
+            ( name: "LF2025_EVT", title: "existing vegetation type", descr: Some("LANDFIRE 2025 existing vegetation type"),
+              path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT_CONUS.tif",
+              styles: [ Csv("$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT.csv") ] ),
+            ( name: "LF2025_FBFM40", title: "fire behavior fuel model 40", descr: Some("LANDFIRE 2025 Scott and Burgan fire behavior fuel models"),
+              path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40_CONUS.tif",
+              styles: [ Csv("$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40.csv") ] ),
 
-    wms_layers: {},
-    wms_capabilities: None,
+            // continuous canopy data sets (scaled integer values) can also be rendered with alpha style
+            ( name: "LF2025_CC", title: "forest canopy cover", descr: Some("LANDFIRE 2025 forest canopy cover [%]"),
+              path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CC_CONUS.tif",
+              nodata: [-9999],
+              styles: [ Csv("$ODIN_ROOT/data/odin_landfire/2025/LF2025_CC.csv"), Alpha( min: 0.0, max: 95.0) ] ),
+            ( name: "LF2025_CH", title: "forest canopy height", descr: Some("LANDFIRE 2025 forest canopy height [m*10]"),
+              path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CH_CONUS.tif",
+              nodata: [-9999],
+              styles: [ Csv("$ODIN_ROOT/data/odin_landfire/2025/LF2025_CH.csv"), Alpha( min: 0.0, max: 510.0) ] ),
+            ( name: "LF2025_CBH", title: "forest canopy base height", descr: Some("LANDFIRE 2025 forest canopy base height [m*10]"),
+              path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBH_CONUS.tif",
+              nodata: [-9999],
+              styles: [ Csv("$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBH.csv"), Alpha( min: 0.0, max: 100.0) ] ),
+            ( name: "LF2025_CBD", title: "forest canopy bulk density", descr: Some("LANDFIRE 2025 forest canopy bulk density [kg/m3*100]"),
+              path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBD_CONUS.tif",
+              nodata: [-9999],
+              styles: [ Csv("$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBD.csv"), Alpha( min: 0.0, max: 45.0) ] ),
 
-    // those values have to be the root directories for respective tile trees
-    tms_layers: {
-        "LF2025_EVT_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT_CONUS-tms",
-        "LF2025_CC_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CC_CONUS-tms",
-        "LF2025_CH_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CH_CONUS-tms",
-        "LF2025_CBH_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBH_CONUS-tms",
-        "LF2025_CBD_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBD_CONUS-tms",
-    },
+            // topo data sets (fixed to use -9999 as declared nodata, see doc/odin_landfire.md)
+            ( name: "LF2020_SlpD", title: "slope [deg]", descr: Some("LANDFIRE 2020 slope in degrees"),
+              path: "$ODIN_ROOT/data/odin_landfire/topo/LF2020_SlpD_CONUS.tif",
+              styles: [ Alpha( min: 0.0, max: 60.0) ] ),
+            ( name: "LF2020_Asp", title: "aspect [deg]", descr: Some("LANDFIRE 2020 aspect in degrees (-1 is flat)"),
+              path: "$ODIN_ROOT/data/odin_landfire/topo/LF2020_Asp_CONUS.tif",
+              styles: [ Alpha( min: 0.0, max: 359.0) ] ),
+            ( name: "LF2020_Elev", title: "elevation [m]", descr: Some("LANDFIRE 2020 elevation in meters"),
+              path: "$ODIN_ROOT/data/odin_landfire/topo/LF2020_Elev_CONUS.tif",
+              styles: [ Alpha( min: 0.0, max: 4400.0) ] ),
+        ]
+    ),
 
     // dataset paths for ODIN specific WH or RES bbox requests
     // note that for frequent requests for large data sets and smaller areas this should use a tiled VRT
@@ -34,13 +66,4 @@ LandfireConfig (
         "SlpD_CONUS": "$ODIN_ROOT/data/odin_landfire/topo/LF2020_SlpD_CONUS.tif",
         "Elev_CONUS": "$ODIN_ROOT/data/odin_landfire/topo/LF2020_Elev_CONUS.tif",
     },
-
-    color_maps: {
-        "LF2025_EVT.json": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT.json",
-        "LF2025_FBFM40.json": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40.json",
-        "LF2025_CC.json": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CC.json",
-        "LF2025_CH.json": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CH.json",
-        "LF2025_CBH.json": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBH.json",
-        "LF2025_CBD.json": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBD.json",
-    }
 )

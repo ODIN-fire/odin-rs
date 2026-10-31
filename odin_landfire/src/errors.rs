@@ -32,6 +32,9 @@ pub enum OdinLandfireError {
     #[error("GDAL error {0}")]
     GdalError( #[from] odin_gdal::errors::OdinGdalError),
 
+    #[error("GDAL library error {0}")]
+    GdalLibError( #[from] gdal::errors::GdalError),
+
     #[error("operation failed error {0}")]
     OpFailedError(String)
 }

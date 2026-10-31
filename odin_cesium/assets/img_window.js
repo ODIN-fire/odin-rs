@@ -43,12 +43,45 @@ export class ImgWindow {
         this.srcTree = ExpandableTreeNode.fromPreOrdered( sources, e => e.pathName);
     }
 
-    registerImagerySources(modName) {
+    // maxCameraHeight [m] is an optional default for sources that should not be shown if the camera is above that height
+    // (e.g. for high resolution data that would be expensive to display for large areas). Cesium does not support
+    // distance display conditions for imagery layers so we have to do this with a camera listener
+    registerImagerySources(modName, maxCameraHeight=undefined) {
         this.sources.forEach( (src) => {
             if (!src.show) src.show = false;
+            if (src.maxCameraHeight === undefined) src.maxCameraHeight = maxCameraHeight;
             src.render = { ...this.defaultRender, ...src.render }; // fill up missing properties with default values
             return odinCesium.registerImagerySource(modName, src);
         });
+
+        if (this.sources.some( src => src.maxCameraHeight)) {
+            odinCesium.viewerReadyPromise.then( (viewer) => {
+                let update = () => this.updateCameraHeightVisibility();
+                viewer.camera.changed.addEventListener( update);
+                viewer.camera.moveEnd.addEventListener( update);
+            });
+        }
+    }
+
+    isWithinCameraHeight(src) {
+        return !src.maxCameraHeight || (odinCesium.viewer.camera.positionCartographic.height <= src.maxCameraHeight);
+    }
+
+    // the only place where we set the visibility of imagery layers that are shown
+    updateLayerVisibility(src) {
+        if (src.layer) {
+            let show = src.show && this.isWithinCameraHeight(src);
+            if (src.layer.show != show) {
+                src.layer.show = show;
+                odinCesium.requestRender();
+            }
+        }
+    }
+
+    updateCameraHeightVisibility() {
+        for (const src of this.sources) {
+            if (src.maxCameraHeight && src.show) this.updateLayerVisibility(src);
+        }
     }
 
     loadColorMaps() {
@@ -186,7 +219,7 @@ export class ImgWindow {
     }
 
     handleMouseClick(event) {
-        if (event.altKey && ui.isTopWindow(this.window)) { // don't do anything if this is not the top window
+        if (event.shiftKey && ui.isTopWindow(this.window)) { // don't do anything if this is not the top window
             let mouseX = event.clientX;
             let mouseY = event.clientY;
 
@@ -223,13 +256,9 @@ export class ImgWindow {
             if (src) {
                 let isSelected = ui.isCheckBoxSelected(cb);
                 if (src.show != isSelected) {
-                    let layer = src.layer;
-                    if (isSelected) {
-                        this.hideExclusives(src);
-                        layer.show = src.show = true;
-                    } else {
-                        layer.show = src.show = false;
-                    }
+                    if (isSelected) this.hideExclusives(src);
+                    src.show = isSelected;
+                    this.updateLayerVisibility(src);
                 }
 
                 odinCesium.requestRender();

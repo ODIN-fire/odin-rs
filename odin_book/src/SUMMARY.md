@@ -62,6 +62,7 @@
     - [odin_sentinel](odin_sentinel/odin_sentinel.md)
     - [odin_wind](odin_wind/odin_wind.md)
     - [odin_fems](odin_fems/odin_fems.md)
+    - [odin_landfire](odin_landfire/odin_landfire.md)
     - [odin_elmfire](odin_elmfire/odin_elmfire.md)
     - [odin_nfdrs](odin_nfdrs/odin_nfdrs.md)
 

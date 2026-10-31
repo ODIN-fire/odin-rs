@@ -8,7 +8,7 @@ window.createWindow();
 window.initViews();
 window.initLayerPanel(config);
 
-window.registerImagerySources("odin_landfire");
+window.registerImagerySources("odin_landfire", config.maxCameraHeight);
 window.loadColorMaps();
 
 console.log("odin_landfire initialized");

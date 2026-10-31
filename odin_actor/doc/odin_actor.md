@@ -124,7 +124,31 @@ variables, e.g. like
 > ODIN_TRACE=1 RUST_LOG=info   cargo run ...
 ```
 
-We require the explicit environment variables to make sure the associated runtime overhead is only added on-demand.
+We require these explicit environment variables to make sure the associated runtime overhead is only added on-demand.
+
+ODIN actor systems can also be monitored with the external [tokio-console](https://github.com/tokio-rs/console). Please note
+that we do provide our own `odin_actor::spawn(name, fut)` and `odin_actor::spawn_blocking(name,fn_once)` functions so that we can associate names with tokio tasks (e.g. actor names). This requires the [`tokio::task::Builder`](https://docs.rs/tokio/latest/tokio/task/struct.Builder.html)
+which in turn requires a `tokio_unstable` configuration that has to be set by clients either through `RUSTFLAGS="--cfg tokio_unstable"`
+or - preferrably - in a `<project>/.cargo/config.toml` file like so:
+
+```toml
+...
+[build]
+rustflags = ["--cfg", "tokio_unstable"]
+...
+```
+
+While this is set for the `odin-rs` project itself it might be missing in external projects that depend on `odin-rs` and hence we put
+respective `tokio::task::Builder` calls behind a `tokio_console` feature of crate `odin_actor`, which means such clients have to specify the dependency as
+
+```toml
+[dependencies]
+...
+odin_actor = { version = <version>, features = ["tokio_console" ,...] }
+...
+```
+
+There is no programmatic access to task names and hence this is only required when using `tokio_console`. We therefore default to not setting the feature.
 
 
 ## Terminating an `ActorSystem`

@@ -2451,11 +2451,19 @@ function _computeSliderValue(e, v) {
 
     let inc = e._uiStep;
     if (inc) {
-        if (inc == 1) return Math.round(v);
-        else return minValue + Math.round( (v-minValue) *1000 / inc ) * inc/1000;
+        let vv = Math.min( minValue + Math.round( (v-minValue) / inc) * inc, maxValue);
+        // avoid floating point artifacts such as 0.30000000000000004 for fractional steps
+        return parseFloat( vv.toFixed( Math.max( _numDecimals(inc), _numDecimals(minValue))));
     } else {
         return v;
     }
+}
+
+function _numDecimals(v) {
+    let s = v.toString();
+    if (s.includes('e')) return 10; // exponential notation - we don't use such small steps
+    let i = s.indexOf('.');
+    return (i < 0) ? 0 : s.length - i - 1;
 }
 
 export function setSliderRange(o, min, max, step, numFormatter) {
@@ -2470,6 +2478,7 @@ export function setSliderRange(o, min, max, step, numFormatter) {
         if (e._uiRightLimit) e._uiRightLimit.innerText = _formattedNum(max, e._uiNumFormatter);
 
         if (_hasDimensions(e)) {
+            if (e._uiRangeWidth) e._uiScale = (max - min) / e._uiRangeWidth; // otherwise this is only updated on resize
             _positionLimits(e);
             _positionThumb(e);
         }

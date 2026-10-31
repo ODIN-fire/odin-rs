@@ -21,6 +21,7 @@ csv = { workspace = true }
 async-trait = { workspace = true }
 uom = { workspace = true }
 bit-set = { workspace = true }
+image = { workspace = true }
 
 # workspace dependencies
 odin_common = { workspace = true }

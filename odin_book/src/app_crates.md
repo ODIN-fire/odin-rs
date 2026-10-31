@@ -21,5 +21,6 @@ The following crates are currently included
 - [odin-fires](odin_fires/odin_fires.md) - a micro service for historical and ongoing incident data such as perimeters
 - [odin_bushfire](odin_bushfire/odin_bushfire.md) - download, display and update Australian bushfire information
 - [odin_fems](odin_fems/odin_fems.md) - Fire Environment Mapping System (FEMS) integration
+- [odin_landfire](odin_landfire/odin_landfire.md) - access and WMS display of LANDFIRE vegetation, fuel and topographic data
 - [odin_elmfire](odin_elmfire/odin_elmfire.md) - input creation, execution and display of ELMFIRE fire spread simulations
 - [odin_nfdrs](odin_nfdrs/odin_nfdrs.md) - computation and display of NFDRS4 fuel moisture and fire danger index grids
