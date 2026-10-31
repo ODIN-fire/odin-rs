@@ -31,9 +31,8 @@ pub mod evt_cats;
 pub mod errors;
 use errors::{Result,op_failed, OdinLandfireError};
 
-pub mod cmap;
-pub mod wms;
-use wms::WmsConfig;
+pub mod lf_cmap;
+use odin_gdal::wms_srv::WmsConfig;
 
 pub mod service;
 

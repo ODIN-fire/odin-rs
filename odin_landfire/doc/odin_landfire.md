@@ -84,11 +84,12 @@ formats such as PNG.
 The zips also contain `*.tif.ovr` overview files, which are not used by `LandfireService` (the client only displays
 the layers below a configurable camera height) and hence don't need to be extracted.
 
-The CSV files are used directly by `LandfireService` to colorize WMS layers and to create their legends
-(`landfire/cmap/<layer>`). Each WMS layer has one or more styles (configured in `landfire.ron`, selected with the
-standard WMS `STYLES` parameter):
+The WMS functionality is provided by the generic [`odin_gdal`](../odin_gdal/odin_gdal.md)`::wms_srv::WmsService`,
+`LandfireService` adds the configuration, a reader for the landfire.gov CSV color maps and the routes. The CSV files
+are used directly to colorize WMS layers and to create their legends (`landfire/cmap/<layer>`). Each WMS layer has one
+or more styles (configured in `landfire.ron`, selected with the standard WMS `STYLES` parameter):
 
-- `csv` : colors from the landfire.gov CSV color map (categorical data sets)
+- `cmap` : colors from the landfire.gov CSV color map (categorical data sets)
 - `alpha` : a single color per layer that is configured in `assets/odin_landfire_config.js`, with the value mapped to the
   alpha channel (values <= min are transparent, values >= max are opaque). This is used for the topo layers and
   optionally for the continuous canopy layers (CC, CH, CBH, CBD), for which zero is a valid (transparent) value

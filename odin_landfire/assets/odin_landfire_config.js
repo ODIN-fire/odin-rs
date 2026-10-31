@@ -84,8 +84,43 @@ export const config = {
             colorMapUrl: "./landfire/cmap/LF2025_FBFM40",
             render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         }
+
+        //--- canopy layers with value mapped to alpha (can be shown on top of one of the above)
         ,{
             pathName: "LF2025/CC",
+            info: "forest canopy cover [%]",
+            layerOpts: CATEGORICAL_LAYER,
+            provider: alphaProvider( "LF2025_CC", ALPHA.cc),
+            exclusive: ["landfire"],
+            render:{ brightness:0.6, contrast:1.3, hue:0.0 }
+        }
+        ,{
+            pathName: "LF2025/CH",
+            info: "forest canopy height [m*10]",
+            layerOpts: CATEGORICAL_LAYER,
+            provider: alphaProvider( "LF2025_CH", ALPHA.ch),
+            exclusive: ["landfire"],
+            render:{ brightness:0.8, contrast:1.5, hue:0.0 }
+        }
+        ,{
+            pathName: "LF2025/CBH",
+            info: "forest canopy base height [m*10]",
+            layerOpts: CATEGORICAL_LAYER,
+            provider: alphaProvider( "LF2025_CBH", ALPHA.cbh),
+            exclusive: ["landfire"],
+            render:{ brightness:0.8, contrast:1.3, hue:0.0 }
+        }
+        ,{
+            pathName: "LF2025/CBD",
+            info: "forest canopy bulk density [kg/m3*100]",
+            layerOpts: CATEGORICAL_LAYER,
+            provider: alphaProvider( "LF2025_CBD", ALPHA.cbd),
+            exclusive: ["landfire"],
+            render:{ brightness:0.8, contrast:1.3, hue:0.0 }
+        }
+
+        ,{
+            pathName: "LF2025/cmap/CC",
             info: "forest canopy cover",
             layerOpts: CATEGORICAL_LAYER,
             provider: wmsProvider( "LF2025_CC"),
@@ -94,7 +129,7 @@ export const config = {
             render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         }
         ,{
-            pathName: "LF2025/CH",
+            pathName: "LF2025/cmap/CH",
             info: "forest canopy height",
             layerOpts: CATEGORICAL_LAYER,
             provider: wmsProvider( "LF2025_CH"),
@@ -103,7 +138,7 @@ export const config = {
             render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         }
         ,{
-            pathName: "LF2025/CBH",
+            pathName: "LF2025/cmap/CBH",
             info: "forest canopy base height",
             layerOpts: CATEGORICAL_LAYER,
             provider: wmsProvider( "LF2025_CBH"),
@@ -112,7 +147,7 @@ export const config = {
             render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         }
         ,{
-            pathName: "LF2025/CBD",
+            pathName: "LF2025/cmap/CBD",
             info: "forest canopy bulk density",
             layerOpts: CATEGORICAL_LAYER,
             provider: wmsProvider( "LF2025_CBD"),
@@ -121,63 +156,29 @@ export const config = {
             render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         }
 
-        //--- canopy layers with value mapped to alpha (can be shown on top of one of the above)
-        ,{
-            pathName: "LF2025/alpha/CC",
-            info: "forest canopy cover [%]",
-            layerOpts: CATEGORICAL_LAYER,
-            provider: alphaProvider( "LF2025_CC", ALPHA.cc),
-            exclusive: ["landfire-canopy"],
-            render:{ brightness:1.0, contrast:1.0, hue:0.0 }
-        }
-        ,{
-            pathName: "LF2025/alpha/CH",
-            info: "forest canopy height [m*10]",
-            layerOpts: CATEGORICAL_LAYER,
-            provider: alphaProvider( "LF2025_CH", ALPHA.ch),
-            exclusive: ["landfire-canopy"],
-            render:{ brightness:1.0, contrast:1.0, hue:0.0 }
-        }
-        ,{
-            pathName: "LF2025/alpha/CBH",
-            info: "forest canopy base height [m*10]",
-            layerOpts: CATEGORICAL_LAYER,
-            provider: alphaProvider( "LF2025_CBH", ALPHA.cbh),
-            exclusive: ["landfire-canopy"],
-            render:{ brightness:1.0, contrast:1.0, hue:0.0 }
-        }
-        ,{
-            pathName: "LF2025/alpha/CBD",
-            info: "forest canopy bulk density [kg/m3*100]",
-            layerOpts: CATEGORICAL_LAYER,
-            provider: alphaProvider( "LF2025_CBD", ALPHA.cbd),
-            exclusive: ["landfire-canopy"],
-            render:{ brightness:1.0, contrast:1.0, hue:0.0 }
-        }
-
         //--- topo layers (can be shown on top of one of the above)
         ,{
-            pathName: "LF2020/SlpD",
+            pathName: "topo/SlpD",
             info: "slope [deg]",
             layerOpts: CATEGORICAL_LAYER,
             provider: alphaProvider( "LF2020_SlpD", ALPHA.slope),
-            exclusive: ["landfire-topo"],
+            exclusive: ["landfire"],
             render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         }
         ,{
-            pathName: "LF2020/Asp",
+            pathName: "topo/Asp",
             info: "aspect [deg]",
             layerOpts: CATEGORICAL_LAYER,
             provider: alphaProvider( "LF2020_Asp", ALPHA.aspect),
-            exclusive: ["landfire-topo"],
+            exclusive: ["landfire"],
             render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         }
         ,{
-            pathName: "LF2020/Elev",
+            pathName: "topo/Elev",
             info: "elevation [m]",
             layerOpts: CATEGORICAL_LAYER,
             provider: alphaProvider( "LF2020_Elev", ALPHA.elevation),
-            exclusive: ["landfire-topo"],
+            exclusive: ["landfire"],
             render:{ brightness:1.0, contrast:1.0, hue:0.0 }
         }
     ],

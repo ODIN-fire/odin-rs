@@ -19,13 +19,13 @@
 use std::{collections::HashMap, time::Instant};
 use anyhow::{Result, anyhow};
 use odin_common::define_cli;
-use odin_gdal::geods_srv::{WmsRequest, parse_wms_request};
-use odin_landfire::{LandfireConfig, load_config, wms::load_layers};
+use odin_gdal::wms_srv::{WmsRequest, load_layers, parse_wms_request};
+use odin_landfire::{LandfireConfig, load_config, lf_cmap::read_lf_cmap};
 
 define_cli! { ARGS [about="render landfire WMS GetMap image"] =
     config: String [help="LandfireConfig name", long, default_value="landfire.ron"],
     color: Option<String> [help="RRGGBB color for alpha encoded layers", long],
-    style: Option<String> [help="WMS style name (csv, alpha)", long],
+    style: Option<String> [help="WMS style name (cmap, alpha)", long],
     ndcolor: Option<String> [help="RRGGBBAA color for nodata pixels", long],
     size: u32      [help="width and height of image", long, default_value="256"],
     layer: String  [help="WMS layer name"],
@@ -37,7 +37,7 @@ fn main ()->Result<()> {
     let config: LandfireConfig = load_config( &ARGS.config)?;
 
     let t0 = Instant::now();
-    let layers = load_layers( &config.wms);
+    let layers = load_layers( &config.wms, Some(&read_lf_cmap));
     println!("loaded {} layers in {:?}", layers.len(), t0.elapsed());
     let layer = layers.get( &ARGS.layer).ok_or( anyhow!("unknown layer {}", ARGS.layer))?;
 

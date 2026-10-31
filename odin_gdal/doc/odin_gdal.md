@@ -6,6 +6,28 @@ The role of `odin_gdal` is to simplify import and use of this complex library by
 the underlying [gdal](https://crates.io/crates/gdal) crate that does the linking to the native gdal libraries.
 
 
+### WMS Server
+
+The `wms_srv` module provides a generic [WMS](https://www.ogc.org/standards/wms/) implementation for large (tiled)
+GeoTIFF datasets that computes GetMap images on demand, i.e. without derived data products such as tile sets. It
+supports the WMS subset required by `Cesium.WebMapServiceImageryProvider` (GetMap for WMS 1.1.1 and 1.3.0, PNG images)
+plus generated GetCapabilities. Requested areas are warped (nearest neighbour, preserving the data cells) into memory
+and colorized according to the requested WMS style:
+
+- `cmap` : value lookup tables for categorical 8 or 16 bit integer data. Color maps are data source specific and read
+  by a `cmap::CmapReader` function that is provided by the respective data source crate
+- `alpha` : a single color (vendor specific `COLOR=RRGGBB` parameter) with the value mapped to the alpha channel, for
+  continuous integer or float data. The value range is configured and can be overridden with `VRANGE=min,max`
+
+Nodata pixels (declared band nodata, configured nodata values, nodata color map entries and NaN) are rendered with the
+vendor specific `NDCOLOR=RRGGBBAA` color (transparent by default). `wms_srv::WmsService` contains the request handlers
+for WMS and color map legend requests, including image caching, a configurable limit for concurrent image computations
+and transparent images for requests that are much coarser than the data resolution. Data source crates only have to
+add the configuration (`wms_srv::WmsConfig`) and the routes for their `odin_server::spa::SpaService` implementation -
+see [`odin_landfire`](../odin_landfire/odin_landfire.md) for an example.
+
+The pixel buffer colorization functions are in the `cmap` module.
+
 ### Building GDAL from Source
 
 Although it is recommended to install GDAL through native platform package managers it is possible to build from source, which

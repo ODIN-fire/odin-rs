@@ -4,9 +4,10 @@ LandfireConfig (
 
     // WMS layers are computed directly from the (tiled) landfire.gov GeoTIFFs, i.e. there are no derived data products.
     // Each layer has one or more WMS styles (the first one is the default, selected with the GetMap STYLES parameter):
-    //  - Csv(path): landfire.gov CSV color map (for categorical data)
+    //  - Cmap(path): landfire.gov CSV color map (for categorical data), WMS style name "cmap"
     //  - Alpha(min,max): maps values to the alpha channel of a (client requested) COLOR - the [min,max] value range is
-    //    the default and can be overridden by the client (VRANGE). Values <= min are transparent
+    //    the default and can be overridden by the client (VRANGE). Values <= min are transparent. WMS style name "alpha"
+    // (see odin_gdal::wms_srv for details)
     // Nodata pixels (declared band nodata, 'nodata' values and "Fill-NoData" values of CSV color maps) are rendered with
     // the client requested NDCOLOR (transparent by default). Note that many landfire.gov GeoTIFFs declare 32767 as nodata
     // but predominantly use -9999 (e.g. for ocean and outside CONUS)
@@ -18,28 +19,28 @@ LandfireConfig (
         layers: [
             ( name: "LF2025_EVT", title: "existing vegetation type", descr: Some("LANDFIRE 2025 existing vegetation type"),
               path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT_CONUS.tif",
-              styles: [ Csv("$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT.csv") ] ),
+              styles: [ Cmap("$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT.csv") ] ),
             ( name: "LF2025_FBFM40", title: "fire behavior fuel model 40", descr: Some("LANDFIRE 2025 Scott and Burgan fire behavior fuel models"),
               path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40_CONUS.tif",
-              styles: [ Csv("$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40.csv") ] ),
+              styles: [ Cmap("$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40.csv") ] ),
 
             // continuous canopy data sets (scaled integer values) can also be rendered with alpha style
             ( name: "LF2025_CC", title: "forest canopy cover", descr: Some("LANDFIRE 2025 forest canopy cover [%]"),
               path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CC_CONUS.tif",
               nodata: [-9999],
-              styles: [ Csv("$ODIN_ROOT/data/odin_landfire/2025/LF2025_CC.csv"), Alpha( min: 0.0, max: 95.0) ] ),
+              styles: [ Cmap("$ODIN_ROOT/data/odin_landfire/2025/LF2025_CC.csv"), Alpha( min: 0.0, max: 95.0) ] ),
             ( name: "LF2025_CH", title: "forest canopy height", descr: Some("LANDFIRE 2025 forest canopy height [m*10]"),
               path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CH_CONUS.tif",
               nodata: [-9999],
-              styles: [ Csv("$ODIN_ROOT/data/odin_landfire/2025/LF2025_CH.csv"), Alpha( min: 0.0, max: 510.0) ] ),
+              styles: [ Cmap("$ODIN_ROOT/data/odin_landfire/2025/LF2025_CH.csv"), Alpha( min: 0.0, max: 510.0) ] ),
             ( name: "LF2025_CBH", title: "forest canopy base height", descr: Some("LANDFIRE 2025 forest canopy base height [m*10]"),
               path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBH_CONUS.tif",
               nodata: [-9999],
-              styles: [ Csv("$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBH.csv"), Alpha( min: 0.0, max: 100.0) ] ),
+              styles: [ Cmap("$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBH.csv"), Alpha( min: 0.0, max: 100.0) ] ),
             ( name: "LF2025_CBD", title: "forest canopy bulk density", descr: Some("LANDFIRE 2025 forest canopy bulk density [kg/m3*100]"),
               path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBD_CONUS.tif",
               nodata: [-9999],
-              styles: [ Csv("$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBD.csv"), Alpha( min: 0.0, max: 45.0) ] ),
+              styles: [ Cmap("$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBD.csv"), Alpha( min: 0.0, max: 45.0) ] ),
 
             // topo data sets (fixed to use -9999 as declared nodata, see doc/odin_landfire.md)
             ( name: "LF2020_SlpD", title: "slope [deg]", descr: Some("LANDFIRE 2020 slope in degrees"),

@@ -19,7 +19,8 @@
 use std::{fs::File, io::Write, collections::BTreeSet};
 use anyhow::Result;
 use odin_common::define_cli;
-use odin_landfire::cmap::{read_csv_color_map, odin_json_color_map, FILL_NODATA};
+use odin_gdal::cmap::json_legend;
+use odin_landfire::lf_cmap::read_csv_color_map;
 
 /// this tool is used to create ODIN or gdal color maps from full landfire.gov data sets distributed as
 /// zip files that already contain CSV color maps. Note that odin_landfire::LandfireService uses the CSV files directly,
@@ -45,7 +46,7 @@ fn main()->Result<()> {
         ( 0, 0, 0, 0 )   // might get overwritten by Fill-NoData record
     };
 
-    for e in entries.iter().filter( |e| e.is_nodata()) {
+    for e in entries.iter().filter( |e| e.is_nodata) {
         if ARGS.nd_color.is_none() {
             nodata_clr = ( e.rgb[0] as u32, e.rgb[1] as u32, e.rgb[2] as u32, if ARGS.alpha { 0 } else { 255 } );
         }
@@ -55,7 +56,7 @@ fn main()->Result<()> {
     let mut cmap_file = File::create( &ARGS.tgt_path)?;
 
     if is_gdal_cmap {
-        for e in entries.iter().filter( |e| !e.is_nodata()) {
+        for e in entries.iter().filter( |e| !e.is_nodata) {
             if ARGS.alpha {
                 writeln!( cmap_file, "{}  {} {} {} 255", e.value, e.rgb[0], e.rgb[1], e.rgb[2])?;
             } else {
@@ -67,7 +68,7 @@ fn main()->Result<()> {
         }
 
     } else { // ODIN JSON cmap (no alpha, no nodata entries)
-        write!( cmap_file, "{}", odin_json_color_map( &entries))?;
+        write!( cmap_file, "{}", json_legend( &entries))?;
     }
 
     Ok(())

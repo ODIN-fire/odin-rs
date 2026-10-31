@@ -20,6 +20,8 @@ pub mod grid;
 pub mod dem;
 pub mod geods;
 pub mod geods_srv;
+pub mod wms_srv;
+pub mod cmap;
 pub mod colorize;
 pub mod draw;
 
