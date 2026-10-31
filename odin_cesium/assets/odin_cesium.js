@@ -361,7 +361,12 @@ export function withSceneColor(x, y, callback) {
         if (gl) {
             let pixBuf = new Uint8Array(4);
 
-            gl.readPixels( x, gl.drawingBufferHeight - y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixBuf);
+            // x,y are CSS pixels but the drawing buffer is scaled by viewer.resolutionScale (e.g. devicePixelRatio)
+            let scale = gl.drawingBufferWidth / scene.canvas.clientWidth;
+            let bx = Math.floor( x * scale);
+            let by = gl.drawingBufferHeight - 1 - Math.floor( y * scale);
+
+            gl.readPixels( bx, by, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixBuf);
 
             let r = pixBuf[0];
             let g = pixBuf[1];

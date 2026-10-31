@@ -57,8 +57,32 @@ const PURGE_INTERVAL: usize = 500;
 #[derive(Debug)]
 pub enum WmsRequest {
     GetCapabilities,
-    GetMap(WmsGetMap)
+    GetMap(WmsGetMap),
+    GetFeatureInfo(WmsGetFeatureInfo)
 }
+
+/// a parsed and normalized WMS GetFeatureInfo request
+#[derive(Debug)]
+pub struct WmsGetFeatureInfo {
+    pub map: WmsGetMap, // the GetMap request the pixel position refers to
+    pub query_layers: Vec<String>,
+    pub i: u32, // pixel column (I in WMS 1.3.0, X in 1.1.1)
+    pub j: u32, // pixel row (J in WMS 1.3.0, Y in 1.1.1)
+    pub info_format: String,
+}
+
+impl WmsGetFeatureInfo {
+    /// the position of the queried pixel center in x,y order (lon,lat for geographic CRS)
+    pub fn position (&self)->(f64,f64) {
+        let b = &self.map.bbox;
+        let x = b.west + (self.i as f64 + 0.5) * (b.east - b.west) / self.map.width as f64;
+        let y = b.north - (self.j as f64 + 0.5) * (b.north - b.south) / self.map.height as f64;
+        (x, y)
+    }
+}
+
+/// the GetFeatureInfo formats we support (GeoJSON FeatureCollections, as understood by Cesium)
+pub const FEATURE_INFO_FORMATS: &[&str] = &["application/json", "application/geo+json"];
 
 /// a parsed and normalized WMS GetMap request
 #[derive(Debug)]
@@ -116,6 +140,7 @@ pub fn parse_wms_request (query: &HashMap<String,String>)->std::result::Result<W
     match params.get("request").map( |s| s.as_str()) {
         Some(r) if r.eq_ignore_ascii_case("GetCapabilities") => Ok( WmsRequest::GetCapabilities ),
         Some(r) if r.eq_ignore_ascii_case("GetMap") => parse_get_map( params).map( |gm| WmsRequest::GetMap(gm)),
+        Some(r) if r.eq_ignore_ascii_case("GetFeatureInfo") => parse_get_feature_info( params).map( |gfi| WmsRequest::GetFeatureInfo(gfi)),
         Some(_) => Err( WmsException::new( Some("OperationNotSupported"), "unsupported REQUEST")),
         None => Err( WmsException::missing("request"))
     }
@@ -153,6 +178,32 @@ fn parse_get_map (params: HashMap<String,String>)->std::result::Result<WmsGetMap
     let transparent = params.get("transparent").map( |s| s.eq_ignore_ascii_case("true")).unwrap_or(false);
 
     Ok( WmsGetMap{ version, layers, styles, srs, bbox, width, height, img_type, transparent, params } )
+}
+
+fn parse_get_feature_info (mut params: HashMap<String,String>)->std::result::Result<WmsGetFeatureInfo,WmsException> {
+    let query_layers: Vec<String> = params.get("query_layers").map( |s| s.split(',').filter( |l| !l.is_empty()).map( |l| l.to_string()).collect()).unwrap_or_default();
+    if query_layers.is_empty() { return Err( WmsException::missing("query_layers")) }
+
+    // the embedded GetMap parameters - FORMAT is irrelevant here and LAYERS can default to QUERY_LAYERS
+    if !params.contains_key("format") { params.insert( "format".into(), "image/png".into()); }
+    if !params.contains_key("layers") { params.insert( "layers".into(), query_layers.join(",")); }
+
+    let info_format = params.get("info_format").cloned().unwrap_or( FEATURE_INFO_FORMATS[0].to_string());
+    if !FEATURE_INFO_FORMATS.contains( &info_format.as_str()) {
+        return Err( WmsException::new( Some("InvalidFormat"), format!("unsupported INFO_FORMAT {info_format}")))
+    }
+
+    let is_v13 = params.get("version").map( |v| v.starts_with("1.3")).unwrap_or(true);
+    let (ki, kj) = if is_v13 { ("i","j") } else { ("x","y") };
+    let i = params.get(ki).or_else( || params.get("i")).or_else( || params.get("x")).and_then( |s| s.parse::<u32>().ok()).ok_or( WmsException::missing(ki))?;
+    let j = params.get(kj).or_else( || params.get("j")).or_else( || params.get("y")).and_then( |s| s.parse::<u32>().ok()).ok_or( WmsException::missing(kj))?;
+
+    let map = parse_get_map( params)?;
+    if i >= map.width || j >= map.height {
+        return Err( WmsException::new( Some("InvalidPoint"), "pixel position outside of image"))
+    }
+
+    Ok( WmsGetFeatureInfo { map, query_layers, i, j, info_format } )
 }
 
 /* #endregion WMS requests */
@@ -212,6 +263,14 @@ pub struct WmsLayer {
     pub geo_bounds: [f64;4], // west,south,east,north in degrees
     pub res_m: f64, // approximate data cell size in meters
     pub styles: Vec<WmsStyle>,
+}
+
+/// result of a GetFeatureInfo query for a single layer
+#[derive(Debug)]
+pub struct FeatureValue {
+    pub value: f64,
+    pub is_nodata: bool,
+    pub name: Option<String>, // name of the color map entry for categorical data
 }
 
 pub struct WmsStyle {
@@ -299,6 +358,43 @@ impl WmsLayer {
                 format!("{}_{}_{:02x}{:02x}{:02x}_{}_{}", style.name, nd, rgb[0], rgb[1], rgb[2], min, max)
             }
         }
+    }
+
+    /// get the data value at the given position (in x,y order of srs) and the name of its color map entry (if any).
+    /// Positions outside of the dataset return a nodata value. Note this is blocking (GDAL file access)
+    pub fn feature_value (&self, srs: GeoDsSrs, x: f64, y: f64)->Result<FeatureValue> {
+        let ds = Dataset::open( &self.path)?;
+        let band = ds.rasterband(1)?;
+
+        let mut src_srs = srs.to_spatial_ref()?;
+        src_srs.set_axis_mapping_strategy( AxisMappingStrategy::TraditionalGisOrder);
+        let mut ds_srs = ds.spatial_ref()?;
+        ds_srs.set_axis_mapping_strategy( AxisMappingStrategy::TraditionalGisOrder);
+
+        let (mut xs, mut ys) = ([x], [y]);
+        CoordTransform::new( &src_srs, &ds_srs)?.transform_coords( &mut xs, &mut ys, &mut [])?;
+
+        let gt = ds.geo_transform()?; // we assume north-up datasets (no rotation)
+        let col = ((xs[0] - gt[0]) / gt[1]).floor();
+        let row = ((ys[0] - gt[3]) / gt[5]).floor();
+        let (n_cols, n_rows) = ds.raster_size();
+
+        let value = if col >= 0.0 && row >= 0.0 && (col as usize) < n_cols && (row as usize) < n_rows {
+            let buf = band.read_as::<f64>( (col as isize, row as isize), (1,1), (1,1), None)?;
+            buf.data()[0]
+        } else {
+            band.no_data_value().unwrap_or( f64::NAN)
+        };
+
+        let is_nodata = crate::cmap::is_nodata( value, &self.nodata);
+        let name = if is_nodata { None } else {
+            self.styles.iter().find_map( |s| match &s.colorizer {
+                Colorizer::Lut{entries,..} => entries.iter().find( |e| e.value as f64 == value).map( |e| e.name.clone()),
+                _ => None
+            })
+        };
+
+        Ok( FeatureValue { value, is_nodata, name } )
     }
 
     /// is the requested pixel size more than max_downsample times our data cell size
@@ -472,6 +568,11 @@ pub fn capabilities_xml (config: &WmsConfig, layers: &HashMap<String,WmsLayer>, 
         <Format>image/png</Format>
         <DCPType><HTTP><Get><OnlineResource xlink:type="simple" xlink:href="{url}?"/></Get></HTTP></DCPType>
       </GetMap>
+      <GetFeatureInfo>
+        <Format>application/json</Format>
+        <Format>application/geo+json</Format>
+        <DCPType><HTTP><Get><OnlineResource xlink:type="simple" xlink:href="{url}?"/></Get></HTTP></DCPType>
+      </GetFeatureInfo>
     </Request>
     <Exception>
       <Format>XML</Format>
@@ -488,7 +589,7 @@ pub fn capabilities_xml (config: &WmsConfig, layers: &HashMap<String,WmsLayer>, 
     }
 
     for layer in lcs {
-        s.push_str( &format!("      <Layer queryable=\"0\" opaque=\"0\">\n        <Name>{}</Name>\n        <Title>{}</Title>\n",
+        s.push_str( &format!("      <Layer queryable=\"1\" opaque=\"0\">\n        <Name>{}</Name>\n        <Title>{}</Title>\n",
                              xml_escape( &layer.name), xml_escape( &layer.title)));
         if let Some(descr) = &layer.descr {
             s.push_str( &format!("        <Abstract>{}</Abstract>\n", xml_escape( descr)));
@@ -553,6 +654,7 @@ impl WmsService {
     pub async fn handle_wms (self: &Arc<Self>, query: &HashMap<String,String>, headers: &HeaderMap, uri: &Uri)->Response {
         match parse_wms_request( query) {
             Ok(WmsRequest::GetMap(gm)) => self.get_map( gm).await,
+            Ok(WmsRequest::GetFeatureInfo(gfi)) => self.get_feature_info( gfi).await,
             Ok(WmsRequest::GetCapabilities) => {
                 let xml = capabilities_xml( &self.config, &self.layers, &online_resource( headers, uri));
                 (StatusCode::OK, [(header::CONTENT_TYPE, "text/xml")], xml).into_response()
@@ -617,6 +719,55 @@ impl WmsService {
             }
             Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "image task failed").into_response()
         }
+    }
+
+    async fn get_feature_info (self: &Arc<Self>, gfi: WmsGetFeatureInfo)->Response {
+        if let Some(name) = gfi.query_layers.iter().find( |l| !self.layers.contains_key( *l)) {
+            return WmsException::new( Some("LayerNotDefined"), format!("unknown layer {name}")).into_response()
+        }
+
+        // single pixel reads are cheap, i.e. we don't need render permits but GDAL calls are still blocking
+        let res = tokio::task::spawn_blocking({
+            let svc = self.clone();
+            move || svc.feature_info_json( &gfi)
+        }).await;
+
+        match res {
+            Ok(Ok(json)) => (StatusCode::OK, [(header::CONTENT_TYPE, "application/json")], json).into_response(),
+            Ok(Err(e)) => {
+                eprintln!("WMS GetFeatureInfo failed: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "failed to get feature info").into_response()
+            }
+            Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "feature info task failed").into_response()
+        }
+    }
+
+    /// GeoJSON FeatureCollection with one Point feature per query layer. Properties are "layer", "value" (null for
+    /// nodata), "nodata" and "name" (color map entry name, the layer title for non-categorical data)
+    fn feature_info_json (&self, gfi: &WmsGetFeatureInfo)->Result<String> {
+        let (x, y) = gfi.position();
+        let mut features: Vec<serde_json::Value> = Vec::with_capacity( gfi.query_layers.len());
+
+        for layer_name in &gfi.query_layers {
+            let layer = self.layers.get( layer_name).ok_or( misc_error( format!("unknown layer {layer_name}")))?; // already checked
+            let fv = layer.feature_value( gfi.map.srs, x, y)?;
+
+            let value = if fv.is_nodata { serde_json::Value::Null } else { serde_json::json!( fv.value) };
+            let name = fv.name.unwrap_or_else( || if fv.is_nodata { "nodata".to_string() } else { layer.title.clone() });
+            let geometry = if matches!( gfi.map.srs, GeoDsSrs::WGS84 | GeoDsSrs::CRS84) {
+                serde_json::json!({ "type": "Point", "coordinates": [x, y] })
+            } else {
+                serde_json::Value::Null // GeoJSON requires geographic coordinates
+            };
+
+            features.push( serde_json::json!({
+                "type": "Feature",
+                "properties": { "layer": layer_name, "value": value, "nodata": fv.is_nodata, "name": name },
+                "geometry": geometry
+            }));
+        }
+
+        Ok( serde_json::json!({ "type": "FeatureCollection", "features": features }).to_string())
     }
 
     /// get PNG image for request, either from cache or by rendering it from the layer dataset (blocking)

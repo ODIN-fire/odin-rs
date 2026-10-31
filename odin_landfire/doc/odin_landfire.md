@@ -94,6 +94,9 @@ or more styles (configured in `landfire.ron`, selected with the standard WMS `ST
   alpha channel (values <= min are transparent, values >= max are opaque). This is used for the topo layers and
   optionally for the continuous canopy layers (CC, CH, CBH, CBD), for which zero is a valid (transparent) value
 
+Shift-clicking on the globe looks up the data value at the clicked position for the selected source (WMS
+GetFeatureInfo), selects the respective color map entry and shows the value underneath the color map list.
+
 Nodata pixels - ocean, outside of CONUS or missing data - are rendered with a single configurable color
 (`NODATA_COLOR` in `assets/odin_landfire_config.js`) so that valid data boundaries can be recognized. Nodata values are
 the declared band nodata value, the "Fill-NoData" values of the CSV color maps and additional values configured per

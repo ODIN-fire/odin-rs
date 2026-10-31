@@ -260,6 +260,9 @@ pub async fn get_wms_handler (Query(q): Query<HashMap<String,String>>, layer_pat
                 (StatusCode::NOT_IMPLEMENTED, "no capabilities").into_response()
             }
         }
+        Ok(WmsRequest::GetFeatureInfo(_)) => {
+            WmsException::new( Some("OperationNotSupported"), "GetFeatureInfo not supported").into_response()
+        }
         Err(e) => e.into_response()
     }
 }

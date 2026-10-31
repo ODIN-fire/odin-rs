@@ -10,8 +10,8 @@ the underlying [gdal](https://crates.io/crates/gdal) crate that does the linking
 
 The `wms_srv` module provides a generic [WMS](https://www.ogc.org/standards/wms/) implementation for large (tiled)
 GeoTIFF datasets that computes GetMap images on demand, i.e. without derived data products such as tile sets. It
-supports the WMS subset required by `Cesium.WebMapServiceImageryProvider` (GetMap for WMS 1.1.1 and 1.3.0, PNG images)
-plus generated GetCapabilities. Requested areas are warped (nearest neighbour, preserving the data cells) into memory
+supports the WMS subset required by `Cesium.WebMapServiceImageryProvider` (GetMap for WMS 1.1.1 and 1.3.0, PNG images,
+GetFeatureInfo with GeoJSON responses) plus generated GetCapabilities. Requested areas are warped (nearest neighbour, preserving the data cells) into memory
 and colorized according to the requested WMS style:
 
 - `cmap` : value lookup tables for categorical 8 or 16 bit integer data. Color maps are data source specific and read
@@ -25,6 +25,10 @@ for WMS and color map legend requests, including image caching, a configurable l
 and transparent images for requests that are much coarser than the data resolution. Data source crates only have to
 add the configuration (`wms_srv::WmsConfig`) and the routes for their `odin_server::spa::SpaService` implementation -
 see [`odin_landfire`](../odin_landfire/odin_landfire.md) for an example.
+
+GetFeatureInfo responses are GeoJSON FeatureCollections with one Point feature per queried layer that has `layer`,
+`value` (null for nodata), `nodata` and `name` properties (color map entry name for categorical data). Values are read
+from the original datasets, i.e. they do not depend on any rendering parameters.
 
 The pixel buffer colorization functions are in the `cmap` module.
 

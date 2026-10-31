@@ -218,35 +218,84 @@ export class ImgWindow {
         //ui.setTextContent("imglayer.cm.info", ce ? ce.descr : null);
     }
 
+    // shift-click lookup of the data value / color map entry at the mouse position for the selected source. If the
+    // source provider supports feature picking (e.g. WMS GetFeatureInfo) we get the value from the server, which does
+    // not depend on rendering parameters (brightness etc.), layer alpha, lighting or similar colors. Otherwise we
+    // fall back to finding the color map entry that best matches the rendered scene color
     handleMouseClick(event) {
         if (event.shiftKey && ui.isTopWindow(this.window)) { // don't do anything if this is not the top window
-            let mouseX = event.clientX;
-            let mouseY = event.clientY;
-
-            odinCesium.withSceneColor(mouseX, mouseY, (clr) => {
-                let selectedSrc = this.selectedSrc;
-                if (selectedSrc && selectedSrc.colorMap) {
-                    let cm = selectedSrc.colorMap;
-                    let diffClr = new Cesium.Color();
-                    let minDiff = Number.MAX_VALUE;
-                    let bestMatch = -1;
-
-                    for (var i=0; i<cm.length; i++) {
-                        Cesium.Color.subtract(cm[i].clr,clr,diffClr);
-                        Cesium.Color.multiply(diffClr,diffClr,diffClr);
-                        let diff = diffClr.red + diffClr.green + diffClr.blue;
-                        if (diff < minDiff) {
-                            minDiff = diff;
-                            bestMatch = i;
-                        }
-                    }
-
-                    if (bestMatch >= 0) {
-                        ui.setSelectedListItemIndex( this.colorMapView, bestMatch);
-                    }
+            let src = this.selectedSrc;
+            if (src) {
+                if (src.layer && src.layer.show && src.layer.imageryProvider && src.layer.imageryProvider.enablePickFeatures) {
+                    this.lookupFeatureInfo( src, event.clientX, event.clientY);
+                } else if (src.colorMap) {
+                    this.lookupSceneColor( src, event.clientX, event.clientY);
                 }
-            });
+            }
         }
+    }
+
+    lookupFeatureInfo(src, x, y) {
+        let viewer = odinCesium.viewer;
+        let ray = viewer.camera.getPickRay( new Cesium.Cartesian2(x, y));
+        let promise = ray ? viewer.imageryLayers.pickImageryLayerFeatures( ray, viewer.scene) : undefined;
+
+        if (promise) {
+            promise.then( (features) => {
+                // features of other pickable layers at this position are ignored
+                let fi = features ? features.find( f => f.imageryLayer === src.layer) : undefined;
+                this.showLookupResult( src, (fi && fi.data) ? fi.data.properties : undefined);
+            }).catch( (err) => {
+                console.log("feature info lookup failed: ", err);
+                this.showLookupResult( src, undefined);
+            });
+        } else {
+            this.showLookupResult( src, undefined);
+        }
+    }
+
+    // props are the GeoJSON feature properties of the GetFeatureInfo response: { value, nodata, name }
+    showLookupResult(src, props) {
+        let cmView = this.colorMapView;
+        let infoId = this.elementId("cm.info");
+
+        if (props) {
+            let idx = (src.colorMap && !props.nodata) ? src.colorMap.findIndex( ce => ce.code == String(props.value)) : -1;
+            if (idx >= 0) ui.setSelectedListItemIndex( cmView, idx); else ui.clearSelectedListItem( cmView);
+
+            if (props.nodata) {
+                ui.setVarText( infoId, "no data");
+            } else {
+                let v = Number.isInteger(props.value) ? props.value : util.formatFloat( props.value, 2);
+                ui.setVarText( infoId, src.colorMap ? `${v}: ${props.name}` : `${props.name} = ${v}`);
+            }
+        } else {
+            ui.clearSelectedListItem( cmView);
+            ui.setVarText( infoId, "no value at this position");
+        }
+    }
+
+    lookupSceneColor(src, x, y) {
+        odinCesium.withSceneColor( x, y, (clr) => {
+            let cm = src.colorMap;
+            let diffClr = new Cesium.Color();
+            let minDiff = Number.MAX_VALUE;
+            let bestMatch = -1;
+
+            for (var i=0; i<cm.length; i++) {
+                Cesium.Color.subtract(cm[i].clr,clr,diffClr);
+                Cesium.Color.multiply(diffClr,diffClr,diffClr);
+                let diff = diffClr.red + diffClr.green + diffClr.blue;
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    bestMatch = i;
+                }
+            }
+
+            if (bestMatch >= 0) {
+                ui.setSelectedListItemIndex( this.colorMapView, bestMatch);
+            }
+        });
     }
 
     toggleShowSource(event) {

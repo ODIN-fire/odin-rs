@@ -59,7 +59,7 @@ fn test_get_capabilities () {
 
 #[test]
 fn test_errors () {
-    let e = parse_wms_request( &query("service=WMS&request=GetFeatureInfo")).unwrap_err();
+    let e = parse_wms_request( &query("service=WMS&request=GetLegendGraphic")).unwrap_err();
     assert_eq!( e.code, Some("OperationNotSupported"));
 
     let e = parse_wms_request( &query("service=WMS&version=1.1.1&request=GetMap&format=image/png&layers=a&bbox=0,0,1,1&width=256&height=256")).unwrap_err();
@@ -69,5 +69,29 @@ fn test_errors () {
     assert_eq!( e.code, Some("InvalidParameterValue")); // west > east
 
     let e = parse_wms_request( &query("service=WMS&version=1.1.1&request=GetMap&format=image/gif&layers=a&srs=EPSG:4326&bbox=0,0,1,1&width=256&height=256")).unwrap_err();
+    assert_eq!( e.code, Some("InvalidFormat"));
+}
+
+#[test]
+fn test_get_feature_info () {
+    // what Cesium.WebMapServiceImageryProvider sends for pickFeatures (1.1.1 uses X,Y pixel coordinates)
+    let q = query("service=WMS&version=1.1.1&request=GetFeatureInfo&styles=&format=image/png&transparent=true&layers=a&query_layers=a&info_format=application/json&srs=EPSG:4326&bbox=-122.0,37.0,-121.0,38.0&width=256&height=256&x=0&y=255");
+    let Ok(WmsRequest::GetFeatureInfo(gfi)) = parse_wms_request( &q) else { panic!("not a GetFeatureInfo request") };
+    assert_eq!( gfi.query_layers, vec!["a".to_string()]);
+    assert_eq!( (gfi.i, gfi.j), (0, 255));
+
+    let (x,y) = gfi.position(); // pixel center
+    assert!( (x - (-122.0 + 0.5/256.0)).abs() < 1e-9);
+    assert!( (y - (37.0 + 0.5/256.0)).abs() < 1e-9);
+
+    // 1.3.0 uses I,J and has optional FORMAT/LAYERS
+    let q = query("service=WMS&version=1.3.0&request=GetFeatureInfo&query_layers=a&crs=CRS:84&bbox=-122.0,37.0,-121.0,38.0&width=256&height=256&i=128&j=128");
+    let Ok(WmsRequest::GetFeatureInfo(gfi)) = parse_wms_request( &q) else { panic!("not a GetFeatureInfo request") };
+    assert_eq!( gfi.info_format, "application/json");
+
+    let e = parse_wms_request( &query("service=WMS&version=1.1.1&request=GetFeatureInfo&query_layers=a&srs=EPSG:4326&bbox=0,0,1,1&width=256&height=256&x=256&y=0")).unwrap_err();
+    assert_eq!( e.code, Some("InvalidPoint"));
+
+    let e = parse_wms_request( &query("service=WMS&version=1.1.1&request=GetFeatureInfo&query_layers=a&info_format=text/html&srs=EPSG:4326&bbox=0,0,1,1&width=256&height=256&x=0&y=0")).unwrap_err();
     assert_eq!( e.code, Some("InvalidFormat"));
 }

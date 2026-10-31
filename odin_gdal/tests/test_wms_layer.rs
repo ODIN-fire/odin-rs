@@ -20,7 +20,7 @@ use std::{collections::HashMap, path::{Path, PathBuf}};
 use gdal::{DriverManager, raster::{Buffer, GdalType}, spatial_ref::SpatialRef};
 use odin_common::fs::EnvPathBuf;
 use odin_gdal::{
-    cmap::CmapEntry, errors::Result,
+    cmap::CmapEntry, errors::Result, geods::GeoDsSrs,
     wms_srv::{WmsGetMap, WmsLayer, WmsLayerConfig, WmsRequest, WmsStyleConfig, parse_wms_request}
 };
 
@@ -120,4 +120,34 @@ fn test_byte_cmap () {
     let px = render( &layer, &get_map( "styles=alpha&color=00ff00")); // nodata transparent by default
     assert_eq!( px(31,50), [0,255,0,128]);
     assert_eq!( px(50,95), [0,0,0,0]);
+}
+
+#[test]
+fn test_feature_value () {
+    let mut vs: Vec<u8> = (0..N*N).map( |i| ((i % N) % 3) as u8).collect();
+    for y in 90..N { for x in 0..N { vs[y*N + x] = 255; } }
+
+    let path = tmp_path( "wms_u8_gfi.tif");
+    create_ds( &path, vs, Some(255.0));
+
+    let reader = |_: &Path| -> Result<Vec<CmapEntry>> {
+        Ok( vec![ CmapEntry{ value: 1, name: "one".into(), rgb: [0,255,0], is_nodata: false } ])
+    };
+    let layer = WmsLayer::new( &layer_config( &path, vec![], vec![ WmsStyleConfig::Cmap( EnvPathBuf( PathBuf::from("dummy.csv")))]), Some(&reader)).unwrap();
+
+    // cell (31,50) has value 1, cell centers are at -122.0 + (col+0.5)*0.01, 38.0 - (row+0.5)*0.01
+    let fv = layer.feature_value( GeoDsSrs::WGS84, -122.0 + 31.5*0.01, 38.0 - 50.5*0.01).unwrap();
+    assert_eq!( fv.value, 1.0);
+    assert!( !fv.is_nodata);
+    assert_eq!( fv.name.as_deref(), Some("one"));
+
+    let fv = layer.feature_value( GeoDsSrs::WGS84, -122.0 + 32.5*0.01, 38.0 - 50.5*0.01).unwrap();
+    assert_eq!( fv.value, 2.0);
+    assert!( fv.name.is_none()); // not in the color map
+
+    let fv = layer.feature_value( GeoDsSrs::WGS84, -121.5, 37.05).unwrap(); // southern rows have declared nodata
+    assert!( fv.is_nodata);
+
+    let fv = layer.feature_value( GeoDsSrs::WGS84, -100.0, 37.5).unwrap(); // outside of dataset
+    assert!( fv.is_nodata);
 }

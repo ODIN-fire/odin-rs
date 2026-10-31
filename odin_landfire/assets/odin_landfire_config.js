@@ -45,7 +45,8 @@ function wmsProvider (layer, parameters={}) {
         parameters: params,
         rectangle: CONUS_RECT,
         maximumLevel: WMS_MAX_LEVEL,
-        enablePickFeatures: false // we don't support GetFeatureInfo (yet)
+        enablePickFeatures: true, // used for shift-click value lookup (WMS GetFeatureInfo)
+        getFeatureInfoFormats: [ new Cesium.GetFeatureInfoFormat( "json", "application/json") ]
     });
 }
 
