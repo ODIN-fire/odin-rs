@@ -38,7 +38,7 @@ use odin_action::DynDataRefAction;
 use odin_actor::{info,debug};
 use odin_wx::WxDataSetRequest;
 use odin_dem::DemSource;
-use odin_gdal::{{gdal::{Dataset,raster::RasterBand}}, contour::ContourBuilder, read_row};
+use odin_gdal::{{gdal::{Dataset,raster::RasterBand}}, contour::ContourBuilder, get_resolution, read_row, warp::{ResampleAlg, warp_to_res_mem}};
 
 //mod fetchdem;
 pub mod actor;
@@ -440,10 +440,14 @@ pub fn create_vector_csv (path: &PathBuf, ds: &Dataset, bands: &[usize], mesh_re
 }
 
 /// create the GeoJSON contour file that is the basis for client side contour (polygon) rendering from the provided
-/// WGS84 huvw `ds` dataset using `bands` (1-based) and store it as `path`
+/// WGS84 huvw `ds` dataset using `bands` (1-based) and store it as `path`.
+/// Contouring on the native wind grid creates angular outlines (straight segments per cell) and many small fragments,
+/// hence we up-sample before contouring (2x is sufficient - higher factors increase size without visible improvement)
 pub fn create_contour_json (path: &PathBuf, ds: &Dataset, band: usize)->Result<()> {
     info!("creating contour JSON: {:?}", path);
-    write_windspeed_contour( ds, path, band)?;
+    let (x_res, y_res) = get_resolution( ds)?;
+    let ds = warp_to_res_mem( ds, x_res / 2.0, y_res / 2.0, ResampleAlg::CubicSpline)?;
+    write_windspeed_contour( &ds, path, band)?;
     gzip_path( path)?;
     remove_file( path)?;
     Ok(())
@@ -601,7 +605,7 @@ pub fn write_windspeed_contour<P> (ds: &Dataset, path: P, band: usize) -> Result
     contourer
         .set_band( band as i32)
         .set_interval( 2.2352) // in m/sec, 5mph steps
-        .set_poly()  // use polylines since polygon outlines cannot be clamped to ground and accumulative alpha channel fill looks distorted
+        .set_poly()  // one (Multi)Polygon per speed band [minSpeed,maxSpeed] - bands share edges, i.e. there are no gaps or overlaps
         .set_attr_min_name("minSpeed")?
         .set_attr_max_name("maxSpeed")?
         //.set_attr_name("windSpeed")?

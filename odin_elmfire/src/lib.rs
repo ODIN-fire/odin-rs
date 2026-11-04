@@ -121,6 +121,8 @@ define_load_config!{}
 define_load_asset!{}
 
 fn default_uniform_res()->bool { true }
+fn default_bldg_fuel_models()->String { "building_fuel_models.csv".into() }
+fn default_hrr_ellipse_adj()->f64 { 0.5 }
 
 #[derive(Deserialize,Debug)]
 #[public_struct]
@@ -150,6 +152,12 @@ struct ElmfireConfig {
     fuel_break_fbfm40: i16,       // fuel model for fuel breaks that are at least lf_res_m wide (default NB9)
     #[serde(default="default_drop_agents")]
     drop_agents: Vec<DropAgent>,  // air drop agents (e.g. retardant, water) and their fuel moisture effects
+
+    // urban fire spread (only used for runs with Wui input)
+    #[serde(default="default_bldg_fuel_models")]
+    bldg_fuel_models: String,     // building fuel model table in DATA_DIR (copied into the run inputs)
+    #[serde(default="default_hrr_ellipse_adj")]
+    hrr_ellipse_adj: f64,         // HRR_ELLIPSE_ADJ
 
     input_dt: Duration,       // meteorologicel time step length
     small_fire_cells: usize,  // fires with less burned cells get up-sampled before contouring (to avoid pixelized contour artifacts)
@@ -460,6 +468,104 @@ impl JsonWritable for IgnitionValue {
     }
 }
 
+/// parameters for the Elmfire urban (building-to-building) fire spread model (&WUI namelist, see ELMFIRE_Guide 1.13).
+/// Note this has to be kept compatible with odin_elmfire.js getWui(). Fractions are [0..1] (the UI shows percent)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all="camelCase")]
+pub struct Wui {
+    pub bldg_area: f64,        // BLDG_AREA_CONSTANT: characteristic building footprint dimension [m]
+    pub bldg_sep: f64,         // BLDG_SEPARATION_DIST_CONSTANT: building separation distance [m]
+    pub bldg_no_burn: f64,     // BLDG_NONBURNABLE_FRAC_CONSTANT: non-burnable fraction of structures [0..1]
+    pub bldg_footprint: f64,   // BLDG_FOOTPRINT_FRAC_CONSTANT: fraction of cell occupied by building footprints [0..1]
+    pub bldg_fuel_model: u32,  // BLDG_FUEL_MODEL_CONSTANT: number of building fuel model (ElmfireConfig.bldg_fuel_models row)
+    pub spread_model: u32,     // BLDG_SPREAD_MODEL_TYPE  1: Hamada, 2: WU-E
+    pub interface_model: u32,  // INTERFACE_MODEL_TYPE  1: ellipse, 2: threshold
+    pub hardening_factor: f64, // GLOBAL_HARDENING_FACTOR
+    pub critical_hf: f64,      // CRITICL_HF_WUI: critical heat flux (sic)
+    pub band_thickness: u32,   // BANDTHICKNESS_WUI [cells]
+
+    // look up/generate building rasters (BLDG_*_FILENAME) instead of using the constants. Not yet supported, i.e. we
+    // still use the constants (the firedx tool to generate the rasters is not yet available)
+    #[serde(default)]
+    pub auto: bool,
+}
+
+impl Wui {
+    pub fn is_wue (&self)->bool { self.spread_model == 2 }
+
+    pub fn check (&self)->Result<()> {
+        if self.bldg_area <= 0.0 { return Err( op_failed!("invalid WUI building area: {}", self.bldg_area)) }
+        if self.bldg_sep < 0.0 { return Err( op_failed!("invalid WUI building separation: {}", self.bldg_sep)) }
+        if !(0.0..=1.0).contains( &self.bldg_no_burn) { return Err( op_failed!("WUI non-burnable fraction not in [0..1]: {}", self.bldg_no_burn)) }
+        if !(0.0..=1.0).contains( &self.bldg_footprint) { return Err( op_failed!("WUI footprint fraction not in [0..1]: {}", self.bldg_footprint)) }
+        if self.bldg_fuel_model < 1 { return Err( op_failed!("invalid WUI building fuel model: {}", self.bldg_fuel_model)) }
+        if !(1..=2).contains( &self.spread_model) { return Err( op_failed!("invalid WUI spread model: {}", self.spread_model)) }
+        if !(1..=2).contains( &self.interface_model) { return Err( op_failed!("invalid WUI interface model: {}", self.interface_model)) }
+        if self.hardening_factor < 0.0 { return Err( op_failed!("invalid WUI hardening factor: {}", self.hardening_factor)) }
+        if self.critical_hf < 0.0 { return Err( op_failed!("invalid WUI critical heat flux: {}", self.critical_hf)) }
+        if self.band_thickness < 1 { return Err( op_failed!("invalid WUI band thickness: {}", self.band_thickness)) }
+        Ok(())
+    }
+}
+
+impl JsonWritable for Wui {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object(|w| {
+            w.write_f64_field( "bldgArea", self.bldg_area, NumFormat::Fp1);
+            w.write_f64_field( "bldgSep", self.bldg_sep, NumFormat::Fp1);
+            w.write_f64_field( "bldgNoBurn", self.bldg_no_burn, NumFormat::Fp3);
+            w.write_f64_field( "bldgFootprint", self.bldg_footprint, NumFormat::Fp3);
+            w.write_field( "bldgFuelModel", self.bldg_fuel_model);
+            w.write_field( "spreadModel", self.spread_model);
+            w.write_field( "interfaceModel", self.interface_model);
+            w.write_f64_field( "hardeningFactor", self.hardening_factor, NumFormat::Fp2);
+            w.write_f64_field( "criticalHf", self.critical_hf, NumFormat::Fp2);
+            w.write_field( "bandThickness", self.band_thickness);
+            w.write_field( "auto", self.auto);
+        });
+    }
+}
+
+/// the &WUI namelist group for a Wui input. We always use constant building parameters (see Wui.auto)
+fn wui_to_nml (wui: &Wui, config: &ElmfireConfig)->String {
+    format!( "USE_BLDG_SPREAD_MODEL                 = .TRUE.\n\
+              USE_CONSTANT_BLDG_SPREAD_MODEL_PARAMS = .TRUE.\n\
+              BLDG_SPREAD_MODEL_TYPE                = {}\n\
+              INTERFACE_MODEL_TYPE                  = {}\n\
+              BLDG_AREA_CONSTANT                    = {:.1}\n\
+              BLDG_SEPARATION_DIST_CONSTANT         = {:.1}\n\
+              BLDG_NONBURNABLE_FRAC_CONSTANT        = {:.3}\n\
+              BLDG_FOOTPRINT_FRAC_CONSTANT          = {:.3}\n\
+              BLDG_FUEL_MODEL_CONSTANT              = {}\n\
+              GLOBAL_HARDENING_FACTOR               = {:.2}\n\
+              CRITICL_HF_WUI                        = {:.2}\n\
+              BANDTHICKNESS_WUI                     = {}\n\
+              HRR_ELLIPSE_ADJ                       = {:.2}\n",
+        wui.spread_model, wui.interface_model, wui.bldg_area, wui.bldg_sep, wui.bldg_no_burn, wui.bldg_footprint,
+        wui.bldg_fuel_model, wui.hardening_factor, wui.critical_hf, wui.band_thickness, config.hrr_ellipse_adj)
+}
+
+/// Elmfire reads the building fuel model table (which has no built-in default) from its MISCELLANEOUS_INPUTS_DIRECTORY,
+/// which defaults to the FUELS_AND_TOPOGRAPHY_DIRECTORY (our inputs dir). We copy it from DATA_DIR and check if the
+/// requested building fuel model is defined
+fn create_wui_input (ef: &ElmFire, config: &ElmfireConfig)->Result<()> {
+    if let Some(wui) = &ef.wui {
+        let src = DATA_DIR.join( &config.bldg_fuel_models);
+        if !src.is_file() { return Err( op_failed!("building fuel model table not found: {:?}", src)) }
+
+        let mut rdr = csv::ReaderBuilder::new().has_headers(false).flexible(true).from_path( &src)?;
+        let mut is_defined = false;
+        for rec in rdr.records() {
+            let rec = rec?;
+            if rec.get(0).and_then( |s| s.trim().parse::<u32>().ok()) == Some(wui.bldg_fuel_model) { is_defined = true; break; }
+        }
+        if !is_defined { return Err( op_failed!("building fuel model {} not defined in {:?}", wui.bldg_fuel_model, src)) }
+
+        std::fs::copy( &src, ef.dir.join("inputs").join("building_fuel_models.csv"))?; // the Elmfire default BUILDING_FUEL_MODEL_FILE
+    }
+    Ok(())
+}
+
 /// this captures the data we need to run a simulation on a single incident
 #[derive(Debug, Clone, Serialize, Deserialize)]
 //#[public_struct]
@@ -484,6 +590,8 @@ pub struct ElmFire {
     pub fixed: Option<FixedInput>, // if set use provided (fixed) wind- and fuel-moisture input
     pub spotting: Option<String>,
     pub barriers: Vec<Barrier>,
+    #[serde(default)]
+    pub wui: Option<Wui>, // if set use the urban fire spread model
 
     pub dir: PathBuf, // where we keep inputs and outputs of this run
     pub overwrite: bool
@@ -505,16 +613,19 @@ impl ElmFire {
         fixed: Option<FixedInput>,
         spotting: Option<String>,
         barriers: Vec<Barrier>,
+        wui: Option<Wui>,
         overwrite: bool
 
     )->Result<Self>
     {
+        if let Some(wui) = &wui { wui.check()? }
+
         let utm_rect = get_utm_rect_around_point( &geo_center, bbox_size / 2.0)?;
         let base_date = full_hour( &start_date);
         let dir = CACHE_DIR.join( &id);
 
         Ok( ElmFire {
-            id, name, n_hours, geo_center, utm_rect, base_date, start_date, compute_wind, ignitions, fixed, spotting, barriers, dir, overwrite
+            id, name, n_hours, geo_center, utm_rect, base_date, start_date, compute_wind, ignitions, fixed, spotting, barriers, wui, dir, overwrite
         } )
     }
 
@@ -533,7 +644,7 @@ impl ElmFire {
         let id = Self::get_id( &name, &geo_point, &date);
         let ignitions = vec![ Ignition::new_point( 1, date, geo_point) ];
 
-        Self::new( id, name, geo_point, bbox_size, date, n_hours, compute_wind, ignitions, fixed_wx, spotting, barriers, false)
+        Self::new( id, name, geo_point, bbox_size, date, n_hours, compute_wind, ignitions, fixed_wx, spotting, barriers, None, false)
     }
 
     // note - this should be kept in sync with odin_elmfire.js createRequest()
@@ -595,6 +706,9 @@ impl ElmFire {
         // air drops modify the (resampled) fuel moisture inputs
         apply_air_drops( &self, config)?;
 
+        // the urban fire spread model needs the building fuel model table
+        create_wui_input( &self, config)?;
+
         self.create_datafile(config)
     }
 
@@ -603,6 +717,7 @@ impl ElmFire {
         let output_dir = self.get_output_dir();
         let scratch_dir = self.dir.join("scratch");
         let ignitions = ignitions_to_nml( self.base_date, &self.geo_center, &self.ignitions)?;
+        let wui = self.wui.as_ref().map( |wui| wui_to_nml( wui, config));
 
         let contents = ElmfireDataTemplate {
             input_dir: path_as_str( &input_dir)?,
@@ -619,7 +734,8 @@ impl ElmFire {
             n_steps: (self.n_hours + 1) as usize,
             ignitions: ignitions.as_str(),
             spotting: self.spotting.as_ref().map(|s| s.as_str()),
-            use_barriers: uses_barrier_raster( &self, config)
+            use_barriers: uses_barrier_raster( &self, config),
+            wui: wui.as_deref()
         }.to_string();
 
         let path = input_dir.join("elmfire.data");
@@ -853,6 +969,7 @@ struct ElmfireDataTemplate<'a> {
     ignitions: &'a str,
     spotting: Option<&'a str>,
     use_barriers: bool,
+    wui: Option<&'a str>,
 }
 
 
@@ -1033,6 +1150,10 @@ impl JsonWritable for ElmfireRun {
                     barrier.write_json_to(w);
                 }
             });
+
+            if let Some(wui) = fire.wui.as_ref() {
+                w.write_json_field( "wui", wui);
+            }
 
             if let Some(result) = &self.result {
                 match result {
@@ -1219,5 +1340,62 @@ mod tests {
         // and they deserialize back into Ignitions (as sent by the client in ElmfireRequests)
         let igns1: Vec<Ignition> = serde_json::from_value( json["ignitions"].clone()).unwrap();
         assert_eq!( igns1.len(), 2);
+    }
+
+    #[test]
+    fn test_wui () {
+        // as sent by odin_elmfire.js getWui() (fractions already converted from percent)
+        let json = r#"{"bldgArea":20, "bldgSep":10, "bldgNoBurn":0.3, "bldgFootprint":0.3, "bldgFuelModel":2,
+                       "spreadModel":2, "interfaceModel":1, "hardeningFactor":1, "criticalHf":0, "bandThickness":5, "auto":true}"#;
+        let wui: Wui = serde_json::from_str( json).unwrap();
+        assert!( wui.check().is_ok());
+        assert!( wui.auto);
+
+        let bad: Wui = serde_json::from_str( &json.replace( r#""bldgFootprint":0.3"#, r#""bldgFootprint":30"#)).unwrap(); // unconverted percent
+        assert!( bad.check().is_err());
+
+        let date: DateTime<Utc> = DateTime::parse_from_rfc3339("2026-10-09T00:52:00Z").unwrap().to_utc();
+        let mut ef = ElmFire::from_point_ignition( "wuiTest".to_string(), date, GeoPoint::from_lon_lat_degrees( -121.9021, 37.1682),
+                                                  Length::new::<kilometer>(24.0), 4, false, None, None, Vec::new()).unwrap();
+        let dir = std::env::temp_dir().join("odin_elmfire_wui_test");
+        let _ = std::fs::remove_dir_all( &dir);
+        std::fs::create_dir_all( dir.join("inputs")).unwrap();
+        ef.dir = dir.clone();
+        let config: ElmfireConfig = load_config("elmfire.ron").unwrap();
+
+        // no &WUI group without Wui input
+        let data = std::fs::read_to_string( ef.create_datafile( &config).unwrap()).unwrap();
+        assert!( !data.contains("&WUI"));
+
+        ef.wui = Some(wui);
+        let data = std::fs::read_to_string( ef.create_datafile( &config).unwrap()).unwrap();
+        let _ = std::fs::remove_dir_all( &dir);
+        let wui_section: Vec<&str> = data.lines().skip_while( |l| *l != "&WUI").take_while( |l| *l != "/").collect();
+        println!("{}", wui_section.join("\n"));
+
+        assert!( data.contains("USE_BLDG_SPREAD_MODEL                 = .TRUE.\n"));
+        assert!( data.contains("USE_CONSTANT_BLDG_SPREAD_MODEL_PARAMS = .TRUE.\n")); // auto is not yet supported
+        assert!( data.contains("BLDG_SPREAD_MODEL_TYPE                = 2\n"));
+        assert!( data.contains("BLDG_NONBURNABLE_FRAC_CONSTANT        = 0.300\n"));
+        assert!( data.contains("BLDG_FUEL_MODEL_CONSTANT              = 2\n"));
+        assert!( data.contains("CRITICL_HF_WUI                        = 0.00\n"));
+        assert!( data.contains("HRR_ELLIPSE_ADJ                       = 0.50\n"));
+
+        // client JSON round trip
+        let run = ElmfireRun{ fire: Arc::new(ef), result: None };
+        let mut w = JsonWriter::new();
+        run.write_json_to( &mut w);
+        let json: serde_json::Value = serde_json::from_str( w.as_str()).unwrap();
+        let wui1: Wui = serde_json::from_value( json["wui"].clone()).unwrap();
+        assert_eq!( wui1.bldg_no_burn, 0.3);
+        assert_eq!( wui1.spread_model, 2);
+
+        // stored runs from before WUI support (no wui field) still deserialize
+        let mut ef0 = run.fire.as_ref().clone();
+        ef0.wui = None;
+        let ron = ron::ser::to_string( &ElmfireRun{ fire: Arc::new(ef0), result: None }).unwrap().replace( ",wui:None", "");
+        assert!( !ron.contains("wui:"));
+        let run1: ElmfireRun = ron::de::from_str( &ron).unwrap();
+        assert!( run1.fire.wui.is_none());
     }
 }

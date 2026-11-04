@@ -43,7 +43,7 @@ use odin_cesium::ImgLayerService;
 use odin_wind::service::add_windfield_components;
 
 use crate::{
-    CACHE_DIR, DATA_DIR, ElmFire, ElmfireRun, FIXED_DIR, FixedInput, Barrier, Ignition, NML_RE, SPOTTING_DIR,
+    CACHE_DIR, DATA_DIR, ElmFire, ElmfireRun, FIXED_DIR, FixedInput, Barrier, Ignition, NML_RE, SPOTTING_DIR, Wui,
     actor::{ElmfireActorMsg, ElmfireStore, ExecSnapshotAction, RemoveElmFire},
     errors::{OdinElmfireError, Result},
     fixed, get_contents, get_saved_list, load_asset, remove_contents, save_contents
@@ -252,6 +252,7 @@ struct ElmfireRequest {
     fixed: Option<FixedInput>, // use fixed wx and fuel values instead of wx reports/forecast
     spotting: Option<String>,
     barriers: Vec<Barrier>,
+    wui: Option<Wui>, // use the urban fire spread model
     overwrite: bool // in case dir with this id aleady exists
 }
 
@@ -259,6 +260,10 @@ impl TryFrom<ElmfireRequest> for ElmFire {
     type Error = OdinElmfireError;
 
     fn try_from(req: ElmfireRequest) -> Result<Self> {
+        if req.wui.as_ref().is_some_and( |wui| wui.auto) {
+            warn!("automatic WUI building rasters not yet supported, using constants for '{}'", req.name);
+        }
+
         Ok( ElmFire::new(
             req.id,
             req.name,
@@ -271,6 +276,7 @@ impl TryFrom<ElmfireRequest> for ElmFire {
             req.fixed,
             req.spotting,
             req.barriers,
+            req.wui,
             req.overwrite
         )? )
     }

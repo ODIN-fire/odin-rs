@@ -115,6 +115,10 @@ This installs the ELMFIRE executables into `elmfire/bin`. The build creates vers
 version. The executable has to be either in your `$PATH` or configured with an absolute path in the `elmfire_cmd` field
 of the `odin_elmfire` configuration (see below).
 
+Urban fire spread (see [Urban Fire Spread](#urban-fire-spread-wui)) requires an ELMFIRE build with the `_WUI` preprocessor
+flag, which `make_gnu.sh` sets unless `ELMFIRE_LOWMEM` is defined. Builds without it accept the WUI input but silently
+ignore it.
+
 If micro-grid wind is used, a WindNinja installation is also required (see [odin_wind](../odin_wind/odin_wind.md)).
 
 
@@ -279,6 +283,9 @@ ElmfireConfig (
         ( name: "water", moisture: [ ... ]),
     ],
 
+    bldg_fuel_models: "building_fuel_models.csv", // building fuel model table in $ODIN_ROOT/data/odin_elmfire (see below)
+    hrr_ellipse_adj: 0.5,                     // HRR_ELLIPSE_ADJ for urban fire spread runs
+
     elmfire_cmd: "elmfire",                   // has to be in the $PATH if not absolute (e.g. using $ODIN_ROOT)
 
     // colorization levels for generated PNG image output
@@ -421,6 +428,49 @@ a fraction of a 30m cell and hence only reduce spread within that cell.
 - the drop effect does not depend on fire intensity (e.g. faster evaporation or consumption of retardant ahead of an
   intense fire), only on coverage, time and agent - except that air drops reduce the flame length within drop cells
 - moisture increase and decay values are estimates that need calibration with observed retardant effectiveness
+
+## Urban Fire Spread (WUI)
+
+ELMFIRE can model fire spread between structures (ELMFIRE Guide section 1.13 "Urban Fire Spread") with either the
+Hamada or the WU-E model. Urban spread applies to cells with fuel model 91 (NB1, urban/developed), which become burnable
+when it is enabled. The parameters are entered in the "wui" tab of the UI and sent as an optional `Wui` object (see
+`lib.rs`), which is translated into the `&WUI` namelist group of `elmfire.data`:
+
+| UI | `Wui` field | ELMFIRE parameter |
+|---|---|---|
+| use wui | (`ElmFire.wui` is set) | `USE_BLDG_SPREAD_MODEL` |
+| auto | `auto` | (`USE_CONSTANT_BLDG_SPREAD_MODEL_PARAMS`, see below) |
+| area [m] | `bldg_area` | `BLDG_AREA_CONSTANT` - characteristic building footprint dimension |
+| sep [m] | `bldg_sep` | `BLDG_SEPARATION_DIST_CONSTANT` |
+| no burn [%] | `bldg_no_burn` (fraction) | `BLDG_NONBURNABLE_FRAC_CONSTANT` |
+| ftprint [%] | `bldg_footprint` (fraction) | `BLDG_FOOTPRINT_FRAC_CONSTANT` - cell fraction covered by building footprints |
+| sprd model | `spread_model` | `BLDG_SPREAD_MODEL_TYPE` (1: Hamada, 2: WU-E) |
+| ifc model | `interface_model` | `INTERFACE_MODEL_TYPE` (1: ellipse, 2: threshold) |
+| fuel model | `bldg_fuel_model` | `BLDG_FUEL_MODEL_CONSTANT` (WU-E only) |
+| gHF | `hardening_factor` | `GLOBAL_HARDENING_FACTOR` |
+| critHF | `critical_hf` | `CRITICL_HF_WUI` (sic) |
+| bands | `band_thickness` | `BANDTHICKNESS_WUI` [cells] |
+| - | `ElmfireConfig.hrr_ellipse_adj` | `HRR_ELLIPSE_ADJ` |
+
+Percent values are converted into fractions by the client. The building fuel model is the row number of the building
+fuel model table, which ELMFIRE requires for urban spread runs but - unlike `fuel_models.csv` - does not create itself.
+The table is configured with `ElmfireConfig.bldg_fuel_models` (a file in `$ODIN_ROOT/data/odin_elmfire`) and copied
+into the inputs directory of each WUI run. The default is the `building_fuel_models.csv` from the ELMFIRE sources
+(`elmfire/build/source`), with structure types ST01-ST04, ST05-ST08 and ST09-ST12 for three construction classes of
+increasing ignition resistance, each with increasing fuel load and peak heat release rate, and a small low fuel load
+structure ST13. The fuel model choice list in `odin_elmfire_config.js` has to match this table.
+
+The "auto" checkbox is meant to use building rasters (`BLDG_AREA_FILENAME` etc.) instead of the constants. Generating
+those rasters (e.g. with the `firedx` tool referenced by the ELMFIRE documentation) is not yet supported - the flag is
+stored with the run but the server logs a warning and uses the constants. Note that ELMFIRE switches between constants
+and rasters for all building parameters at once, i.e. a future implementation has to provide rasters for all of them.
+
+### Limitations
+
+- LANDFIRE also classifies roads as fuel model 91, i.e. roads are treated as burnable urban cells. Separating them would
+  require road data
+- WU-E becomes computationally expensive with larger band thickness (3-5 cells are sufficient at 30m resolution)
+- only constant building parameters are supported (see above)
 
 ## Example
 

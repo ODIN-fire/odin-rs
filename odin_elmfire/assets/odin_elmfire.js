@@ -57,6 +57,11 @@ const BARRIER_DISPLAY_TYPES = [
     [BARRIER_BUCKET_T3, "T3"], [BARRIER_BUCKET_T2, "T2"], [BARRIER_BUCKET_T1, "T1"]
 ];
 
+// elements for controlling WUI input parameters
+const WUI_CHOICES = [ "elmfire.wui.area", "elmfire.wui.sep", "elmfire.wui.noBurn", "elmfire.wui.footprint", "elmfire.wui.spreadModel",
+                      "elmfire.wui.ifcModel", "elmfire.wui.fuelModel", "elmfire.wui.gHf", "elmfire.wui.critHf", "elmfire.wui.bdThickness" ];
+
+
 /* #region ElmfireEntry ************************************************************************************/
 
 class FireEntry {
@@ -550,6 +555,7 @@ setImgChoices();
 setIncidentChoices();
 initFixedEntries();
 setBarrierChoices();
+setWuiChoices();
 
 setInputDebouncers();
 initDisplayControls();
@@ -696,12 +702,12 @@ function createWindow() {
             ui.RowContainer('start')(
                 ui.ColumnContainer('start')(
                     (nameEntry = ui.TextInput("name", "elmfire.name", "14.9rem", { placeHolder: "event name", labelWidth: "4rem" })),
-                    (dtgEntry = ui.DTGEntry("date", "elmfire.date", {labelWidth: "4rem"})),
-                    (locEntry = ui.LocationEntry("loc", "elmfire.location", pickLocation, {labelWidth: "4rem"}))
+                    (dtgEntry = ui.DTGEntry("date", "elmfire.date", { labelWidth: "4rem" })),
+                    (locEntry = ui.LocationEntry("loc", "elmfire.location", pickLocation, { labelWidth: "4rem" }))
                 ),
                 ui.HorizontalSpacer(0.3),
                 ui.ColumnContainer('end')(
-                    ui.CheckBox( "comp wind", null, "elmfire.computeWind"),
+                    ui.CheckBox("comp wind", null, "elmfire.computeWind"),
                     ui.Choice("hours", "elmfire.nHours", null, "3rem"),
                     ui.Choice("grid [km]", "elmfire.size", null, "3rem")
                 ),
@@ -772,6 +778,29 @@ function createWindow() {
                         ui.HorizontalSpacer(0.4),
                         ui.Button("edit", editBarrier, "4rem"),
                         (barrierBtn = ui.Button("pick", addBarrier, "4rem"))
+                    )
+                ),
+                ui.Tab("wui", false)(
+                    ui.RowContainer()(
+                        ui.CheckBox("use wui", updateWuiControls, "elmfire.wui.useWui"),
+                        ui.CheckBox("auto", null, "elmfire.wui.auto"), // building raster lookup (not yet supported by server)
+                        ui.HorizontalSpacer(1.0),
+                        ui.Choice("area [m]", "elmfire.wui.area", null, "5rem", "6rem"),
+                        ui.Choice("sep [m]", "elmfire.wui.sep", null, "5rem", "6rem")
+                    ),
+                    ui.RowContainer()(
+                        ui.Choice("no burn [%]", "elmfire.wui.noBurn", null, "5rem", "6rem"),
+                        ui.Choice("ftprint [%]", "elmfire.wui.footprint", null, "5rem", "6rem")
+                    ),
+                    ui.RowContainer()(
+                        ui.Choice("sprd model", "elmfire.wui.spreadModel", updateWuiControls, "5rem"),
+                        ui.Choice("ifc model", "elmfire.wui.ifcModel", null, "5rem", "5rem"),
+                        ui.Choice("fuel model", "elmfire.wui.fuelModel", null, "5rem", "6rem")
+                    ),
+                    ui.RowContainer()(
+                        ui.Choice("gHF", "elmfire.wui.gHf", null, "5rem", "6rem"),
+                        ui.Choice("critHF", "elmfire.wui.critHf", null, "5rem", "5rem"),
+                        ui.Choice("bands", "elmfire.wui.bdThickness", null, "5rem", "6rem"),
                     )
                 )
             )
@@ -852,7 +881,7 @@ function initFireView() {
         { name: "date", tip: "local date of update", width: "10rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalDateHMTimeString(e.ef.date) },
         { name: "h", tip: "length of simulation in [h]", width: "2rem", attrs: ["fixed", "alignRight"], map: e => e.ef.nHours },
         { name: "area", tip: "area [ac]", width: "5rem", attrs: ["fixed", "alignRight"], map: e => totalArea(e) },
-        { name: "in", tip: "input types (wind, fixed, spotting, barriers)", width: "3.5rem", attrs: ["fixed", "alignRight"], map: e => inputTypes(e) },
+        { name: "in", tip: "input types (wind, fixed, spotting, barriers, urban)", width: "3.5rem", attrs: ["fixed", "alignRight"], map: e => inputTypes(e) },
         ui.listItemSpacerColumn(0.8),
         { name: "⏿", tip: "show 30min time-of-arrival isochrones", width: "1.5rem", attrs: [], map: e => ui.createCheckBox(e.isShown, toggleShowToa) }
     ]);
@@ -937,6 +966,7 @@ function inputTypes(e) {
     if (e.ef.fixed) t += 'f';
     if (e.ef.spotting) t += 's';
     if (e.ef.barriers && e.ef.barriers.length > 0) t += 'b';
+    if (e.ef.wui) t += 'u';
 
     return t;
 }
@@ -1147,6 +1177,75 @@ function setBarrierChoices() {
     ui.setChoiceItems("elmfire.barrierStep", Array.from( {length: config.maxDropStep+1}, (_,i) => stepLabel(i)), 0);
     ui.setChoiceItems("elmfire.barrierAgent", [NO_AGENT, ...config.dropAgents], 0);
     setDropChoicesEnabled( false); // initial barrier choice is a line
+}
+
+//--- WUI (urban fire spread) input
+
+function setWuiChoices() {
+    ui.setChoiceItems("elmfire.wui.area", config.bldgArea, config.defaultBldgArea);
+    ui.setChoiceItems("elmfire.wui.sep", config.bldgSep, config.defaultBldgSep);
+    ui.setChoiceItems("elmfire.wui.noBurn", config.bldgNoBurn, config.defaultBldgNoBurn);
+    ui.setChoiceItems("elmfire.wui.footprint", config.bldgFootprint, config.defaultBldgFootprint);
+    ui.setChoiceItems("elmfire.wui.spreadModel", config.bldgSpreadModel, config.defaultBldgSpreadModel);
+    ui.setChoiceItems("elmfire.wui.ifcModel", config.ifcModel, config.defaultIfcModel);
+    ui.setChoiceItems("elmfire.wui.fuelModel", config.bldgFuelModel, config.defaultBldgFuelModel);
+    ui.setChoiceItems("elmfire.wui.gHf", config.ghf, config.defaultGhf);
+    ui.setChoiceItems("elmfire.wui.critHf", config.critHf, config.defaultCritHf);
+    ui.setChoiceItems("elmfire.wui.bdThickness", config.bdThickness, config.defaultBdThickness);
+    updateWuiControls();
+}
+
+// WUI parameters are only editable if "use wui" is selected, building fuel models only apply to the WU-E spread model
+function updateWuiControls() {
+    let useWui = ui.isCheckBoxSelected("elmfire.wui.useWui");
+    WUI_CHOICES.forEach( id => ui.setChoiceDisabled(id, !useWui));
+    ui.setCheckBoxDisabled("elmfire.wui.auto", !useWui);
+    ui.setChoiceDisabled("elmfire.wui.fuelModel", !useWui || wuiModelType("elmfire.wui.spreadModel", config.bldgSpreadModel) != 2);
+}
+
+// Elmfire model types are 1-based indices into the respective choice list
+function wuiModelType(id, items) {
+    return items.indexOf( ui.getSelectedChoiceValue(id)) + 1;
+}
+
+// the WUI input as sent to the server (see odin_elmfire::Wui), or undefined if "use wui" is not selected.
+// Note that percent choices are sent as fractions
+function getWui() {
+    if (!ui.isCheckBoxSelected("elmfire.wui.useWui")) return undefined;
+
+    return {
+        bldgArea: ui.getSelectedChoiceValue("elmfire.wui.area"),
+        bldgSep: ui.getSelectedChoiceValue("elmfire.wui.sep"),
+        bldgNoBurn: ui.getSelectedChoiceValue("elmfire.wui.noBurn") / 100,
+        bldgFootprint: ui.getSelectedChoiceValue("elmfire.wui.footprint") / 100,
+        bldgFuelModel: ui.getSelectedChoiceValue("elmfire.wui.fuelModel").value,
+        spreadModel: wuiModelType("elmfire.wui.spreadModel", config.bldgSpreadModel),
+        interfaceModel: wuiModelType("elmfire.wui.ifcModel", config.ifcModel),
+        hardeningFactor: ui.getSelectedChoiceValue("elmfire.wui.gHf"),
+        criticalHf: ui.getSelectedChoiceValue("elmfire.wui.critHf"),
+        bandThickness: ui.getSelectedChoiceValue("elmfire.wui.bdThickness"),
+        auto: ui.isCheckBoxSelected("elmfire.wui.auto")
+    };
+}
+
+// set WUI inputs from a (server provided) Elmfire run. Values that are not in our choice lists are ignored
+function setWui(wui) {
+    ui.setCheckBox("elmfire.wui.useWui", wui !== undefined);
+    ui.setCheckBox("elmfire.wui.auto", wui ? wui.auto : false);
+
+    if (wui) {
+        ui.selectChoiceItem("elmfire.wui.area", wui.bldgArea);
+        ui.selectChoiceItem("elmfire.wui.sep", wui.bldgSep);
+        ui.selectChoiceItem("elmfire.wui.noBurn", Math.round(wui.bldgNoBurn * 100));
+        ui.selectChoiceItem("elmfire.wui.footprint", Math.round(wui.bldgFootprint * 100));
+        ui.selectChoiceItem("elmfire.wui.spreadModel", config.bldgSpreadModel[wui.spreadModel-1]);
+        ui.selectChoiceItem("elmfire.wui.ifcModel", config.ifcModel[wui.interfaceModel-1]);
+        ui.selectChoiceItem("elmfire.wui.fuelModel", config.bldgFuelModel.find( fm => fm.value == wui.bldgFuelModel));
+        ui.selectChoiceItem("elmfire.wui.gHf", wui.hardeningFactor);
+        ui.selectChoiceItem("elmfire.wui.critHf", wui.criticalHf);
+        ui.selectChoiceItem("elmfire.wui.bdThickness", wui.bandThickness);
+    }
+    updateWuiControls();
 }
 
 function setInputDebouncers() {
@@ -2019,6 +2118,11 @@ function createRequest() {
     let barriers = barrierEntries.map( be => be.toJSON()); // possibly empty, without Cesium assets
     elmfire.barriers = barriers;
 
+    let wui = getWui();
+    if (wui) {
+        elmfire.wui = wui;
+    }
+
     updateElmfires( [elmfire], elmfire);
     // set list selection
 
@@ -2137,6 +2241,7 @@ function updateInput() {
 
         updateFixedEntries(ef.fixed);
         code.setCode(spottingSrc, ef.spotting);
+        setWui(ef.wui);
 
     } else {
         ui.clearField(nameEntry);
@@ -2147,6 +2252,7 @@ function updateInput() {
         clearIgnitions();
         clearFixed();
         code.clearCode(spottingSrc);
+        setWui(undefined);
     }
 }
 

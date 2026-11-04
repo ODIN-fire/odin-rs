@@ -783,6 +783,12 @@ div.ui_choice_value:hover {
     background: var(--button-hover-background);
 }
 
+/* see setChoiceDisabled() */
+div.ui_choice_value.disabled {
+    color: var(--disabled-color);
+    pointer-events: none;
+}
+
 
 /* checkboxes */
 
@@ -834,6 +840,12 @@ div.ui_checkbox_label {
     text-align: left;
     vertical-align: middle;
     padding-left: 3px;
+}
+
+/* see setCheckBoxDisabled() */
+div.ui_checkbox.disabled {
+    color: var(--disabled-color);
+    pointer-events: none;
 }
 
 /* radio buttons */

@@ -31,6 +31,10 @@ ElmfireConfig (
         ]),
     ],
 
+    // urban fire spread (WUI) runs. Shown with their default values
+    bldg_fuel_models: "building_fuel_models.csv", // building fuel model table in $ODIN_ROOT/data/odin_elmfire (from Elmfire sources)
+    hrr_ellipse_adj: 0.5,                     // HRR_ELLIPSE_ADJ
+
     input_dt: Duration(secs: 3600, nanos:0),  // the time step for timed input data bands (1h increments)
     small_fire_cells: 8000,                   // ~ 2000 acres. Any final perimeter cells below that number needs contour pre-processing (based on lf_res_m)
 

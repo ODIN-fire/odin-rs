@@ -623,7 +623,8 @@ export class ContourField extends WindFieldVisualization {
         let alpha = renderOpts.alpha * (clrIdx +1) / renderOpts.colors.length;
 
         entity.polygon.material = renderOpts.colors[clrIdx].withAlpha( alpha);
-        entity.polygon.height = 0;
+        // no height - polygons with a defined height are not draped over terrain (they get a single terrain offset each,
+        // which shows as gaps between bands in rugged terrain)
         entity.polygon.outline = false;
         entity.polygon.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
     }

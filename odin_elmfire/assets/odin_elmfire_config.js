@@ -74,6 +74,49 @@ export const config = {
     },
     maxDropStep: 24, // [h] max time step (hours after full hour before first ignition) for air drops
 
+    //--- WUI choices and defaults (see odin_elmfire::Wui)
+
+    bldgArea: [20], // characteristic building footprint dimension [m]
+    defaultBldgArea: 0,
+
+    bldgSep: [5, 10, 15],  // building separation distance [m]
+    defaultBldgSep: 1,
+
+    bldgNoBurn: [30, 50, 70, 90], // non-burnable fraction of structs [%]
+    defaultBldgNoBurn: 0,
+
+    bldgFootprint: [20, 30, 40, 50, 60, 70, 80], // cell fraction occupied by bldgs [%]
+    defaultBldgFootprint: 1,
+
+    // building fuel models (only used by WU-E) - values are row numbers of the server side building_fuel_models.csv
+    // (ElmfireConfig.bldg_fuel_models). ST01-04, ST05-08 and ST09-12 are construction classes with increasing ignition
+    // resistance (ember ignition probability 100/90/70%), each with increasing heat release (fuel load 360/720/1440/7200,
+    // peak HRR 25/50/100/500 kW/m^2). ST13 is a small (4m) low fuel load structure
+    bldgFuelModel: [
+        { label: "ST01", value: 1 }, { label: "ST02", value: 2 }, { label: "ST03", value: 3 }, { label: "ST04", value: 4 },
+        { label: "ST05", value: 5 }, { label: "ST06", value: 6 }, { label: "ST07", value: 7 }, { label: "ST08", value: 8 },
+        { label: "ST09", value: 9 }, { label: "ST10", value: 10 }, { label: "ST11", value: 11 }, { label: "ST12", value: 12 },
+        { label: "ST13", value: 13 }
+    ],
+    defaultBldgFuelModel: 0,
+
+    bldgSpreadModel: ["Hamada", "WU-E"],  // Hamada: 1, WU-E: 2
+    defaultBldgSpreadModel: 1,
+
+    ifcModel: ["ellipse", "threshold"], // ellpise: 1, threshold: 2
+    defaultIfcModel: 0,
+
+    ghf: [1], // global hardening factor
+    defaultGhf: 0,
+
+    critHf: [0.0], // critical heat flux
+    defaultCritHf: 0,
+
+    bdThickness: [3, 4, 5, 6, 7, 8], // band thickness (cells)
+    defaultBdThickness: 2,
+
+    //--- rendering and view control
+
     pointSize: 4,
     pointColor: Cesium.Color.RED,
     pointOutlineColor: Cesium.Color.YELLOW,
