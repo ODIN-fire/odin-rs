@@ -5,5 +5,11 @@ AdsbConfig(
     url: "localhost:30003", // the socket from which to read the ADS-B data
     update_interval: Duration(secs:60,nanos:0), // how often to send out aircraft updates
     max_trace: 64, // number of trace points (last reported positions) to keep in ringbuffer
-    drop_after: Duration(secs:30,nanos:0), // duration after which un-changed aircraft entries are dropped 
+    drop_after: Duration(secs:30,nanos:0), // duration after which un-changed aircraft entries are dropped
+
+    // optional connection parameters (shown with their default values)
+    connect_timeout: Duration(secs:10,nanos:0), // max time to establish a connection to the receiver
+    read_timeout: Duration(secs:60,nanos:0), // max time without data before we reconnect (e.g. after host sleep)
+    reconnect_delay: Duration(secs:10,nanos:0), // delay between reconnect attempts
+    max_reconnects: 30, // max number of consecutive reconnect attempts without receiving data (0: no reconnects)
 )

@@ -20,7 +20,7 @@ use std::io::Cursor;
 use anyhow::Result;
 use odin_common::{
     extract_all, extract_fields, extract_ordered, 
-    u8extractor::{AsyncCsvExtractor, CsvFieldExtractor, CsvStr, MemMemFinder, SimpleU8Finder,
+    u8extractor::{AsyncCsvExtractor, CsvExtractor, CsvFieldExtractor, CsvStr, MemMemFinder, SimpleU8Finder,
                   U8Readable}
 };
 
@@ -266,3 +266,24 @@ impl PropertyFinder {
 
     assert!(success)
  }
+
+// empty lines (only line terminators) used to panic because of indexing relative to the untrimmed line length
+#[test]
+fn test_empty_lines()->Result<()> {
+    let data = "a,b\n\n\r\nc,d\r\ne";
+    let mut csv = CsvExtractor::new( Cursor::new( data.as_bytes()));
+    let mut lines: Vec<String> = Vec::new();
+    while csv.next_line()? { lines.push( csv.line().to_string()); }
+    assert_eq!( lines, vec!["a,b", "", "", "c,d", "e"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_async_empty_lines()->Result<()> {
+    let data = "\na,b\r\n\n";
+    let mut csv = AsyncCsvExtractor::new( Cursor::new( data.as_bytes()));
+    let mut lines: Vec<String> = Vec::new();
+    while csv.next_line().await? { lines.push( csv.line().to_string()); }
+    assert_eq!( lines, vec!["", "a,b", ""]);
+    Ok(())
+}

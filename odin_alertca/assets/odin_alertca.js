@@ -99,7 +99,7 @@ class CameraEntry {
                 verticalOrigin: Cesium.VerticalOrigin.TOP,
                 font: config.labelFont,
                 fillColor: clr,
-                //showBackground: true,
+                showBackground: true,
                 backgroundColor: config.labelBackground,
                 backgroundPadding: new Cesium.Cartesian2( 3,3),
                 pixelOffset: config.labelOffset,
@@ -327,12 +327,15 @@ function toggleShowImage(event) {
 
                 setTimeout(() => { // otherwise the mouseUp will put the focus back on dataView
                     let uri = "./alertca-data/" + data.image;
+                    let ce = selectedCameraEntry;
                     let w = wnd.ImageWindow(
                         imageTitle(data), null,
-                        () => { ui.setCheckBox(cb, false); },
+                        () => { ui.setCheckBox(cb, false); clearViewTrack(); },
                         uri, "",
                         config.imageWidth, config.imageHeight,
-                        event.clientX + 10, event.clientY + 10
+                        event.clientX + 10, event.clientY + 10,
+                        undefined, undefined, undefined, // default scale range
+                        (pos) => trackViewpoint( ce, data, pos)
                     );
                     data.window = w;
                 }, 0);
@@ -392,7 +395,9 @@ function showLatestImage() {
             () => latestImageClosed(w),
             uri, "",
             config.imageWidth, config.imageHeight,
-            x, y
+            x, y,
+            undefined, undefined, undefined, // default scale range
+            (pos) => { if (latestImage) trackViewpoint( selectedCameraEntry, latestImage.data, pos); } // data changes with image
         );
         latestImage = { data, window: w };
     }
@@ -408,6 +413,7 @@ function closeLatestImage() {
 
 // closeAction of latest image windows. If the user closes the window we turn off "show latest" mode
 function latestImageClosed (w) {
+    clearViewTrack();
     if (latestImage && Object.is( latestImage.window, w)) {
         latestImage = undefined;
         ui.setCheckBox( showLatestCb, false);
@@ -601,3 +607,144 @@ function handleUpdateMsg (msg) {
 }
 
 /* #endregion websock handlers */
+
+/* #region viewpoint tracking **************************************************************************/
+
+// image windows report tracked (relative) image positions, which we turn into a bearing line from the camera position
+// (horizontal position) and - for cameras that report their tilt - a terrain intersection range (vertical position).
+// Since distances are very sensitive to pitch errors at grazing angles we show the range between the terrain
+// intersections for pitch +- config.viewTrackPitchUncertainty instead of a single point
+
+var viewTrack = undefined;  // { bearing, range, hit } Cesium entities
+var viewTrackSeq = 0;       // to discard outdated (async) terrain intersection results
+var viewTrackTimer = undefined;
+
+function trackViewpoint (ce, data, pos) {
+    if (!pos || !ce || !data) {
+        clearViewTrack();
+        return;
+    }
+
+    let hfov = data.fovAngle;
+    let bearing = (data.azimut + util.toDegrees( Math.atan( pos.x * Math.tan( util.toRadians( hfov/2)))) + 360) % 360;
+    let p0 = ce.position;
+    let p1 = destination( p0.lon, p0.lat, bearing, config.viewTrackMaxDist);
+
+    ensureViewTrack();
+    viewTrack.bearing.polyline.positions = Cesium.Cartesian3.fromDegreesArray([ p0.lon, p0.lat, p1.lon, p1.lat ]);
+    viewTrack.bearing.show = true;
+    viewTrack.range.show = false;
+    viewTrack.hit.show = false;
+    odinCesium.requestRender();
+
+    // terrain intersections are expensive - wait until the mouse rests (or immediately for frozen positions)
+    let seq = ++viewTrackSeq;
+    if (viewTrackTimer) clearTimeout( viewTrackTimer);
+    if (data.tilt !== undefined) {
+        viewTrackTimer = setTimeout( () => {
+            computeViewRange( seq, ce, data, pos, bearing).catch( (err) => console.log("view range computation failed: ", err));
+        }, pos.isFrozen ? 0 : config.viewTrackDelay);
+    } else { // make it obvious why there is no distance
+        viewTrack.hit.position = Cesium.Cartesian3.fromDegrees( p1.lon, p1.lat);
+        viewTrack.hit.label.text = "no camera tilt data";
+        viewTrack.hit.show = true;
+    }
+}
+
+async function computeViewRange (seq, ce, data, pos, bearing) {
+    let hfov = util.toRadians( data.fovAngle);
+    let vfov = 2 * Math.atan( Math.tan( hfov/2) * pos.height / pos.width); // assuming square pixels
+    let pitch = data.tilt + util.toDegrees( Math.atan( pos.y * Math.tan( vfov/2)));
+    let u = config.viewTrackPitchUncertainty;
+    let maxDist = config.viewTrackMaxDist;
+
+    // the reported camera altitude is relative to MSL (and might be the ground elevation) but Cesium terrain heights are
+    // relative to the WGS84 ellipsoid (~30m lower in CA). We therefore use the terrain height at the camera position
+    // plus a configured offset (mast height) unless there is no topographic terrain
+    let p0 = ce.position;
+    let origin = Cesium.Cartographic.fromDegrees( p0.lon, p0.lat, 0);
+    let th = await odinCesium.terrainHeight( origin);
+    origin.height = ((th != 0) ? th : (p0.alt || 0)) + config.cameraHeightOffset;
+
+    let [hit, near, far] = await Promise.all([
+        odinCesium.terrainIntersection( origin, bearing, pitch, maxDist),
+        odinCesium.terrainIntersection( origin, bearing, pitch - u, maxDist),
+        odinCesium.terrainIntersection( origin, bearing, pitch + u, maxDist)
+    ]);
+    if (seq != viewTrackSeq || !viewTrack) return; // outdated
+
+    if (near) {
+        let pFar = far ? far.position : Cesium.Cartographic.fromDegrees( ...lonLatOf( destination( p0.lon, p0.lat, bearing, maxDist)));
+        viewTrack.range.polyline.positions = [ Cesium.Cartographic.toCartesian( near.position), Cesium.Cartographic.toCartesian( pFar) ];
+        viewTrack.range.show = true;
+    }
+    if (hit) {
+        viewTrack.hit.position = Cesium.Cartographic.toCartesian(hit.position);
+        let fd = far ? (far.distance / 1000).toFixed(1) : undefined;
+        let nd = near ? (near.distance / 1000).toFixed(1) : undefined;
+        let rangeText = "";
+        if (near && far) {
+            rangeText = ` ±${((far.distance - near.distance)/2000).toFixed(1)}`;
+        } else if (near) {
+            rangeText = ` -${((hit.distance - near.distance)/1000).toFixed(1)}`;
+        } else {
+            rangeText = ` +${((far.distance - hit.distance) / 1000).toFixed(1)}`;
+        }
+
+        viewTrack.hit.label.text = `${(hit.distance / 1000).toFixed(1)}${rangeText} km`;
+        viewTrack.hit.show = true;
+    }
+    odinCesium.requestRender();
+}
+
+function ensureViewTrack() {
+    if (!viewTrack) {
+        let bearing = new Cesium.Entity({
+            polyline: { positions: [], clampToGround: true, width: config.viewTrackWidth, material: config.viewTrackColor }
+        });
+        let range = new Cesium.Entity({
+            polyline: { positions: [], clampToGround: true, width: config.viewTrackRangeWidth, material: config.viewTrackRangeColor }
+        });
+        let hit = new Cesium.Entity({
+            point: {
+                pixelSize: 6, color: config.viewTrackRangeColor, outlineColor: Cesium.Color.BLACK, outlineWidth: 1,
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY
+            },
+            label: {
+                text: "", font: config.labelFont, fillColor: config.viewTrackColor,
+                showBackground: true, backgroundColor: config.labelBackground,
+                horizontalOrigin: Cesium.HorizontalOrigin.LEFT, verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                pixelOffset: config.labelOffset, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                disableDepthTestDistance: Number.POSITIVE_INFINITY
+            }
+        });
+        [bearing, range, hit].forEach( e => cameraDataSource.entities.add(e));
+        viewTrack = { bearing, range, hit };
+    }
+}
+
+function clearViewTrack() {
+    viewTrackSeq++;
+    if (viewTrackTimer) { clearTimeout( viewTrackTimer); viewTrackTimer = undefined; }
+    if (viewTrack) {
+        [viewTrack.bearing, viewTrack.range, viewTrack.hit].forEach( e => cameraDataSource.entities.remove(e));
+        viewTrack = undefined;
+        odinCesium.requestRender();
+    }
+}
+
+// destination point (spherical earth) for given start point [deg], bearing [deg] and distance [m]
+function destination (lon, lat, bearing, dist) {
+    const R = 6371000.0;
+    let d = dist / R;
+    let b = util.toRadians( bearing);
+    let la1 = util.toRadians( lat);
+    let lo1 = util.toRadians( lon);
+    let la2 = Math.asin( Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(b));
+    let lo2 = lo1 + Math.atan2( Math.sin(b) * Math.sin(d) * Math.cos(la1), Math.cos(d) - Math.sin(la1) * Math.sin(la2));
+    return { lon: util.toDegrees( lo2), lat: util.toDegrees( la2) };
+}
+
+function lonLatOf (p) { return [p.lon, p.lat]; }
+
+/* #endregion viewpoint tracking */

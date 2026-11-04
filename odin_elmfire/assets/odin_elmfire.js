@@ -34,11 +34,28 @@ const BARRIER_LAT_DROP = 'LAT-drop';
 const BARRIER_VLAT_DROP = 'VLAT-drop';
 const BARRIER_DOZER_LINE = 'dozer-line';
 const BARRIER_HAND_LINE = 'hand-line';
+const BARRIER_BUCKET_T3 = 'bucket-T3'; // helicopter bucket drops (ellipses)
+const BARRIER_BUCKET_T2 = 'bucket-T2';
+const BARRIER_BUCKET_T1 = 'bucket-T1';
 const BARRIER_FILE = 'file';
 
 // ignition types (see odin_elmfire::Ignition)
 const IGNITION_POINT = 'point';
 const IGNITION_LINE = 'line';
+
+// fire suppression agent for barriers
+const NO_AGENT = "-";
+
+// the choice values for display parameters
+const TOA_WIDTHS = [0, 1, 2, 3, 4, 5];
+const TOA_ALPHAS = [0.2, 0.4, 0.6];
+const BARRIER_WIDTHS = [1, 2, 3, 4, 5, 6, 7, 8];
+
+// barrier types with their display parameter labels
+const BARRIER_DISPLAY_TYPES = [
+    [BARRIER_HAND_LINE, "hand"], [BARRIER_DOZER_LINE, "dozer"], [BARRIER_SEAT_DROP, "SEAT"], [BARRIER_LAT_DROP, "LAT"], [BARRIER_VLAT_DROP, "VLAT"],
+    [BARRIER_BUCKET_T3, "T3"], [BARRIER_BUCKET_T2, "T2"], [BARRIER_BUCKET_T1, "T1"]
+];
 
 /* #region ElmfireEntry ************************************************************************************/
 
@@ -249,23 +266,29 @@ class FireEntry {
 
 // note that this has to be kept compatible with odin_elmfire::Barrier
 class Barrier {
-    constructor(barrierType,name,value,width) {
+    constructor(barrierType,name,value,width,step=0,agent=null) {
         this.barrierType = barrierType;
         this.name = name;
         this.value = value; // main.GeoLine or main.GeoLineString
         this.width = width; // [ft]
+        this.step = step;   // [h] hourly time step from which an air drop is in effect (0: full hour before first ignition)
+        this.agent = agent; // air drop agent (see config.dropAgents) or null for fuel breaks
 
         this.asset = undefined; // Cesium entity (only exists while this is one of the barrierEntries)
     }
 
     // only serialize the odin_elmfire::Barrier fields (not the Cesium asset)
     toJSON() {
-        return { barrierType: this.barrierType, name: this.name, value: this.value, width: this.width };
+        return { barrierType: this.barrierType, name: this.name, value: this.value, width: this.width, step: this.step, agent: this.agent };
+    }
+
+    isAirDrop() {
+        return (this.agent != null && this.agent.length > 0);
     }
 
     positions() {
         let v = this.value;
-        let pts = v.points ? v.points : (v.start && v.end) ? [v.start, v.end] : [];
+        let pts = v.outlinePoints ? v.outlinePoints(48) : v.points ? v.points : (v.start && v.end) ? [v.start, v.end] : [];
         return pts.map( p => Cesium.Cartesian3.fromDegrees( p.lon, p.lat));
     }
 
@@ -274,16 +297,18 @@ class Barrier {
 
         let positions = this.positions();
         if (positions.length >= 2) {
-            let r = config.barrierRender;
+            let r = barrierRender;
             let clr = r.colors[this.barrierType] || r.defaultColor;
+            let lw = r.lineWidths[this.barrierType] || r.defaultLineWidth;
 
             this.asset = new Cesium.Entity({
                 position: positions[0],
                 polyline: {
                     positions,
                     clampToGround: true,
-                    width: r.lineWidth,
-                    material: clr
+                    width: lw,
+                    material: clr,
+                    distanceDisplayCondition: config.barrierDC,
                 },
                 label: {
                     text: this.name,
@@ -294,7 +319,7 @@ class Barrier {
                     horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
                     verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
                     pixelOffset: config.labelOffset,
-                    distanceDisplayCondition: config.labelDC,
+                    distanceDisplayCondition: config.barrierDC,
                     heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
                     disableDepthTestDistance: Number.POSITIVE_INFINITY
                 }
@@ -460,7 +485,9 @@ class FixedEntry {
 
 /* #endregion ElmfireEntry */
 
-var render = util.levelOneCloneOf( config.render);
+// make sure we retain class properties of Cesium objects used in rendering
+var render = util.levelOneCloneOf(config.render);
+var barrierRender = cloneBarrierRender();
 
 var fireView = undefined;
 var timestepView = undefined;
@@ -481,6 +508,8 @@ var barrierView = undefined;
 var barrierBtn = undefined;
 var barrierTypeCh = undefined;
 var barrierWidthCh = undefined;
+var barrierStepCh = undefined;
+var barrierAgentCh = undefined;
 var barrierEntry = undefined;
 
 var statsView = undefined;
@@ -630,6 +659,7 @@ function handleSpottingMessage(newSpottingList) {
     updateSpottingsChoices();
 }
 
+// this will be for regional barrier lines (trails and fire roads)
 function handleBarriersMessage(newBarrierList) {
     barrierFileList = newBarrierList;
     updateBarrierChoices();
@@ -734,24 +764,50 @@ function createWindow() {
                         )
                     ),
                     ui.RowContainer()(
-                        (barrierEntry = ui.TextInput("", "elmfire.barrierName", "9.9rem")),
-                        (barrierTypeCh = ui.Choice(null, "elmfire.barrierChoice", selectBarrierChoice, "9.1rem")),
+                        (barrierEntry = ui.TextInput("", "elmfire.barrierName", "6rem")),
+                        (barrierTypeCh = ui.Choice(null, "elmfire.barrierChoice", selectBarrierChoice, "6rem")),
                         (barrierWidthCh = ui.Choice(null, "elmfire.barrierWidth", null, "3.1rem")),
-                        ui.HorizontalSpacer(0.8),
+                        (barrierStepCh = ui.Choice(null, "elmfire.barrierStep", null, "3.1rem")),
+                        (barrierAgentCh = ui.Choice(null, "elmfire.barrierAgent", null, "3.6rem")),
+                        ui.HorizontalSpacer(0.4),
                         ui.Button("edit", editBarrier, "4rem"),
                         (barrierBtn = ui.Button("pick", addBarrier, "4rem"))
                     )
                 )
             )
         ),
-        ui.Panel("toa display", false)(
+        ui.Panel("display", false)(
             ui.RowContainer()(
-                ui.ColorField("toa stroke", "fires.toa.stroke_color", true, "2rem", { changeAction: toaStrokeColorChanged }),
-                ui.initSlider("width", "fires.toa.stroke_width", toaStrokeWidthChanged, 1, 3, 1, util.f_0, 1)
+                ui.Label("toa", null, "4rem"),
+                ui.ColorField("stroke", "fires.toa.stroke_color", true, "2rem", { changeAction: toaStrokeColorChanged }),
+                ui.Choice("width", "fires.toa.stroke_width", toaStrokeWidthChanged, "2.2rem"),
+                ui.HorizontalSpacer(0.5),
+                ui.ColorField("fill", "fires.toa.fill_color", true, "2rem", { changeAction: toaFillColorChanged }),
+                ui.Choice("alpha", "fires.toa.fill_alpha", toaFillAlphaChanged, "2.2rem")
             ),
             ui.RowContainer()(
-                ui.ColorField("toa fill", "fires.toa.fill_color", true, "2rem", { changeAction: toaFillColorChanged }),
-                ui.initSlider("alpha", "fires.toa.fill_alpha", toaFillAlphaChanged, 0, 1, 0.1, util.f_1, 0.7)
+                ui.Label("barrier", null, "3rem"),
+                ...BARRIER_DISPLAY_TYPES.slice(0, 3).flatMap(([bt, lbl]) => [
+                    ui.HorizontalSpacer(0.3),
+                    ui.ColorField(lbl, barrierColorId(bt), true, "2rem", { changeAction: (e) => barrierColorChanged(e,bt) }),
+                    ui.Choice("width", barrierWidthId(bt), (e) => barrierLineWidthChanged(e, bt), "2.2rem")
+                ])
+            ),
+            ui.RowContainer()(
+                ui.Label("barrier", null, "3rem"),
+                ...BARRIER_DISPLAY_TYPES.slice(3, 6).flatMap(([bt, lbl]) => [
+                    ui.HorizontalSpacer(0.3),
+                    ui.ColorField(lbl, barrierColorId(bt), true, "2rem", { changeAction: (e) => barrierColorChanged(e,bt) }),
+                    ui.Choice("width", barrierWidthId(bt), (e) => barrierLineWidthChanged(e, bt), "2.2rem")
+                ])
+            ),
+            ui.RowContainer()(
+                ui.Label("barrier", null, "3rem"),
+                ...BARRIER_DISPLAY_TYPES.slice(6).flatMap(([bt, lbl]) => [
+                    ui.HorizontalSpacer(0.3),
+                    ui.ColorField(lbl, barrierColorId(bt), true, "2rem", { changeAction: (e) => barrierColorChanged(e,bt) }),
+                    ui.Choice("width", barrierWidthId(bt), (e) => barrierLineWidthChanged(e, bt), "2.2rem")
+                ])
             ),
             ui.Button("reset all", resetRendering)
         ),
@@ -863,11 +919,15 @@ function initFixedView() {
 
 function initBarrierView() {
     ui.setListItemDisplayColumns(barrierView, ["fit", "header"], [
-        { name: "name", tip: "fire name", width: "10rem", attrs: [], map: e => util.maxString(e.name, 20) },
-        ui.listItemSpacerColumn(1.4),
-        { name: "type", tip: "barrier type (hand-/dozer-line, seat-/lat-/vlat-drop)", width: "7rem", attrs: [], map: e => e.barrierType },
-        ui.listItemSpacerColumn(1.4),
-        { name: "width", tip: "barrier line width [ft]", width: "3rem", attrs:["fixed","alignRight"], map: e=> e.width }
+        { name: "name", tip: "barrier name", width: "6rem", attrs: [], map: e => util.maxString(e.name, 12) },
+        ui.listItemSpacerColumn(0.5),
+        { name: "type", tip: "barrier type (hand-/dozer-line, seat-/lat-/vlat-drop)", width: "6rem", attrs: [], map: e => e.barrierType },
+        ui.listItemSpacerColumn(0.5),
+        { name: "width", tip: "barrier line width or bucket drop pattern length x width [ft]", width: "4.2rem", attrs:["fixed","alignRight"], map: e=> widthLabel(e) },
+        ui.listItemSpacerColumn(0.5),
+        { name: "dt", tip: "air drop time step [h after full hour before first ignition]", width: "2.5rem", attrs:["fixed","alignRight"], map: e=> e.isAirDrop() ? stepLabel(e.step) : "" },
+        ui.listItemSpacerColumn(0.5),
+        { name: "agent", tip: "air drop agent", width: "3.5rem", attrs:[], map: e=> e.isAirDrop() ? e.agent : "" }
     ]);
 }
 
@@ -893,6 +953,16 @@ function isRequestedTimeStep(ae) {
     return (selectedEntry !== undefined && selectedEntry !== null) && selectedEntry.shownTimeSteps.has( getTimestepSeconds(selectedEntry, ae));
 }
 
+function barrierWidthId(barrierType) { return `elmfire.display.barrier_width.${barrierType}`; }
+function barrierColorId(barrierType) { return `elmfire.display.barrier_color.${barrierType}`; }
+
+// index of the choice value that is closest to v
+function closestIndex(values, v) {
+    let idx = 0;
+    values.forEach( (x,i) => { if (Math.abs(x - v) < Math.abs(values[idx] - v)) idx = i; });
+    return idx;
+}
+
 function initDisplayControls() {
     let e = ui.getField("fires.toa.stroke_color");
     ui.setField(e, render.toa.stroke.toCssHexString());
@@ -900,13 +970,16 @@ function initDisplayControls() {
     e = ui.getField("fires.toa.fill_color");
     ui.setField(e, render.toa.fill.toCssHexString());
 
-    e = ui.getSlider('fires.toa.stroke_width');
-    ui.setSliderRange(e, 0, 5.0, 0.5, util.f_1);
-    ui.setSliderValue(e, render.toa.strokeWidth);
+    ui.setChoiceItems("fires.toa.stroke_width", TOA_WIDTHS, closestIndex(TOA_WIDTHS, render.toa.strokeWidth));
+    ui.setChoiceItems("fires.toa.fill_alpha", TOA_ALPHAS, closestIndex(TOA_ALPHAS, render.toa.alpha));
 
-    e = ui.getSlider('fires.toa.fill_alpha');
-    ui.setSliderRange(e, 0, 1.0, 0.1, util.f_1);
-    ui.setSliderValue(e, render.toa.alpha);
+    BARRIER_DISPLAY_TYPES.forEach( ([bt,_]) => {
+        let lw = barrierRender.lineWidths[bt] || barrierRender.defaultLineWidth;
+        ui.setChoiceItems(barrierWidthId(bt), BARRIER_WIDTHS, closestIndex(BARRIER_WIDTHS, lw));
+
+        let clr = barrierRender.colors[bt] || barrierRender.defaultColor;
+        ui.setField(ui.getField(barrierColorId(bt)), clr.toCssHexString());
+    });
 }
 
 function selectImgOutput() {
@@ -1061,13 +1134,19 @@ function updateSpottingsChoices() {
 }
 
 function setBarrierChoices() {
-    let barrierChoices = [BARRIER_HAND_LINE,BARRIER_DOZER_LINE,"---", BARRIER_SEAT_DROP,BARRIER_LAT_DROP,BARRIER_VLAT_DROP]; // the standard user-creatable entries
+    let barrierChoices = [BARRIER_HAND_LINE,BARRIER_DOZER_LINE,"---", BARRIER_SEAT_DROP,BARRIER_LAT_DROP,BARRIER_VLAT_DROP,"---",
+                          BARRIER_BUCKET_T3,BARRIER_BUCKET_T2,BARRIER_BUCKET_T1]; // the standard user-creatable entries
     if (barrierFileList.length > 0) {
         barrierChoices.push("---");
         barrierChoices.push(...barrierFileList);
     }
     ui.setChoiceItems("elmfire.barrierChoice", barrierChoices, 0);
+    setBarrierNameDefault(barrierChoices[0]);
+
     ui.setChoiceItems("elmfire.barrierWidth", config.barrierWidths, 0);
+    ui.setChoiceItems("elmfire.barrierStep", Array.from( {length: config.maxDropStep+1}, (_,i) => stepLabel(i)), 0);
+    ui.setChoiceItems("elmfire.barrierAgent", [NO_AGENT, ...config.dropAgents], 0);
+    setDropChoicesEnabled( false); // initial barrier choice is a line
 }
 
 function setInputDebouncers() {
@@ -1284,31 +1363,44 @@ function selectBarrierChoice(event) {
     if (e) {
         let bType = ui.getSelectedChoiceValue(e);
         if (bType) {
+            ui.setChoiceDisabled(barrierWidthCh, isBucketType(bType)); // bucket drop patterns are defined by type
             switch (bType) {
                 case BARRIER_SEAT_DROP:
                     ui.setButtonValue(barrierBtn, "pick");
                     ui.selectChoiceItem(barrierWidthCh, config.seatDropWidth);
+                    selectDropAgent(bType);
                     break;
                 case BARRIER_LAT_DROP:
                     ui.setButtonValue(barrierBtn, "pick");
                     ui.selectChoiceItem(barrierWidthCh, config.latDropWidth);
+                    selectDropAgent(bType);
                     break;
                 case BARRIER_VLAT_DROP:
                     ui.setButtonValue(barrierBtn, "pick");
                     ui.selectChoiceItem(barrierWidthCh, config.vlatDropWidth);
+                    selectDropAgent(bType);
                     break;
                 case BARRIER_DOZER_LINE:
                     ui.setButtonValue(barrierBtn, "pick");
                     ui.selectChoiceItem(barrierWidthCh, config.dozerLineWidth);
+                    setDropChoicesEnabled(false);
                     break;
                 case BARRIER_HAND_LINE:
                     ui.setButtonValue(barrierBtn, "pick");
                     ui.selectChoiceItem(barrierWidthCh, config.handLineWidth);
+                    setDropChoicesEnabled(false);
+                    break;
+                case BARRIER_BUCKET_T3:
+                case BARRIER_BUCKET_T2:
+                case BARRIER_BUCKET_T1:
+                    ui.setButtonValue(barrierBtn, "pick");
+                    selectDropAgent(bType);
                     break;
                 default:
                     ui.setButtonValue(barrierBtn, "add");
             }
         }
+        setBarrierNameDefault(bType);
     }
 }
 
@@ -1318,16 +1410,31 @@ function addBarrier() {
     if (isUserBarrier(barrierType)) { // we need a name and then interactively pick positions
         let barrierName = ui.getFieldValue(barrierEntry);
         if (!barrierName || barrierName.length == 0) {
-            alert("please enter name for new " + barrierType + " barrier");
+            alert("please enter barrier name");
             return;
         }
+
         let barrierWidth = ui.getSelectedChoiceValue(barrierWidthCh);
 
-        if (barrierType === BARRIER_SEAT_DROP || barrierType === BARRIER_LAT_DROP || barrierType === BARRIER_VLAT_DROP) {
+        if (isAirDropType(barrierType)) {
+            let step = parseStepLabel( ui.getSelectedChoiceValue(barrierStepCh));
+            let agent = ui.getSelectedChoiceValue(barrierAgentCh);
+            if (!agent || agent === NO_AGENT) {
+                alert("please select agent for air drop " + barrierName);
+                return;
+            }
             ui.setButtonActive(barrierBtn, true);
             odinCesium.enterGeoLine((geoLine) => {
                 ui.setButtonActive(barrierBtn, false);
-                if (geoLine) addBarrierEntry( new Barrier(barrierType, barrierName, geoLine, barrierWidth));
+                if (geoLine) {
+                    if (isBucketType(barrierType)) { // first point is the start of the drop, second point only sets its direction
+                        let p = config.bucketPatterns[barrierType];
+                        let ellipse = main.GeoEllipse.fromStartAndDirection( geoLine.start, geoLine.end, main.ftToMeters(p.length), main.ftToMeters(p.width));
+                        addBarrierEntry( new Barrier(barrierType, barrierName, ellipse.toRounded(), p.width, step, agent));
+                    } else {
+                        addBarrierEntry( new Barrier(barrierType, barrierName, geoLine, barrierWidth, step, agent));
+                    }
+                }
             });
         } else if (barrierType === BARRIER_DOZER_LINE || barrierType === BARRIER_HAND_LINE) {
             ui.setButtonActive(barrierBtn, true);
@@ -1340,6 +1447,17 @@ function addBarrier() {
     } else { // file selection, no name required
         // TBD - for file selections the selected type is used as the name and the value, and the type is set to BARRIER_FILE
     }
+}
+
+function setBarrierNameDefault(barrierType) {
+    let nTypes = 1;
+    barrierEntries.forEach((e) => {
+        if (e.barrierType == barrierType) nTypes++;
+    });
+    let bn = `${barrierType.split("-")[0]}-${nTypes}`;
+    ui.setField(barrierEntry, bn);
+
+    return bn;
 }
 
 function editBarrier() {
@@ -1363,9 +1481,49 @@ function addBarrierEntry(be) {
     ui.setListItems(barrierView, barrierEntries);
 }
 
+function isAirDropType(barrierType) {
+    return (barrierType === BARRIER_SEAT_DROP || barrierType === BARRIER_LAT_DROP || barrierType === BARRIER_VLAT_DROP ||
+            isBucketType(barrierType));
+}
+
+function isBucketType(barrierType) {
+    return (barrierType === BARRIER_BUCKET_T3 || barrierType === BARRIER_BUCKET_T2 || barrierType === BARRIER_BUCKET_T1);
+}
+
+// line width or (for bucket drops) pattern "length x width" in ft
+function widthLabel(barrier) {
+    let v = barrier.value;
+    return (v && v.semiMajor !== undefined) ? `${Math.round( 2 * v.semiMajor / 0.3048)}x${barrier.width}` : barrier.width;
+}
+
+// air drop time steps are hours after the full hour preceding the first ignition (the hourly Elmfire input bands)
+function stepLabel(step) {
+    return `+${step}h`;
+}
+
+function parseStepLabel(label) {
+    let n = label ? parseInt( label.replace("+","")) : 0;
+    return isNaN(n) ? 0 : n;
+}
+
+// step and agent are only used for air drops - fuel breaks are in effect for the whole simulation
+function setDropChoicesEnabled(isEnabled) {
+    if (!isEnabled) {
+        ui.selectChoiceItem(barrierStepCh, stepLabel(0));
+        ui.selectChoiceItem(barrierAgentCh, NO_AGENT);
+    }
+    ui.setChoiceDisabled(barrierStepCh, !isEnabled);
+    ui.setChoiceDisabled(barrierAgentCh, !isEnabled);
+}
+
+function selectDropAgent(barrierType) {
+    setDropChoicesEnabled(true);
+    let agent = config.defaultDropAgents[barrierType] || config.dropAgents[0];
+    if (agent) ui.selectChoiceItem(barrierAgentCh, agent);
+}
+
 function isUserBarrier(barrier) {
-    return (barrier === BARRIER_SEAT_DROP || barrier === BARRIER_LAT_DROP || barrier === BARRIER_VLAT_DROP ||
-        barrier === BARRIER_DOZER_LINE || barrier === BARRIER_HAND_LINE);
+    return (isAirDropType(barrier) || barrier === BARRIER_DOZER_LINE || barrier === BARRIER_HAND_LINE);
 }
 
 // "del" button: remove the selected barrier (and its asset)
@@ -1388,6 +1546,10 @@ function selectBarrier() {
         ui.setField(barrierEntry, selBarrier.name);
         ui.selectChoiceItem(barrierTypeCh, selBarrier.barrierType);
         ui.selectChoiceItem(barrierWidthCh, selBarrier.width);
+        ui.selectChoiceItem(barrierStepCh, stepLabel( selBarrier.step || 0));
+        ui.selectChoiceItem(barrierAgentCh, selBarrier.isAirDrop() ? selBarrier.agent : NO_AGENT);
+        setDropChoicesEnabled( selBarrier.isAirDrop());
+        ui.setChoiceDisabled(barrierWidthCh, isBucketType(selBarrier.barrierType));
     }
 }
 
@@ -1403,7 +1565,7 @@ function clearBarriers() {
 // Only the current barrierEntries are rendered
 function setBarriers(barriers) {
     barrierEntries.forEach( be => be.removeAsset());
-    barrierEntries = barriers ? barriers.map( b => new Barrier( b.barrierType, b.name, toGeoValue(b.value), b.width)) : [];
+    barrierEntries = barriers ? barriers.map( b => new Barrier( b.barrierType, b.name, toGeoValue(b.value), b.width, b.step || 0, b.agent || null)) : [];
     barrierEntries.forEach( be => be.createAsset());
     ui.setListItems(barrierView, barrierEntries);
 }
@@ -1411,7 +1573,9 @@ function setBarriers(barriers) {
 // turn deserialized barrier/ignition values back into main.GeoPoint, main.GeoLine or main.GeoLineString objects
 function toGeoValue(v) {
     let geoPoint = (p) => new main.GeoPoint( p.lon, p.lat);
-    if (v.points) {
+    if (v.semiMajor !== undefined) {
+        return new main.GeoEllipse( v.lon, v.lat, v.semiMajor, v.semiMinor, v.heading);
+    } else if (v.points) {
         return new main.GeoLineString( v.points.map( geoPoint));
     } else if (v.start && v.end) {
         return new main.GeoLine( geoPoint(v.start), geoPoint(v.end));
@@ -1495,7 +1659,8 @@ function loadToa(e) {
     ]).then( ([ds, polyDs]) => {
         if (gen !== e.toaGen) return undefined; // entry was reset or replaced while we were loading
 
-        removeContourArtifacts(ds);
+        setPolyDCs(ds);
+        //removeContourArtifacts(ds); // server now takes care of that
         addTimeStepLabels(e, ds);
         if (polyDs) initPolygons(polyDs);
 
@@ -1525,6 +1690,14 @@ function lowerBelowDataSource(ds) {
     let levels = odinCesium.zIndexOfDataSource(ds) - odinCesium.zIndexOfDataSource(dataSource);
     if (levels > 0) odinCesium.lowerDataSource(ds, levels);
     odinCesium.requestRender();
+}
+
+function setPolyDCs(ds) {
+    let dc = config.polyDC;
+    for (const e of ds.entities.values) {
+        if (e.polyline) e.polyline.distanceDisplayCondition = dc;
+        else if (e.polygon) e.polygon.distanceDisplayCondition = dc;
+    }
 }
 
 // remove small contour artifacts (outlines with less than config.contourThreshold vertices)
@@ -1589,7 +1762,7 @@ function addTimeStepLabels(fireEntry, ds) {
                 backgroundColor: config.labelBackground,
                 horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
                 verticalOrigin: Cesium.VerticalOrigin.CENTER,
-                distanceDisplayCondition: config.labelDC,
+                distanceDisplayCondition: config.barrierDC,  // we only display these if polylines/polygons are shown
                 heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
                 disableDepthTestDistance: Number.POSITIVE_INFINITY,
                 show: false // set in FireEntry.updateDisplay() according to outline visibility
@@ -1801,6 +1974,13 @@ function createRequest() {
     // note - this should be kept in sync with odin_elmfire::ElmFire::new()
     let id = FireEntry.getId(name, date, pos);
 
+    let overwrite = false;
+    if (fireEntries.has(id)) {
+        if (confirm(`Elmfire run "${name}" already exists, remove old entry?`)) {
+            overwrite = true;
+        } else return;
+    }
+
     if (ignitionEntries.length == 0) {
         alert("no ignitions");
         return;
@@ -1822,7 +2002,7 @@ function createRequest() {
     }
 
     let computeWind = ui.isCheckBoxSelected("elmfire.computeWind");
-    let elmfire = { id, name, nHours, size, date, pos, computeWind, ignitions };
+    let elmfire = { id, name, nHours, size, date, pos, computeWind, ignitions, overwrite };
 
     //--- now set the optional elmfire inputs
 
@@ -2092,12 +2272,24 @@ async function loadSpec(specType, name, tgtTextArea) {
 // display parameter changes only affect the selected run and following selections (other runs keep their rendering)
 function resetRendering() {
     render = util.levelOneCloneOf(config.render);
+    barrierRender = cloneBarrierRender();
     initDisplayControls();
     if (selectedEntry) selectedEntry.setToaRender();
+    updateBarrierAssets();
+}
+
+// note we can't use util.levelOneCloneOf since barrierRender also has scalar properties
+function cloneBarrierRender() {
+    let r = config.barrierRender;
+    return { ...r, colors: { ...r.colors }, lineWidths: { ...r.lineWidths } };
+}
+
+function selectedChoiceNumber(event) {
+    return Number( ui.getSelectedChoiceValue( ui.getChoice(event.target)));
 }
 
 function toaStrokeWidthChanged(event) {
-    render.toa.strokeWidth = ui.getSliderValue(event.target);
+    render.toa.strokeWidth = selectedChoiceNumber(event);
     if (selectedEntry) selectedEntry.setToaRender();
 }
 
@@ -2118,8 +2310,29 @@ function toaFillColorChanged(event) {
 }
 
 function toaFillAlphaChanged(event) {
-    render.toa.alpha = ui.getSliderValue(event.target);
+    render.toa.alpha = selectedChoiceNumber(event);
     if (selectedEntry) selectedEntry.setToaRender();
+}
+
+// barrier display parameters are global (barriers are also shown for new runs) - changes apply to all barrier entries
+function barrierLineWidthChanged(event, barrierType) {
+    let lw = selectedChoiceNumber(event);
+    if (lw) {
+        barrierRender.lineWidths[barrierType] = lw;
+        updateBarrierAssets();
+    }
+}
+
+function barrierColorChanged(event, barrierType) {
+    let clrSpec = event.target.value;
+    if (clrSpec) {
+        barrierRender.colors[barrierType] = Cesium.Color.fromCssColorString(clrSpec);
+        updateBarrierAssets();
+    }
+}
+
+function updateBarrierAssets() {
+    barrierEntries.forEach( be => be.createAsset()); // this replaces existing assets
 }
 
 function createSymEntity( name, pos) {

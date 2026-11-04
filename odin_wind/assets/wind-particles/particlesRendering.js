@@ -147,6 +147,7 @@ export class ParticlesRendering {
 
         let clr = new Cesium.Cartesian4( userInput.color.red, userInput.color.green, userInput.color.blue, userInput.color.alpha);
         let speedColors = speedColorUniforms( userInput);
+        let speedWidth = speedWidthUniforms( userInput);
 
         this.primitives = {
             segments: new CustomPrimitive({
@@ -215,6 +216,18 @@ export class ParticlesRendering {
                     },
                     colorBySpeed: function() {
                         return speedColors.enabled;
+                    },
+                    widthBySpeed: function() {
+                        return speedWidth.enabled;
+                    },
+                    maxWidthFactor: function() {
+                        return speedWidth.maxFactor;
+                    },
+                    widthSpeedMax: function() {
+                        return speedWidth.speedMax;
+                    },
+                    edgeDarkening: function() {
+                        return speedWidth.edgeDarkening;
                     }
                 },
                 vertexShaderSource: new Cesium.ShaderSource({
@@ -388,6 +401,19 @@ export class ParticlesRendering {
         map.colorBySpeed = function() {
             return speedColors.enabled;
         };
+        const speedWidth = speedWidthUniforms( userInput);
+        map.widthBySpeed = function() {
+            return speedWidth.enabled;
+        };
+        map.maxWidthFactor = function() {
+            return speedWidth.maxFactor;
+        };
+        map.widthSpeedMax = function() {
+            return speedWidth.speedMax;
+        };
+        map.edgeDarkening = function() {
+            return speedWidth.edgeDarkening;
+        };
 
         map = primitives.trails.uniformMap;
         const fadeOpacity = userInput.fadeOpacity;
@@ -410,4 +436,14 @@ function speedColorUniforms (userInput) {
         a.push( new Cesium.Cartesian4( c.red, c.green, c.blue, c.alpha));
     }
     return { colors: a, n: n, enabled: (userInput.colorBySpeed && n > 0) ? 1.0 : 0.0 };
+}
+
+// the uniform values for wind speed dependent line widths (userInput.widthSpeedMax is in mph, the shader uses m/s)
+function speedWidthUniforms (userInput) {
+    return {
+        enabled: userInput.widthBySpeed ? 1.0 : 0.0,
+        maxFactor: userInput.maxWidthFactor || 1.0,
+        speedMax: (userInput.widthSpeedMax || 30.0) * 0.44704,
+        edgeDarkening: userInput.edgeDarkening || 0.0
+    };
 }

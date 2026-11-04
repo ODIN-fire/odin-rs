@@ -95,22 +95,31 @@ impl <U,R> ElmfireActor <U,R>
         let id = run.fire.id.clone();
 
         if self.store.contains_key( &id) {
-            return Err( op_failed!("already stored: {}", &id));
-        } else {
-            self.store.insert( id.clone(), run.clone()); // cloning the job is inexpensive
-            self.update_action.execute( &run).await.map_err(|e| OdinElmfireError::ActionFailure(e.to_string()))?;
-
-            // we don't await completion of the (possibly lengthy) run here so that we stay responsive
-            let config = self.config.clone();
-
-            spawn( "elmfire executor", async move {
-                info!("executing {}", id);
-                let result = run.fire.execute( config.as_ref()).await.map_err( |e| e.to_string());
+            if run.fire.overwrite {
+                if run.fire.dir.is_dir() {
+                    std::fs::remove_dir_all( &run.fire.dir)?;
+                }
+            } else {
+                let result = Err(format!("Elmfire run already exists: {}", run.fire.name));
                 hself.send_msg( RequestFinished{ id, result }).await;
-            });
 
-            Ok(())
+                return Err( op_failed!("already stored: {}", &run.fire.id));
+            }
         }
+
+        self.store.insert( id.clone(), run.clone()); // cloning the job is inexpensive
+        self.update_action.execute( &run).await.map_err(|e| OdinElmfireError::ActionFailure(e.to_string()))?;
+
+        // we don't await completion of the (possibly lengthy) run here so that we stay responsive
+        let config = self.config.clone();
+
+        spawn( "elmfire executor", async move {
+            info!("executing {}", id);
+            let result = run.fire.execute( config.as_ref()).await.map_err( |e| e.to_string());
+            hself.send_msg( RequestFinished{ id, result }).await;
+        });
+
+        Ok(())
     }
 
     async fn process_result (&mut self, id: String, result: StdResult<ElmfireOutput,String>)->Result<()> {

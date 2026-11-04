@@ -111,6 +111,32 @@ AlertCaConfig(
 )
 ```
 
+## Viewpoint Tracking
+
+Image windows (`odin_server/ui_windows.js` `ImageWindow`) have a "track viewpoint" checkbox. If checked, the mouse
+position over the image is shown with a vertical and a horizontal line and reported (relative to the image center) to
+`odin_alertca.js`, which renders:
+
+- a **bearing line** from the camera position: `azimut + atan(x * tan(hfov/2))`, where `x` is the relative horizontal
+  position in [-1,1] and `hfov` is the (zoom dependent) horizontal field of view of the camera when the image was taken
+- for cameras that report their tilt (PTZ cameras), the **terrain intersection** of a ray with this bearing and the
+  pitch `tilt + atan(y * tan(vfov/2))` (vertical field of view computed from `hfov` and the image aspect ratio). The ray
+  is intersected with the most detailed terrain by `odin_cesium::terrainIntersection()`
+
+Clicking on the image freezes/unfreezes the tracked position. Since distances are very sensitive to pitch errors at
+grazing angles (`distance ~ camera height above terrain / tan(depression angle)`), the terrain intersection is shown as
+the range between the intersections for pitch ± `viewTrackPitchUncertainty` (default 0.25°), labeled with the nominal
+distance and the range in km. Results are reliable in the near field and become increasingly uncertain towards the
+horizon. Other error sources are the camera height (the reported position altitude might be the ground elevation -
+`cameraHeightOffset` is added), lens distortion and atmospheric refraction.
+
+Azimuth, tilt and zoom of each image are read from its overlay text (e.g. `elev:2812' X:-54.88 Y:-1.78 Z:1.0`) by means
+of OCR (`odin_alertca::overlay`, using the `odin_image::ocr` module with the PP-OCR models in
+`$ODIN_ROOT/data/odin_image/ocr`). This is required since the AlertCalifornia camera data does not include PTZ values
+for all PTZ cameras, and PTZ values are updated separately from frames (`ptz_updated_ts` vs. `last_frame_ts`), i.e. they
+might not match the image if the camera moved. If OCR fails (or the models are missing) we fall back to the camera data.
+The horizontal field of view is always taken from the camera data.
+
 ## Example
 
 ```rust

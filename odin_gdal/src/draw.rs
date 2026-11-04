@@ -35,7 +35,7 @@ use gdal::{
     spatial_ref::{AxisMappingStrategy, CoordTransform, SpatialRef},
     raster::{rasterize, RasterizeOptions}
 };
-use odin_common::geo::{GeoCircle, GeoLine, GeoLineString, GeoPoint, GeoPolygon, GeoRect, lat_degrees_per_meter, lon_degrees_per_meter};
+use odin_common::geo::{GeoCircle, GeoEllipse, GeoLine, GeoLineString, GeoPoint, GeoPolygon, GeoRect, lat_degrees_per_meter, lon_degrees_per_meter};
 use crate::errors::{Result, OdinGdalError, misc_error};
 
 /// max segment length in degrees for geometries that are transformed into a projected SRS (~100m)
@@ -145,6 +145,96 @@ pub fn fill_geo_circle (ds: &mut Dataset, circle: &GeoCircle, value: f64)->Resul
 
 pub fn fill_geo_circle_bands (ds: &mut Dataset, circle: &GeoCircle, band_values: &[(usize,f64)])->Result<()> {
     draw_wkt( ds, &polygon_wkt( &circle_ring(circle), &[]), band_values)
+}
+
+//--- buffered lines
+//
+// these functions use the area within `width/2` of a line string (i.e. a line with a physical width), which is computed
+// in the SRS of the target dataset. The width is given in dataset SRS units, i.e. this requires a projected SRS such
+// as UTM (meters)
+
+/// set all pixels that are touched by the buffered line string. The result is gap free, i.e. the pixels form a
+/// 4-connected path without diagonal-only connections (even for widths that are smaller than the pixel size)
+pub fn draw_geo_line_string_buffer (ds: &mut Dataset, ps: &[GeoPoint], width: f64, value: f64)->Result<()> {
+    let geom = line_string_buffer( ds, ps, width)?;
+    let opts = RasterizeOptions { all_touched: true, ..RasterizeOptions::default() };
+    for band in 1..=ds.raster_count() {
+        rasterize( ds, &[band], &[geom.clone()], &[value], Some(opts))?;
+    }
+    Ok(())
+}
+
+/// set all pixels whose center is inside of the buffered line string
+pub fn fill_geo_line_string_buffer (ds: &mut Dataset, ps: &[GeoPoint], width: f64, value: f64)->Result<()> {
+    let geom = line_string_buffer( ds, ps, width)?;
+    for band in 1..=ds.raster_count() {
+        rasterize( ds, &[band], &[geom.clone()], &[value], Some(RasterizeOptions::default()))?;
+    }
+    Ok(())
+}
+
+/// compute the fraction (0..1] of each pixel that is covered by the buffered line string (i.e. an anti-aliased
+/// rendering). Returns (column, row, coverage) tuples for all pixels that are (partially) covered
+pub fn geo_line_string_coverage (ds: &Dataset, ps: &[GeoPoint], width: f64)->Result<Vec<(usize,usize,f64)>> {
+    let geom = line_string_buffer( ds, ps, width)?;
+    geometry_coverage( ds, &geom)
+}
+
+/// number of vertices we use to approximate ellipses
+const N_ELLIPSE_VERTICES: usize = 64;
+
+/// compute the fraction (0..1] of each pixel that is covered by `ellipse` (see [geo_line_string_coverage])
+pub fn geo_ellipse_coverage (ds: &Dataset, ellipse: &GeoEllipse)->Result<Vec<(usize,usize,f64)>> {
+    let wkt = polygon_wkt( &ellipse.outline_points( N_ELLIPSE_VERTICES), &[]);
+    let geom = to_dataset_srs( ds, &Geometry::from_wkt( &wkt)?)?;
+    geometry_coverage( ds, &geom)
+}
+
+/// fill `ellipse` (all pixels whose center is inside)
+pub fn fill_geo_ellipse (ds: &mut Dataset, ellipse: &GeoEllipse, value: f64)->Result<()> {
+    let wkt = polygon_wkt( &ellipse.outline_points( N_ELLIPSE_VERTICES), &[]);
+    draw_wkt( ds, &wkt, &all_bands( ds, value))
+}
+
+/// pixel coverage for a polygonal geometry that is already in the SRS of ds
+fn geometry_coverage (ds: &Dataset, geom: &Geometry)->Result<Vec<(usize,usize,f64)>> {
+    let gt = ds.geo_transform()?;
+    if gt[2] != 0.0 || gt[4] != 0.0 { return Err( misc_error("rotated datasets not supported".into())) }
+
+    let (n_cols, n_rows) = ds.raster_size();
+    let (dx, dy) = (gt[1], gt[5]); // dy is negative for north-up datasets
+    let cell_area = (dx * dy).abs();
+
+    // pixel index range of the buffer envelope
+    let env = geom.envelope();
+    let c0 = ((env.MinX - gt[0]) / dx).floor().max(0.0) as usize;
+    let c1 = (((env.MaxX - gt[0]) / dx).floor().max(0.0) as usize).min( n_cols.saturating_sub(1));
+    let (ra, rb) = ((env.MaxY - gt[3]) / dy, (env.MinY - gt[3]) / dy);
+    let r0 = ra.min(rb).floor().max(0.0) as usize;
+    let r1 = (ra.max(rb).floor().max(0.0) as usize).min( n_rows.saturating_sub(1));
+
+    let mut coverage: Vec<(usize,usize,f64)> = Vec::new();
+    for row in r0..=r1 {
+        for col in c0..=c1 {
+            let x0 = gt[0] + col as f64 * dx;
+            let y0 = gt[3] + row as f64 * dy;
+            let (x1, y1) = (x0 + dx, y0 + dy);
+            let cell = Geometry::from_wkt( &format!("POLYGON (({x0} {y0},{x1} {y0},{x1} {y1},{x0} {y1},{x0} {y0}))"))?;
+
+            if let Some(isect) = geom.intersection( &cell) {
+                let a = isect.area() / cell_area;
+                if a > 0.0 { coverage.push( (col, row, a.min(1.0))); }
+            }
+        }
+    }
+    Ok(coverage)
+}
+
+/// the area within width/2 of the line string, in the SRS of ds
+fn line_string_buffer (ds: &Dataset, ps: &[GeoPoint], width: f64)->Result<Geometry> {
+    if ps.len() < 2 { return Err( misc_error("line string needs at least 2 points".into())) }
+    let geom = to_dataset_srs( ds, &Geometry::from_wkt( &line_string_wkt( "LINESTRING", ps))?)?;
+    Ok( geom.buffer( width / 2.0, 8)?)
 }
 
 //--- generic geometry drawing

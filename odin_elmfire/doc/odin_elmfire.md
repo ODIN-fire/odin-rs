@@ -6,6 +6,25 @@ The `odin_elmfire` crate is an application domain crate to run and display wildf
 not re-implement the model but automates the creation of its inputs, runs the executable and post-processes its
 outputs for visualization.
 
+## Use Case
+
+The primary use case for `odin_elmfire` is the quick assessment of new and emerging incidents over a limited time window (<8h), using
+live fuel data and live or virtual ignition- and/or weather data. Both should support interactive "what if" scenarios such as spotting
+or fuel-breaks and retardant drops and especially should support the use of local *micro-grid wind* computed by 
+[`odin_wind`](../odin_wind/odin_wind.md) by means of the external [WindNinja](https://ninjastorm.firelab.org/windninja/) simulator.
+
+As the end point we envision an automated processing pipeline that detects and locates ignitions from ground-, aerial- or 
+space-sensors that automatically trigger predicted fire spread for up to 8h, and then allow operators to do interactive threat 
+assessment and counter-measure planning such as air attack. Eventually this should include the wildland urban interface. 
+With `odin_elmfire` we are not focused on simulating large, multi-shift incidents. 
+
+ELMFIRE seems particularly well suited for this task as it - as a non-coupled model - does not require to set up a local weather 
+model and hence lends itself to quick, interactive use on local servers. We envision future support for expensive, coupled 
+fire-behavior and weather- simulators in dedicated crates.
+
+
+## Dataflow and Core Functions
+
 ELMFIRE requires a substantial set of inputs for each simulation, including
 
 - fuel and topography ([FBFM40](https://www.landfire.gov/fuel/fbfm40), canopy, slope, aspect, elevation) from [odin_landfire](../odin_landfire/odin_landfire.md)
@@ -106,6 +125,8 @@ If micro-grid wind is used, a WindNinja installation is also required (see [odin
 - `input.rs` : creation of the ELMFIRE input rasters for a simulation - landfire fuels and topography, weather and NFDRS fuel
   moisture based inputs, fixed inputs, and WindNinja based micro-grid wind
 - `fixed.rs` : fixed (user provided) hourly wx and fuel moisture input values (`FixedInput`), including NML parsing for command line tools
+- `barrier.rs` : mapping of user defined barriers (fuel breaks and air drops) to ELMFIRE inputs (see [Fuel Breaks and Air Drops](#fuel-breaks-and-air-drops))
+- `toa.rs` : post processing of time-of-arrival output (isochrone line contours and cumulative burn area polygons)
 - `actor.rs` : [odin_actor](../odin_actor/odin_actor.md) based `ElmfireActor` that manages and executes simulation requests
   (`ElmFire` messages) and stores their results in an `ElmfireStore`
 - `service.rs` : defines `ElmfireService` - a [odin_server](../odin_server/odin_server.md) based `odin_server::spa::SpaService`
@@ -185,6 +206,13 @@ If micro-grid wind is requested (`compute_wind`), WindNinja is run for each hour
 file generated in `inputs/wn/` (either from the Open-Meteo forecast grid or from fixed input values), and `ws.tif` / `wd.tif`
 are created from the WindNinja output.
 
+Fuel moisture and wind inputs are computed with their own resolution (`wx_res_m` for fixed and NFDRS based inputs,
+`wind_res_m` for WindNinja output). Current ELMFIRE builds do not handle different raster resolutions of their inputs
+(they use the wind rasters as reference grid). If `uniform_res` is set (default) these inputs are therefore resampled
+to the landfire grid (UTM bounding box and `lf_res_m`) after they are created - wind direction with nearest neighbour
+(to avoid interpolation across the 0/360 degree discontinuity), all others with cubic interpolation. Resampled datasets
+are compressed but still need considerably more disk space than the original (coarse) datasets.
+
 The crate also includes the following executables in `src/bin`:
 
 - `show_elmfire` : minimal web application to run ELMFIRE (`SpaServer` with `ElmfireService` and `ElmfireActor`)
@@ -237,9 +265,19 @@ ElmfireConfig (
 
     wind_config_name: "wind.ron",             // odin_wind::WindConfig filename in case we compute wind
     wind_res_m: 150,                          // micro-grid wind resolution in meters
+    uniform_res: true,                        // resample computed (fuel moisture, wind) inputs to lf_res_m (see below)
 
     input_dt: Duration(secs: 3600, nanos:0),  // the time step for timed input data bands (1h increments)
-    small_fire_cells: 4000,                   // final perimeters below this number of cells need contour pre-processing
+    small_fire_cells: 4000,                   // fires with less burned cells get up-sampled before contouring
+
+    fuel_break_fbfm40: 99,                    // fuel model for fuel breaks at least lf_res_m wide (default NB9: bare ground)
+    drop_agents: [                            // air drop agents and their fuel moisture effects (see below)
+        ( name: "LTR", moisture: [
+            ( raster: "m1",  increase: Set(60.0), decay: Linear(24.0) ),
+            ( raster: "m10", increase: Add(15.0), decay: Linear(24.0) ),
+        ]),
+        ( name: "water", moisture: [ ... ]),
+    ],
 
     elmfire_cmd: "elmfire",                   // has to be in the $PATH if not absolute (e.g. using $ODIN_ROOT)
 
@@ -252,6 +290,137 @@ ElmfireConfig (
 )
 ```
 
+
+## Fuel Breaks and Air Drops
+
+Users can enter barriers in the "barriers" tab of the UI: hand lines and dozer lines (line strings), SEAT/LAT/VLAT
+air drops (lines with a width) and type 1-3 helicopter bucket drops (ellipses). ELMFIRE itself only supports barriers through a single band `barriers.tif` raster
+that holds the barrier width [m] for each cell (note the ELMFIRE documentation does not mention units, but the
+source - `CHECK_BARRIER_BREACH` in `elmfire_subs.f90` - uses meters). A barrier cell still burns, but the fire only
+spreads from it if `1.5 * flame length` exceeds the barrier width. Flame length includes canopy fire intensity (active
+crown fire uses `2.5 * canopy height`), i.e. this is the "a fuel break has to be at least 1.5 times as wide as the flame
+length" rule, which is intensity aware but has no time dimension (barriers are in effect for the whole simulation).
+This fits fuel breaks but not air drops - retardant does not remove fuel and drops happen at a specific time.
+
+We therefore map barriers to ELMFIRE inputs as follows (see `barrier.rs`):
+
+| barrier | ELMFIRE input |
+|---|---|
+| fuel break narrower than `lf_res_m` (hand line, dozer line) | `barriers.tif` with the real width [m] |
+| fuel break at least `lf_res_m` wide | `fbfm40.tif` set to `fuel_break_fbfm40` (non-burnable) |
+| air drop (barrier with drop agent, line or bucket drop ellipse) | increase of fuel moisture inputs (`m1`, `m10`, ..) from the drop time step on |
+
+### Fuel breaks
+
+Narrow fuel breaks (e.g. 2ft hand lines, 12ft dozer lines) would be grossly exaggerated by setting whole 30m cells to
+non-burnable fuel, which would also make them impenetrable for anything but spotting. They are written to `barriers.tif`
+with their real width in meters, i.e. ELMFIRE breaches them once the flame length exceeds 2/3 of the line width. All
+cells that are touched by the fuel break area (line plus width) are set, which avoids diagonal-only connections between
+barrier cells. This is important since ELMFIRE uses a narrow band of only one cell when barriers are enabled - the level
+set front could otherwise pass between two diagonally adjacent barrier cells without having to breach the barrier.
+Crossing fuel breaks use the max width.
+
+<img class="mono right" src="../img/elmfire-barrier-gaps.svg" width="40%"/>
+
+The diagram shows the problem: when a cell burns, ELMFIRE tags its 3x3 neighborhood (dashed) for front advancement.
+Barrier cells only stop the front from spreading further out of themselves. If a barrier line is rasterized with
+Bresenham's algorithm (left), consecutive barrier cells only touch at their corners. A burning cell `B` next to such a
+corner then tags cell `T` on the other side of the barrier without the front ever having to burn (and breach) a barrier
+cell. Using all cells that are touched by the barrier area (right) adds cells that close these diagonal gaps - no
+burning cell on one side of the barrier has a neighbor on the other side.
+
+Fuel breaks that are at least as wide as a landfire cell (wide dozer lines, ridge top fuel breaks, clear cuts) remove
+fuel at the model resolution and are modeled by setting the fuel model of all cells whose center is inside of the fuel
+break to `fuel_break_fbfm40` (NB9 by default). We use a min width of `sqrt(2) * lf_res_m` for this to avoid diagonal
+gaps. Non-burnable cells do not have surface fire and hence also no crown fire.
+
+Since both inputs are single band rasters fuel breaks are in effect for the whole simulation (the UI does not allow
+to set a time step for them).
+
+### Air drops
+
+Air drops are barriers with a drop agent (e.g. long-term retardant "LTR" or "water"). They are modeled as a time
+dependent increase of fuel moisture inputs, which affects ELMFIRE as follows:
+
+- `m1` (1h dead fuel moisture) is used in the Rothermel surface spread model (also for the dynamic dead fuel class),
+  surface spread stops if dead fuel moisture exceeds the moisture of extinction of the fuel model. It also reduces the
+  crown fire spread rate (Cruz: `exp(-0.17 * M1[%])`) and - by reducing surface fire intensity - crown fire initiation
+- `m10`, `m100` only affect surface spread, `lh`/`lw` only live fuel
+
+Spot fires are still ignited in drop cells (the ember ignition probability does not depend on fuel moisture), but they
+spread slowly from there.
+
+Drop agents are configured in `ElmfireConfig.drop_agents`. Each agent has a list of moisture modifications that specify
+the input raster, the initial increase for fully covered cells and how this increase decays (down to the forecast value):
+
+```rust,ignore
+( name: "LTR", moisture: [
+    ( raster: "m1",  increase: Set(60.0), decay: Linear(24.0) ),      // raise to 60%, linear decay over 24h
+    ( raster: "m10", increase: Add(15.0), decay: Linear(24.0) ),      // add 15 percentage points
+]),
+( name: "water", moisture: [
+    ( raster: "m1",  increase: Set(40.0), decay: Exponential(0.5) ),  // half life of 30min
+    ...
+```
+
+- `increase`: `Add(d)` adds `d` percentage points, `Set(v)` raises the moisture to `v` percent (no change if the forecast
+  value is already higher)
+- `decay`: `Constant`, `Linear(hours)` or `Exponential(half_life_hours)`
+
+The configured values are initial estimates that still need calibration. Note the decay depends on the agent - long-term
+retardant keeps its effect after drying (until it is washed out or burned), water only until it evaporates.
+
+The increase of each cell is scaled by the fraction of the cell that is covered by the drop area (line plus width), i.e.
+drops are rendered anti-aliased. This avoids diagonal gaps and represents drops that are narrower than a cell (a 90ft LAT
+drop covers at most ~90% of a 30m cell). Overlapping drops use the max increase. Drop footprints require the landfire grid
+resolution, i.e. the modified moisture inputs are always resampled to the landfire grid (even if `uniform_res` is not set).
+
+Since the moisture inputs have hourly bands, drops are entered with a time step (hours after the full hour that precedes
+the first ignition, which is the time of the first band). The increase starts with the band of the selected time step.
+The UI time step choice should be the full hour that precedes the actual drop time - ELMFIRE interpolates linearly between
+bands, i.e. the full effect is reached at the full hour and the increase ramps up during the hour before. This means the
+effect can start up to about one hour early, but it preserves the drop effect if the fire front arrives shortly after the
+drop. Using the following hour could miss the front. Users can use the isochrone/time-of-arrival output of a previous run
+to determine how much time there is for a drop.
+
+### Bucket drops
+
+Helicopter bucket drops produce elliptical ground patterns. They are entered like air drops with a line - the first
+point is the start of the drop and the second point only determines the direction (heading of the major axis). The
+pattern size is defined by the bucket type (`bucketPatterns` in `odin_elmfire_config.js`), the resulting
+`odin_common::geo::GeoEllipse` (main.js `GeoEllipse`) is sent as the barrier value, i.e. the server does not need to
+know bucket types and stored runs keep their actual drop patterns.
+
+<img class="mono right" src="../img/elmfire-bucket-drop.svg" width="50%"/>
+
+The ellipse starts at the first point and extends in the direction of the second point, i.e. its center is half the
+pattern length ahead of the drop start and its major axis has the heading of the entered line. The distance to the
+second point is not used.
+
+The default pattern sizes are estimates for water at a coverage level of about 1 gal/100sqft. They are based on drop
+tests of the Griffith 100 gal helibucket (USDA Forest Service MTDC report 0057-2829 "Ground Pattern Performance of the
+Griffith Big Dipper Model 100 Helibucket", tested with 70 gal water: the longest line at coverage level 1 is 157ft,
+i.e. a pattern area of ~7000sqft) and scaled with the square root of the bucket volume:
+
+| bucket type | volume | pattern (length x width) |
+|---|---|---|
+| `bucket-T3` (type 3 helicopter) | 100 gal | 190ft x 70ft |
+| `bucket-T2` (type 2 helicopter) | 400 gal | 375ft x 135ft |
+| `bucket-T1` (type 1 helicopter) | 1000 gal | 590ft x 215ft |
+
+Since the footprint is sized for a constant coverage level, larger buckets cover larger areas with the same effect per
+covered cell (we do not use a per bucket type effectiveness factor). Actual patterns depend on drop height, air speed,
+wind and terrain. Bucket drops default to the "water" agent, which with its 30min half life only has a significant effect
+within the hour following the drop time step (the moisture inputs have hourly bands). Small patterns (type 3) cover only
+a fraction of a 30m cell and hence only reduce spread within that cell.
+
+### Limitations
+
+- fuel breaks are static - lines that are only planned are in effect from the beginning of the simulation
+- air drop timing has a one hour resolution
+- the drop effect does not depend on fire intensity (e.g. faster evaporation or consumption of retardant ahead of an
+  intense fire), only on coverage, time and agent - except that air drops reduce the flame length within drop cells
+- moisture increase and decay values are estimates that need calibration with observed retardant effectiveness
 
 ## Example
 

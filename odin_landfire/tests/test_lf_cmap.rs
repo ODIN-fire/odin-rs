@@ -17,7 +17,7 @@
 //! tests for landfire.gov CSV color maps
 
 use odin_gdal::cmap::{ValueLut, json_legend};
-use odin_landfire::lf_cmap::read_csv_color_map;
+use odin_landfire::lf_cmap::{read_csv_color_map, read_lf_cmap};
 
 #[test]
 fn test_csv_with_bom () {
@@ -58,4 +58,31 @@ fn test_evt_lut () {
     assert_eq!( items.len(), entries.len() - 1); // no nodata entry
     assert_eq!( items[0]["code"], "4401");
     assert_eq!( items[0]["color"], "#ffcd70");
+}
+
+#[test]
+fn test_json_color_map () {
+    // manually edited ODIN JSON color maps (same format as legends) with unicode descriptions
+    let json = r##"[
+        { "color": "#686868", "code": "91", "descr": "NB1﹕urban/developed" },
+        { "color": "#e6e640", "code": "106", "descr": "GR6﹕grass 1-2' ▒ ⛆" },
+        { "color": "#ffffff", "code": "-9999", "descr": "Fill-NoData" }
+    ]"##;
+    let path = std::path::PathBuf::from( env!("CARGO_TARGET_TMPDIR")).join( "test_cmap.json");
+    std::fs::write( &path, json).unwrap();
+
+    let entries = read_lf_cmap( &path).unwrap(); // selected by file extension
+    assert_eq!( entries.len(), 3);
+    assert_eq!( entries[1].value, 106);
+    assert_eq!( entries[1].name, "GR6﹕grass 1-2' ▒ ⛆");
+    assert_eq!( entries[1].rgb, [0xe6, 0xe6, 0x40]);
+    assert!( !entries[0].is_nodata);
+    assert!( entries[2].is_nodata);
+
+    let legend: serde_json::Value = serde_json::from_str( &json_legend( &entries)).unwrap();
+    assert_eq!( legend.as_array().unwrap().len(), 2); // no nodata entry
+    assert_eq!( legend[0]["descr"], "NB1﹕urban/developed");
+
+    // CSV color maps are still read as before
+    assert!( read_lf_cmap( std::path::Path::new("resources/LF2025_CBD.csv")).is_ok());
 }

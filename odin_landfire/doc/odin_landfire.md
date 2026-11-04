@@ -23,6 +23,9 @@ $ODIN_ROOT/data/odin_landfire/
 │   ├── LF2025_EVT_CONUS.tif      ← existing vegetation type
 │   ├── LF2025_EVT.csv            ← color map / category names for EVT
 │   ├── LF2025_FBFM40_CONUS.tif   ← Scott and Burgan fire behavior fuel models
+│   ├── LF2025_FBFM40_FA26.tif    ← seasonal (fall 2026) FBFM40 update for parts of CONUS
+│   ├── LF2025_FBFM40_CONUS.vrt   ← standard data set plus seasonal update (used by all configs)
+│   ├── LF2025_FBFM40.json        ← manually edited color map with extended descriptions
 │   ├── LF2025_FBFM40.csv
 │   ├── LF2025_CC_CONUS.tif       ← forest canopy cover
 │   ├── LF2025_CC.csv
@@ -102,6 +105,36 @@ Nodata pixels - ocean, outside of CONUS or missing data - are rendered with a si
 the declared band nodata value, the "Fill-NoData" values of the CSV color maps and additional values configured per
 layer in `landfire.ron`. The latter is required since many landfire.gov GeoTIFFs declare 32767 as nodata but
 predominantly use -9999.
+
+### custom color maps
+
+Instead of the landfire.gov CSV files, layers can also use manually edited ODIN JSON color maps (`*.json`, in the same
+`[{"color":"#rrggbb","code":"..","descr":".."},..]` format as the color map legends served by `landfire/cmap/<layer>`).
+This is used to provide extended (unicode) descriptions that are not overwritten when updating the data sets, e.g.
+
+```
+( name: "LF2025_FBFM40", ..
+  nodata: [-9999],
+  styles: [ Cmap("$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40.json") ] ),
+```
+
+Entries with a "Fill-NoData" description are treated as nodata values. Since JSON color maps might not have such an
+entry, the respective layer should configure its nodata values explicitly.
+
+### seasonal updates
+
+Landfire distributes seasonal updates for some data sets (e.g. `LF2025_FBFM40_FA26.tif`) that only cover parts of CONUS.
+They can be combined with the standard data set by means of a GDAL VRT that uses the standard GeoTIFF as the first and
+the update as the second `ComplexSource` (later sources take precedence). Each source needs a `<NODATA>` element with
+the declared nodata value of the respective GeoTIFF so that cells outside of the update are taken from the standard
+data set. Update GeoTIFFs must not use other values for areas without data (check with `gdalinfo -approx_stats -hist`).
+The WMS layer `path` then refers to the VRT (e.g. `LF2025_FBFM40_CONUS.vrt`).
+
+All configs that use FBFM40 (`landfire.ron` for display and `lf_2025_conus.ron` for simulation inputs) refer to the
+`LF2025_FBFM40_CONUS.vrt`, i.e. display and simulations use the same (seasonally updated) fuel models.
+
+Note that cached WMS images (`$ODIN_ROOT/cache/odin_landfire/wms/<layer>/`) have to be deleted when the data of a layer
+changes.
 
 ### checking the setup
 

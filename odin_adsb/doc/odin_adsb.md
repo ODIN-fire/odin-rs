@@ -57,7 +57,10 @@ The critical part is to have a low latency connector that can keep up with the e
 the connector and the actor and to batch changes in the actor before they are sent out via its update slot to avoid back pressure in the
 rest of the application actor system.
 
-To that end the connector instance runs as blocking task within its own kernel thread. Communication with the actor is done through
+To that end the connector instance runs as its own async task, which can be aborted when the actor terminates (blocking
+tasks with synchronous socket reads cannot be interrupted and would prevent orderly shutdown). Since TCP connections can
+silently die (e.g. when the host goes to sleep) the connector reconnects if it does not receive data within a configured
+read timeout. Communication with the actor is done through
 a shared [DashMap](https://crates.io/crates/dashmap) instance (a concurrent *shard hashmap* to reduce lock contention). All entry mutations
 are done through the connector but the actor periodically removes stale entries which have not been updated for a configured amount of time.
 The workload differs from usual concurrent hashmap use in that here writes (from the connector) are frequent (millisecond range) and reads
@@ -90,13 +93,24 @@ AdsbConfig(
     url: "localhost:30003",                // the socket from which to read the ADS-B data
     update_interval: Duration(secs:60,nanos:0), // how often to send out aircraft updates
     max_trace: 64,                         // number of trace points (last reported positions) to keep in ringbuffer
-    drop_after: Duration(secs:25,nanos:0), // duration after which un-changed aircraft entries are dropped 
+    drop_after: Duration(secs:25,nanos:0), // duration after which un-changed aircraft entries are dropped
+
+    // optional connection parameters (shown with their default values)
+    connect_timeout: Duration(secs:10,nanos:0), // max time to establish a connection to the receiver
+    read_timeout: Duration(secs:60,nanos:0), // max time without data before we reconnect (e.g. after host sleep)
+    reconnect_delay: Duration(secs:10,nanos:0), // delay between reconnect attempts
+    max_reconnects: 30,                    // max number of consecutive reconnect attempts without receiving data
 )
 ```
 
 `max_trace` is used to initialize a circular buffer that is used to store the N last positions received for this
 aircraft. `drop_after` is the duration after which aircraft that have not been updated will be dropped (there is
 no explicit drop message in ADS-B as it is used for in-flight situational awareness).
+
+The connection parameters are optional. If the connection fails or no data is received within `read_timeout` the
+connector waits `reconnect_delay` before it tries to reconnect, up to `max_reconnects` consecutive attempts (the counter
+is reset once data is received). Note that `read_timeout` should be larger than the expected gaps between messages of
+the receiver (e.g. at night).
 
 ## JS Module
 

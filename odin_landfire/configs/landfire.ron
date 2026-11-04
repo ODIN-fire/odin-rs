@@ -4,7 +4,7 @@ LandfireConfig (
 
     // WMS layers are computed directly from the (tiled) landfire.gov GeoTIFFs, i.e. there are no derived data products.
     // Each layer has one or more WMS styles (the first one is the default, selected with the GetMap STYLES parameter):
-    //  - Cmap(path): landfire.gov CSV color map (for categorical data), WMS style name "cmap"
+    //  - Cmap(path): landfire.gov CSV (*.csv) or ODIN JSON (*.json) color map (for categorical data), WMS style name "cmap"
     //  - Alpha(min,max): maps values to the alpha channel of a (client requested) COLOR - the [min,max] value range is
     //    the default and can be overridden by the client (VRANGE). Values <= min are transparent. WMS style name "alpha"
     // (see odin_gdal::wms_srv for details)
@@ -21,8 +21,9 @@ LandfireConfig (
               path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT_CONUS.tif",
               styles: [ Cmap("$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT.csv") ] ),
             ( name: "LF2025_FBFM40", title: "fire behavior fuel model 40", descr: Some("LANDFIRE 2025 Scott and Burgan fire behavior fuel models"),
-              path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40_CONUS.tif",
-              styles: [ Cmap("$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40.csv") ] ),
+              path: "$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40_CONUS.vrt",
+              nodata: [-9999], // also flagged by a "Fill-NoData" entry of the color map (but JSON color maps might not have one)
+              styles: [ Cmap("$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40.json") ] ), // manually edited (extended descriptions)
 
             // continuous canopy data sets (scaled integer values) can also be rendered with alpha style
             ( name: "LF2025_CC", title: "forest canopy cover", descr: Some("LANDFIRE 2025 forest canopy cover [%]"),
@@ -58,7 +59,7 @@ LandfireConfig (
     // dataset paths for ODIN specific WH or RES bbox requests
     // note that for frequent requests for large data sets and smaller areas this should use a tiled VRT
     datasets: {
-        "FBFM40_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40_CONUS.tif",
+        "FBFM40_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40_CONUS.vrt",
         "CC_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CC_CONUS.tif",
         "CH_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CH_CONUS.tif",
         "CBH_CONUS": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBH_CONUS.tif",

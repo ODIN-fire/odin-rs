@@ -45,7 +45,9 @@ use odin_gdal::{
     errors::OdinGdalError,
     geods::{GeoDs, GeoDsImgType, GeoDsSrs},
     grid::{self, GdalGridAlgorithmOptions, create_grid_ds_from_array2,create_grid_ds_from_raster, create_grid_ds_from_scatter},
+    warp::{ResampleAlg, SimpleWarpBuilder},
 };
+use odin_gdal::gdal::spatial_ref::SpatialRef;
 use odin_wind::{WindConfig, WnJob, get_wn_out_basename, run_wn, wn_output_path};
 use odin_openmeteo::{
     HourlyLocationData, MAX_POINTS, OpenMeteoConfig,
@@ -82,17 +84,81 @@ async fn check_cache_async<F,T,E> (path: PathBuf, f:F) -> Result<()>
     }
 }
 
+/* #region landfire grid ******************************************************************************************************/
+
+/// the raster size (columns,rows) of the landfire grid for this simulation, which is the reference grid for all Elmfire inputs
+fn lf_grid_size (ef: &ElmFire, config: &ElmfireConfig)->(usize,usize) {
+    let bbox = &ef.utm_rect.bbox;
+    let dpix = config.lf_res_m as f64;
+    (((bbox.east - bbox.west) / dpix).round() as usize, ((bbox.north - bbox.south) / dpix).round() as usize)
+}
+
+/// the Elmfire inputs that are computed with their own resolution (wx_res_m for fixed and NFDRS based inputs,
+/// wind_res_m for WindNinja output). Note that wind direction cannot be interpolated (0/360 discontinuity)
+const COMPUTED_INPUTS: &[(&str,ResampleAlg)] = &[
+    ("m1.tif", ResampleAlg::Cubic),
+    ("m10.tif", ResampleAlg::Cubic),
+    ("m100.tif", ResampleAlg::Cubic),
+    ("lh.tif", ResampleAlg::Cubic),
+    ("lw.tif", ResampleAlg::Cubic),
+    ("ws.tif", ResampleAlg::Cubic),
+    ("wd.tif", ResampleAlg::NearestNeighbour),
+];
+
+/// if config.uniform_res is set, resample all computed inputs (fuel moisture and wind) to the landfire grid since
+/// current Elmfire builds do not handle different raster resolutions. This has to be called after all inputs are created
+pub fn resample_computed_inputs (ef: &ElmFire, config: &ElmfireConfig)->Result<()> {
+    if config.uniform_res {
+        let dir = ef.dir.join("inputs");
+        for (fname, alg) in COMPUTED_INPUTS {
+            let path = dir.join(fname);
+            if path.is_file() {
+                resample_to_lf_grid( ef, config, &path, *alg)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// resample the dataset at path (in place) to the landfire grid (UTM bbox and lf_res_m) of this simulation.
+/// This is a no-op if the dataset already has the landfire grid size (e.g. if it was cached from a previous run).
+/// Since this considerably increases file sizes we use (float predictor) compression
+pub(crate) fn resample_to_lf_grid (ef: &ElmFire, config: &ElmfireConfig, path: &Path, alg: ResampleAlg)->Result<()> {
+    let (xsize, ysize) = lf_grid_size( ef, config);
+    let bbox = &ef.utm_rect.bbox;
+
+    let src_ds = open_dataset( path)?;
+    if src_ds.raster_size() == (xsize, ysize) { return Ok(()) }
+
+    let tmp_path = path.with_extension( "resampled.tif");
+    {
+        let tgt_srs = SpatialRef::from_epsg( ef.utm_rect.epsg()).map_err( OdinGdalError::from)?;
+        let create_opts = RasterCreationOptions::from_iter( ["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES"]);
+
+        let mut warp = SimpleWarpBuilder::new( &src_ds, &tmp_path)?;
+        warp.set_tgt_srs( &tgt_srs);
+        warp.set_tgt_extent( bbox.west, bbox.south, bbox.east, bbox.north);
+        warp.set_tgt_size( xsize as i32, ysize as i32);
+        warp.set_resample_alg( alg);
+        warp.set_tgt_format( "GTiff")?;
+        warp.set_create_options( &create_opts);
+        warp.set_copy_meta( true); // keep band metadata (e.g. time steps)
+        warp.exec()?; // the target dataset is closed (written) when it goes out of scope
+    }
+    drop( src_ds);
+
+    std::fs::rename( &tmp_path, path)?;
+    Ok(())
+}
+
+/* #endregion landfire grid */
+
 /* #region internal ***********************************************************************************************************/
 
 pub fn create_internal_input (ef: &ElmFire, config: &ElmfireConfig) -> Result<()> {
     let dir = ef.dir.join("inputs");
     let bbox = &ef.utm_rect.bbox;
-    let x_width = bbox.east - bbox.west;
-    let y_height = bbox.north - bbox.south;
-    let dpix = config.lf_res_m as f64;
-
-    let xsize = (x_width / dpix).round() as usize;
-    let ysize = (y_height / dpix).round() as usize;
+    let (xsize, ysize) = lf_grid_size( ef, config);
 
     let driver = get_gtiff_driver();
     let create_opts = get_gtiff_create_opts();
@@ -535,38 +601,3 @@ const FLAT_ASPECT: f64 = -1.0; // Landfire aspect value for flat surfaces
 
 /* #endregion landfire */
 
-/* #region barriers ****************************************************************************************/
-
-/// create a "barriers.tif" input file that has the same bbox, SRS and pixel resolution as the "fbfm40.tif".
-/// The dataset has a single f32 band with values that are the Barrier.width values (in [ft]) of the
-/// barriers that cross respective cells. All other cells have a 0.0 value
-/// This uses the odin_gdal::draw functions to burn respective cell values into the produced dataset for each
-/// of the Barrier.value geometries in self.barriers
-pub fn create_barrier_input( ef: &ElmFire, config: &ElmfireConfig)->Result<()> {
-    let dir = ef.dir.join("inputs");
-    let path = dir.join("barriers.tif");
-
-    let fbfm_ds = open_dataset( dir.join("fbfm40.tif"))?;
-    let (w,h) = fbfm_ds.raster_size();
-
-    let mut ds = create_dataset( &get_gtiff_driver(), &path, w, h, 1, GdalDataType::Float32, Some(get_gtiff_create_opts()))?;
-    copy_proj( &fbfm_ds, &mut ds)?; // same bbox, SRS and pixel resolution
-    ds.rasterband(1).and_then( |mut band| band.fill(0.0, None)).map_err( OdinGdalError::from)?; // cells without barriers
-
-    // crossing barriers should use the maximum width (e.g. a VLAT drop crossed by a hand line). Since the rasterizer
-    // replaces cell values we draw barriers in ascending width order, i.e. the widest barrier is drawn last
-    let mut barriers: Vec<&Barrier> = ef.barriers.iter().collect();
-    barriers.sort_by( |a,b| a.width.value.total_cmp( &b.width.value));
-
-    for barrier in barriers {
-        let width_ft = barrier.width.get::<foot>();
-        match &barrier.value {
-            BarrierValue::GeoLine(line) => draw_geo_line( &mut ds, line, width_ft)?,
-            BarrierValue::GeoLineString(line_string) => draw_geo_line_string( &mut ds, line_string, width_ft)?,
-        }
-    }
-
-    Ok(()) // ds gets written when it is dropped
-}
-
-/* #endregion barriers */

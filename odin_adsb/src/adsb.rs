@@ -33,8 +33,23 @@ pub struct AdsbConfig {
     pub update_interval: Duration, // interval in which we send out aircraft changes
     pub max_trace: usize, // max number of trace (last trajectory) points to keep
     pub drop_after: Duration, // duration after which un-changed aircraft will be dropped
-    // and more to follow 
+
+    //--- connection parameters (with defaults so that we don't break existing configs)
+    #[serde(default="default_connect_timeout")]
+    pub connect_timeout: Duration, // max time to establish a connection to the receiver
+    #[serde(default="default_read_timeout")]
+    pub read_timeout: Duration, // max time without received data before we reconnect (e.g. after host sleep)
+    #[serde(default="default_reconnect_delay")]
+    pub reconnect_delay: Duration, // delay between reconnect attempts
+    #[serde(default="default_max_reconnects")]
+    pub max_reconnects: u32, // max number of consecutive reconnect attempts without receiving data (0: no reconnects)
+    // and more to follow
 }
+
+fn default_connect_timeout()->Duration { Duration::from_secs(10) }
+fn default_read_timeout()->Duration { Duration::from_secs(60) }
+fn default_reconnect_delay()->Duration { Duration::from_secs(10) }
+fn default_max_reconnects()->u32 { 30 }
 
 #[async_trait]
 pub trait AdsbConnector {

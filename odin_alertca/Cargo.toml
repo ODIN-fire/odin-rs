@@ -15,6 +15,7 @@ odin_cesium = { workspace = true }
 odin_job = { workspace = true }
 odin_common = { workspace = true }
 odin_macro = { workspace = true }
+odin_image = { workspace = true, features = ["ocr"] }
 
 futures = { workspace = true }
 tokio = { workspace = true }
@@ -35,6 +36,7 @@ http = { workspace = true }
 url = { workspace = true }
 serde_with = { workspace = true }
 clap = { workspace = true }
+regex = { workspace = true }
 
 
 [build-dependencies]

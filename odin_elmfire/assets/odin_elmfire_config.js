@@ -1,12 +1,11 @@
-const windSpeedColors = [ // in 5mph increments
-    // TODO - adjust to make higher windspeed stand out on darker background
-    Cesium.Color.fromCssColorString("#d9cfff"), // < 5mph
-    Cesium.Color.fromCssColorString("#20d4f8"), // < 10mph
-    Cesium.Color.fromCssColorString("#0bd25e"), // < 15mph
-    Cesium.Color.fromCssColorString("#ddff00"), // < 20mph
-    Cesium.Color.fromCssColorString("#ffc400"), // < 25mph
-    Cesium.Color.fromCssColorString("#FF4500"), // < 30mph
-    Cesium.Color.fromCssColorString("#d000d0")  // > 30mph
+const windSpeedColors = [ // in 5mph increments. Higher speeds use darker, more saturated colors so that they stand out
+    Cesium.Color.fromCssColorString("#c8c8ff"), // < 5mph
+    Cesium.Color.fromCssColorString("#00b4ff"), // < 10mph
+    Cesium.Color.fromCssColorString("#00c853"), // < 15mph
+    Cesium.Color.fromCssColorString("#ffd600"), // < 20mph
+    Cesium.Color.fromCssColorString("#ff6d00"), // < 25mph
+    Cesium.Color.fromCssColorString("#e00000"), // < 30mph
+    Cesium.Color.fromCssColorString("#c7006a")  // > 30mph
 ];
 
 export const config = {
@@ -49,23 +48,31 @@ export const config = {
     fixedTcc: [0, 30, 70, 100], // pervent total cloud coverage
     defaultTcc: 0,
 
-    barrierWidths: [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 90],
-    barrierRender: {
-        lineWidth: 3, // [pixel]
-        colors: { // per barrier type
-            'SEAT-drop': Cesium.Color.fromCssColorString('#ff8c00'),
-            'LAT-drop': Cesium.Color.fromCssColorString('#ff3030'),
-            'VLAT-drop': Cesium.Color.fromCssColorString('#c00000'),
-            'dozer-line': Cesium.Color.fromCssColorString('#cd853f'),
-            'hand-line': Cesium.Color.fromCssColorString('#f0e68c'),
-        },
-        defaultColor: Cesium.Color.fromCssColorString('#ff00ff'),
-    },
+    barrierWidths: [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 90, 120, 150],
+
+    // those are in ft
     handLineWidth: 8,
     dozerLineWidth: 12,
     seatDropWidth: 60,
     latDropWidth: 90,
     vlatDropWidth: 130,
+
+    // air drop agents - names have to match ElmfireConfig.drop_agents (odin_elmfire/configs/elmfire.ron)
+    dropAgents: [
+        "LTR",  // long time retardant
+        "water"
+    ],
+    defaultDropAgents: { 'SEAT-drop': 'LTR', 'LAT-drop': 'LTR', 'VLAT-drop': 'LTR', 'bucket-T3': 'water', 'bucket-T2': 'water', 'bucket-T1': 'water' },
+
+    // helicopter bucket drop patterns (ellipses) in ft. These are estimates for water at a coverage level of ~1 gal/100sqft,
+    // based on the Griffith 100 gal bucket tests (USDA FS MTDC 0057-2829: 70 gal water produce a 157ft line at CL 1, i.e.
+    // ~7000 sqft), scaled with sqrt(volume)
+    bucketPatterns: {
+        'bucket-T3': { length: 190, width: 70 },   // type 3 helicopter, 100 gal
+        'bucket-T2': { length: 375, width: 135 },  // type 2 helicopter, 400 gal
+        'bucket-T1': { length: 590, width: 215 },  // type 1 helicopter, 1000 gal
+    },
+    maxDropStep: 24, // [h] max time step (hours after full hour before first ignition) for air drops
 
     pointSize: 4,
     pointColor: Cesium.Color.RED,
@@ -77,7 +84,7 @@ export const config = {
     ignPointColor: Cesium.Color.RED,
     ignPointOutlineColor: Cesium.Color.YELLOW,
     ignPointOutlineWidth: 1,
-    ignPointDC: new Cesium.DistanceDisplayCondition( 0, 30000),
+    ignPointDC: new Cesium.DistanceDisplayCondition( 0, 10000),
     ignLineColor: Cesium.Color.RED,
     ignLineWidth: 3, // [pixel]
     ignitionDelays: [0, 10, 15, 20, 30, 45, 60, 90, 120, 180], // [min] after dtg for new ignitions
@@ -89,8 +96,12 @@ export const config = {
     labelOffset: new Cesium.Cartesian2( 8, 0),
     labelDC: new Cesium.DistanceDisplayCondition(0, 50000),
 
+    polyDC: new Cesium.DistanceDisplayCondition(0, 20000),
+
     billboardDC: new Cesium.DistanceDisplayCondition(0, 50000),
     billboardColor: Cesium.Color.YELLOW,
+
+    barrierDC: new Cesium.DistanceDisplayCondition(0, 5000), // for both labels and geometries
 
     zoomHeight: 10000,
 
@@ -109,6 +120,10 @@ export const config = {
             dropRate: 0.002,
             dropRateBump: 0.01,
             colorBySpeed: true,       // use colors, otherwise single color
+            widthBySpeed: true,       // scale line width with wind speed
+            maxWidthFactor: 2.0,      // max line width factor (reached at widthSpeedMax)
+            widthSpeedMax: 30,        // [mph] wind speed for max line width
+            edgeDarkening: 0.3,       // [0..1] darkening of line edges (only for wide lines)
             color: Cesium.Color.fromCssColorString('yellow')
         },
 
@@ -121,6 +136,7 @@ export const config = {
         }
     },
 
+    // fire specific rendering options (can be interactively modified per fire entry)
     render: {
         toa: {
             stroke: Cesium.Color.YELLOW,
@@ -131,6 +147,32 @@ export const config = {
         flin: { color: Cesium.Color.RED },
         vs: { color: Cesium.Color.MAGENTA },
         cf: { color: Cesium.Color.GREENYELLOW },
-        fl: { color: Cesium.Color.DEEPPINK }
-    }
+        fl: { color: Cesium.Color.DEEPPINK },
+    },
+
+    // this is separate since we also need to show barrier input before a new fire is created
+    barrierRender: {
+        colors: { // per barrier type
+            'hand-line': Cesium.Color.fromCssColorString('#00ff91'),
+            'dozer-line': Cesium.Color.fromCssColorString('#00ff91'),
+            'SEAT-drop': Cesium.Color.fromCssColorString('#00ffff'),
+            'LAT-drop': Cesium.Color.fromCssColorString('#00ffff'),
+            'VLAT-drop': Cesium.Color.fromCssColorString('#00ffff'),
+            'bucket-T3': Cesium.Color.fromCssColorString('#00ffff'),
+            'bucket-T2': Cesium.Color.fromCssColorString('#00ffff'),
+            'bucket-T1': Cesium.Color.fromCssColorString('#00ffff')
+        },
+        lineWidths: { // in pixels
+            'hand-line': 2,
+            'dozer-line': 3,
+            'SEAT-drop': 4,
+            'LAT-drop': 6,
+            'VLAT-drop': 8,
+            'bucket-T3': 2,
+            'bucket-T2': 3,
+            'bucket-T1': 4
+        },
+        defaultLineWidth: 5,
+        defaultColor: Cesium.Color.fromCssColorString('#ff00ff'),
+    },
 };

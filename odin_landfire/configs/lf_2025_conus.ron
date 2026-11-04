@@ -3,7 +3,7 @@
 File (
     layers: {
         "EVT":    "$ODIN_ROOT/data/odin_landfire/2025/LF2025_EVT_CONUS.tif",
-        "FBFM40": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40_CONUS.tif",
+        "FBFM40": "$ODIN_ROOT/data/odin_landfire/2025/LF2025_FBFM40_CONUS.vrt",
         "CC":     "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CC_CONUS.tif",
         "CH":     "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CH_CONUS.tif",
         "CBH":    "$ODIN_ROOT/data/odin_landfire/2025/LF2025_CBH_CONUS.tif",

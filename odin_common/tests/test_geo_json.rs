@@ -22,7 +22,7 @@ use serde::de::DeserializeOwned;
 use uom::si::{f64::Length, length::meter};
 use odin_common::{
     angle::{Latitude, Longitude},
-    geo::{GeoCircle, GeoLine, GeoLineString, GeoPoint, GeoPoint3, GeoPolygon, GeoRect},
+    geo::{GeoCircle, GeoEllipse, GeoLine, GeoLineString, GeoPoint, GeoPoint3, GeoPolygon, GeoRect},
     json_writer::{JsonWritable, JsonWriter}
 };
 
@@ -108,4 +108,25 @@ fn test_js_to_rust () {
 
     let p3: GeoPoint3 = serde_json::from_str( r#"{"lon":-121.5,"lat":37.25,"alt":120}"#).unwrap();
     assert_eq!( p3.altitude_meters(), 120.0);
+}
+
+#[test]
+fn test_ellipse () {
+    use odin_common::angle::Angle360;
+
+    let e = GeoEllipse::new( Longitude::from_degrees(-121.5), Latitude::from_degrees(37.25), Length::new::<meter>(100.0), Length::new::<meter>(40.0), Angle360::from_degrees(90.0));
+    let json = check_roundtrip( &e);
+    assert_eq!( json, r#"{"lon":-121.50000,"lat":37.25000,"semiMajor":100.0,"semiMinor":40.0,"heading":90.0}"#);
+
+    // what main.js GeoEllipse produces
+    let e1: GeoEllipse = serde_json::from_str( r#"{"lon":-121.5,"lat":37.25,"semiMajor":100,"semiMinor":40,"heading":90}"#).unwrap();
+    assert_eq!( to_json( &e1), json);
+
+    // heading 90 means the major axis points east, i.e. the first outline point is 100m east of the center
+    let ps = e.outline_points( 4);
+    assert_eq!( ps.len(), 5);
+    assert_eq!( ps[0], ps[4]);
+    assert!( ps[0].longitude_degrees() > -121.5 && (ps[0].latitude_degrees() - 37.25).abs() < 1e-9);
+    assert!( (ps[1].latitude_degrees() - 37.25) < 0.0); // minor axis direction for heading 90 is south
+    assert!( (e.area().value - std::f64::consts::PI * 4000.0).abs() < 1e-6);
 }

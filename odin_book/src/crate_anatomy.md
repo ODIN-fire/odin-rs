@@ -228,3 +228,28 @@ $ODIN_ROOT/      ┌───────┼ importer task  ◄─┼───�
  │ <crate>_config.js┼──►│ <crate>.js │
  └──────────────────┘   └────────────┘
 ```
+
+
+## Reference Development Process
+
+There is a reference workflow for developing ODIN crates that follow the above design, regardless of manual- or
+AI- augmented programming:
+
+1. create required directories containing a `Cargo.toml` configuration for this crate that lists the key dependencies.
+   Link the crate into the workspace by adding its name and directory to the workspace `odin-rs/Cargo.toml`. Make sure
+   to check the workspace `Cargo.toml` if it already has workspace-global dependency specifications for what the new crate needs.
+2. start implementation with defining the structs for configuration and data model of the new crate, which go into its `lib.rs` module
+3. write an `errors.rs` module that includes error types of this crate, including their mapping from dependency crate errors.
+4. add the basic access-/download- operations and de-/serialization functions for external data to `lib.rs`. Split off
+   additional, function-specific modules if neccessary to avoid a "lib.rs god module" that grows out of hand
+5. create a basic `config/<crate>.ron` configuration file according to the struct defined in `lib.rs`
+6. write unit tests for those functions, potentially using the config file, add required test data (e.g. for serialized input);
+   to `resources/`
+7. create an `actor.rs` module that implements updated external data acquisition, mapping into the crate data model,
+   required post-processing of data and publication of results through generic init- and update-action slots
+8. create a `service.rs` module that makes the actor available in a `SpaServer` application.
+9. write a `src/bin/show_<crate>.rs` application that serves as an interactive integration test for a minimal server for this crate.
+10. create a `assets/<crate>.js` Javascript module (plus its `<crate>_config.js` companion for client side configuration) that contains
+    the UI and the visualization for the server data, using the minimal server developed in the previous step (running with `ODIN_RELOAD_ASSETS=1` to support quick reloading of javascript modules)
+11. optionally add the new actor and service to a global integration test such as `odin_live`
+12. write a `doc/<crate>.md` documentation markdown file and link it into `odin_book/src/`

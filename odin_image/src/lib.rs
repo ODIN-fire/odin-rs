@@ -54,6 +54,9 @@ pub use tile_data::TileData;
 
 pub mod smoke;
 
+#[cfg(feature = "ocr")]
+pub mod ocr;
+
 pub struct Stats<T> {
     pub min: T,
     pub max: T,

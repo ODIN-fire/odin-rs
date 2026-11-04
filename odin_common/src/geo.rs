@@ -506,6 +506,76 @@ impl JsonWritable for GeoCircle {
 
 /* #endregion GeoCircle */
 
+/* #region GeoEllipse ***********************************************************************************************/
+
+/// an ellipse given by its center, semi axes and the heading (clockwise from north) of its major axis. Outlines are
+/// computed in a local tangent plane, i.e. this is only intended for small ellipses (e.g. drop patterns)
+#[derive(Debug,Clone, Serialize, Deserialize)]
+#[serde(rename_all="camelCase")]
+pub struct GeoEllipse {
+    lon: Longitude,
+    lat: Latitude,
+    semi_major: Length,
+    semi_minor: Length,
+    heading: Angle360
+}
+
+impl GeoEllipse {
+    pub fn new (lon: Longitude, lat: Latitude, semi_major: Length, semi_minor: Length, heading: Angle360)->Self {
+        GeoEllipse { lon, lat, semi_major, semi_minor, heading }
+    }
+
+    #[inline] pub fn lon (&self)->Longitude { self.lon }
+    #[inline] pub fn lat (&self)->Latitude { self.lat }
+    #[inline] pub fn semi_major (&self)->Length { self.semi_major }
+    #[inline] pub fn semi_minor (&self)->Length { self.semi_minor }
+    #[inline] pub fn heading (&self)->Angle360 { self.heading }
+
+    pub fn center (&self)->GeoPoint {
+        GeoPoint::from_lon_lat_degrees( self.lon.degrees(), self.lat.degrees())
+    }
+
+    pub fn area (&self)->Area {
+        Area::new::<square_meter>( PI * self.semi_major.get::<meter>() * self.semi_minor.get::<meter>())
+    }
+
+    /// closed outline with n_vertices distinct points
+    pub fn outline_points (&self, n_vertices: usize)->Vec<GeoPoint> {
+        let (a, b) = (self.semi_major.get::<meter>(), self.semi_minor.get::<meter>());
+        let h = self.heading.radians();
+        let (ux, uy) = (h.sin(), h.cos());   // major axis direction (east,north)
+        let (vx, vy) = (h.cos(), -h.sin());  // minor axis direction
+        let dlon = lon_degrees_per_meter( self.lat);
+        let dlat = lat_degrees_per_meter( self.lat);
+
+        let mut ps: Vec<GeoPoint> = Vec::with_capacity( n_vertices + 1);
+        for i in 0..n_vertices {
+            let t = (i as f64) * 2.0 * PI / (n_vertices as f64);
+            let (ca, sb) = (a * t.cos(), b * t.sin());
+            let x = ca * ux + sb * vx; // east [m]
+            let y = ca * uy + sb * vy; // north [m]
+            ps.push( GeoPoint::from_lon_lat_degrees( self.lon.degrees() + x * dlon, self.lat.degrees() + y * dlat));
+        }
+        if let Some(p0) = ps.first().cloned() { ps.push( p0); }
+        ps
+    }
+}
+
+/// corresponds to main.js GeoEllipse: `{"lon":..,"lat":..,"semiMajor":..,"semiMinor":..,"heading":..}` (degrees and meters)
+impl JsonWritable for GeoEllipse {
+    fn write_json_to (&self, w: &mut JsonWriter) {
+        w.write_object( |w| {
+            w.write_f64_field("lon", self.lon.degrees(), NumFormat::Fp5);
+            w.write_f64_field("lat", self.lat.degrees(), NumFormat::Fp5);
+            w.write_f64_field("semiMajor", self.semi_major.get::<meter>(), NumFormat::Fp1);
+            w.write_f64_field("semiMinor", self.semi_minor.get::<meter>(), NumFormat::Fp1);
+            w.write_f64_field("heading", self.heading.degrees(), NumFormat::Fp1);
+        })
+    }
+}
+
+/* #endregion GeoEllipse */
+
 
 /* #region GeoLineString ***********************************************************************************************/
 

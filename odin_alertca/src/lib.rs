@@ -31,6 +31,7 @@ use odin_common::{
 };
 use odin_macro::{define_struct, public_struct};
 
+pub mod overlay;
 pub mod errors;
 use errors::op_failed;
 pub type Result<T> = std::result::Result<T,errors::OdinAlertCaError>;
@@ -77,10 +78,10 @@ impl Camera {
         w.write_object(|w| {
             w.write_field("date", self.last_update.millis());
             w.write_f64_field("fovDist", self.fov_dist.get::<meter>(), NumFormat::Fp0);
-            w.write_f64_field("fovAngle", self.fov_angle.degrees(), NumFormat::Fp0);
-            w.write_f64_field("azimut", self.azimut.degrees(), NumFormat::Fp0);
-            if let Some(tilt) = &self.tilt { w.write_f64_field("tilt", tilt.degrees(), NumFormat::Fp0); }
-            if let Some(zoom) = self.zoom { w.write_f64_field("zoom", zoom, NumFormat::Fp0); }
+            w.write_f64_field("fovAngle", self.fov_angle.degrees(), NumFormat::Fp2);
+            w.write_f64_field("azimut", self.azimut.degrees(), NumFormat::Fp2);
+            if let Some(tilt) = &self.tilt { w.write_f64_field("tilt", tilt.degrees(), NumFormat::Fp2); }
+            if let Some(zoom) = self.zoom { w.write_f64_field("zoom", zoom, NumFormat::Fp1); }
             if let Some(path) = &self.image && let Some(fname) = filename( path) {
                 w.write_field("image", fname); // we make sure it is valid utf8
             }
@@ -94,7 +95,7 @@ impl Camera {
             w.write_field("name", self.name.as_str());
             w.write_json_field("position", &self.position);
             w.write_json_field("pos", &self.pos);
-            w.write_f64_field("maxFov", self.max_fov.degrees(), NumFormat::Fp1);
+            w.write_f64_field("maxFov", self.max_fov.degrees(), NumFormat::Fp2);
             w.write_array_field("data", |w| {
                 for c in history { c.write_data_json_to(w); }
             })
@@ -320,10 +321,12 @@ fn camera_from_feature (id: Arc<String>, feature: RawFeature)->Option<Camera> {
     let max_fov = Angle90::from_degrees( p.fov.unwrap_or(0.0));
 
     let p_center = Cartographic::from_degrees( lon, lat, 0.0);
-    let (fov_dist, fov_angle) = match (p.fov_lft, p.fov_rt) {
+    let (fov_dist, mut fov_angle) = match (p.fov_lft, p.fov_rt) {
         (Some(lft), Some(rt)) => compute_fov( &p_center, &Cartographic::from_degrees( lft[0], lft[1], 0.0), &Cartographic::from_degrees( rt[0], rt[1], 0.0)),
         _ => (Length::new::<meter>(0.0), Angle90::from_degrees(0.0))
     };
+    // the reported (zoom dependent) horizontal fov is more precise than the one computed from the fov boundary points
+    if let Some(fov) = p.fov && fov > 0.0 { fov_angle = Angle90::from_degrees( fov); }
 
     let azimut = if let Some(az) = p.az_current {
         Angle360::from_degrees( az)

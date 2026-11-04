@@ -16,8 +16,23 @@ ElmfireConfig (
     wind_config_name: "wind.ron",             // odin_wind::WindConfig filename (loaded through odin_wind) in case we compute wind
     wind_res_m: 150,                          // micro-grid wind resolution in meter (only used if wind_config_name is set)
 
+    uniform_res: true,                        // resample computed (fuel moisture, wind) inputs to lf_res_m (required by current Elmfire builds)
+
+    // fuel breaks and air drops (see doc/odin_elmfire.md). Shown with their default values
+    fuel_break_fbfm40: 99,                    // fuel model for fuel breaks that are at least lf_res_m wide (NB9: bare ground)
+    drop_agents: [                            // fuel moisture effect of air drops [percent] (initial estimates - need calibration)
+        ( name: "LTR", moisture: [            // long-term retardant
+            ( raster: "m1",  increase: Set(60.0), decay: Linear(24.0) ),
+            ( raster: "m10", increase: Add(15.0), decay: Linear(24.0) ),
+        ]),
+        ( name: "water", moisture: [
+            ( raster: "m1",  increase: Set(40.0), decay: Exponential(0.5) ),
+            ( raster: "m10", increase: Add(5.0),  decay: Exponential(0.5) ),
+        ]),
+    ],
+
     input_dt: Duration(secs: 3600, nanos:0),  // the time step for timed input data bands (1h increments)
-    small_fire_cells: 4000,                   // ~ 1000 acres. Any final perimeter cells below that number needs contour pre-processing (based on lf_res_m)
+    small_fire_cells: 8000,                   // ~ 2000 acres. Any final perimeter cells below that number needs contour pre-processing (based on lf_res_m)
 
     elmfire_cmd: "elmfire",                   // has to be in the $PATH if not absolute (e.g. using $ODIN_ROOT)
 

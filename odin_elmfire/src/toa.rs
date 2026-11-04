@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 
 use odin_gdal::{
     contour::{ContourBuilder, to_fixed_level_geo_json},
-    copy_mem_dataset, get_resolution, replace_rasterband_value,
+    copy_mem_dataset, get_rasterband_as_vec, get_resolution, replace_rasterband_value,
     warp::{ResampleAlg, warp_to_res_mem}
 };
 use crate::errors::{OdinElmfireError, Result, op_failed};
@@ -46,21 +46,30 @@ pub fn contour_levels (start_secs: i64, n_hours: u32)->Vec<f64> {
 }
 
 /// create a MEM copy of the (already cropped) toa dataset that is suitable for contour generation: nodata cells are
-/// replaced with a toa value that is beyond our last level, and small rasters get up-sampled to obtain smoother contours.
-/// Note that nodata has to be replaced before we up-sample so that nodata positions are preserved
+/// replaced with a toa value that is beyond our last level, and small fires (less than cell_threshold burned cells)
+/// get up-sampled to obtain smoother contours.
+/// Note that we have to count burned cells - the raster size is not a valid measure since spot fires can spread a small
+/// number of burned cells over a large (cropped) area. Nodata has to be replaced before we up-sample so that nodata
+/// positions are preserved
 pub fn prepare_toa_contour_ds (ds: &Dataset, cell_threshold: usize, n_hours: u32)->Result<Dataset> {
-    let (n_cols, n_rows) = ds.raster_size();
+    let n_burned = count_burned_cells( ds)?;
     let mut ds = copy_mem_dataset(ds)?;
 
     let max_toa = ((n_hours + 1) * 3600) as f32;
     replace_rasterband_value( &mut ds, 1, TOA_NODATA, max_toa)?;
 
-    if n_cols * n_rows < cell_threshold {
+    if n_burned < cell_threshold {
         let (x_res, y_res) = get_resolution(&ds)?;
         ds = warp_to_res_mem( &ds, x_res / 2.0, y_res / 2.0, ResampleAlg::CubicSpline)?;
     }
 
     Ok(ds)
+}
+
+/// number of cells with a valid (non-nodata) time of arrival
+pub fn count_burned_cells (ds: &Dataset)->Result<usize> {
+    let vs: Vec<f32> = get_rasterband_as_vec( ds, 1)?;
+    Ok( vs.iter().filter( |v| **v != TOA_NODATA && !v.is_nan()).count() )
 }
 
 /// generate both the isochrone line contours (line_path) and the cumulative burn area polygons (poly_path) from

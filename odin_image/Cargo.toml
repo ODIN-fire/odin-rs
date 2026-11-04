@@ -31,12 +31,19 @@ linreg = { version = "0.2.0" }
 tiff = { version = "0.11" }
 minifb = { version = "0.29" }
 
+# optional OCR support (text recognition with PP-OCR models and MNN inference)
+ocr-rs = { version = "2.4.1", optional = true }
+
 
 [build-dependencies]
 odin_build = { workspace = true }
 
 [features]
 embedded_resources = []
+## text recognition (see ocr module). Requires the models in $ODIN_ROOT/data/odin_image/ocr
+ocr = ["dep:ocr-rs"]
+## use Metal GPU acceleration for OCR inference (macOS)
+ocr_metal = ["ocr", "ocr-rs/metal"]
 binaries = []
 
 # various binaries we only build on demand

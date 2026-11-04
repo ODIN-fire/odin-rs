@@ -18,11 +18,12 @@ use reqwest::Client;
 use async_trait::async_trait;
 
 use odin_actor::prelude::*;
-use odin_common::datetime::{EpochMillis,secs};
+use odin_common::{angle::{Angle90, Angle360}, datetime::{EpochMillis,secs}};
+use odin_image::ocr::{OcrEngine, create_default_ocr_engine};
 use crate::{
     actor::{AlertCaActorMsg, CameraUpdates},
     errors::{op_failed, OdinAlertCaError, Result}, camera_ids, get_latest_camera_data, get_latest_image, image_filepath, parse_cameras,
-    AlertCaConfig, AlertCaConnector, Camera
+    AlertCaConfig, AlertCaConnector, Camera, overlay::read_image_overlay
 };
 
 /// an http based AlertCaConnector that does fixed schedule downloads of camera data
@@ -55,6 +56,13 @@ impl AlertCaConnector for LiveAlertCaConnector {
 
             let jh = spawn( "alertca-connector", async move {
                 let client = Client::new();
+
+                // OCR engine to read camera values from image overlays (cameras might move between data updates and
+                // the AlertCalifornia data does not include PTZ values for all cameras)
+                let ocr = match create_default_ocr_engine() {
+                    Ok(engine) => Some( Arc::new(engine)),
+                    Err(e) => { eprintln!("no image overlay OCR: {e}"); None }
+                };
                 let ids = camera_ids( &config);
                 let mut last_updates: HashMap<Arc<String>,EpochMillis> = HashMap::new();
                 let mut is_first = true;
@@ -70,7 +78,12 @@ impl AlertCaConnector for LiveAlertCaConnector {
                             for camera in updates.iter_mut() {
                                 let img_path = image_filepath( camera.id.as_str(), camera.last_update);
                                 match get_latest_image( &client, &config, camera.id.as_str(), &img_path).await {
-                                    Ok(_) => camera.image = Some( img_path),
+                                    Ok(_) => {
+                                        if let Some(ocr) = &ocr {
+                                            update_from_overlay( camera, ocr.clone(), &img_path).await;
+                                        }
+                                        camera.image = Some( img_path)
+                                    }
                                     Err(e) => eprintln!("error retrieving image file {img_path:?}: {e}")
                                 }
                             }
@@ -131,4 +144,19 @@ async fn get_camera_updates (client: &Client, config: &AlertCaConfig, ids: &Hash
     });
 
     Ok(cameras)
+}
+
+/// read the camera values (azimuth, tilt, zoom) from the image overlay and use them for the camera state. OCR is CPU
+/// intensive, i.e. we have to execute it in a blocking task
+async fn update_from_overlay (camera: &mut Camera, ocr: Arc<OcrEngine>, img_path: &std::path::Path) {
+    let path = img_path.to_path_buf();
+    match tokio::task::spawn_blocking( move || read_image_overlay( &ocr, &path)).await {
+        Ok(Ok(overlay)) => {
+            camera.azimut = Angle360::from_degrees( overlay.azimut);
+            camera.tilt = Some( Angle90::from_degrees( overlay.tilt));
+            camera.zoom = Some( overlay.zoom);
+        }
+        Ok(Err(e)) => eprintln!("failed to read overlay of {img_path:?}: {e}"),
+        Err(e) => eprintln!("overlay task failed: {e}")
+    }
 }

@@ -256,6 +256,14 @@ pub trait CsvFieldExtractor {
 
 const SEP: u8 = b',';
 
+/// remove trailing '\n' or "\r\n" (note that lines can be empty, i.e. we must not index relative to the original length)
+fn trim_line_end (line: &mut String) {
+    if line.ends_with('\n') {
+        line.pop();
+        if line.ends_with('\r') { line.pop(); } // windows
+    }
+}
+
 /// stream like object to extract fields from CSV lines read from an underlying BufRead impl
 /// the main purpose of this construct is to get field boundaries for each line once (without allocation)
 /// use like so:
@@ -295,11 +303,10 @@ impl<R> CsvExtractor<R> where R: BufRead {
         match self.reader.read_line(&mut self.line) {
             Ok(len) => {
                 if len > 0 {
-                    if self.line.as_bytes()[len - 1] == b'\n' { self.line.pop(); }
-                    if self.line.as_bytes()[len - 2] == b'\r' { self.line.pop(); } // windows
+                    trim_line_end( &mut self.line);
                     set_separator_indices(&mut self.sep_indices, SEP, self.line.as_bytes());
                     Ok(true)
-                } else { Ok(false) } // mp more data
+                } else { Ok(false) } // no more data
             }
             Err(e) => Err( io::Error::new( io::ErrorKind::Other, e))
         }
@@ -337,11 +344,10 @@ impl<R> AsyncCsvExtractor<R> where R: AsyncBufReadExt + Unpin {
         match self.reader.read_line(&mut self.line).await {
             Ok(len) => {
                 if len > 0 {
-                    if self.line.as_bytes()[len - 1] == b'\n' { self.line.pop(); }
-                    if self.line.as_bytes()[len - 2] == b'\r' { self.line.pop(); } // windows
+                    trim_line_end( &mut self.line);
                     set_separator_indices(&mut self.sep_indices, SEP, self.line.as_bytes());
                     Ok(true)
-                } else { Ok(false) } // mp more data
+                } else { Ok(false) } // no more data
             }
             Err(e) => Err( io::Error::new( io::ErrorKind::Other, e))
         }

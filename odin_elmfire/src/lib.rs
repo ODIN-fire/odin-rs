@@ -54,7 +54,7 @@ use odin_common::{
     BoundingBox, IndexBounds2D, angle::Angle360, apply_index_margin, as_min_max,
     datetime::{self, as_minutes, full_hour, hours, minutes, secs_f64, short_utc_datetime_string, to_epoch_millis, ser_epoch_millis, de_from_epoch_millis},
     fs::{ EnvPathBuf, ensure_writable_dir, filepath_contents_as_string, filestem, find_first_match_in_dir, matching_files_in_dir, path_as_str, set_filepath_contents},
-    geo::{GeoPoint,GeoRect, GeoLine, GeoLineString},
+    geo::{GeoPoint,GeoRect, GeoLine, GeoLineString, GeoEllipse},
     json_writer::{JsonEscapedStr, JsonWritable, JsonWriter, NumFormat}, run_captured_cmd,
     utm::{UtmPoint, UtmRect, geo_to_utm, try_geo_to_utm_zone},
 };
@@ -76,7 +76,10 @@ pub mod wind;
 use wind::{create_wx_windfields,create_computed_windfields};
 
 pub mod input;
-use input::{create_fixed_input, create_internal_input, create_landfire_input, create_wx_based_input, create_barrier_input};
+use input::{create_fixed_input, create_internal_input, create_landfire_input, create_wx_based_input, resample_computed_inputs};
+
+pub mod barrier;
+use barrier::{DropAgent, apply_air_drops, create_fuel_break_input, default_drop_agents, default_fuel_break_fbfm40, uses_barrier_raster};
 
 pub mod actor;
 
@@ -117,6 +120,8 @@ const WX_DT: Duration = Duration::from_secs( 60 * 15);
 define_load_config!{}
 define_load_asset!{}
 
+fn default_uniform_res()->bool { true }
+
 #[derive(Deserialize,Debug)]
 #[public_struct]
 struct ElmfireConfig {
@@ -135,8 +140,19 @@ struct ElmfireConfig {
     wind_config_name: String, // WindNinja config name - used if we request micro grid wind instead of wx forecast
     wind_res_m: u32,          // should be multiple of lf_res_m (we specify it here separately)
 
+    // resample all computed (fuel moisture and wind) inputs to the landfire grid (lf_res_m). This is required for
+    // Elmfire builds that do not handle different input raster resolutions (they use the wind rasters as reference)
+    #[serde(default="default_uniform_res")]
+    uniform_res: bool,
+
+    // fuel breaks and air drops (see barrier.rs)
+    #[serde(default="default_fuel_break_fbfm40")]
+    fuel_break_fbfm40: i16,       // fuel model for fuel breaks that are at least lf_res_m wide (default NB9)
+    #[serde(default="default_drop_agents")]
+    drop_agents: Vec<DropAgent>,  // air drop agents (e.g. retardant, water) and their fuel moisture effects
+
     input_dt: Duration,       // meteorologicel time step length
-    small_fire_cells: usize,  // number of cells for final perimeter we consider as small fire (needs post-processing to avoid pixelized contour artifacts)
+    small_fire_cells: usize,  // fires with less burned cells get up-sampled before contouring (to avoid pixelized contour artifacts)
 
     elmfire_cmd: EnvPathBuf,   // the Elmfire executable
 
@@ -261,6 +277,29 @@ pub struct Barrier {
     #[serde(with="length_ft")]
     width: Length, // (de)serialized in feet (as used by the UI)
     value: BarrierValue,
+
+    // the following fields are only used for air drops (see barrier.rs)
+    #[serde(default)]
+    step: u32, // hourly input time step from which the drop is in effect (0 is the full hour before first ignition)
+    #[serde(default)]
+    agent: Option<String>, // name of the drop agent (ElmfireConfig.drop_agents) - None for fuel breaks
+}
+
+impl Barrier {
+    /// air drops have a drop agent, all other barriers are fuel breaks
+    pub fn is_air_drop (&self)->bool {
+        self.agent.as_ref().is_some_and( |a| !a.is_empty())
+    }
+
+    pub fn value (&self)->&BarrierValue { &self.value }
+
+    pub fn geo_points (&self)->Vec<GeoPoint> {
+        match &self.value {
+            BarrierValue::GeoLine(line) => vec![ line.start(), line.end() ],
+            BarrierValue::GeoLineString(line_string) => line_string.as_geo_points(),
+            BarrierValue::GeoEllipse(ellipse) => ellipse.outline_points( 32)
+        }
+    }
 }
 
 /// untagged since odin_elmfire.js sends plain (odin_server/main.js) GeoLineString `{points}` and GeoLine `{start,end}` objects
@@ -269,6 +308,7 @@ pub struct Barrier {
 pub enum BarrierValue {
     GeoLineString(GeoLineString),
     GeoLine(GeoLine),
+    GeoEllipse(GeoEllipse), // bucket drop patterns
 }
 
 /// serde support for lengths that are (de)serialized as feet
@@ -290,7 +330,8 @@ impl JsonWritable for BarrierValue {
     fn write_json_to (&self, w: &mut JsonWriter) {
         match self {
             BarrierValue::GeoLine(value) => value.write_json_to( w),
-            BarrierValue::GeoLineString(value) => value.write_json_to( w)
+            BarrierValue::GeoLineString(value) => value.write_json_to( w),
+            BarrierValue::GeoEllipse(value) => value.write_json_to( w)
         }
     }
 }
@@ -302,6 +343,8 @@ impl JsonWritable for Barrier {
             w.write_field( "barrierType", &self.barrier_type);
             w.write_f64_field( "width", self.width.get::<foot>(), NumFormat::Fp0);
             w.write_json_field( "value", &self.value);
+            w.write_field( "step", self.step);
+            if let Some(agent) = &self.agent { w.write_field( "agent", agent); }
         });
     }
 }
@@ -443,6 +486,7 @@ pub struct ElmFire {
     pub barriers: Vec<Barrier>,
 
     pub dir: PathBuf, // where we keep inputs and outputs of this run
+    pub overwrite: bool
 }
 
 assert_impl_all!( ElmFire: Send, Sync );
@@ -460,7 +504,8 @@ impl ElmFire {
         ignitions: Vec<Ignition>,
         fixed: Option<FixedInput>,
         spotting: Option<String>,
-        barriers: Vec<Barrier>
+        barriers: Vec<Barrier>,
+        overwrite: bool
 
     )->Result<Self>
     {
@@ -468,7 +513,9 @@ impl ElmFire {
         let base_date = full_hour( &start_date);
         let dir = CACHE_DIR.join( &id);
 
-        Ok( ElmFire { id, name, n_hours, geo_center, utm_rect, base_date, start_date, compute_wind, ignitions, fixed, spotting, barriers, dir } )
+        Ok( ElmFire {
+            id, name, n_hours, geo_center, utm_rect, base_date, start_date, compute_wind, ignitions, fixed, spotting, barriers, dir, overwrite
+        } )
     }
 
     pub fn from_point_ignition (
@@ -486,7 +533,7 @@ impl ElmFire {
         let id = Self::get_id( &name, &geo_point, &date);
         let ignitions = vec![ Ignition::new_point( 1, date, geo_point) ];
 
-        Self::new( id, name, geo_point, bbox_size, date, n_hours, compute_wind, ignitions, fixed_wx, spotting, barriers)
+        Self::new( id, name, geo_point, bbox_size, date, n_hours, compute_wind, ignitions, fixed_wx, spotting, barriers, false)
     }
 
     // note - this should be kept in sync with odin_elmfire.js createRequest()
@@ -531,6 +578,9 @@ impl ElmFire {
         // this needs to be called before creating wx inputs since we need the DEM dataset if wind is computed
         create_landfire_input( &self, config).await?;
 
+        // fuel breaks modify fbfm40.tif and create barriers.tif (which uses fbfm40.tif as reference grid)
+        create_fuel_break_input( &self, config)?;
+
         if let Some(fixed) = &self.fixed { // run (mostly) on provided inputs
             create_fixed_input( &self, config, fixed).await?;
 
@@ -538,9 +588,12 @@ impl ElmFire {
             create_wx_based_input( &self, config).await?; // this includes wind and computed (NFDRS) fuel moisture
         }
 
-        if !self.barriers.is_empty() { // this uses the fbfm40.tif and hence has to come last
-            create_barrier_input( &self, config)?;
-        }
+        // fuel moisture and wind inputs are computed with their own resolution (wx_res_m, wind_res_m) but current Elmfire
+        // builds require all inputs to have the same grid, i.e. we resample them to the landfire grid (if configured)
+        resample_computed_inputs( &self, config)?;
+
+        // air drops modify the (resampled) fuel moisture inputs
+        apply_air_drops( &self, config)?;
 
         self.create_datafile(config)
     }
@@ -566,7 +619,7 @@ impl ElmFire {
             n_steps: (self.n_hours + 1) as usize,
             ignitions: ignitions.as_str(),
             spotting: self.spotting.as_ref().map(|s| s.as_str()),
-            use_barriers: !self.barriers.is_empty()
+            use_barriers: uses_barrier_raster( &self, config)
         }.to_string();
 
         let path = input_dir.join("elmfire.data");
@@ -583,9 +636,8 @@ impl ElmFire {
     }
 
     /// this is simulation end time in seconds relative to base date so we have to take the first ignition into account
-    /// note we compute 30min past n_hours from first ignition to avoid isochrone contour artifacts in the outer ring
     pub fn t_stop (&self)->i64 {
-        self.t_start() + (self.n_hours * 3600) as i64 + 1800
+        self.t_start() + (self.n_hours * 3600) as i64
     }
 
     // seconds between first ignition timestamp and the base wx timestamp

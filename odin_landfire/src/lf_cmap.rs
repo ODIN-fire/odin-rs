@@ -16,19 +16,53 @@
 
 //! color maps for Landfire data sets. Categorical data sets (EVT, FBFM40, CC, ..) are distributed by landfire.gov
 //! with CSV files that contain VALUE, R, G and B columns plus a data set specific name column. We use those CSV files
-//! directly as (odin_gdal::cmap) color maps for colorization of WMS GetMap images and color map legends
+//! directly as (odin_gdal::cmap) color maps for colorization of WMS GetMap images and color map legends.
+//! Alternatively color maps can be provided as (manually edited) ODIN JSON color maps, which use the same
+//! `[{"color":"#rrggbb","code":"..","descr":".."},..]` format as the color map legends. This allows to use extended
+//! descriptions that are not overwritten by landfire.gov updates
 
 use std::{fs::File, io::Read, path::Path};
 use csv::{ReaderBuilder, StringRecord};
-use odin_gdal::{cmap::CmapEntry, errors::{Result as GdalResult, misc_error}};
+use odin_gdal::{cmap::{CmapEntry, parse_rgb}, errors::{Result as GdalResult, misc_error}};
 use crate::errors::{OdinLandfireError, Result, op_failed};
 
 /// name of landfire.gov CSV color map entries that represent nodata values
 pub const FILL_NODATA: &str = "Fill-NoData";
 
-/// the odin_gdal::cmap::CmapReader for landfire.gov CSV color maps (used by odin_gdal::wms_srv::WmsService)
+/// the odin_gdal::cmap::CmapReader for landfire color maps (used by odin_gdal::wms_srv::WmsService). Depending on the
+/// file extension this reads either landfire.gov CSV (*.csv) or ODIN JSON (*.json) color maps
 pub fn read_lf_cmap (path: &Path)->GdalResult<Vec<CmapEntry>> {
-    read_csv_color_map( path).map_err( |e| misc_error( e.to_string()))
+    let is_json = path.extension().and_then( |e| e.to_str()).is_some_and( |e| e.eq_ignore_ascii_case("json"));
+    let res = if is_json { read_json_color_map( path) } else { read_csv_color_map( path) };
+    res.map_err( |e| misc_error( e.to_string()))
+}
+
+#[derive(serde::Deserialize)]
+struct JsonCmapEntry {
+    color: String,
+    code: String,
+    descr: String,
+}
+
+/// read an ODIN JSON color map (`[{"color":"#rrggbb","code":"..","descr":".."},..]`). Note that these normally do not
+/// include nodata entries, i.e. layers have to configure respective nodata values explicitly
+pub fn read_json_color_map<P: AsRef<Path>> (path: P)->Result<Vec<CmapEntry>> {
+    let path = path.as_ref();
+    let mut s = String::new();
+    File::open( path)?.read_to_string( &mut s)?;
+    let s = s.strip_prefix('\u{feff}').unwrap_or( &s);
+
+    let items: Vec<JsonCmapEntry> = serde_json::from_str( s).map_err( |e| op_failed!("invalid JSON color map {:?}: {}", path, e))?;
+    let mut entries: Vec<CmapEntry> = Vec::with_capacity( items.len());
+
+    for it in items {
+        let value = it.code.trim().parse::<i32>().map_err( |_| op_failed!("invalid code '{}' in {:?}", it.code, path))?;
+        let rgb = parse_rgb( &it.color).ok_or( op_failed!("invalid color '{}' in {:?}", it.color, path))?;
+        let is_nodata = it.descr == FILL_NODATA;
+        entries.push( CmapEntry{ value, name: it.descr, rgb, is_nodata });
+    }
+
+    if entries.is_empty() { Err( op_failed!("no color entries in {:?}", path)) } else { Ok(entries) }
 }
 
 /// read a landfire.gov CSV color map (including "Fill-NoData" entries, which are flagged as nodata)

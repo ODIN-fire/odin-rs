@@ -436,6 +436,76 @@ export class GeoCircle {
 }
 
 
+// mean earth radius [m] - used for local tangent plane approximations of small geometries
+const EARTH_RADIUS = 6371000.0;
+
+// an ellipse given by its center, semi axes [m] and the heading [deg, clockwise from north] of its major axis.
+// Outlines are computed in a local tangent plane, i.e. this is only intended for small ellipses (e.g. drop patterns)
+export class GeoEllipse {
+    constructor (lon,lat,semiMajor,semiMinor,heading) {
+        this.lon = lon;             // degrees
+        this.lat = lat;             // degrees
+        this.semiMajor = semiMajor; // meters
+        this.semiMinor = semiMinor; // meters
+        this.heading = heading;     // degrees
+    }
+
+    // create ellipse of given length and width [m] that starts at `start` (a GeoPoint) and extends in the direction of
+    // `dirPoint` (only used to compute the heading of the major axis)
+    static fromStartAndDirection (start, dirPoint, length, width) {
+        let mPerDegLat = toRadians(1) * EARTH_RADIUS;
+        let mPerDegLon = mPerDegLat * Math.cos( toRadians( start.lat));
+
+        let dx = (dirPoint.lon - start.lon) * mPerDegLon;
+        let dy = (dirPoint.lat - start.lat) * mPerDegLat;
+        let h = Math.atan2( dx, dy);
+        let heading = (toDegrees(h) + 360) % 360;
+
+        let d = length / 2; // center is half the length ahead of the start point
+        let lon = start.lon + (d * Math.sin(h)) / mPerDegLon;
+        let lat = start.lat + (d * Math.cos(h)) / mPerDegLat;
+
+        return new GeoEllipse( lon, lat, length/2, width/2, heading);
+    }
+
+    // closed outline as array of GeoPoints with nVertices distinct points (has to match odin_common::geo::GeoEllipse)
+    outlinePoints (nVertices=32) {
+        let mPerDegLat = toRadians(1) * EARTH_RADIUS;
+        let mPerDegLon = mPerDegLat * Math.cos( toRadians( this.lat));
+        let h = toRadians( this.heading);
+        let ux = Math.sin(h), uy = Math.cos(h);  // major axis direction (east,north)
+        let vx = Math.cos(h), vy = -Math.sin(h); // minor axis direction
+
+        let pts = [];
+        for (let i=0; i<nVertices; i++) {
+            let t = i * 2 * Math.PI / nVertices;
+            let ca = this.semiMajor * Math.cos(t);
+            let sb = this.semiMinor * Math.sin(t);
+            let x = ca * ux + sb * vx;
+            let y = ca * uy + sb * vy;
+            pts.push( new GeoPoint( this.lon + x / mPerDegLon, this.lat + y / mPerDegLat));
+        }
+        pts.push( pts[0]);
+        return pts;
+    }
+
+    toRounded() {
+        return new GeoEllipse( round5(this.lon), round5(this.lat), Math.round(this.semiMajor*10)/10, Math.round(this.semiMinor*10)/10, Math.round(this.heading*10)/10);
+    }
+
+    static checkType (o) {
+        return (
+            (o.lon != undefined && typeof o.lon == "number") &&
+            (o.lat != undefined && typeof o.lat == "number") &&
+            (o.semiMajor != undefined && typeof o.semiMajor == "number") &&
+            (o.semiMinor != undefined && typeof o.semiMinor == "number") &&
+            (o.heading != undefined && typeof o.heading == "number")
+        )
+    }
+
+    static template = '{\n  "lon": 0.0,\n  "lat": 0.0,\n  "semiMajor": 0.0,\n  "semiMinor": 0.0,\n  "heading": 0.0\n}'
+}
+
 export const GEO_POINT = GeoPoint.name; // the type name
 export const GEO_POINT3 = GeoPoint3.name;
 export const GEO_LINE = GeoLine.name;
@@ -444,6 +514,7 @@ export const GEO_POLYLINE3 = GeoPolyline3.name;
 export const GEO_POLYGON = GeoPolygon.name;
 export const GEO_RECT = GeoRect.name;
 export const GEO_CIRCLE = GeoCircle.name;
+export const GEO_ELLIPSE = GeoEllipse.name; // note this is not (yet) in ALL_TYPES since there are no share editors for it
 
 export const F64 = "F64";
 export const I64 = "I64";
@@ -462,6 +533,7 @@ export function checkType (typeName, data, template=null) {
         case GEO_POLYGON: return GeoPolygon.checkType(data);
         case GEO_RECT: return GeoRect.checkType(data);
         case GEO_CIRCLE: return GeoCircle.checkType(data);
+        case GEO_ELLIPSE: return GeoEllipse.checkType(data);
 
         case STRING: return typeof data == "string";
         case F64: return typeof data == "number";
@@ -486,6 +558,7 @@ export function typeTemplate (typeName) {
         case GEO_POLYGON: return GeoPolygon.template;
         case GEO_RECT: return GeoRect.template;
         case GEO_CIRCLE: return GeoCircle.template;
+        case GEO_ELLIPSE: return GeoEllipse.template;
 
         case STRING: return '""';
         case F64: return "0.0";

@@ -37,7 +37,9 @@ export class ImgWindow {
         //--- UI state
         this.window = undefined;
         this.sourceView = undefined;
+        this.infoTxt = undefined;
         this.colorMapView = undefined;
+        this.cmapInfoTxt = undefined;
 
         this.selectedSrc = undefined;
         this.srcTree = ExpandableTreeNode.fromPreOrdered( sources, e => e.pathName);
@@ -110,15 +112,15 @@ export class ImgWindow {
         this.window = ui.Window(this.windowTitle, id, this.iconPath)(
             ui.LayerPanel(id, toggleShowImgLayer),
             ui.Panel("sources", true)(
-                (this.sourceView = ui.TreeList(this.elementId("source.list"), 15, "25rem", this.selectImgLayerSrc.bind(this))),
-                //ui.VarText( " ", "imglayer.source.info", "25rem")
+                (this.sourceView = ui.TreeList(this.elementId("source.list"), 15, "27rem", this.selectImgLayerSrc.bind(this))),
                 ui.RowContainer()(
+                    (this.infoTxt = ui.VarText( " ", "source.info", "23rem")),
                     ui.Button("clear", this.clearAll.bind(this))
                 )
             ),
             ui.Panel("color map", false)(
                 (this.colorMapView = ui.List(this.elementId("cm.list"), 15, this.selectImgCmapEntry.bind(this))),
-                ui.VarText(null, this.elementId("cm.info"), "25rem")
+                (this.cmapInfoTxt = ui.VarText(null, this.elementId("cm.info"), "27rem"))
             ),
             ui.Panel("layer parameters", false)(
                 ui.ColumnContainer("align_right")(
@@ -152,7 +154,7 @@ export class ImgWindow {
         let view = this.sourceView;
         if (view) {
             ui.setListItemDisplayColumns(view, ["fit", "header"], [
-                { name: "exclusive", tip: "only one of each group visible", width: "10rem", attrs: ["alignRight", "small"], map: e=> exclusivesOf(e)},
+                { name: "exclusive", tip: "only one of each group visible", width: "11rem", attrs: ["alignRight", "small"], map: e=> exclusivesOf(e)},
                 ui.listItemSpacerColumn(),
                 { name: "show", tip: "toggle visibility", width: "2.1rem", attrs: [], map: e => ui.createCheckBox(e.show, this.toggleShowSource.bind(this)) }
             ]);
@@ -167,7 +169,7 @@ export class ImgWindow {
                 { name: "color", width: "2rem", attrs: [], map: e=> ui.createColorBox(e.color) },
                 { name: "code", width: "3rem", attrs: ["alignRight"], map: e => e.code },
                 ui.listItemSpacerColumn(),
-                { name: "description", tip: "alt+click on map to look-up", width: "17rem", attrs: [], map: e => e.descr }
+                { name: "description", tip: "alt+click on map to look-up", width: "20rem", attrs: ["small"], map: e => e.descr }
             ]);
         }
         return view;
@@ -204,18 +206,18 @@ export class ImgWindow {
         let src = ui.getSelectedListItem( this.sourceView);
         if (src) {
             this.selectedSrc = src;
-            //ui.setTextContent("imglayer.source.info", src.info);
+            ui.setVarText( this.infoTxt, src.info);
             this.setImgSliderValues(src);
             if (src.colorMap) ui.setListItems( cmView, src.colorMap); else ui.clearList( cmView);
         } else {
-            //ui.clearTextContent("imglayer.source.info");
+            ui.clearTextContent(this.infoTxt);
             ui.clearList(cmView);
         }
     }
 
     selectImgCmapEntry() {
-        //let ce = ui.getSelectedListItem(this.colorMapView);
-        //ui.setTextContent("imglayer.cm.info", ce ? ce.descr : null);
+        let ce = ui.getSelectedListItem(this.colorMapView);
+        ui.setVarText(this.cmapInfoTxt, ce ? ce.descr : null);
     }
 
     // shift-click lookup of the data value / color map entry at the mouse position for the selected source. If the
@@ -369,7 +371,7 @@ function exclusivesOf(e) {
 
 function loadColorMap (src) {
     if (src.colorMapUrl) {
-        return new Promise(function(resolve) {
+        return new Promise(function (resolve) {
             var request = new XMLHttpRequest();
             request.open('GET', src.colorMapUrl);
             //request.responseType = "json";

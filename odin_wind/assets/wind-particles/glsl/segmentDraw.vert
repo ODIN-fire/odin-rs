@@ -20,7 +20,18 @@ uniform vec4 speedColors[MAX_SPEED_COLORS];
 uniform float nSpeedColors; // number of valid speedColors entries
 uniform float colorBySpeed; // > 0.5 means use speedColors
 
+// wind speed dependent line width: the width grows linearly from lineWidth (no wind) to maxWidthFactor * lineWidth
+// (at widthSpeedMax and above) to make higher wind speeds more pronounced
+uniform float widthBySpeed;   // > 0.5 means scale line width by wind speed
+uniform float maxWidthFactor; // max line width scale factor
+uniform float widthSpeedMax;  // wind speed [m/s] at which we reach maxWidthFactor
+uniform float edgeDarkening;  // [0..1] darkening of line edges (only for lines wide enough to show edges)
+
 out vec4 v_color;
+out float v_side; // -1..1 across the line width (for edge darkening in segmentDraw.frag)
+out float v_edge; // edge darkening for this line
+
+float widthFactor = 1.0; // set in main() for the current particle (has to be the same for all segment vertices)
 
 uniform sampler2D previousParticlesPosition;
 uniform sampler2D currentParticlesPosition;
@@ -91,13 +102,25 @@ float interpolateHeight(vec3 lonLatLev) {
     return interpolateGrid(H, lonLatLev);
 }
 
-vec4 particleColor(vec3 lonLatLev) {
+float windSpeed(vec3 lonLatLev) {
+    vec3 wind = vec3( interpolateGrid(U, lonLatLev), interpolateGrid(V, lonLatLev), interpolateGrid(W, lonLatLev));
+    return length(wind);
+}
+
+vec4 particleColor(float speed) {
     if (colorBySpeed > 0.5 && nSpeedColors > 0.5) {
-        vec3 wind = vec3( interpolateGrid(U, lonLatLev), interpolateGrid(V, lonLatLev), interpolateGrid(W, lonLatLev));
-        int idx = int( min( floor( length(wind) / SPEED_COLOR_STEP), nSpeedColors - 1.0));
+        int idx = int( min( floor( speed / SPEED_COLOR_STEP), nSpeedColors - 1.0));
         return speedColors[idx];
     } else {
         return color;
+    }
+}
+
+float particleWidthFactor(float speed) {
+    if (widthBySpeed > 0.5 && widthSpeedMax > 0.0) {
+        return 1.0 + (max(maxWidthFactor, 1.0) - 1.0) * clamp( speed / widthSpeedMax, 0.0, 1.0);
+    } else {
+        return 1.0;
     }
 }
 
@@ -151,7 +174,7 @@ vec4 calculateOffsetOnNormalDirection(vec4 pointA, vec4 pointB, float offsetSign
     vec2 pointA_XY = (pointA.xy / pointA.w) * aspectVec2;
     vec2 pointB_XY = (pointB.xy / pointB.w) * aspectVec2;
 
-    float offsetLength = lineWidth / 2.0;
+    float offsetLength = lineWidth * widthFactor / 2.0;
     vec2 direction = normalize(pointB_XY - pointA_XY);
     vec2 normalVector = vec2(-direction.y, direction.x);
     normalVector.x = normalVector.x / aspect;
@@ -179,7 +202,7 @@ vec4 calculateOffsetOnMiterDirection(adjacentPoints projectedCoordinates, float 
     vec2 tangent = normalize(AB + BC);
     vec2 miter = vec2(-tangent.y, tangent.x);
 
-    float offsetLength = lineWidth / 2.0;
+    float offsetLength = lineWidth * widthFactor / 2.0;
     float projection = dot(miter, normalA);
     vec4 offset = vec4(0.0);
     // avoid to use values that are too small
@@ -201,7 +224,13 @@ void main() {
     vec3 currentPosition = texture(currentParticlesPosition, particleIndex).rgb;
     vec3 nextPosition = texture(postProcessingPosition, particleIndex).rgb;
 
-    v_color = particleColor(currentPosition);
+    // speed dependent color and width - computed for the current position so that all segment vertices use the same values
+    float speed = windSpeed(currentPosition);
+    v_color = particleColor(speed);
+    widthFactor = particleWidthFactor(speed);
+
+    // edges are only visible (and hence only darkened) for lines that are at least a few pixels wide
+    v_edge = edgeDarkening * smoothstep( 3.0, 6.0, lineWidth * widthFactor);
 
     float isAnyRandomPointUsed = texture(postProcessingPosition, particleIndex).a +
         texture(currentParticlesPosition, particleIndex).a +
@@ -220,6 +249,7 @@ void main() {
 
     int pointToUse = int(normal.x);
     float offsetSign = normal.y;
+    v_side = offsetSign;
     vec4 offset = vec4(0.0);
     // render lines with triangles and miter joint
     // read https://blog.scottlogic.com/2019/11/18/drawing-lines-with-webgl.html for detail

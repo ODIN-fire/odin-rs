@@ -2648,6 +2648,7 @@ export function setChoiceItems(o, items, selIndex = -1) {
 
             choice.appendChild(menu);
             e.addEventListener("click", (event) => {
+                closeAllActivePopups();
                 event.stopPropagation();
                 popupMenu(event, menu);
                 event.preventDefault();

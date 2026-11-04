@@ -20,7 +20,7 @@
 use std::{fs::{File, remove_file}, io::BufReader, path::PathBuf};
 use serde_json::Value;
 use odin_gdal::{get_rasterband_as_vec, get_resolution, open_dataset};
-use odin_elmfire::toa::{contour_levels, prepare_toa_contour_ds, to_cumulative_poly_geo_json};
+use odin_elmfire::toa::{contour_levels, count_burned_cells, prepare_toa_contour_ds, to_cumulative_poly_geo_json};
 
 const TOA_PATH: &str = "resources/woods-1_toa_wgs84.tif";
 const T_START: i64 = 1080;
@@ -114,4 +114,19 @@ fn test_upsampled_polygons () {
         assert!( *area > last_area, "burn area not cumulative");
         last_area = *area;
     }
+}
+
+#[test]
+fn test_small_fire_threshold () {
+    // the threshold applies to the number of burned cells, not the raster size (spot fires can spread a small number
+    // of burned cells over a large area)
+    let ds = open_dataset( TOA_PATH).unwrap();
+    assert_eq!( ds.raster_size(), (100, 84));
+    assert_eq!( count_burned_cells( &ds).unwrap(), 2071);
+
+    let ds_up = prepare_toa_contour_ds( &ds, 5000, N_HOURS).unwrap(); // 2071 < 5000 < 8400 raster cells
+    assert_eq!( ds_up.raster_size(), (200, 168));
+
+    let ds_orig = prepare_toa_contour_ds( &ds, 2071, N_HOURS).unwrap();
+    assert_eq!( ds_orig.raster_size(), (100, 84));
 }

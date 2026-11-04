@@ -31,5 +31,6 @@ define_error!{ pub OdinImageError =
     NotFoundError(String) : "not found: {0}",
     IllegalArgument(String) : "illegal argument: {0}",
     InsufficientData (String) : "insufficient data: {0}",
+    OcrError(String) : "OCR error: {0}",
     OpFailed(String) : "operation failed: {0}"
 }

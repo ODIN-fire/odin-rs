@@ -940,6 +940,69 @@ export function render() {
     viewer.render();
 }
 
+// find the first intersection of a ray with the (most detailed) terrain. The ray starts at `origin` (Cartographic, with
+// height above ellipsoid in meters) and has the given heading (degrees clockwise from north) and pitch (degrees, negative
+// is downwards). Returns a Promise of { position: Cartographic, distance: meters } or undefined if the ray does not hit
+// the terrain within maxDist meters. This uses the topographic terrain provider even if terrain display is turned off.
+// We sample the ray in two passes (coarse and refined), i.e. very narrow terrain features between coarse samples (which
+// are maxDist/nCoarse apart) can be missed. Earth curvature is accounted for since the ray is computed in ECEF
+export async function terrainIntersection(origin, heading, pitch, maxDist, nCoarse=200, nFine=100) {
+    let provider = (topoTerrainProvider && !Object.is(topoTerrainProvider, ellipsoidTerrainProvider)) ? topoTerrainProvider : undefined;
+
+    let o = Cesium.Cartographic.toCartesian(origin);
+    let enu = Cesium.Transforms.eastNorthUpToFixedFrame(o);
+    let h = Cesium.Math.toRadians(heading);
+    let p = Cesium.Math.toRadians(pitch);
+    let dirEnu = new Cesium.Cartesian3( Math.sin(h) * Math.cos(p), Math.cos(h) * Math.cos(p), Math.sin(p));
+    let dir = Cesium.Matrix4.multiplyByPointAsVector(enu, dirEnu, new Cesium.Cartesian3());
+    Cesium.Cartesian3.normalize(dir, dir);
+
+    // ray positions (as Cartographic with ray heights) for the given distances
+    let rayPoint = (d) => Cesium.Cartographic.fromCartesian( Cesium.Cartesian3.add( o, Cesium.Cartesian3.multiplyByScalar(dir, d, new Cesium.Cartesian3()), new Cesium.Cartesian3()));
+
+    async function terrainHeights (dists) {
+        let carts = dists.map( d => { let c = rayPoint(d); return new Cesium.Cartographic(c.longitude, c.latitude, 0); });
+        if (provider) {
+            for (let i=0; i<carts.length; i+=100) { // larger requests tend to fail with ERR_INSUFFICIENT_RESOURCES
+                await Cesium.sampleTerrainMostDetailed(provider, carts.slice(i, i+100));
+            }
+        } // otherwise the ellipsoid height (0) is used
+        return carts.map( c => c.height);
+    }
+
+    // returns the index of the first sample that is at or below terrain (or -1)
+    async function firstHit (dists) {
+        let ths = await terrainHeights(dists);
+        for (let i=0; i<dists.length; i++) {
+            if (rayPoint(dists[i]).height <= ths[i]) return { idx: i, ths };
+        }
+        return { idx: -1, ths };
+    }
+
+    let coarse = Array.from( {length: nCoarse}, (_,i) => (i+1) * maxDist / nCoarse);
+    let hit = await firstHit(coarse);
+    if (hit.idx < 0) return undefined;
+
+    let d0 = (hit.idx > 0) ? coarse[hit.idx-1] : 0;
+    let d1 = coarse[hit.idx];
+    let fine = Array.from( {length: nFine}, (_,i) => d0 + (i+1) * (d1 - d0) / nFine);
+    let fineHit = await firstHit(fine);
+    let dist = (fineHit.idx >= 0) ? fine[fineHit.idx] : d1;
+
+    let pos = rayPoint(dist);
+    if (fineHit.idx >= 0) pos.height = fineHit.ths[fineHit.idx]; // on the terrain
+    return { position: pos, distance: dist };
+}
+
+// height of the most detailed terrain at the given Cartographic position (or 0 if there is no topographic terrain)
+export async function terrainHeight(pos) {
+    let provider = (topoTerrainProvider && !Object.is(topoTerrainProvider, ellipsoidTerrainProvider)) ? topoTerrainProvider : undefined;
+    if (!provider) return 0;
+    let c = new Cesium.Cartographic(pos.longitude, pos.latitude, 0);
+    await Cesium.sampleTerrainMostDetailed(provider, [c]);
+    return c.height;
+}
+
 export async function withDetailedSampledTerrain(positions, action) {
     let nPoints = positions.length;
 

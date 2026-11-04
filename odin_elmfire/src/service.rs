@@ -168,9 +168,7 @@ impl SpaService for ElmfireService {
                         Ok(efr) => {
                             info!("received ElmfireRequest from {} : {}", remote_addr, efr.name);
                             match ElmFire::try_from(efr) {
-                                Ok(ef) => {
-                                    self.hactor.send_msg(ef).await;
-                                }
+                                Ok(ef) => { self.hactor.send_msg(ef).await; }
                                 Err(e) => { warn!("failed to create ElmFire from request: {}", e) }
                             }
                         }
@@ -253,7 +251,8 @@ struct ElmfireRequest {
     ignitions: Vec<Ignition>,
     fixed: Option<FixedInput>, // use fixed wx and fuel values instead of wx reports/forecast
     spotting: Option<String>,
-    barriers: Vec<Barrier>
+    barriers: Vec<Barrier>,
+    overwrite: bool // in case dir with this id aleady exists
 }
 
 impl TryFrom<ElmfireRequest> for ElmFire {
@@ -271,7 +270,8 @@ impl TryFrom<ElmfireRequest> for ElmFire {
             req.ignitions,
             req.fixed,
             req.spotting,
-            req.barriers
+            req.barriers,
+            req.overwrite
         )? )
     }
 }

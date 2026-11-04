@@ -1,13 +1,13 @@
 // example windninja_service.js module config
 
-const windSpeedColors = [ // in 5mph increments
-    Cesium.Color.fromCssColorString("#d9cfff"), // < 5mph
-    Cesium.Color.fromCssColorString("#20d4f8"),   // < 10mph
-    Cesium.Color.fromCssColorString("#0bd25e"), // < 15mph
-    Cesium.Color.fromCssColorString("#ddff00"), // < 20mph
-    Cesium.Color.fromCssColorString("#ffc400"), // < 25mph
-    Cesium.Color.fromCssColorString("#FF4500"),   // < 30mph
-    Cesium.Color.fromCssColorString("#d000d0")    // > 30mph
+const windSpeedColors = [ // in 5mph increments. Higher speeds use darker, more saturated colors so that they stand out
+    Cesium.Color.fromCssColorString("#c8c8ff"), // < 5mph
+    Cesium.Color.fromCssColorString("#00b4ff"), // < 10mph
+    Cesium.Color.fromCssColorString("#00c853"), // < 15mph
+    Cesium.Color.fromCssColorString("#ffd600"), // < 20mph
+    Cesium.Color.fromCssColorString("#ff6d00"), // < 25mph
+    Cesium.Color.fromCssColorString("#e00000"), // < 30mph
+    Cesium.Color.fromCssColorString("#c7006a")  // > 30mph
 ];
 
 export const config = {
@@ -43,6 +43,10 @@ export const config = {
             dropRate: 0.002,
             dropRateBump: 0.01,
             colorBySpeed: true,       // use colors, otherwise single color
+            widthBySpeed: true,       // scale line width with wind speed
+            maxWidthFactor: 2.0,      // max line width factor (reached at widthSpeedMax)
+            widthSpeedMax: 30,        // [mph] wind speed for max line width
+            edgeDarkening: 0.3,       // [0..1] darkening of line edges (only for wide lines)
             color: Cesium.Color.fromCssColorString('yellow')
         },
 

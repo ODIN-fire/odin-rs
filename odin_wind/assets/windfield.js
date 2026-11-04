@@ -188,10 +188,7 @@ export class WindFieldVisualization {
 
         if (renderOpts.colors) {
             // spd is in m/sec
-            let i = Math.floor( spd / 2.2352); // renderOpts colors are in 5mph steps
-            if (i >= renderOpts.colors.length) {
-                i = renderOpts.colors.length-1;
-            }
+            let i = Math.min( Math.floor( spd / 2.2352), renderOpts.colors.length-1); // renderOpts colors are in 5mph steps
             return renderOpts.colors[i];
         } else {
             return null;
@@ -622,7 +619,7 @@ export class ContourField extends WindFieldVisualization {
 
     setPolygonAttrs (entity, minSpeed, maxSpeed) {
         let renderOpts = this.renderOpts;
-        let clrIdx = Math.floor( (maxSpeed + minSpeed)/2 / 2.2352);
+        let clrIdx = Math.min( Math.floor( (maxSpeed + minSpeed)/2 / 2.2352), renderOpts.colors.length -1);
         let alpha = renderOpts.alpha * (clrIdx +1) / renderOpts.colors.length;
 
         entity.polygon.material = renderOpts.colors[clrIdx].withAlpha( alpha);
@@ -654,7 +651,8 @@ export class ContourField extends WindFieldVisualization {
 ///  - `idPrefix`: unique prefix for panel element ids (e.g. "wind" -> "wind.anim.particles")
 ///  - `renderConfig`: default render options of the form
 ///        { colors: [Cesium.Color..], lineWidth: N,
-///          anim: { particlesTextureSize, speedFactor, particleHeight, fadeOpacity, dropRate, dropRateBump, color, colorBySpeed },
+///          anim: { particlesTextureSize, speedFactor, particleHeight, fadeOpacity, dropRate, dropRateBump, color, colorBySpeed,
+///                  widthBySpeed, maxWidthFactor, widthSpeedMax, edgeDarkening },
 ///          vector: { pointSize },
 ///          contour: { alpha } }
 ///  - `renderChangeAction`: function( displayType) that is called with AnimDisplay, VectorDisplay or ContourDisplay when the
@@ -722,9 +720,14 @@ export class WindFieldRenderControls {
                 ui.HorizontalSpacer(1),
                 ui.ColorField("anim color", this.id("anim.color"), true, "2rem", { changeAction: (e) => this.animColorChanged(e) })
             ),
+            ui.RowContainer()(
+                ui.CheckBox("anim speed width", (e)=>this.animWidthBySpeedChanged(e), this.id("anim.width_by_speed"), this.render.anim.widthBySpeed)
+            ),
 
             ui.ColumnContainer("align_right")(
                 ui.Slider("line width", this.id("line_width"), (e)=>this.lineWidthChanged(e)),
+                ui.Slider("anim max width factor", this.id("anim.max_width"), (e)=>this.animMaxWidthChanged(e)),
+                ui.Slider("anim edge darkening", this.id("anim.edge"), (e)=>this.animEdgeDarkeningChanged(e)),
 
                 ui.Slider("anim particles", this.id("anim.particles"), (e)=>this.animParticlesChanged(e)),
                 ui.Slider("anim extra height", this.id("anim.height"), (e)=>this.animHeightChanged(e)),
@@ -812,6 +815,15 @@ export class WindFieldRenderControls {
         ui.setSliderValue(e, r.speedFactor);
 
         ui.setCheckBox( this.id("anim.color_by_speed"), r.colorBySpeed);
+        ui.setCheckBox( this.id("anim.width_by_speed"), r.widthBySpeed);
+
+        e = ui.getSlider( this.id("anim.max_width"));
+        ui.setSliderRange(e, 1.0, 5.0, 0.5, util.f_1);
+        ui.setSliderValue(e, r.maxWidthFactor || 1.0);
+
+        e = ui.getSlider( this.id("anim.edge"));
+        ui.setSliderRange(e, 0.0, 1.0, 0.1, util.f_1);
+        ui.setSliderValue(e, r.edgeDarkening || 0.0);
 
         e = ui.getField( this.id("anim.color"));
         ui.setField(e, r.color.toCssHexString());
@@ -900,6 +912,21 @@ export class WindFieldRenderControls {
 
     animColorBySpeedChanged (event) {
         this.render.anim.colorBySpeed = ui.isCheckBoxSelected( ui.getCheckBox(event.target));
+        this.triggerAnimRenderChange(true);
+    }
+
+    animWidthBySpeedChanged (event) {
+        this.render.anim.widthBySpeed = ui.isCheckBoxSelected( ui.getCheckBox(event.target));
+        this.triggerAnimRenderChange(true);
+    }
+
+    animMaxWidthChanged (event) {
+        this.render.anim.maxWidthFactor = ui.getSliderValue(event.target);
+        this.triggerAnimRenderChange(true);
+    }
+
+    animEdgeDarkeningChanged (event) {
+        this.render.anim.edgeDarkening = ui.getSliderValue(event.target);
         this.triggerAnimRenderChange(true);
     }
 

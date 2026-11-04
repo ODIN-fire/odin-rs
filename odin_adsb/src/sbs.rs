@@ -13,10 +13,10 @@
  */
 #![allow(unused)]
 
-use std::sync::{Arc,Mutex,atomic::{AtomicBool,AtomicI64,Ordering}};
+use std::sync::{Arc,Mutex,atomic::{AtomicI64,Ordering}};
 use chrono::{DateTime, Utc, NaiveDate, NaiveTime, TimeZone};
 use chrono_tz::Tz;
-use tokio::{self,net::TcpStream, io::{BufReader, AsyncBufReadExt}};
+use tokio::{self,net::TcpStream, io::{BufReader, AsyncBufReadExt}, time::{sleep, timeout}};
 use dashmap::DashMap;
 use async_trait::async_trait;
 use odin_actor::prelude::*;
@@ -24,33 +24,30 @@ use odin_common::{extract_fields, u8extractor::{CsvStr, CsvFieldExtractor, CsvEx
 use crate::errors::{Result, OdinAdsbError,parse_error};
 use crate::{Aircraft, AircraftStore, adsb::{AdsbConnector, AdsbConfig, AdsbData, AdsbUpdate, Position, ignored}, actor::{AdsbActorMsg}};
 
+/// connector for SBS (BaseStation) formatted ADS-B data received through a TCP socket (e.g. from dump1090).
+/// Input is processed in a (non-blocking) async task so that it can be aborted on termination. Since TCP connections
+/// can silently die (e.g. if the host goes to sleep) we reconnect if we don't receive data within the configured
+/// read_timeout, up to the configured number of consecutive reconnect attempts
 pub struct SbsConnector {
     config: Arc<AdsbConfig>,
     timestamp: Arc<AtomicI64>,
     aircraft: Arc<DashMap<String,Aircraft>>,
-    task: Option<JoinHandle<()>>,  // close to useless for blocking (native thread) tasks as we can't abort
-    keep_alive: Arc<AtomicBool> // used to signal input thread to terminate
+    task: Option<JoinHandle<()>>,
 }
-
 
 #[async_trait]
 impl AdsbConnector for SbsConnector {
     fn new (config: Arc<AdsbConfig>, timestamp: Arc<AtomicI64>, aircraft: Arc<DashMap<String,Aircraft>>)->Self {
-        SbsConnector{ config, timestamp, aircraft, task: None, keep_alive: Arc::new(AtomicBool::new(true)) }
+        SbsConnector{ config, timestamp, aircraft, task: None }
     }
 
     async fn start (&mut self, hself: ActorHandle<AdsbActorMsg>) -> Result<()> {
-        let max_trace = self.config.max_trace;
-        let url = self.config.url.clone();
+        let config = self.config.clone();
         let aircraft = self.aircraft.clone();
         let timestamp = self.timestamp.clone();
-        let keep_alive = self.keep_alive.clone();
-        let tz = self.config.timezone.clone();
 
-        let join_handle =  spawn_blocking( "sbs-task", move || {
-            if let Err(e) = process_msgs(url, max_trace, timestamp, aircraft, keep_alive, tz) {
-                eprintln!("failed to connect to ADS-B SBS receiver: {e}");
-            }
+        let join_handle = spawn( "sbs-task", async move {
+            run_connection( config, timestamp, aircraft).await
         })?;
         self.task = Some(join_handle);
 
@@ -58,39 +55,55 @@ impl AdsbConnector for SbsConnector {
     }
 
     fn terminate (&mut self) {
-        if let Some(join_handle) = &self.task {
-            //join_handle.abort(); // blocking tasks cannot be aborted !
-            self.keep_alive.store( false, Ordering::Relaxed);
-            self.task = None;
+        if let Some(join_handle) = self.task.take() {
+            join_handle.abort(); // async tasks can be aborted at any await point (including pending reads)
         }
     }
 }
 
-pub fn process_msgs (url: String, max_trace: usize, timestamp: Arc<AtomicI64>, aircraft: Arc<DashMap<String,Aircraft>>, keep_alive: Arc<AtomicBool>, source_tz: Tz)->Result<()> {
-    let stream = std::net::TcpStream::connect( url)?;
+/// connect and process messages, reconnecting after connection failures or read timeouts. The number of consecutive
+/// reconnect attempts is reset once we receive data
+pub async fn run_connection (config: Arc<AdsbConfig>, timestamp: Arc<AtomicI64>, aircraft: Arc<DashMap<String,Aircraft>>) {
+    let mut n_reconnects: u32 = 0;
 
-    let mut reader = std::io::BufReader::with_capacity( 8192, stream);
-    let mut csv = CsvExtractor::new(reader);
+    loop {
+        let mut n_lines: u64 = 0;
+        match process_msgs( &config, &timestamp, &aircraft, &mut n_lines).await {
+            Ok(()) => eprintln!("ADS-B SBS receiver {} closed connection", config.url),
+            Err(e) => eprintln!("ADS-B SBS connection to {} failed: {e}", config.url)
+        }
 
-    // TODO - this works for ADS-B with frequent input but not for sources with a high temporal variation that might
-    // get blocked for extended amounts of time. Those we probably have to move to regular tokio tasks
-    while keep_alive.load(Ordering::Relaxed) && csv.next_line()? {
-        process_next_line(&mut csv, &timestamp, &aircraft, max_trace, &source_tz)?
+        if n_lines > 0 { n_reconnects = 0 } // the connection worked
+
+        if n_reconnects >= config.max_reconnects {
+            eprintln!("giving up on ADS-B SBS receiver {} after {} reconnect attempts", config.url, n_reconnects);
+            break;
+        }
+        n_reconnects += 1;
+
+        eprintln!("reconnecting to ADS-B SBS receiver {} in {:?} (attempt {}/{})", config.url, config.reconnect_delay, n_reconnects, config.max_reconnects);
+        sleep( config.reconnect_delay).await;
     }
-
-    Ok(())
 }
 
-pub async fn async_process_msgs (url: &str, max_trace: usize, timestamp: Arc<AtomicI64>, aircraft: Arc<DashMap<String,Aircraft>>, source_tz: Tz)->Result<()> {
-    let stream = TcpStream::connect( url).await?;
-    let mut reader = BufReader::with_capacity( 8192, stream);
-    let mut csv = AsyncCsvExtractor::new(reader);
+/// process messages until the connection is closed (Ok) or fails (Err). Connects and reads are subject to the
+/// configured timeouts. Returns the number of processed lines in n_lines
+pub async fn process_msgs (config: &AdsbConfig, timestamp: &Arc<AtomicI64>, aircraft: &Arc<DashMap<String,Aircraft>>, n_lines: &mut u64)->Result<()> {
+    let stream = timeout( config.connect_timeout, TcpStream::connect( &config.url)).await
+        .map_err( |_| OdinAdsbError::OpFailedError( format!("connect timeout after {:?}", config.connect_timeout)))??;
+    eprintln!("connected to ADS-B SBS receiver {}", config.url);
 
-    while csv.next_line().await? {
-        process_next_line(&mut csv, &timestamp, &aircraft, max_trace, &source_tz)?
+    let reader = BufReader::with_capacity( 8192, stream);
+    let mut csv = AsyncCsvExtractor::new( reader);
+
+    loop {
+        let has_line = timeout( config.read_timeout, csv.next_line()).await
+            .map_err( |_| OdinAdsbError::OpFailedError( format!("no data received for {:?}", config.read_timeout)))??;
+        if !has_line { return Ok(()) } // EOF
+
+        *n_lines += 1;
+        process_next_line( &mut csv, timestamp, aircraft, config.max_trace, &config.timezone)?
     }
-
-    Ok(())
 }
 
 fn process_next_line<'a, T: CsvFieldExtractor> (csv: &'a mut T, timestamp: &Arc<AtomicI64>, aircraft: &Arc<DashMap<String,Aircraft>>, max_trace: usize, source_tz: &Tz)->Result<()> {
