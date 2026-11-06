@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -32,18 +32,18 @@ use crate::ws::{WsStream,WsCmd,WsMsg, init_websocket, send_ws_text_msg, read_nex
 /* #region LiveSentinelConnector *************************************************************************************/
 
 /// a websocket based [`SentinelConnector`] implementation for live data.
-/// 
+///
 /// Note that `SentinelConnector` instances are used for dependency injection into [`SentinelActor`] and hence
 /// are created before we have a respective [`ActorHandle`]. This means the purpose of a `LiveSentinelConnector` is
-/// twofold: 
-///   - (a) to provide a [`SentinelConnector`] impl that is used by the actor, and 
-///   - (b) to create the internal `LiveConnection` object that does the real work once the actor calls 
+/// twofold:
+///   - (a) to provide a [`SentinelConnector`] impl that is used by the actor, and
+///   - (b) to create the internal `LiveConnection` object that does the real work once the actor calls
 ///    `SentinelConnector::start(actor_handle)` (during processing of its _Start_ message).
-/// 
+///
 /// Note also that LiveSentinelConnector is a configured object. Since the [`SentinelConfig`] data is shared with
 /// a number of background tasks managed by the `LiveConnection` we keep it in an `Arc`
-/// 
-pub struct LiveSentinelConnector { 
+///
+pub struct LiveSentinelConnector {
     config: Arc<SentinelConfig>,
     connection: Option<LiveConnection>
 }
@@ -64,11 +64,11 @@ impl LiveSentinelConnector {
     fn sentinel_file_for_query (&self, query: &Query<GetSentinelFile,Result<SentinelFile>>)->SentinelFile {
         let record_id = query.question.record_id.clone();
         let pathname = sentinel_cache_dir().join(&query.question.filename);
-        SentinelFile { record_id, pathname }   
+        SentinelFile { record_id, pathname }
     }
 }
 
-/// this is the interface used by the [`SentinelActor`] 
+/// this is the interface used by the [`SentinelActor`]
 #[async_trait]
 impl SentinelConnector for LiveSentinelConnector {
     async fn start (&mut self, hself: ActorHandle<SentinelActorMsg>)->Result<()> {
@@ -121,14 +121,14 @@ impl SentinelConnector for LiveSentinelConnector {
 
 /* #region LiveConnection ********************************************************************************************/
 
-/// This is the internal workhorse struct that holds the data for a started LiveSentinelConnector, 
+/// This is the internal workhorse struct that holds the data for a started LiveSentinelConnector,
 /// which includes the following tasks:
 ///   - websocket inbound (mostly notification of SensorRecord availability)
 ///   - websocket outbound (commands, including keepalive pings)
-///   - websocket keepalive (scheduling ping messages for the IO task ) 
+///   - websocket keepalive (scheduling ping messages for the IO task )
 ///   - file retrieval (for image files, which are downloaded automatically but independent of the websocket)
 ///   - file cleanup
-///  
+///
 /// Note that our policy is to automatically initiate file downloads, i.e. subsequent file requests
 /// from clients only have to be notified once a download has finished. This means for each incoming
 /// request we either already have a file or we have a pending `FileRequest` entry that is used to
@@ -174,19 +174,18 @@ impl LiveConnection {
             let (file_request_task,file_request_tx) = file_fetcher.spawn( "sentinel-file_request", 64)?;
 
             let (ws_cmd_tx, ws_cmd_rx) = create_mpsc_sender_receiver::<String>(16);
-
-            let ws_task = spawn( "ws-sentinel", 
+            let ws_task = spawn( "ws-sentinel",
                 Self::ws_loop( hself.clone(), config.clone(), cache_dir.clone(), get_http_client()?,
-                               device_ids, latest_recs, 
+                               device_ids, latest_recs,
                                file_request_tx.clone(), ws_cmd_rx)
             )?.abort_handle();
 
-            let file_cleanup_task = spawn( "sentinel-file-purge", 
+            let file_cleanup_task = spawn( "sentinel-file-purge",
                                            Self::file_cleanup_loop( config.clone(), cache_dir.clone()))?.abort_handle();
 
-            let live_conn = LiveConnection { 
-                hself: hself.clone(), 
-                last_recv_epoch, 
+            let live_conn = LiveConnection {
+                hself: hself.clone(),
+                last_recv_epoch,
                 ws_task, ws_cmd_tx,
                 file_request_task, file_request_tx,
                 file_cleanup_task,
@@ -213,78 +212,84 @@ impl LiveConnection {
         loop {
             cycle += 1;
             if cycle > 1 {
+                info!("requesting update records cycle {}", cycle);
                 Self::get_and_send_missing_updates( &hself, &client, &config, &mut latest_recs, &cache_dir, &file_request_tx).await;
             }
 
-            if let Ok(mut ws_stream) =  init_websocket( &config, &device_ids).await {
-                admin::async_notify_info("websocket connected").await;
+            if let Some(poll_dur) = config.poll_interval { // just poll, no websock
+                odin_actor::sleep(poll_dur).await;
 
-                loop {
-                    select! { // NOTE - this requires all awaited futures to be cancellation safe !
-                        //--- ws read (record availability notifications)
-                        maybe_msg = ws_stream.next() => {
-                            match maybe_msg {
-                                Some(msg) => match msg {
-                                    Ok(msg) => {
-                                        if let Err(e) = Self::process_incoming_msg( &hself, &client, &config, msg, &mut latest_recs, &cache_dir, &file_request_tx).await {
-                                            warn!("{e}")
-                                        };
+            } else {
+                if let Ok(mut ws_stream) =  init_websocket( &config, &device_ids).await {
+                    admin::async_notify_info("websocket connected").await;
+
+                    loop {
+                        select! { // NOTE - this requires all awaited futures to be cancellation safe !
+                            //--- ws read (record availability notifications)
+                            maybe_msg = ws_stream.next() => {
+                                match maybe_msg {
+                                    Some(msg) => match msg {
+                                        Ok(msg) => {
+                                            if let Err(e) = Self::process_incoming_msg( &hself, &client, &config, msg, &mut latest_recs, &cache_dir, &file_request_tx).await {
+                                                warn!("{e}")
+                                            };
+                                        }
+                                        Err(e) => {
+                                            let msg = format!("reconnecting after failed websocket read: {}", e);
+                                            admin::async_notify_severe(&msg).await;
+                                            warn!("{}", msg);
+                                            break; // do we have to check the tungstenite::error::Error variant? I seems they all warrant restart
+                                        }
                                     }
-                                    Err(e) => {
-                                        let msg = format!("reconnecting after failed websocket read: {}", e);
-                                        admin::async_notify_severe(&msg).await;
+                                    None => {
+                                        let msg = "reconnecting after websocket closed";
+                                        admin::async_notify_severe(msg).await;
                                         warn!("{}", msg);
-                                        break; // do we have to check the tungstenite::error::Error variant? I seems they all warrant restart
+                                        break; // try to re-connect
                                     }
-                                }
-                                None => {
-                                    let msg = "reconnecting after websocket closed";
-                                    admin::async_notify_severe(msg).await;
-                                    warn!("{}", msg);
-                                    break; // try to re-connect
                                 }
                             }
-                        }
-    
-                        //--- ws write (commands) 
-                        maybe_cmd = recv(&ws_cmd_rx) => {
-                            match maybe_cmd {
-                                Ok(cmd) => {
-                                    if let Err(e) = ws_stream.send( Message::text(cmd)).await {
+
+                            //--- ws write (commands)
+                            maybe_cmd = recv(&ws_cmd_rx) => {
+                                match maybe_cmd {
+                                    Ok(cmd) => {
+                                        if let Err(e) = ws_stream.send( Message::text(cmd)).await {
+                                            let msg = format!("reconnecting after failed websocket write: {}", e);
+                                            admin::async_notify_severe(&msg).await;
+                                            warn!("{}", msg);
+                                            break; // try to re-connect
+                                        }
+                                    }
+                                    Err(e) => {
+                                        // cmd queue closed - terminate (this is nominal termination, no error)
+                                        return
+                                    }
+                                }
+                            }
+
+                            //--- ping_interval timeout
+                            // unfortunately a guard does not shortcut evaluating the async expression, it just enables/disables polling the future
+                            _ = sleep( ping_interval), if config.ping_interval.is_some() => {
+                                let msg = WsCmd::new_ping("ping");
+                                if let Ok(msg) = serde_json::to_string( &msg) {
+                                    if let Err(e) = ws_stream.send(Message::text(msg)).await {
                                         let msg = format!("reconnecting after failed websocket write: {}", e);
                                         admin::async_notify_severe(&msg).await;
                                         warn!("{}", msg);
                                         break; // try to re-connect
                                     }
                                 }
-                                Err(e) => {
-                                    // cmd queue closed - terminate (this is nominal termination, no error)
-                                    return
-                                }
-                            }
-                        }
-
-                        //--- ping_interval timeout
-                        // unfortunately a guard does not shortcut evaluating the async expression, it just enables/disables polling the future
-                        _ = sleep( ping_interval), if config.ping_interval.is_some() => { 
-                            let msg = WsCmd::new_ping("ping");
-                            if let Ok(msg) = serde_json::to_string( &msg) {
-                                if let Err(e) = ws_stream.send(Message::text(msg)).await {
-                                    let msg = format!("reconnecting after failed websocket write: {}", e);
-                                    admin::async_notify_severe(&msg).await;
-                                    warn!("{}", msg);
-                                    break; // try to re-connect    
-                                }
                             }
                         }
                     }
-                }
-            } else { // init_websocket failed
-                if let Some(reconnect_delay) = config.reconnect_delay {
-                    warn!("failed to initialize websocket, retry in {} sec", reconnect_delay.as_secs());
-                    sleep(reconnect_delay).await;
-                } else {
-                    break;
+                } else { // init_websocket failed
+                    if let Some(reconnect_delay) = config.reconnect_delay {
+                        warn!("failed to initialize websocket, retry in {} sec", reconnect_delay.as_secs());
+                        sleep(reconnect_delay).await;
+                    } else {
+                        break;
+                    }
                 }
             }
         }
@@ -293,8 +298,8 @@ impl LiveConnection {
 
     async fn process_incoming_msg (hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig,
                                    msg: Message,
-                                   latest_recs: &mut HashMap<String,String>, 
-                                   cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest>) -> Result<()> 
+                                   latest_recs: &mut HashMap<String,String>,
+                                   cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest>) -> Result<()>
     {
         if_let! {
             Message::Text(json) = { msg } else { Err(ws_protocol_error("ignored binary message")) }, // ignore binary messages
@@ -330,8 +335,8 @@ impl LiveConnection {
         }
     }
 
-    async fn get_and_send_update<T>(hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig, 
-                                    device_id: &str, sensor_no: u32, latest_recs: &mut HashMap<String,String>) -> Result<()> 
+    async fn get_and_send_update<T>(hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig,
+                                    device_id: &str, sensor_no: u32, latest_recs: &mut HashMap<String,String>) -> Result<()>
         where T: RecordDataBounds, SentinelUpdate: From<Arc<SensorRecord<T>>>
     {
         let rec = get_latest_record::<T>(client, &config.base_uri, &config.access_token, device_id, sensor_no).await?;
@@ -347,9 +352,9 @@ impl LiveConnection {
         latest_recs.insert(rec_key, update.record_id().clone());
     }
 
-    async fn get_and_send_image_update (hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig, 
+    async fn get_and_send_image_update (hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig,
                                         device_id: &str, sensor_no: u32, latest_recs: &mut HashMap<String,String>,
-                                        cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest> ) -> Result<()>  
+                                        cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest> ) -> Result<()>
     {
         let mut rec = get_latest_record::<ImageData>(client, &config.base_uri, &config.access_token, device_id, sensor_no).await?;
         rec.set_local_filename();
@@ -362,7 +367,7 @@ impl LiveConnection {
         Ok(())
     }
 
-    async fn get_and_send_missing_updates (hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig, 
+    async fn get_and_send_missing_updates (hself: &ActorHandle<SentinelActorMsg>, client: &Client, config: &SentinelConfig,
                                            latest_recs: &mut HashMap<String,String>,
                                            cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest> )->Result<()> {
         let base_uri = config.base_uri.as_str();
@@ -393,7 +398,7 @@ impl LiveConnection {
 
                     Some(Image)          => Self::get_and_send_missing_images( hself, client, config, &uri_path, &rec_id, latest_recs, cache_dir, file_request_tx).await,
 
-                    None => Err( op_failed("unknown capability")) 
+                    None => Err( op_failed("unknown capability"))
                 };
                 if let Err(e) = res { warn!("failed to get missing updates for {uri_path}: {e}") }
             }
@@ -402,9 +407,9 @@ impl LiveConnection {
         Ok(())
     }
 
-    async fn get_and_send_missing<T> (hself: &ActorHandle<SentinelActorMsg>, 
-                                      client: &Client, config: &SentinelConfig, uri_path: &str, last: &str, 
-                                      latest_recs: &mut HashMap<String,String>) -> Result<()> 
+    async fn get_and_send_missing<T> (hself: &ActorHandle<SentinelActorMsg>,
+                                      client: &Client, config: &SentinelConfig, uri_path: &str, last: &str,
+                                      latest_recs: &mut HashMap<String,String>) -> Result<()>
         where T: RecordDataBounds, SentinelUpdate: From<Arc<SensorRecord<T>>>
     {
         let recs = get_records_since::<T>(client, &config.base_uri, &config.access_token, uri_path, last).await?;
@@ -417,10 +422,10 @@ impl LiveConnection {
         Ok(())
     }
 
-    async fn get_and_send_missing_images (hself: &ActorHandle<SentinelActorMsg>, 
-                                      client: &Client, config: &SentinelConfig, uri_path: &str, last: &str, 
+    async fn get_and_send_missing_images (hself: &ActorHandle<SentinelActorMsg>,
+                                      client: &Client, config: &SentinelConfig, uri_path: &str, last: &str,
                                       latest_recs: &mut HashMap<String,String>,
-                                      cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest> ) -> Result<()> 
+                                      cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest> ) -> Result<()>
     {
         let recs = get_records_since::<ImageData>(client, &config.base_uri, &config.access_token, uri_path, last).await?;
         for mut rec in recs.into_iter() {
@@ -445,8 +450,8 @@ impl LiveConnection {
         Ok(())
     }
 
-    async fn request_image_file (config: &SentinelConfig, cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest>, 
-                                 rec: &SensorRecord<ImageData>) -> Result<()> 
+    async fn request_image_file (config: &SentinelConfig, cache_dir: &PathBuf, file_request_tx: &MpscSender<FileRequest>,
+                                 rec: &SensorRecord<ImageData>) -> Result<()>
     {
         let record_id = rec.id.clone();
         let uri = get_image_uri( &config.base_uri, &record_id);
@@ -538,7 +543,7 @@ impl RequestProcessor<FileRequest,Result<SentinelFile>> for FileFetcher {
     async fn process_response (&self, request: &FileRequest, response: SentinelFileResult)->odin_actor::Result<()> {
         if let Some(query) = &request.query {
             query.respond(response).await
-        } else { 
+        } else {
             Ok(()) // nothing to do here - this request was internal and we only had to download the file
         }
     }

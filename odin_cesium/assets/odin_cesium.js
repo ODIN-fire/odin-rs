@@ -124,6 +124,7 @@ var isSelectedView = false;
 
 export var isMetric = true;
 var metricChangeHandlers = []; // functions to call when isMetric changes (e.g. ruler.js)
+var rulerChangeHandlers = [];  // functions to call when ruler render parameters (config.ruler) change (ruler.js)
 
 const centerOrientation = {
     heading: Cesium.Math.toRadians(0.0),
@@ -515,7 +516,8 @@ function createViewWindow() {
           ui.Panel("view parameters", false)(
             ui.CheckBox("render on-demand", toggleRequestRenderMode, "view.rm"),
             ui.Slider("frame rate", "view.fr", setFrameRate),
-            ui.Slider("animation secs", "view.anim", setAnimationSecs)
+            ui.Slider("animation secs", "view.anim", setAnimationSecs),
+            ui.ColorField("ruler color", "view.ruler.color", true, "2rem", { changeAction: rulerColorChanged })
           )
     );
 }
@@ -543,6 +545,26 @@ function initViewParameters() {
     let e = ui.getSlider('view.anim');
     ui.setSliderRange(e, 0, 5, 0.5, util.f_1);
     ui.setSliderValue(e, animationSecs);
+
+    e = ui.getField("view.ruler.color");
+    ui.setField(e, Cesium.Color.fromCssColorString( config.ruler.cssColor).toCssHexString());
+}
+
+function rulerColorChanged (event) {
+    let clrSpec = event.target.value;
+    if (clrSpec) {
+        config.ruler.cssColor = clrSpec; // ruler.js uses the (shared) config object
+        rulerChangeHandlers.forEach( h=> h());
+    }
+}
+
+export function registerRulerChangeHandler (handler) {
+    rulerChangeHandlers.push(handler);
+}
+
+export function releaseRulerChangeHandler (handler) {
+    let idx = rulerChangeHandlers.findIndex(h => h === handler);
+    if (idx >= 0) rulerChangeHandlers.splice(idx,1);
 }
 
 

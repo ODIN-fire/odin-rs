@@ -40,7 +40,7 @@ export const config = {
       })
     },
 
-    scale: {
+    ruler: {
       width: 400, // this is a max width - actual width will be computed
       height: 30,
       right: 50, // initial position of ruler (distance of right end from window border)

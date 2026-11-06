@@ -44,7 +44,7 @@ fn test_camera_update () {
 
     assert_eq!( cameras.len(), config.cameras.len());
     for c in &cameras {
-        assert!( config.cameras.iter().any( |id| id.as_str() == c.id.as_str()));
+        assert!( config.cameras.iter().any( |cc| cc.id.as_str() == c.id.as_str()));
         assert!( !c.name.is_empty());
         assert!( c.position.altitude_meters() > 0.0);
     }
@@ -69,3 +69,41 @@ fn test_camera_update () {
     assert!( msg.contains("\"name\":\"Almaden 1\""));
 }
 
+
+#[test]
+fn test_camera_config () {
+    // cameras can be specified as plain ids or as structs with optional height_above_ground and tilt_offset
+    let config: AlertCaConfig = ron::from_str( r#"AlertCaConfig(
+        cameras: [
+            "almaden-cam01",
+            (id: "almaden-cam02", height_above_ground: 25.0),
+            (id: "lomaprieta-cam01", tilt_offset: -0.5),
+            (id: "mtchual-cam01", height_above_ground: 15.0, tilt_offset: 0.75),
+        ],
+        default_height_above_ground: 8.0,
+        base_url: "https://cameras.alertcalifornia.org/public-camera-data",
+        update_interval: Duration(secs:180,nanos:0),
+        max_history: 10,
+        max_age: Duration(secs:3600,nanos:0),
+    )"#).unwrap();
+
+    assert_eq!( config.cameras.len(), 4);
+    assert_eq!( config.default_height_above_ground, 8.0);
+    let cc: Vec<_> = config.cameras.iter().map( |cc| config.camera_attrs( cc)).collect();
+    assert_eq!( (cc[0].id.as_str(), cc[0].height_above_ground, cc[0].tilt_offset), ("almaden-cam01", 8.0, 0.0)); // config default
+    assert_eq!( (cc[1].id.as_str(), cc[1].height_above_ground, cc[1].tilt_offset), ("almaden-cam02", 25.0, 0.0));
+    assert_eq!( (cc[2].id.as_str(), cc[2].height_above_ground, cc[2].tilt_offset), ("lomaprieta-cam01", 8.0, -0.5));
+    assert_eq!( (cc[3].id.as_str(), cc[3].height_above_ground, cc[3].tilt_offset), ("mtchual-cam01", 15.0, 0.75));
+
+    // the configured values end up in the parsed cameras and their JSON
+    let contents = filepath_contents( Path::new("resources/all_cameras.json")).unwrap();
+    let cameras = parse_cameras( &contents, &camera_ids( &config)).unwrap();
+    let almaden2 = cameras.iter().find( |c| c.id.as_str() == "almaden-cam02").unwrap();
+    assert_eq!( almaden2.height_above_ground, 25.0);
+
+    let mut store = CameraStore::new( config.max_history);
+    store.update_all( cameras);
+    let msg = store.get_json_snapshot_msg();
+    assert!( msg.contains("\"heightAboveGround\":25.0"));
+    assert!( msg.contains("\"tiltOffset\":-0.50"));
+}

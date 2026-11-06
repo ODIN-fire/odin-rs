@@ -216,7 +216,8 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
             let dem_res = self.config.dem_res;
             let srs = DemSRS::UTM{epsg};
 
-            match self.config.dem.get_res_dem( bbox, srs, dem_res, dem_res, odin_dem::DemImgType::TIF, &path).await {
+            // nearest neighbour preserves the terrain roughness for the (coarser) WindNinja mesh
+            match self.config.dem.get_res_dem( bbox, srs, dem_res, dem_res, odin_dem::ResampleAlg::NearestNeighbour, odin_dem::DemImgType::TIF, &path).await {
                 Ok(()) => {
                     // WindNinja cannot handle nodata (e.g. for open sea) - replace it with sea level
                     replace_nodata_in_file( &path, 1, SEA_LEVEL_M)?;

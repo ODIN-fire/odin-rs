@@ -53,11 +53,18 @@ class CameraEntry {
         this.position = camera.position; // { lon, lat, alt }
         this.pos = toCartesian3( camera.pos);
         this.maxFov = camera.maxFov;
+        this.setLocalAttributes( camera);
 
         this.data = data.CircularBuffer.fromArray( camera.data ? camera.data : [], config.maxHistory);
         this.alerts = data.CircularBuffer.fromArray( camera.alerts ? camera.alerts : [], config.maxHistory);
 
         this.assets = this.createAssets();
+    }
+
+    // configured (AlertCaConfig) camera height above ground [m] and tilt correction [deg]
+    setLocalAttributes (camera) {
+        this.heightAboveGround = (camera.heightAboveGround !== undefined) ? camera.heightAboveGround : 10;
+        this.tiltOffset = camera.tiltOffset || 0;
     }
 
     latestData () {
@@ -142,11 +149,11 @@ class CameraEntry {
                 maximumClock: util.toRadians(a2),
                 minimumCone: pi2,
                 maximumCone: pi2,
-                material: config.fovColor,
+                material: config.fov.color,
                 outline: true,
-                outlineColor: config.fovOutlineColor,
+                outlineColor: config.fov.outlineColor,
                 outlineWidth: 1,
-                distanceDisplayCondition: config.fovDC,
+                distanceDisplayCondition: config.fov.dc,
                 zIndex: 1,
             }
         });
@@ -186,6 +193,7 @@ class CameraEntry {
         if (camera.data) camera.data.forEach( d => this.data.push(d));
         if (camera.alerts) camera.alerts.forEach( a => this.alerts.push(a));
         this.maxFov = camera.maxFov;
+        this.setLocalAttributes( camera);
 
         if (camera.name && camera.name !== this.name) {
             this.name = camera.name;
@@ -220,6 +228,7 @@ function samePosition (p1, p2) {
 /* #region initialization ******************************************************************************/
 
 var cameraEntries = new Map(); // id->Camera
+var viewsheds = new Map(); // camera id -> { dataSource, show } (viewsheds are static - we keep them across snapshots)
 
 var cameraView = undefined;
 var selectedCameraEntry = null;
@@ -230,6 +239,20 @@ var alertView = undefined;
 var showLatestCb = undefined;
 var latestImage = undefined; // { data, window } of the image window that is automatically shown in "show latest" mode
 
+// interactively changeable render parameters (initialized from config, see "layer parameters" panel)
+const TRACK_WIDTHS = [1, 1.5, 2, 3, 4, 5];
+const RANGE_WIDTHS = [2, 3, 4, 6, 8, 10];
+const VSH_ALPHAS = [0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6];
+
+var render = {
+    trackColor: config.viewTrack.color,
+    trackWidth: config.viewTrack.width,
+    rangeColor: config.viewTrack.rangeColor,
+    rangeWidth: config.viewTrack.rangeWidth,
+    vshColor: config.vsh.color,
+    vshAlpha: config.vsh.alpha
+};
+
 createIcon();
 createWindow();
 
@@ -239,6 +262,7 @@ var cameraDataSource = odinCesium.createDataSource("alertCA", config.layer.show)
 initCameraView();
 initDataView();
 initAlertsView();
+initLayerParameters();
 
 odinCesium.setEntitySelectionHandler( cameraSelection);
 odinCesium.initLayerPanel("alert-ca", config, showAlertCa);
@@ -268,8 +292,114 @@ function createWindow() {
         ),
         ui.Panel("alerts", true)(
             (alertView = ui.List( "alertca.alerts", 5))
+        ),
+        ui.Panel("layer parameters", false)(
+            ui.RowContainer()(
+                ui.Label("track", null, "4rem"),
+                ui.ColorField("color", "alertca.track.color", true, "2rem", { changeAction: trackColorChanged }),
+                ui.Choice("width", "alertca.track.width", trackWidthChanged, "3rem"),
+                ui.HorizontalSpacer(0.5),
+                ui.ColorField("range", "alertca.range.color", true, "2rem", { changeAction: rangeColorChanged }),
+                ui.Choice("width", "alertca.range.width", rangeWidthChanged, "3rem")
+            ),
+            ui.RowContainer()(
+                ui.Label("viewshed", null, "4rem"),
+                ui.ColorField("color", "alertca.vsh.color", true, "2rem", { changeAction: vshColorChanged }),
+                ui.Choice("alpha", "alertca.vsh.alpha", vshAlphaChanged, "3rem")
+            ),
+            ui.Button("reset", resetLayerParameters)
         )
     );
+}
+
+//--- layer parameters
+
+function initLayerParameters() {
+    ui.setField( ui.getField("alertca.track.color"), render.trackColor.toCssHexString());
+    ui.setChoiceItems( "alertca.track.width", TRACK_WIDTHS, closestIndex( TRACK_WIDTHS, render.trackWidth));
+    ui.setField( ui.getField("alertca.range.color"), render.rangeColor.toCssHexString());
+    ui.setChoiceItems( "alertca.range.width", RANGE_WIDTHS, closestIndex( RANGE_WIDTHS, render.rangeWidth));
+    ui.setField( ui.getField("alertca.vsh.color"), render.vshColor.toCssHexString());
+    ui.setChoiceItems( "alertca.vsh.alpha", VSH_ALPHAS, closestIndex( VSH_ALPHAS, render.vshAlpha));
+}
+
+function resetLayerParameters() {
+    render.trackColor = config.viewTrack.color;
+    render.trackWidth = config.viewTrack.width;
+    render.rangeColor = config.viewTrack.rangeColor;
+    render.rangeWidth = config.viewTrack.rangeWidth;
+    render.vshColor = config.vsh.color;
+    render.vshAlpha = config.vsh.alpha;
+
+    initLayerParameters();
+    updateViewTrackRendering();
+    updateViewshedRendering();
+}
+
+function closestIndex (values, v) {
+    let idx = 0;
+    values.forEach( (x,i) => { if (Math.abs(x - v) < Math.abs(values[idx] - v)) idx = i; });
+    return idx;
+}
+
+function selectedChoiceNumber (event) {
+    return Number( ui.getSelectedChoiceValue( ui.getChoice(event.target)));
+}
+
+function trackColorChanged (event) {
+    let clrSpec = event.target.value;
+    if (clrSpec) {
+        render.trackColor = Cesium.Color.fromCssColorString(clrSpec);
+        updateViewTrackRendering();
+    }
+}
+
+function trackWidthChanged (event) {
+    render.trackWidth = selectedChoiceNumber(event);
+    updateViewTrackRendering();
+}
+
+function rangeColorChanged (event) {
+    let clrSpec = event.target.value;
+    if (clrSpec) {
+        render.rangeColor = Cesium.Color.fromCssColorString(clrSpec);
+        updateViewTrackRendering();
+    }
+}
+
+function rangeWidthChanged (event) {
+    render.rangeWidth = selectedChoiceNumber(event);
+    updateViewTrackRendering();
+}
+
+function vshColorChanged (event) {
+    let clrSpec = event.target.value;
+    if (clrSpec) {
+        render.vshColor = Cesium.Color.fromCssColorString(clrSpec);
+        updateViewshedRendering();
+    }
+}
+
+function vshAlphaChanged (event) {
+    render.vshAlpha = selectedChoiceNumber(event);
+    updateViewshedRendering();
+}
+
+function vshMaterial() {
+    return render.vshColor.withAlpha( render.vshAlpha);
+}
+
+// apply current render parameters to all loaded viewsheds
+function updateViewshedRendering() {
+    let material = vshMaterial();
+    for (const vsh of viewsheds.values()) {
+        if (vsh.dataSource) {
+            for (const e of vsh.dataSource.entities.values) {
+                if (e.polygon) e.polygon.material = material;
+            }
+        }
+    }
+    odinCesium.requestRender();
 }
 
 function initCameraView() {
@@ -279,10 +409,11 @@ function initCameraView() {
             { name: "", width: "2.2rem", attrs: [], map: e => e.hasRecentAlerts() ?  "⚠️" : ""},
             { name: "name", width: "12rem", attrs: ["alignLeft"], map: e => util.maxString( e.name, 24) },
             ui.listItemSpacerColumn(0.5),
-            { name: "stat", tip: "not updated within max alert age", width: "2rem", attrs:["alignRight"], map: e => e.isInactive() ? "🔺" : "✓" },
-            { name: "data", tip: "number of data points", width: "3rem", attrs:["fixed", "alignRight"], map: e => e.data.length },
-            ui.listItemSpacerColumn(0.5),
-            { name: "last report", width: "9rem", attrs: ["fixed", "alignRight"], map: e => e.latestDateString() }
+            { name: "vsh", tip: "show viewshed", width: "1.8rem", attrs: [], map: e => ui.createCheckBox( isViewshedShown(e.id), toggleShowViewshed) },
+            { name: "stat", tip: "not updated within max alert age", width: "1.8rem", attrs:["alignRight"], map: e => e.isInactive() ? "🔺" : "✓" },
+            { name: "data", tip: "number of data points", width: "2.5rem", attrs: ["fixed", "alignRight"], map: e => e.data.length },
+            ui.listItemSpacerColumn(1.0),
+            { name: "last report", width: "8.5rem", attrs: ["fixed", "alignRight"], map: e => e.latestDateString() }
         ])
     }
 }
@@ -455,6 +586,67 @@ function toggleShowFov (event) {
     }
 }
 
+//--- viewsheds: per camera GeoJSON polygons that are computed offline (compute_vsh) and loaded on demand
+
+function isViewshedShown (id) {
+    let vsh = viewsheds.get(id);
+    return vsh !== undefined && vsh.show;
+}
+
+function toggleShowViewshed (event) {
+    let cb = ui.getCheckBox(event.target);
+    if (cb) {
+        let ce = ui.getListItemOfElement(cb);
+        if (ce) {
+            let show = ui.isCheckBoxSelected(cb);
+            let vsh = viewsheds.get(ce.id);
+            if (vsh) {
+                vsh.show = show;
+                if (vsh.dataSource) vsh.dataSource.show = show && cameraDataSource.show;
+                odinCesium.requestRender();
+            } else if (show) {
+                loadViewshed( ce, cb);
+            }
+        }
+    }
+}
+
+async function loadViewshed (ce, cb) {
+    let vsh = { dataSource: undefined, show: true };
+    viewsheds.set( ce.id, vsh); // set before loading so that we don't load twice
+
+    try {
+        let response = await fetch( `./alertca-vsh/${ce.id}.geojson`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        let data = await response.json();
+
+        // no polygon height - otherwise polygons are not draped over terrain
+        let ds = await Cesium.GeoJsonDataSource.load( data, { clampToGround: true });
+        for (const e of ds.entities.values) {
+            if (e.polygon) {
+                e.polygon.material = vshMaterial();
+                e.polygon.outline = false;
+            }
+        }
+
+        vsh.dataSource = ds;
+        ds.show = vsh.show && cameraDataSource.show; // might have been toggled while loading
+        odinCesium.addDataSource( ds);
+        odinCesium.requestRender();
+
+    } catch (e) {
+        console.log(`no viewshed for camera ${ce.id}: ${e}`);
+        viewsheds.delete( ce.id);
+        ui.setCheckBox( cb, false);
+    }
+}
+
+function updateViewshedVisibility() {
+    for (const vsh of viewsheds.values()) {
+        if (vsh.dataSource) vsh.dataSource.show = vsh.show && cameraDataSource.show;
+    }
+}
+
 // list -> entity
 function selectCameraEntry(event) {
     let ce = event.detail.curSelection;
@@ -479,11 +671,13 @@ function cameraSelection() {
 
 function showAlertCa (cond) { // triggered by panel
     cameraDataSource.show = cond;
+    updateViewshedVisibility();
     odinCesium.requestRender();
 }
 
 function toggleShowAlertCa(event) { // show action triggered by layer view (not panel)
     cameraDataSource.show = !cameraDataSource.show;
+    updateViewshedVisibility();
     odinCesium.requestRender();
 }
 
@@ -613,9 +807,9 @@ function handleUpdateMsg (msg) {
 // image windows report tracked (relative) image positions, which we turn into a bearing line from the camera position
 // (horizontal position) and - for cameras that report their tilt - a terrain intersection range (vertical position).
 // Since distances are very sensitive to pitch errors at grazing angles we show the range between the terrain
-// intersections for pitch +- config.viewTrackPitchUncertainty instead of a single point
+// intersections for pitch +- config.viewTrack.pitchUncertainty instead of a single point
 
-var viewTrack = undefined;  // { bearing, range, hit } Cesium entities
+var viewTrack = undefined;  // { bearing, range, hit, angle } Cesium entities
 var viewTrackSeq = 0;       // to discard outdated (async) terrain intersection results
 var viewTrackTimer = undefined;
 
@@ -628,11 +822,14 @@ function trackViewpoint (ce, data, pos) {
     let hfov = data.fovAngle;
     let bearing = (data.azimut + util.toDegrees( Math.atan( pos.x * Math.tan( util.toRadians( hfov/2)))) + 360) % 360;
     let p0 = ce.position;
-    let p1 = destination( p0.lon, p0.lat, bearing, config.viewTrackMaxDist);
+    let p1 = destination( p0.lon, p0.lat, bearing, config.viewTrack.maxDist);
 
     ensureViewTrack();
     viewTrack.bearing.polyline.positions = Cesium.Cartesian3.fromDegreesArray([ p0.lon, p0.lat, p1.lon, p1.lat ]);
     viewTrack.bearing.show = true;
+    viewTrack.angle.position = Cesium.Cartesian3.fromDegrees( p0.lon, p0.lat);
+    viewTrack.angle.label.text = viewAngleText( bearing); // pitch is added by computeViewRange()
+    viewTrack.angle.show = true;
     viewTrack.range.show = false;
     viewTrack.hit.show = false;
     odinCesium.requestRender();
@@ -643,7 +840,7 @@ function trackViewpoint (ce, data, pos) {
     if (data.tilt !== undefined) {
         viewTrackTimer = setTimeout( () => {
             computeViewRange( seq, ce, data, pos, bearing).catch( (err) => console.log("view range computation failed: ", err));
-        }, pos.isFrozen ? 0 : config.viewTrackDelay);
+        }, pos.isFrozen ? 0 : config.viewTrack.delay);
     } else { // make it obvious why there is no distance
         viewTrack.hit.position = Cesium.Cartesian3.fromDegrees( p1.lon, p1.lat);
         viewTrack.hit.label.text = "no camera tilt data";
@@ -654,17 +851,17 @@ function trackViewpoint (ce, data, pos) {
 async function computeViewRange (seq, ce, data, pos, bearing) {
     let hfov = util.toRadians( data.fovAngle);
     let vfov = 2 * Math.atan( Math.tan( hfov/2) * pos.height / pos.width); // assuming square pixels
-    let pitch = data.tilt + util.toDegrees( Math.atan( pos.y * Math.tan( vfov/2)));
-    let u = config.viewTrackPitchUncertainty;
-    let maxDist = config.viewTrackMaxDist;
+    let pitch = data.tilt + ce.tiltOffset + util.toDegrees( Math.atan( pos.y * Math.tan( vfov/2)));
+    let u = config.viewTrack.pitchUncertainty;
+    let maxDist = config.viewTrack.maxDist;
 
-    // the reported camera altitude is relative to MSL (and might be the ground elevation) but Cesium terrain heights are
+    // the reported camera altitude is relative to MSL (and is the ground elevation) but Cesium terrain heights are
     // relative to the WGS84 ellipsoid (~30m lower in CA). We therefore use the terrain height at the camera position
-    // plus a configured offset (mast height) unless there is no topographic terrain
+    // plus the configured camera height above ground unless there is no topographic terrain
     let p0 = ce.position;
     let origin = Cesium.Cartographic.fromDegrees( p0.lon, p0.lat, 0);
     let th = await odinCesium.terrainHeight( origin);
-    origin.height = ((th != 0) ? th : (p0.alt || 0)) + config.cameraHeightOffset;
+    origin.height = ((th != 0) ? th : (p0.alt || 0)) + ce.heightAboveGround;
 
     let [hit, near, far] = await Promise.all([
         odinCesium.terrainIntersection( origin, bearing, pitch, maxDist),
@@ -672,6 +869,8 @@ async function computeViewRange (seq, ce, data, pos, bearing) {
         odinCesium.terrainIntersection( origin, bearing, pitch + u, maxDist)
     ]);
     if (seq != viewTrackSeq || !viewTrack) return; // outdated
+
+    viewTrack.angle.label.text = viewAngleText( bearing, pitch);
 
     if (near) {
         let pFar = far ? far.position : Cesium.Cartographic.fromDegrees( ...lonLatOf( destination( p0.lon, p0.lat, bearing, maxDist)));
@@ -693,33 +892,68 @@ async function computeViewRange (seq, ce, data, pos, bearing) {
 
         viewTrack.hit.label.text = `${(hit.distance / 1000).toFixed(1)}${rangeText} km`;
         viewTrack.hit.show = true;
+
+    } else if (!near) { // make it obvious that the ray (within maxDist) does not hit the terrain
+        viewTrack.hit.position = Cesium.Cartesian3.fromDegrees( ...lonLatOf( destination( p0.lon, p0.lat, bearing, maxDist)));
+        viewTrack.hit.label.text = "no terrain intersection";
+        viewTrack.hit.show = true;
     }
     odinCesium.requestRender();
+}
+
+// bearing and (optional) pitch of the tracked view ray
+function viewAngleText (bearing, pitch) {
+    let s = `${bearing.toFixed(1)}°`;
+    if (pitch !== undefined) s += ` / ${pitch.toFixed(2)}°`;
+    return s;
 }
 
 function ensureViewTrack() {
     if (!viewTrack) {
         let bearing = new Cesium.Entity({
-            polyline: { positions: [], clampToGround: true, width: config.viewTrackWidth, material: config.viewTrackColor }
+            polyline: { positions: [], clampToGround: true, width: render.trackWidth, material: render.trackColor }
         });
         let range = new Cesium.Entity({
-            polyline: { positions: [], clampToGround: true, width: config.viewTrackRangeWidth, material: config.viewTrackRangeColor }
+            polyline: { positions: [], clampToGround: true, width: render.rangeWidth, material: render.rangeColor }
         });
         let hit = new Cesium.Entity({
             point: {
-                pixelSize: 6, color: config.viewTrackRangeColor, outlineColor: Cesium.Color.BLACK, outlineWidth: 1,
+                pixelSize: config.viewTrack.hitSize, color: config.viewTrack.hitColor,
+                outlineColor: config.viewTrack.hitOutlineColor, outlineWidth: config.viewTrack.hitOutlineWidth,
                 heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY
             },
             label: {
-                text: "", font: config.labelFont, fillColor: config.viewTrackColor,
+                text: "", font: config.labelFont, fillColor: render.trackColor,
                 showBackground: true, backgroundColor: config.labelBackground,
                 horizontalOrigin: Cesium.HorizontalOrigin.LEFT, verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
                 pixelOffset: config.labelOffset, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
                 disableDepthTestDistance: Number.POSITIVE_INFINITY
             }
         });
-        [bearing, range, hit].forEach( e => cameraDataSource.entities.add(e));
-        viewTrack = { bearing, range, hit };
+        let angle = new Cesium.Entity({ // bearing (and pitch) of the view ray, shown above the camera position
+            label: {
+                text: "", font: config.labelFont, fillColor: render.trackColor,
+                showBackground: true, backgroundColor: config.labelBackground,
+                horizontalOrigin: Cesium.HorizontalOrigin.LEFT, verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                pixelOffset: config.viewTrack.angleOffset, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                disableDepthTestDistance: Number.POSITIVE_INFINITY
+            }
+        });
+        [bearing, range, hit, angle].forEach( e => cameraDataSource.entities.add(e));
+        viewTrack = { bearing, range, hit, angle };
+    }
+}
+
+// apply current render parameters to the view track entities (if any)
+function updateViewTrackRendering() {
+    if (viewTrack) {
+        viewTrack.bearing.polyline.material = render.trackColor;
+        viewTrack.bearing.polyline.width = render.trackWidth;
+        viewTrack.range.polyline.material = render.rangeColor;
+        viewTrack.range.polyline.width = render.rangeWidth;
+        viewTrack.hit.label.fillColor = render.trackColor;
+        viewTrack.angle.label.fillColor = render.trackColor;
+        odinCesium.requestRender();
     }
 }
 
@@ -727,7 +961,7 @@ function clearViewTrack() {
     viewTrackSeq++;
     if (viewTrackTimer) { clearTimeout( viewTrackTimer); viewTrackTimer = undefined; }
     if (viewTrack) {
-        [viewTrack.bearing, viewTrack.range, viewTrack.hit].forEach( e => cameraDataSource.entities.remove(e));
+        [viewTrack.bearing, viewTrack.range, viewTrack.hit, viewTrack.angle].forEach( e => cameraDataSource.entities.remove(e));
         viewTrack = undefined;
         odinCesium.requestRender();
     }

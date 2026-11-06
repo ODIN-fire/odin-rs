@@ -1,11 +1,13 @@
 // example RON config file for AlertCalifornia cameras in the SF Bay Area
 AlertCaConfig(
+    // cameras are either plain AlertCalifornia ids or (id: "..", height_above_ground: <m>, tilt_offset: <deg>) structs
+    // with local camera attributes (both optional)
     cameras: [
         "limekilncanyon-cam01", //"Axis-LimekilnCanyon",
         "pressonhill-cam01", // "Axis-PressonHill1",
         "pressonhill-cam02", //"Axis-PressonHill2",
-        "mtchual-cam01", // "Axis-MtChaul", // NOTE: mis-spelled. Should be "MtChual"
-        "lomaprieta-cam01", // "Axis-LomaPrieta",
+        (id: "mtchual-cam01", height_above_ground: 12.0), // "Axis-MtChaul", // NOTE: mis-spelled. Should be "MtChual"
+        (id: "lomaprieta-cam01", height_above_ground: 14.0), // "Axis-LomaPrieta",
         "mtrodoni-cam01", // "Axis-MtRodoni1",
         "mtbielawski-cam01", // "Axis-MtBielawski",
         "almaden-cam01", // "Axis-Almaden1",
@@ -39,6 +41,7 @@ AlertCaConfig(
         "pachecopeak-cam01", // "Axis-PachecoPeak1",
         "pachecopeak-cam02", // "Axis-PachecoPeak2",
     ],
+    default_height_above_ground: 10.0, // [m] for cameras without configured height_above_ground
 
     base_url: "https://cameras.alertcalifornia.org/public-camera-data",
 

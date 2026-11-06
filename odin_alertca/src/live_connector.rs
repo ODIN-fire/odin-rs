@@ -23,7 +23,7 @@ use odin_image::ocr::{OcrEngine, create_default_ocr_engine};
 use crate::{
     actor::{AlertCaActorMsg, CameraUpdates},
     errors::{op_failed, OdinAlertCaError, Result}, camera_ids, get_latest_camera_data, get_latest_image, image_filepath, parse_cameras,
-    AlertCaConfig, AlertCaConnector, Camera, overlay::read_image_overlay
+    AlertCaConfig, AlertCaConnector, Camera, CameraAttrs, overlay::read_image_overlay
 };
 
 /// an http based AlertCaConnector that does fixed schedule downloads of camera data
@@ -127,7 +127,7 @@ impl AlertCaConnector for LiveAlertCaConnector {
 }
 
 /// download and parse the all_cameras GeoJSON and return the configured cameras that have been updated since the last call
-async fn get_camera_updates (client: &Client, config: &AlertCaConfig, ids: &HashMap<String,Arc<String>>,
+async fn get_camera_updates (client: &Client, config: &AlertCaConfig, ids: &HashMap<String,CameraAttrs>,
                              last_updates: &mut HashMap<Arc<String>,EpochMillis>)->Result<Vec<Camera>>
 {
     let contents = get_latest_camera_data( client, config).await?;

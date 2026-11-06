@@ -22,6 +22,7 @@ use odin_gdal::{
     create_wh_image_from_ds, csl_string_list, get_driver_name_for_extension, CslStringList, Dataset, Driver, SpatialRef,
     warp::SimpleWarpBuilder,
 };
+pub use odin_gdal::warp::ResampleAlg; // so that clients don't need to depend on odin_gdal
 use odin_common::{fs::{self,EnvPathBuf}, net::{download_url, mime_type_for_extension, NO_HEADERS}, BoundingBox};
 use odin_build::define_load_config;
 
@@ -138,8 +139,9 @@ pub fn get_wh_dem_filename (src: &str, epsg: u32, bbox: &BoundingBox<f64>, width
     format!("{src}_{epsg}_{},{},{},{}_{width}x{height}.{file_ext}",  bbox.west, bbox.south, bbox.east, bbox.north)
 }
 
-pub fn get_res_dem_filename (src: &str, epsg: u32, bbox: &BoundingBox<f64>, res_x: f64, res_y: f64, file_ext: &str) -> String {
-    format!("{src}_{epsg}_{},{},{},{}_{res_x},{res_y}.{file_ext}",  bbox.west, bbox.south, bbox.east, bbox.north)
+/// note the resampling algorithm is part of the name since it changes the data
+pub fn get_res_dem_filename (src: &str, epsg: u32, bbox: &BoundingBox<f64>, res_x: f64, res_y: f64, alg: ResampleAlg, file_ext: &str) -> String {
+    format!("{src}_{epsg}_{},{},{},{}_{res_x},{res_y}_{}.{file_ext}",  bbox.west, bbox.south, bbox.east, bbox.north, alg.name())
 }
 
 /// HTTP response creation
@@ -164,12 +166,12 @@ pub fn dem_cache_dir()->PathBuf {
 
 const DEM_OPTS: &[&'static str] = &[ "COMPRESS=DEFLATE", "PREDICTOR=2"];
 
-pub fn get_local_res_file_path<P> ( vrt_file: &P, bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64,
+pub fn get_local_res_file_path<P> ( vrt_file: &P, bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, alg: ResampleAlg,
                                     img_type: DemImgType, cache_dir: &PathBuf) -> Result<PathBuf>
     where P: AsRef<Path>
 {
     let data_src = fs::basename( vrt_file).ok_or(invalid_filename( format!("{:?}", vrt_file.as_ref())))?;
-    let fname = get_res_dem_filename( data_src, srs.epsg(), bbox, res_x, res_y, img_type.file_extension());
+    let fname = get_res_dem_filename( data_src, srs.epsg(), bbox, res_x, res_y, alg, img_type.file_extension());
     Ok( cache_dir.join( fname.as_str()) )
 }
 
@@ -202,7 +204,11 @@ pub fn get_wh_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, width: u32, height: 
 }
 
 
-pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, img_type: DemImgType, vrt_file: &P, file_path: &PathBuf) -> Result<()>
+/// create a DEM file for the given `bbox` (in `srs` units) and resolution from the virtual GDAL tileset specified by
+/// `vrt_file`, using the resampling algorithm `alg`. Nearest neighbour preserves terrain roughness for low resolution
+/// grids (e.g. for WindNinja), interpolating algorithms (bilinear, cubic) are more suitable for high resolutions and
+/// derived products such as contours or viewsheds
+pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, alg: ResampleAlg, img_type: DemImgType, vrt_file: &P, file_path: &PathBuf) -> Result<()>
     where P: AsRef<Path>
 {
     let vrt_path = vrt_file.as_ref();
@@ -220,6 +226,7 @@ pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: 
         warp.set_tgt_srs( &tgt_srs);
         warp.set_tgt_extent_from_bbox( bbox);
         warp.set_tgt_resolution( res_x, res_y);
+        warp.set_resample_alg( alg);
         warp.set_tgt_format( driver_name)?;
 
         // source nodata is mapped to the target nodata, which defaults to the source nodata. Clients that cannot handle
@@ -236,12 +243,12 @@ pub fn get_res_dem<P> (bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: 
 }
 
 
-pub async fn query_res_dem (base_url: &str, bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, img_type: DemImgType, file_path: &PathBuf) -> Result<()>  {
+pub async fn query_res_dem (base_url: &str, bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, alg: ResampleAlg, img_type: DemImgType, file_path: &PathBuf) -> Result<()>  {
     if !file_path.exists() {
-        let url = format!("{}/GetResDem?crs=EPSG:{}&bbox={:.0},{:.0},{:.0},{:.0}&res_x={}&res_y={}&format=image/tif",
+        let url = format!("{}/GetResDem?crs=EPSG:{}&bbox={:.0},{:.0},{:.0},{:.0}&res_x={}&res_y={}&resample={}&format=image/tif",
             base_url, srs.epsg(),
             bbox.west, bbox.south, bbox.east, bbox.north,
-            res_x, res_y
+            res_x, res_y, alg.name()
         );
         let client = reqwest::Client::new();
         download_url( &client, &url, NO_HEADERS, &file_path).await?;
@@ -295,13 +302,13 @@ impl DemSource {
         }
     }
 
-    pub async fn get_res_dem (&self, bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, img_type: DemImgType, file_path: &PathBuf) -> Result<()>  {
+    pub async fn get_res_dem (&self, bbox: &BoundingBox<f64>, srs: DemSRS, res_x: f64, res_y: f64, alg: ResampleAlg, img_type: DemImgType, file_path: &PathBuf) -> Result<()>  {
         match self {
             DemSource::Server(base_url) => {
-                query_res_dem(base_url, bbox, srs, res_x, res_y, img_type, file_path).await
+                query_res_dem(base_url, bbox, srs, res_x, res_y, alg, img_type, file_path).await
             }
             DemSource::File(vrt_file) => {
-                get_res_dem( bbox, srs, res_x, res_y, img_type, vrt_file, file_path)
+                get_res_dem( bbox, srs, res_x, res_y, alg, img_type, vrt_file, file_path)
             }
         }
     }

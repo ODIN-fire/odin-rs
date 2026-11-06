@@ -54,7 +54,7 @@ use anyhow::Result;
 use odin_build::set_bin_context;
 use odin_common::{define_serde_struct, fs::{self,EnvPathBuf}, BoundingBox, strings::{deserialize_arr4,parse_array}, if_let, datetime };
 use odin_server::{spawn_server_task,ServerConfig, server_error};
-use odin_dem::{get_dem_heights, get_local_res_file_path, get_local_wh_file_path, get_res_dem, get_wh_dem, load_config, DemImgType, DemSRS};
+use odin_dem::{get_dem_heights, get_local_res_file_path, get_local_wh_file_path, get_res_dem, get_wh_dem, load_config, DemImgType, DemSRS, ResampleAlg};
 
 
 /// DEM configuration data
@@ -83,6 +83,7 @@ define_serde_struct! { GetResDemQuery: Debug =
     bbox:[f64;4]             [deserialize_with="odin_common::strings::deserialize_arr4"],
     res_x: f64,
     res_y: f64,
+    resample: String         [default = "default_resample"], // GDAL resampling algorithm name (near, bilinear, cubic..)
     format: String           [default = "default_format"]
 }
 
@@ -92,6 +93,7 @@ define_serde_struct! { GetHeightsQuery: Debug =
 
 fn default_crs()->String { "EPSG:4326".into() }
 fn default_format()->String { "image/tif".into() }
+fn default_resample()->String { "near".into() } // the original (pre-parameter) behavior
 
 
 #[tokio::main]
@@ -215,10 +217,11 @@ async fn get_wh_dem_handler (Query(q): Query<GetWhDemQuery>, config: Arc<DemConf
 async fn get_res_dem_handler (Query(q): Query<GetResDemQuery>, config: Arc<DemConfig>, cache_dir: Arc<PathBuf>) -> impl IntoResponse {
     if_let! {
         Some(dem_srs) = { DemSRS::from_srs_spec( &q.crs) } else { (StatusCode::BAD_REQUEST, "unsupported target SRS").into_response() },
-        Some(dem_img) = { DemImgType::for_mime_type( &q.format) } else { (StatusCode::BAD_REQUEST, "unsupported DEM image type").into_response() } => {
+        Some(dem_img) = { DemImgType::for_mime_type( &q.format) } else { (StatusCode::BAD_REQUEST, "unsupported DEM image type").into_response() },
+        Some(alg) = { ResampleAlg::from_name( &q.resample) } else { (StatusCode::BAD_REQUEST, "unsupported resampling algorithm").into_response() } => {
             let bbox = BoundingBox::from_wsen( &q.bbox);
-            if let Ok(file_path) = get_local_res_file_path( &config.vrt_path, &bbox, dem_srs, q.res_x, q.res_y, DemImgType::TIF, cache_dir.as_ref()) {
-                match get_res_dem( &bbox, dem_srs, q.res_x, q.res_y, dem_img, &config.vrt_path, &file_path) {
+            if let Ok(file_path) = get_local_res_file_path( &config.vrt_path, &bbox, dem_srs, q.res_x, q.res_y, alg, DemImgType::TIF, cache_dir.as_ref()) {
+                match get_res_dem( &bbox, dem_srs, q.res_x, q.res_y, alg, dem_img, &config.vrt_path, &file_path) {
                     Ok(()) =>  odin_server::file_response( &file_path, false).await.into_response(),
                     Err(e) => server_error("failed to create DEM file").into_response()
                 }

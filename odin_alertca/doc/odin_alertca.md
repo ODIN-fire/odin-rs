@@ -99,9 +99,10 @@ in. It also allows to configure the external URLs to use and the interval in whi
 AlertCaConfig(
     cameras: [ // camera ids as used in the AlertCalifornia all_cameras.json data
         "limekilncanyon-cam01",
-        "pressonhill-cam01",
+        (id: "lomaprieta-cam01", height_above_ground: 12.0), // with local camera attributes
         ...
     ],
+    default_height_above_ground: 10.0, // [m] for cameras without configured height_above_ground
 
     base_url: "https://cameras.alertcalifornia.org/public-camera-data",
 
@@ -110,6 +111,16 @@ AlertCaConfig(
     max_age: Duration(secs:3600,nanos:0), // keep data for 1h
 )
 ```
+
+Cameras are either specified as plain ids or as `(id: .., height_above_ground: .., tilt_offset: ..)` structs with
+local camera attributes that are not (correctly) reported by AlertCalifornia. Both fields are optional:
+
+- `height_above_ground` [m] (default: `default_height_above_ground` of the config, which defaults to 10): height of the camera above the ground (e.g. mast or tower height). The
+  reported camera altitude is the ground elevation. This is used for viewpoint tracking and viewshed computation
+- `tilt_offset` [deg] (default 0): correction that is added to the reported (or OCR'ed) camera tilt for viewpoint tracking
+
+These values can be calibrated with viewpoint tracking (see below) by checking the distance of known landmarks, and if
+the ray of a visible point below the horizon does not hit the terrain (too high camera or too small depression angle).
 
 ## Viewpoint Tracking
 
@@ -120,15 +131,21 @@ position over the image is shown with a vertical and a horizontal line and repor
 - a **bearing line** from the camera position: `azimut + atan(x * tan(hfov/2))`, where `x` is the relative horizontal
   position in [-1,1] and `hfov` is the (zoom dependent) horizontal field of view of the camera when the image was taken
 - for cameras that report their tilt (PTZ cameras), the **terrain intersection** of a ray with this bearing and the
-  pitch `tilt + atan(y * tan(vfov/2))` (vertical field of view computed from `hfov` and the image aspect ratio). The ray
-  is intersected with the most detailed terrain by `odin_cesium::terrainIntersection()`
+  pitch `tilt + tilt_offset + atan(y * tan(vfov/2))` (vertical field of view computed from `hfov` and the image aspect
+  ratio). The ray starts at the terrain height of the camera position plus `height_above_ground` and is intersected
+  with the most detailed terrain by `odin_cesium::terrainIntersection()`. Rays that do not hit the terrain within
+  `viewTrack.maxDist` are labeled with "no terrain intersection"
+- the **view angle** of the ray (`bearing / pitch` in degrees) as a label at the camera position
+
+Colors and widths of the bearing line and the intersection range can be changed in the "layer parameters" panel of
+the window, which also controls color and alpha of displayed viewsheds (initial values are from `odin_alertca_config.js`).
 
 Clicking on the image freezes/unfreezes the tracked position. Since distances are very sensitive to pitch errors at
 grazing angles (`distance ~ camera height above terrain / tan(depression angle)`), the terrain intersection is shown as
-the range between the intersections for pitch ± `viewTrackPitchUncertainty` (default 0.25°), labeled with the nominal
+the range between the intersections for pitch ± `viewTrack.pitchUncertainty` (default 0.25°), labeled with the nominal
 distance and the range in km. Results are reliable in the near field and become increasingly uncertain towards the
-horizon. Other error sources are the camera height (the reported position altitude might be the ground elevation -
-`cameraHeightOffset` is added), lens distortion and atmospheric refraction.
+horizon. Other error sources are the camera height (`height_above_ground`), tilt calibration (`tilt_offset`), lens
+distortion, atmospheric refraction and the difference between the Cesium terrain and the DEM used for viewsheds.
 
 Azimuth, tilt and zoom of each image are read from its overlay text (e.g. `elev:2812' X:-54.88 Y:-1.78 Z:1.0`) by means
 of OCR (`odin_alertca::overlay`, using the `odin_image::ocr` module with the PP-OCR models in
@@ -136,6 +153,42 @@ of OCR (`odin_alertca::overlay`, using the `odin_image::ocr` module with the PP-
 for all PTZ cameras, and PTZ values are updated separately from frames (`ptz_updated_ts` vs. `last_frame_ts`), i.e. they
 might not match the image if the camera moved. If OCR fails (or the models are missing) we fall back to the camera data.
 The horizontal field of view is always taken from the camera data.
+
+## Viewsheds
+
+The "vsh" column of the camera list shows the viewshed of a camera, i.e. the terrain area that is visible from the camera
+position (in any direction since most cameras can pan). Viewsheds are static and hence computed offline with the
+`compute_vsh` tool, which stores them as `<camera-id>.geojson.gz` files in `$ODIN_ROOT/data/odin_alertca`. The
+`AlertCaService` serves them as `alertca-vsh/<camera-id>.geojson` and `odin_alertca.js` loads them when the respective
+"vsh" checkbox is checked for the first time. Cameras without a viewshed file just get their checkbox cleared.
+
+```shell
+compute_vsh                                       # all cameras of the sf_bay_area.ron AlertCaConfig
+compute_vsh --config my_cameras.ron --height 15   # all cameras of another config, overriding their configured heights
+compute_vsh --id blackmtscc-cam01 --lon -122.147301 --lat 37.3186 --height 15  # single camera
+```
+
+The camera positions of the config mode are taken from the current AlertCalifornia camera data (or the cached
+`all_cameras.json` if it cannot be retrieved). Since the reported altitude is the ground elevation, the camera height
+above ground is taken from the configured `height_above_ground` of each camera (an explicit `--height` overrides it).
+Single cameras (`--id`) also use the configured height if the camera is in the config, otherwise the
+`default_height_above_ground` of the config. Other options are `--max-dist` (default 40km), `--res` (DEM
+grid resolution, default 30m), `--resample` (DEM resampling algorithm, default `bilinear` - nearest neighbour
+resampling of the 10m source DEM creates noisy terrain and hence about twice the number of polygons), `--target-height` (height of visible targets above ground, default 0m), `--min-patch`
+and `--simplify` (see below), `--dem` (`odin_dem` server URL or VRT file, default is the 3DEP 1/3" VRT in
+`$ODIN_ROOT/data/odin_dem`) and `--output-dir`.
+
+The computation is implemented in `odin_gdal::viewshed`:
+
+1. a UTM DEM that covers the max distance around the camera is obtained through `odin_dem` (and cached)
+2. `GDALViewshedGenerate()` computes the visibility raster (including earth curvature and refraction)
+3. visible and invisible patches with less than `--min-patch` cells (default 50, i.e. 4.5ha at 30m) are merged into
+   their surroundings (`GDALSieveFilter()`) - this removes speckles that would only add polygons
+4. visible cells are polygonized (`GDALPolygonize()`), simplified with a `--simplify` tolerance (default 30m) and
+   written as a single WGS84 MultiPolygon feature with 5 decimal coordinates
+
+With the defaults the SF Bay Area cameras have 90-2150 polygons per viewshed (up to 0.3MB per gzipped file). Note the
+viewshed only considers terrain - vegetation and buildings are not part of the DEM.
 
 ## Example
 

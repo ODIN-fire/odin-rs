@@ -6,8 +6,8 @@ export const config = {
     },
 
     //--- request parameter choices
-    hours: [6, 12, 24, 48, 72], // forecast hours (datasets have hours+1 hourly products)
-    defaultHours: 0,
+    hours: [4, 6, 12, 24, 48, 72], // forecast hours (datasets have hours+1 hourly products)
+    defaultHours: 1,
 
     //--- display
     alpha: 0.8,                 // imagery layer alpha (PNG pixels are already semi-transparent)

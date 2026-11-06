@@ -40,6 +40,8 @@ export class ImgWindow {
         this.infoTxt = undefined;
         this.colorMapView = undefined;
         this.cmapInfoTxt = undefined;
+        this.pickBtn = undefined;
+        this.isPicking = false;    // next globe click looks up the color map entry of the selected source ("pick" button)
 
         this.selectedSrc = undefined;
         this.srcTree = ExpandableTreeNode.fromPreOrdered( sources, e => e.pathName);
@@ -120,7 +122,10 @@ export class ImgWindow {
             ),
             ui.Panel("color map", false)(
                 (this.colorMapView = ui.List(this.elementId("cm.list"), 15, this.selectImgCmapEntry.bind(this))),
-                (this.cmapInfoTxt = ui.VarText(null, this.elementId("cm.info"), "27rem"))
+                ui.RowContainer()(
+                    (this.cmapInfoTxt = ui.VarText(null, this.elementId("cm.info"), "25rem")),
+                    (this.pickBtn = ui.Button("pick", this.togglePickMode.bind(this)))
+                )
             ),
             ui.Panel("layer parameters", false)(
                 ui.ColumnContainer("align_right")(
@@ -144,6 +149,7 @@ export class ImgWindow {
         ui.setTree(this.sourceView, this.srcTree);
 
         odinCesium.registerMouseClickHandler( this.handleMouseClick.bind(this));
+        odinCesium.registerKeyDownHandler( this.handleKeyDown.bind(this));
     }
 
     initLayerPanel(config) {
@@ -169,7 +175,7 @@ export class ImgWindow {
                 { name: "color", width: "2rem", attrs: [], map: e=> ui.createColorBox(e.color) },
                 { name: "code", width: "3rem", attrs: ["alignRight"], map: e => e.code },
                 ui.listItemSpacerColumn(),
-                { name: "description", tip: "alt+click on map to look-up", width: "20rem", attrs: ["small"], map: e => e.descr }
+                { name: "description", tip: "pick button or shift+click on map to look-up", width: "20rem", attrs: ["small"], map: e => e.descr }
             ]);
         }
         return view;
@@ -220,19 +226,57 @@ export class ImgWindow {
         ui.setVarText(this.cmapInfoTxt, ce ? ce.descr : null);
     }
 
-    // shift-click lookup of the data value / color map entry at the mouse position for the selected source. If the
-    // source provider supports feature picking (e.g. WMS GetFeatureInfo) we get the value from the server, which does
-    // not depend on rendering parameters (brightness etc.), layer alpha, lighting or similar colors. Otherwise we
-    // fall back to finding the color map entry that best matches the rendered scene color
+    // "pick" button: the next click on the globe looks up the color map entry at the click position (a more obvious
+    // alternative to shift+click). Clicking the button again or pressing Esc cancels
+    togglePickMode() {
+        if (this.isPicking) {
+            this.exitPickMode();
+        } else if (!this.selectedSrc) {
+            ui.setVarText( this.cmapInfoTxt, "select a source to look up first");
+        } else {
+            this.isPicking = true;
+            ui.setElementColors( this.pickBtn, ui.getRootVar("--selected-data-color"), ui.getRootVar("--selection-background"));
+            odinCesium.setCursor("crosshair");
+            ui.setVarText( this.cmapInfoTxt, "click on globe to look up value");
+        }
+    }
+
+    exitPickMode() {
+        if (this.isPicking) {
+            this.isPicking = false;
+            ui.resetElementColors( this.pickBtn);
+            odinCesium.setDefaultCursor();
+        }
+    }
+
+    handleKeyDown(event) {
+        if (this.isPicking && event.key === "Escape") {
+            this.exitPickMode();
+            ui.setVarText( this.cmapInfoTxt, null);
+        }
+    }
+
+    // lookup of the data value / color map entry at the mouse position for the selected source, either after the "pick"
+    // button was clicked or with shift+click. If the source provider supports feature picking (e.g. WMS GetFeatureInfo)
+    // we get the value from the server, which does not depend on rendering parameters (brightness etc.), layer alpha,
+    // lighting or similar colors. Otherwise we fall back to finding the color map entry that best matches the rendered
+    // scene color
     handleMouseClick(event) {
-        if (event.shiftKey && ui.isTopWindow(this.window)) { // don't do anything if this is not the top window
-            let src = this.selectedSrc;
-            if (src) {
-                if (src.layer && src.layer.show && src.layer.imageryProvider && src.layer.imageryProvider.enablePickFeatures) {
-                    this.lookupFeatureInfo( src, event.clientX, event.clientY);
-                } else if (src.colorMap) {
-                    this.lookupSceneColor( src, event.clientX, event.clientY);
-                }
+        let isPick = this.isPicking;
+        if (isPick || (event.shiftKey && ui.isTopWindow(this.window))) { // shift+click only if this is the top window
+            this.exitPickMode(); // picks are single shot
+            this.lookupAt( this.selectedSrc, event.clientX, event.clientY);
+        }
+    }
+
+    lookupAt(src, x, y) {
+        if (src) {
+            if (src.layer && src.layer.show && src.layer.imageryProvider && src.layer.imageryProvider.enablePickFeatures) {
+                this.lookupFeatureInfo( src, x, y);
+            } else if (src.colorMap) {
+                this.lookupSceneColor( src, x, y);
+            } else {
+                ui.setVarText( this.cmapInfoTxt, "no color map or feature info for this source");
             }
         }
     }

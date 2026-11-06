@@ -51,6 +51,52 @@ pub enum ResampleAlg {
     //LastValue        = GDALResampleAlg::GRA_LAST_VALUE as isize  // NOTE - LastValue is the same as RMS
 }
 
+impl ResampleAlg {
+    /// the GDAL name of the resampling algorithm (as used by gdalwarp -r)
+    pub fn name (&self)->&'static str {
+        match self {
+            ResampleAlg::NearestNeighbour => "near",
+            ResampleAlg::Bilinear => "bilinear",
+            ResampleAlg::Cubic => "cubic",
+            ResampleAlg::CubicSpline => "cubicspline",
+            ResampleAlg::Lanczos => "lanczos",
+            ResampleAlg::Average => "average",
+            ResampleAlg::Mode => "mode",
+            ResampleAlg::Max => "max",
+            ResampleAlg::Min => "min",
+            ResampleAlg::Med => "med",
+            ResampleAlg::Q1 => "q1",
+            ResampleAlg::Q3 => "q3",
+            ResampleAlg::Sum => "sum",
+            ResampleAlg::RMS => "rms",
+        }
+    }
+
+    pub fn from_name (name: &str)->Option<ResampleAlg> {
+        match name.to_ascii_lowercase().as_str() {
+            "near" | "nearest" => Some(ResampleAlg::NearestNeighbour),
+            "bilinear" => Some(ResampleAlg::Bilinear),
+            "cubic" => Some(ResampleAlg::Cubic),
+            "cubicspline" => Some(ResampleAlg::CubicSpline),
+            "lanczos" => Some(ResampleAlg::Lanczos),
+            "average" => Some(ResampleAlg::Average),
+            "mode" => Some(ResampleAlg::Mode),
+            "max" => Some(ResampleAlg::Max),
+            "min" => Some(ResampleAlg::Min),
+            "med" => Some(ResampleAlg::Med),
+            "q1" => Some(ResampleAlg::Q1),
+            "q3" => Some(ResampleAlg::Q3),
+            "sum" => Some(ResampleAlg::Sum),
+            "rms" => Some(ResampleAlg::RMS),
+            _ => None
+        }
+    }
+}
+
+impl std::fmt::Debug for ResampleAlg {
+    fn fmt (&self, f: &mut std::fmt::Formatter<'_>)->std::fmt::Result { f.write_str( self.name()) }
+}
+
 /// nodata value for source bands without declared nodata if other warp bands do have one (same as gdalwarp)
 const UNUSED_NODATA: c_double = -1.1e20;
 

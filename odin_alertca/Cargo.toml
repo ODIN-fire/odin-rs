@@ -16,6 +16,8 @@ odin_job = { workspace = true }
 odin_common = { workspace = true }
 odin_macro = { workspace = true }
 odin_image = { workspace = true, features = ["ocr"] }
+odin_gdal = { workspace = true }
+odin_dem = { workspace = true }
 
 futures = { workspace = true }
 tokio = { workspace = true }

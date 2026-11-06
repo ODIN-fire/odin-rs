@@ -24,6 +24,7 @@ pub mod wms_srv;
 pub mod cmap;
 pub mod colorize;
 pub mod draw;
+pub mod viewshed;
 
 use lazy_static::lazy_static;
 use static_init::{constructor};

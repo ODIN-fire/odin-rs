@@ -24,7 +24,7 @@ use axum::{
 use async_trait::async_trait;
 
 use odin_actor::prelude::*;
-use odin_build::pkg_cache_dir;
+use odin_build::{pkg_cache_dir, pkg_data_dir};
 use odin_server::prelude::*;
 use odin_cesium::ImgLayerService;
 
@@ -44,6 +44,13 @@ impl AlertCaService {
         let server_path = pkg_cache_dir!().join( path.as_str());
         odin_server::file_response( &server_path, true).await.into_response()
     }
+
+    /// viewshed GeoJSON files are served from our data dir as `<camera-id>.geojson` (stored gzipped by compute_vsh)
+    async fn viewshed_handler (path: AxumPath<String>) -> Response {
+        let fname = path.as_str();
+        if fname.contains("..") || fname.contains('/') { return (StatusCode::BAD_REQUEST, "invalid viewshed name").into_response() }
+        compressable_file_response( pkg_data_dir!(), fname, "viewshed not found")
+    }
 }
 
 #[async_trait]
@@ -61,6 +68,10 @@ impl SpaService for AlertCaService {
 
         spa.add_route( |router, spa_server_state| { // serve image files
             router.route( &format!("/{}/alertca-data/{{*unmatched}}", spa_server_state.name.as_str()), get(Self::data_handler))
+        });
+
+        spa.add_route( |router, spa_server_state| { // serve viewshed GeoJSON files (see compute_vsh)
+            router.route( &format!("/{}/alertca-vsh/{{*unmatched}}", spa_server_state.name.as_str()), get(Self::viewshed_handler))
         });
 
         Ok(())

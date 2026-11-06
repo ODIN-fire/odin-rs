@@ -18,13 +18,13 @@
 /// The ruler is drawn on a transparent canvas that is rotated (via CSS transform) around the left end of the ruler bar.
 /// Interaction:
 ///  - drag the middle of the ruler to move it
-///  - drag the (transparent) left handle to extend/shrink the ruler along its bar (the right end stays fixed)
-///  - drag the (transparent) right handle to rotate the ruler around its left end in 5 degree increments
+///  - drag one of the (transparent) end handles to extend/shrink the ruler and rotate it (in 5 degree increments) around
+///    its other end at the same time, i.e. the dragged end follows the mouse while the other end stays fixed
 ///  - double click the middle of the ruler to reset its position, length and orientation
 /// The tick resolution is re-computed from the current view whenever the camera stops moving
 ///
 /// If the view is tilted (not looking straight down) the ruler switches to tilt mode: it is forced to be horizontal
-/// (rotation is disabled) and represents a fixed ground distance, i.e. its pixel length changes with its y position
+/// (handles only extend/shrink) and represents a fixed ground distance, i.e. its pixel length changes with its y position
 /// according to the ground resolution of the respective screen row (at the horizontal center of the view). For flat
 /// ground this resolution is uniform along a screen row, i.e. the ruler measures horizontal distances in tilted views.
 /// The ruler is shown dashed and cannot be moved above the horizon in tilt mode. Returning to an orthogonal view
@@ -65,8 +65,8 @@ initRuler();
 function initRuler() {
     canvas = document.createElement("canvas");
     canvas.classList.add("ui_moveable_canvas", "ui_mapscale");
-    canvas.height = config.scale.height;
-    canvas.style.transformOrigin = `${X_MARGIN}px ${config.scale.height/2}px`;
+    canvas.height = config.ruler.height;
+    canvas.style.transformOrigin = `${X_MARGIN}px ${config.ruler.height/2}px`;
 
     canvas.addEventListener("mousedown", handleMouseDown);
     canvas.addEventListener("mousemove", handleHover);
@@ -78,6 +78,7 @@ function initRuler() {
     odinCesium.registerMetricChangeHandler( updateScale);
     odinCesium.viewerReadyPromise.then( (viewer) => {
         viewer.camera.moveEnd.addEventListener( updateScale);
+        odinCesium.registerRulerChangeHandler( drawRuler); // e.g. color changes in the view window
         updateScale(); // this also shows the canvas
     });
 }
@@ -98,8 +99,8 @@ function getAnchor() {
     if (anchor) return anchor;
     let len = scale ? barLength() : 0;
     return {
-        x: window.innerWidth - config.scale.right - X_MARGIN - len,
-        y: window.innerHeight - config.scale.bottom - config.scale.height/2
+        x: window.innerWidth - config.ruler.right - X_MARGIN - len,
+        y: window.innerHeight - config.ruler.bottom - config.ruler.height/2
     };
 }
 
@@ -122,7 +123,7 @@ function isLeftHandle(pos) {
 }
 
 function isRightHandle(pos) {
-    return !tiltMode && (pos > barLength() - HANDLE_SLACK); // no rotation in tilt mode
+    return pos > barLength() - HANDLE_SLACK;
 }
 
 function isRotated() {
@@ -145,8 +146,7 @@ function getHeading() {
 function handleHover(event) {
     if (!scale) return;
     let pos = barPosition(event);
-    if (isLeftHandle(pos)) canvas.style.cursor = "ew-resize";
-    else if (isRightHandle(pos)) canvas.style.cursor = "grab";
+    if (isLeftHandle(pos) || isRightHandle(pos)) canvas.style.cursor = tiltMode ? "ew-resize" : "grab";
     else canvas.style.cursor = "move";
 }
 
@@ -159,10 +159,11 @@ function handleMouseDown(event) {
     let onMove;
 
     if (isLeftHandle(pos)) {
-        let r = getRightEnd(); // stays fixed while we extend to the left
-        onMove = (e) => extendTo( e, r);
+        let pivot = getRightEnd(); // stays fixed while we drag the left end
+        onMove = (e) => dragEndTo( e, pivot, false);
     } else if (isRightHandle(pos)) {
-        onMove = rotateTo;
+        let pivot = getAnchor(); // stays fixed while we drag the right end
+        onMove = (e) => dragEndTo( e, pivot, true);
     } else {
         let a = getAnchor();
         let dx = event.clientX - a.x;
@@ -189,28 +190,35 @@ function handleMouseDown(event) {
     document.addEventListener("mouseup", onUp);
 }
 
-// set the length (in full units) from the mouse position projected onto the bar, keeping the right end r fixed
-function extendTo(event, r) {
+// move the dragged end of the bar towards the mouse position while the other end (pivot) stays fixed. The length is
+// set in full units and the angle in ANGLE_STEP increments. In tilt mode the bar stays horizontal, i.e. we only use
+// the mouse position projected onto the bar to set its length
+function dragEndTo(event, pivot, isRightEnd) {
     event.preventDefault();
-    let d = direction();
-    let len = (r.x - event.clientX) * d.x + (r.y - event.clientY) * d.y;
+    let dx = isRightEnd ? event.clientX - pivot.x : pivot.x - event.clientX; // vector from left to right end
+    let dy = isRightEnd ? event.clientY - pivot.y : pivot.y - event.clientY;
+    let len;
+
+    if (tiltMode) {
+        let d = direction();
+        len = dx * d.x + dy * d.y;
+    } else {
+        let deg = Cesium.Math.toDegrees( Math.atan2( dy, dx)) + 90;
+        deg = Math.round( deg / ANGLE_STEP) * ANGLE_STEP;
+        angle = ((deg % 360) + 360) % 360;
+        len = Math.sqrt( dx*dx + dy*dy);
+    }
 
     nUnits = Math.max( 1, Math.round( len / scale.unitPx));
     let l = barLength();
     if (tiltMode) extLenM = nUnits * scale.unitM; else extLenPx = l;
-    anchor = { x: r.x - d.x * l, y: r.y - d.y * l };
-    drawRuler();
-}
 
-// rotate around the left end of the bar so that it points towards the mouse position
-function rotateTo(event) {
-    event.preventDefault();
-    let a = getAnchor();
-    let deg = Cesium.Math.toDegrees( Math.atan2( event.clientY - a.y, event.clientX - a.x)) + 90;
-    deg = Math.round( deg / ANGLE_STEP) * ANGLE_STEP;
-    angle = ((deg % 360) + 360) % 360;
-
-    if (!anchor) anchor = a; // don't move the rotation center if the ruler length changes
+    if (isRightEnd) {
+        anchor = pivot; // the left end is the rotation center
+    } else {
+        let d = direction();
+        anchor = { x: pivot.x - d.x * l, y: pivot.y - d.y * l };
+    }
     drawRuler();
 }
 
@@ -384,7 +392,7 @@ function withMetersPerPixel (f) {
 
 function getMetricScale (dPixel) {
     let unit, nUnits, unitPx;
-    let maxWidth = config.scale.width;
+    let maxWidth = config.ruler.width;
 
     outer: for ( let i=0; i < metricScaleUnits.length; i++) {
         unit = metricScaleUnits[i];
@@ -406,7 +414,7 @@ function getMetricScale (dPixel) {
 
 function getUsScale (dPixel) {
     let unit, nUnits, unitPx;
-    let maxWidth = config.scale.width;
+    let maxWidth = config.ruler.width;
 
     //--- start with US miles
     for ( let i=0; i < usMileScaleUnits.length; i++) {
@@ -460,9 +468,9 @@ function drawRuler () {
     let tickBase = scale.tickBase;
     let len = barLength();
     let label = `${formatValue( tickBase * nUnits)} ${scale.unitLabel}`;
-    let clr = config.scale.cssColor;
+    let clr = config.ruler.cssColor;
 
-    let canvasHeight = config.scale.height;
+    let canvasHeight = config.ruler.height;
     let canvasWidth = Math.ceil( 2*X_MARGIN + len + (isRotated() ? ANGLE_LABEL_WIDTH : 0));
     canvas.width = canvasWidth; // this also clears the canvas
     canvas.height = canvasHeight;
@@ -491,7 +499,7 @@ function drawRuler () {
 
     //--- the ticks
     if (unitPx > 25) {
-        ctx.font = config.scale.smallFont;
+        ctx.font = config.ruler.smallFont;
         ctx.beginPath();
         for (let i = 0; i<=nUnits; i++) {
             let x = X_MARGIN + (i*unitPx);
@@ -505,7 +513,7 @@ function drawRuler () {
     }
 
     //--- the length string
-    ctx.font = tiltMode ? `italic ${config.scale.font}` : config.scale.font;
+    ctx.font = tiltMode ? `italic ${config.ruler.font}` : config.ruler.font;
     drawText( ctx, label, Math.round( X_MARGIN + len / 2), y - 8, "center");
 
     //--- the heading (only if rotated)

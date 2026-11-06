@@ -960,8 +960,14 @@ pub struct SentinelConfig {
 
     pub max_history_len: usize, // maximum number of records to store per device/sensor capability
     pub max_age: Duration, // maximum age after which additional data (images etc.) are deleted
+
+    //--- poll mode timing
+    pub poll_interval: Option<Duration>, // if set we don't use a websocket
+
+    //--- websocket timing
     pub ping_interval: Option<Duration>, // interval duration for sending Ping messages on the websocket
     pub reconnect_delay: Option<Duration>, // sleep duration after which we try to re-initializa a broken websocket
+
     pub device_filter: Vec<String>, // optional list of device_ids to filter for
 
     pub inactive_duration: Duration, // max duration since last update after which a device is considered to be inactive
@@ -979,8 +985,13 @@ impl Default for SentinelConfig {
             //--- the fields for which we have defaults
             max_history_len: 10,
             max_age: days(1),
-            ping_interval: Some(secs(25)),
+
+            poll_interval: Some(minutes(3)),
+
+            //--- websocket intervals
+            ping_interval: None, // Some(secs(25)),
             reconnect_delay: None,
+
             device_filter: Vec::new(), // default is no filter
             inactive_duration: hours(2), // inactive if no update for 2h
             inactive_interval: minutes(5) // check every 5 min

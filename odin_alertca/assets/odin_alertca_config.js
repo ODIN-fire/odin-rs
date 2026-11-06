@@ -19,21 +19,39 @@ export const config = {
     infoOffset:  new Cesium.Cartesian2( 8, 16),
     infoDC: new Cesium.DistanceDisplayCondition( 0, 8000),
     billboardDC: new Cesium.DistanceDisplayCondition( 0, 30000),
-    fovColor: Cesium.Color.fromCssColorString('#00ffff').withAlpha(0.1),
-    fovOutlineColor: Cesium.Color.fromCssColorString('#00ffff'),
-    fovDC: new Cesium.DistanceDisplayCondition(0, 50000),
+
+    // field of view display (dataView "fov" checkboxes)
+    fov: {
+      color: Cesium.Color.fromCssColorString('#00ffff').withAlpha(0.1),
+      outlineColor: Cesium.Color.fromCssColorString('#00ffff'),
+      dc: new Cesium.DistanceDisplayCondition(0, 50000),
+    },
+
     imageWidth: 630,
     imageHeight: 450,
     maxHistory: 20, // max data points we keep
     zoomHeight: 20000,
 
-    // viewpoint tracking in image windows (bearing line and terrain intersection range)
-    viewTrackColor: Cesium.Color.YELLOW,
-    viewTrackWidth: 2,
-    viewTrackRangeColor: Cesium.Color.ORANGERED,
-    viewTrackRangeWidth: 6,
-    viewTrackMaxDist: 40000,         // [m] length of bearing line and max distance for terrain intersection
-    viewTrackPitchUncertainty: 0.25, // [deg] pitch error for which we show the intersection range
-    viewTrackDelay: 300,             // [ms] mouse rest time before we compute terrain intersections
-    cameraHeightOffset: 10,          // [m] camera height above the reported camera position (e.g. mast height)
+    // viewpoint tracking in image windows (bearing line and terrain intersection range). Note that camera height above
+    // ground and tilt offset are configured per camera in the server side AlertCaConfig
+    viewTrack: {
+      color: Cesium.Color.CYAN,             // bearing line and labels
+      width: 2,
+      rangeColor: Cesium.Color.ORANGERED,   // terrain intersection range and hit point
+      rangeWidth: 6,
+        hitSize: 8,                           // [pixel] terrain intersection point
+      hitColor: Cesium.Color.RED,
+      hitOutlineColor: Cesium.Color.YELLOW,
+      hitOutlineWidth: 2,
+      maxDist: 40000,                       // [m] length of bearing line and max distance for terrain intersection
+      pitchUncertainty: 0.25,               // [deg] pitch error for which we show the intersection range
+      delay: 300,                           // [ms] mouse rest time before we compute terrain intersections
+      angleOffset: new Cesium.Cartesian2( 10, -8), // pixel offset of bearing/pitch label from camera position
+    },
+
+    // viewshed display (polygons computed offline by compute_vsh)
+    vsh: {
+      color: Cesium.Color.fromCssColorString('#ffff00'),
+      alpha: 0.25,
+    },
   };

@@ -70,6 +70,10 @@ struct Camera {
     zoom: Option<f64>,      // ditto
 
     image: Option<PathBuf>,
+
+    // configured local camera attributes (see CameraConfig, CameraAttrs)
+    height_above_ground: f64,
+    tilt_offset: f64,
 }
 
 impl Camera {
@@ -96,6 +100,8 @@ impl Camera {
             w.write_json_field("position", &self.position);
             w.write_json_field("pos", &self.pos);
             w.write_f64_field("maxFov", self.max_fov.degrees(), NumFormat::Fp2);
+            w.write_f64_field("heightAboveGround", self.height_above_ground, NumFormat::Fp1);
+            w.write_f64_field("tiltOffset", self.tilt_offset, NumFormat::Fp2);
             w.write_array_field("data", |w| {
                 for c in history { c.write_data_json_to(w); }
             })
@@ -173,15 +179,72 @@ impl CameraStore {
     }
 }
 
+/// fallback for AlertCaConfig.default_height_above_ground [m] if it is not set in the config file
+const DEFAULT_HEIGHT_ABOVE_GROUND: f64 = 10.0;
+fn default_height_above_ground()->f64 { DEFAULT_HEIGHT_ABOVE_GROUND }
+
+/// configured local attributes of a camera that are not (correctly) reported by AlertCalifornia. In config files this
+/// can be either a plain id string (using defaults) or a `(id: "..", height_above_ground: 15.0, tilt_offset: -0.5)`
+/// struct with optional fields
+#[derive(Serialize,Debug,Clone)]
+#[public_struct]
+struct CameraConfig {
+    id: Arc<String>,                  // we use ids for 3 different data structures - share the ids to avoid duplicate allocation
+    height_above_ground: Option<f64>, // [m] camera height above ground (e.g. mast height), None: config default
+    tilt_offset: f64,                 // [deg] correction that is added to the reported camera tilt
+}
+
+/// the resolved (config defaults applied) local attributes of a camera
+#[derive(Debug,Clone)]
+#[public_struct]
+struct CameraAttrs {
+    id: Arc<String>,
+    height_above_ground: f64,
+    tilt_offset: f64,
+}
+
+impl<'de> Deserialize<'de> for CameraConfig {
+    fn deserialize<D: Deserializer<'de>> (deserializer: D)->std::result::Result<Self,D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Spec {
+            Id(String),
+            Config {
+                id: String,
+                #[serde(default)] height_above_ground: Option<f64>,
+                #[serde(default)] tilt_offset: f64,
+            }
+        }
+
+        Ok( match Spec::deserialize( deserializer)? {
+            Spec::Id(id) => CameraConfig{ id: Arc::new(id), height_above_ground: None, tilt_offset: 0.0 },
+            Spec::Config{id, height_above_ground, tilt_offset} => CameraConfig{ id: Arc::new(id), height_above_ground, tilt_offset }
+        })
+    }
+}
+
 /// specification of which cameras to retrieve when
 #[derive(Deserialize,Serialize,Debug)]
 #[public_struct]
 struct AlertCaConfig {
-    cameras: Vec<Arc<String>>,  // we use ids for 3 different data structures - share the ids to avoid duplicate allocation
+    cameras: Vec<CameraConfig>,
+    #[serde(default="default_height_above_ground")]
+    default_height_above_ground: f64, // [m] for cameras without configured height_above_ground
     base_url: String, // for all-camera / image retrieval
     update_interval: Duration, // data retrieval interval
     max_history: usize, // number of camera states we keep per camera
     max_age: Duration, // duration after which to drop camera data
+}
+
+impl AlertCaConfig {
+    /// the resolved local attributes of a configured camera
+    pub fn camera_attrs (&self, cc: &CameraConfig)->CameraAttrs {
+        CameraAttrs {
+            id: cc.id.clone(),
+            height_above_ground: cc.height_above_ground.unwrap_or( self.default_height_above_ground),
+            tilt_offset: cc.tilt_offset
+        }
+    }
 }
 
 #[async_trait]
@@ -201,9 +264,10 @@ pub fn all_cameras_filepath ()->PathBuf {
     pkg_cache_dir!().join( "all_cameras.json")
 }
 
-/// map from (configured) camera ids to shared id objects. This allows lookup without allocation while parsing
-pub fn camera_ids (config: &AlertCaConfig)->HashMap<String,Arc<String>> {
-    HashMap::from_iter( config.cameras.iter().map( |id| (id.to_string(), id.clone())))
+/// map from (configured) camera ids to resolved camera attributes (with shared id objects). This allows lookup without
+/// allocation while parsing
+pub fn camera_ids (config: &AlertCaConfig)->HashMap<String,CameraAttrs> {
+    HashMap::from_iter( config.cameras.iter().map( |cc| (cc.id.to_string(), config.camera_attrs( cc))))
 }
 
 /* #region all_cameras GeoJSON parsing *********************************************************************************/
@@ -240,7 +304,7 @@ struct RawFeature<'a> {
 
 /// parse the all_cameras GeoJSON `data` and return the cameras with ids from `ids` (see [camera_ids]).
 /// Features without position or last_frame_ts are ignored
-pub fn parse_cameras (data: &[u8], ids: &HashMap<String,Arc<String>>)->Result<Vec<Camera>> {
+pub fn parse_cameras (data: &[u8], ids: &HashMap<String,CameraAttrs>)->Result<Vec<Camera>> {
     let mut cameras: Vec<Camera> = Vec::with_capacity( ids.len());
     let mut de = serde_json::Deserializer::from_slice( data);
     FeatureCollectionSeed{ ids, cameras: &mut cameras }.deserialize( &mut de)?;
@@ -249,7 +313,7 @@ pub fn parse_cameras (data: &[u8], ids: &HashMap<String,Arc<String>>)->Result<Ve
 }
 
 struct FeatureCollectionSeed<'s> {
-    ids: &'s HashMap<String,Arc<String>>,
+    ids: &'s HashMap<String,CameraAttrs>,
     cameras: &'s mut Vec<Camera>,
 }
 
@@ -278,7 +342,7 @@ impl<'de,'s> Visitor<'de> for FeatureCollectionSeed<'s> {
 }
 
 struct FeaturesSeed<'s> {
-    ids: &'s HashMap<String,Arc<String>>,
+    ids: &'s HashMap<String,CameraAttrs>,
     cameras: &'s mut Vec<Camera>,
 }
 
@@ -296,8 +360,8 @@ impl<'de,'s> Visitor<'de> for FeaturesSeed<'s> {
 
     fn visit_seq<A: SeqAccess<'de>> (self, mut seq: A)->std::result::Result<(),A::Error> {
         while let Some(feature) = seq.next_element::<RawFeature<'de>>()? {
-            if let Some(id) = self.ids.get( feature.properties.id.as_ref()) {
-                if let Some(camera) = camera_from_feature( id.clone(), feature) {
+            if let Some(cc) = self.ids.get( feature.properties.id.as_ref()) {
+                if let Some(camera) = camera_from_feature( cc, feature) {
                     self.cameras.push( camera);
                 }
             }
@@ -306,7 +370,8 @@ impl<'de,'s> Visitor<'de> for FeaturesSeed<'s> {
     }
 }
 
-fn camera_from_feature (id: Arc<String>, feature: RawFeature)->Option<Camera> {
+fn camera_from_feature (cc: &CameraAttrs, feature: RawFeature)->Option<Camera> {
+    let id = cc.id.clone();
     let coords = feature.geometry?.coordinates;
     if coords.len() < 2 { return None }
     let p = feature.properties;
@@ -338,7 +403,8 @@ fn camera_from_feature (id: Arc<String>, feature: RawFeature)->Option<Camera> {
     let tilt = p.tilt_current.map( |t| Angle90::from_degrees(t));
     let zoom = p.zoom_current;
 
-    Some( Camera{ id, name, position, pos, max_fov, last_update, fov_dist, fov_angle, azimut, tilt, zoom, image: None } )
+    Some( Camera{ id, name, position, pos, max_fov, last_update, fov_dist, fov_angle, azimut, tilt, zoom, image: None,
+                  height_above_ground: cc.height_above_ground, tilt_offset: cc.tilt_offset } )
 }
 
 /// compute distance and angle of the field of view from the camera position and the left and right fov boundary points

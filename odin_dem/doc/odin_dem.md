@@ -57,6 +57,16 @@ DEM to retrieve - it can take up to several seconds to execute.
 
 The `get_dem` command line tool is a simple wrapper around this function.
 
+DEMs with a given resolution are extracted with `get_res_dem` (local VRT), `query_res_dem` (`serve_dem` server) or
+`DemSource::get_res_dem` (either one), which take the GDAL resampling algorithm (`odin_dem::ResampleAlg`) as a parameter:
+
+- `ResampleAlg::NearestNeighbour` preserves terrain roughness, which is preferable for coarse grids such as WindNinja meshes
+- interpolating algorithms (`Bilinear`, `Cubic`) or `Average` are more suitable for high resolutions and derived products
+  such as contours or viewsheds, where nearest neighbour sampling creates noise
+
+The algorithm is part of the cached DEM filename. The `serve_dem` `GetResDem` request has a respective optional
+`resample` parameter (GDAL name such as `near`, `bilinear` or `cubic`), which defaults to `near`.
+
 
 ## Serving a DEM
 
