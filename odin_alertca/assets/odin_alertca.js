@@ -278,7 +278,7 @@ function createIcon() {
 
 function createWindow() {
     return ui.Window("Alert-CA Cameras", "alertca", "./asset/odin_alertca/alertca.svg")(
-        ui.LayerPanel("alert-ca", toggleShowAlertCa),
+        ui.LayerPanel("alert-ca"),
 
         ui.Panel("cameras", true) (
             (cameraView = ui.List("alertca.cameras", 10, selectCameraEntry,null,null,zoomToCamera)),
@@ -671,12 +671,6 @@ function cameraSelection() {
 
 function showAlertCa (cond) { // triggered by panel
     cameraDataSource.show = cond;
-    updateViewshedVisibility();
-    odinCesium.requestRender();
-}
-
-function toggleShowAlertCa(event) { // show action triggered by layer view (not panel)
-    cameraDataSource.show = !cameraDataSource.show;
     updateViewshedVisibility();
     odinCesium.requestRender();
 }

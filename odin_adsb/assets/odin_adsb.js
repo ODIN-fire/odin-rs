@@ -289,7 +289,7 @@ function createIcon() {
 
 function createWindow() {
     return ui.Window("Aircraft", "adsb", "./asset/odin_adsb/adsb-icon.svg")(
-        ui.LayerPanel("adsb", toggleShowAdsb),
+        ui.LayerPanel("adsb"),
         ui.Panel("track sources", true)(
             ui.List("tracks.sources", 5, selectSource)
         ),
@@ -336,11 +336,6 @@ function initTrackEntryView() {
 
 function defined_value (v) {
     return v ? v : "-";
-}
-
-// our local show/hide
-function toggleShowAdsb (event) {
-    showAdsb( !isAdsbShowing)
 }
 
 // the layer window show/hide

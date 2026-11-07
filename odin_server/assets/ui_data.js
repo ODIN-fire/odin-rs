@@ -292,10 +292,10 @@ export class ExpandableTreeNode extends TreeNode {
         let root = ExpandableTreeNode.newRoot();
         items.forEach( (item) => {
             let pathName = pathExtractor(item);
+            let isSticky = stickyClassifier(item); // classify the original item (branch items are not stored)
             if (branchClassifier(item)) { item = null }
-            let isSticky = stickyClassifier(item);
             if (pathName) {
-                root.sortInPathName(pathName, item)
+                root.sortInPathName(pathName, item, false, isSticky)
             }
         });
 

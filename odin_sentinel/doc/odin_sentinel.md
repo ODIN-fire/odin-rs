@@ -12,7 +12,7 @@ The `odin_sentinel` crate accesses respective Sentinel data through an external 
 
 The primary component running in the ODIN server is a `SentinelActor`, which is a realtime database of a configurable
 number of most recent sentinel sensor records. The `SentinelActor` does not directly communicate with the outside world - it
-uses a `SentinelConnector` trait object to do external IO. The primary impl for this trait is the `LiveSentinelConnector`,
+uses a `SentinelConnector` trait object to do external IO. The primary impl for this trait is the `WsConnector`,
 which retrieves the list of available Sentinel devices, queries each devices sensors and retrieves initial sensor records
 (all using HTTP GET requests). It then opens a websocket and listens for incoming sensor record availability notifications
 (as JSON messages). Once such a notification was received the connector uses HTTP GET to retrieve the record itself and

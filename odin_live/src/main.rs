@@ -24,7 +24,7 @@ use odin_goesr::{GoesrHotspotService, actor::spawn_goesr_hotspot_actors};
 use odin_orbital::{actor::spawn_orbital_hotspot_actors,hotspot_service::OrbitalHotspotService,firms::FirmsConfig};
 use odin_share::prelude::*;
 use odin_geolayer::GeoLayerService;
-use odin_sentinel::{LiveSentinelConnector, SentinelActor, sentinel_service::SentinelService};
+use odin_sentinel::{PollConnector, SentinelActor, sentinel_service::SentinelService};
 use odin_hrrr::{self,HrrrActor,HrrrService};
 use odin_openmeteo::{self,OpenMeteoActor,wx_service::OpenMeteoService};
 use odin_wx::{WxServiceList,WxFileAvailable};
@@ -145,7 +145,7 @@ run_actor_system!( actor_system => {
     let svc_list = {
         let sentinel_id = "sentinel";
         let hsentinel = spawn_actor!( actor_system, sentinel_id, SentinelActor::new(
-            LiveSentinelConnector::new( odin_sentinel::load_config( "sentinel.ron")?),
+            PollConnector::new( odin_sentinel::load_config( "sentinel.ron")?)?,
             odin_sentinel::actor::server_init_action( pre_server.to_actor_handle(), sentinel_id),
             odin_sentinel::actor::server_update_action( pre_server.to_actor_handle())
         ))?;

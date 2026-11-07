@@ -679,7 +679,7 @@ function createIcon() {
 
 function createWindow() {
     let view = ui.Window("elmfire", "elmfire", "./asset/odin_elmfire/fires-icon.svg")(
-        ui.LayerPanel("elmfire", toggleShowFires),
+        ui.LayerPanel("elmfire"),
         ui.Panel("simulations", true)(
             ui.RowContainer()(
                 (selCb = ui.CheckBox("show sel", toggleShowSelectedEntry, "elmfire.showSel", true)),
@@ -1957,11 +1957,6 @@ function updateAllDisplays() {
     ui.updateListItems(fireView);
     ui.updateListItems(timestepView);
     odinCesium.requestRender();
-}
-
-// show/hide selected fire entry
-function toggleShowFires(event) {
-    showFires( ui.isCheckBoxSelected(event.target));
 }
 
 // "show" checkbox of a fireView item. Note this is executed before the item gets selected (i.e. before selectEntry)

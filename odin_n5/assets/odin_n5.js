@@ -255,7 +255,7 @@ function createIcon() {
 
 function createWindow() {
     return ui.Window("N5 Shield Sensors", "n5", "./asset/odin_n5/n5.svg")(
-        ui.LayerPanel("n5", toggleShowN5),
+        ui.LayerPanel("n5"),
 
         ui.Panel("devices", true) (
             (deviceView = ui.List("n5.devices", 10, selectDeviceEntry,null,null,zoomToDevice)),
@@ -357,11 +357,6 @@ function n5DeviceSelection() {
 
 function showN5 (cond) { // triggered by panel
     n5DataSource.show = cond;
-    odinCesium.requestRender();
-}
-
-function toggleShowN5(event) { // show action triggered by layer view (not panel)
-    n5DataSource.show = !n5DataSource.show;
     odinCesium.requestRender();
 }
 

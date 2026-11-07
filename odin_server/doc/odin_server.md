@@ -315,7 +315,7 @@ use std::any::type_name;
 use odin_build;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
-use odin_sentinel::{SentinelStore,SentinelUpdate,LiveSentinelConnector,SentinelActor,load_config, web::SentinelService};
+use odin_sentinel::{SentinelStore,SentinelUpdate,WsConnector,SentinelActor,load_config, web::SentinelService};
 
 run_actor_system!( actor_system => {
 
@@ -329,7 +329,7 @@ run_actor_system!( actor_system => {
     ))?;
 
     let _hsentinel = spawn_pre_actor!( actor_system, hsentinel, SentinelActor::new(
-        LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
+        WsConnector::new( load_config( "sentinel.ron")?), 
         dataref_action!( hserver.clone(): ActorHandle<SpaServerMsg> => |_store: &SentinelStore| {
             Ok( hserver.try_send_msg( DataAvailable{sender_id:"updater",data_type: type_name::<SentinelStore>()} )? )
         }),

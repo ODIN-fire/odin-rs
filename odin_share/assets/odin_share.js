@@ -333,7 +333,7 @@ function createDataIcon() {
 
 function createDataWindow() {
     return ui.Window("Shared Data", "share.data", "./asset/odin_share/share.svg")(
-        ui.LayerPanel("sharedData", toggleShareLayer),
+        ui.LayerPanel("sharedData"),
 
         ui.ColumnContainer()(
             ui.TreeList("share.data.dir.list", 17, "33rem", selectShareEntry),
@@ -450,10 +450,6 @@ function initDirView() {
         ]);
     }
     return view;
-}
-
-function toggleShareLayer(event) {
-    // nothing to toggle yet
 }
 
 function showShareLayer (cond) {

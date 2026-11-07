@@ -115,19 +115,19 @@ export function showMoveableCanvas (o) {
     let e = getMoveableCanvas(o);
     if (e)  {
         if (e._uiDraw) e._uiDraw(e);
-        _addClass(e, "show");
+        addClass(e, "show");
     }
 }
 
 export function hideMoveableCanvas (o) {
     let e = getMoveableCanvas(o);
-    if (e)  _removeClass(e, "show");
+    if (e)  removeClass(e, "show");
 }
 
 export function closeMoveableCanvas (o) {
     let e = getMoveableCanvas(o);
     if (e) {
-        _removeClass(e, "show");
+        removeClass(e, "show");
         e.parentElement.removeChild(e);
     }
 }
@@ -188,8 +188,8 @@ export function getMoveableCanvas (o) {
 
 //--- windows
 
-var topWindowZ = _rootVarInt('--window-z');
-var spotlightZ = _rootVarInt('--spotlight-z');
+var topWindowZ = rootVarInt('--window-z');
+var spotlightZ = rootVarInt('--spotlight-z');
 var windows = [];
 
 document.addEventListener('keydown', (event) => {
@@ -228,7 +228,7 @@ export function Window (title, eid, icon) {
 
 // this is only called for server-created elements that are already in the DOM
 function initializeWindows() {
-    for (const e of _getDocumentElementsByClassName("ui_window")) initializeWindow(e);
+    for (const e of getDocumentElementsByClassName("ui_window")) initializeWindow(e);
 }
 
 export function initializeWindow(e) {
@@ -241,7 +241,7 @@ export function initializeWindow(e) {
 
     if (e.dataset.onclose) w.closeAction = new Function(e.dataset.onclose);
 
-    for (let c of _getChildren(e)) initializeRecursive(c);
+    for (let c of getChildren(e)) initializeRecursive(c);
     addWindow(e);
 
     return e;
@@ -261,7 +261,7 @@ function initializeRecursive(e) {
     if (!e._uiInitialized) {
         e._uiInitialized = true;
 
-        let uiCls = _getUiClass(e);
+        let uiCls = getUiClass(e);
         if (uiCls) {
             let initializer = uiClassInitializers.get(uiCls);
             if (initializer) {
@@ -317,7 +317,7 @@ function createWindowComponents(e, title, isPermanent, icon) {
     });
 
     let wndContent = createElement("DIV", "ui_window_content");
-    _moveChildElements(e, wndContent);
+    moveChildElements(e, wndContent);
 
     e.appendChild(tb);
     e.appendChild(wndContent);
@@ -326,7 +326,7 @@ function createWindowComponents(e, title, isPermanent, icon) {
 export function getWindowContent (o) {
     let w = getWindow(o);
     if (w) {
-        return _nthChildOf(w,1);
+        return nthChildOf(w,1);
     }
 }
 
@@ -379,7 +379,7 @@ function updateWindowZorder() {
 
     for (let i = windows.length - 1; i >= 0; i--) {
         let w = windows[i];
-        if (!_containsClass(w, "spotlight")){
+        if (!containsClass(w, "spotlight")){
             w.style.zIndex = z;
             z--;
         } else {
@@ -453,7 +453,7 @@ function clearTopWindowSelections() {
 }
 
 function clearSelectionsRecursive(e) {
-    let uiCls = _getUiClass(e);
+    let uiCls = getUiClass(e);
     if (uiCls && uiCls == "ui_list") {
         clearSelectedListItem(e);
     } else {
@@ -465,12 +465,12 @@ export function setWindowSpotlight(o,isSpotlight) {
     let w = getWindow(o);
     if (w) {
         if (isSpotlight) {
-            _addClass(w, "spotlight");
-            _addClass(w.firstChild, "spotlight"); // the titlebar
+            addClass(w, "spotlight");
+            addClass(w.firstChild, "spotlight"); // the titlebar
         }
         else {
-            _removeClass( w, "spotlight");
-            _removeClass(w.firstChild, "spotlight"); // the titlebar
+            removeClass( w, "spotlight");
+            removeClass(w.firstChild, "spotlight"); // the titlebar
         }
     }
 }
@@ -478,7 +478,7 @@ export function setWindowSpotlight(o,isSpotlight) {
 export function showWindow(o) {
     let e = getWindow(o);
     if (e) {
-        _addClass(e, "show");
+        addClass(e, "show");
         addWindowOnTop(e);
     }
 }
@@ -486,7 +486,7 @@ export function showWindow(o) {
 export function closeWindow(o) {
     let e = getWindow(o);
     if (e) {
-        _removeClass(e, "show");
+        removeClass(e, "show");
         removeWindowFromStack(e);
         if (e.closeAction) e.closeAction();
     }
@@ -495,7 +495,7 @@ export function closeWindow(o) {
 export function removeWindow(o) {
     let e = getWindow(o);
     if (e) {
-        _removeClass(e, "show");
+        removeClass(e, "show");
         removeWindowFromStack(e);
         e.parentElement.removeChild(e);
         if (e.closeAction) e.closeAction();
@@ -505,7 +505,7 @@ export function removeWindow(o) {
 export function toggleWindow(event, o) {
     let e = elementOf(o);
     if (e) {
-        if (!_containsClass(e, "show")) {
+        if (!containsClass(e, "show")) {
             if (window.getComputedStyle(e).left == 'auto') { // no placement specified in CSS
                 let r = event.target.getBoundingClientRect();
                 setWindowLocation(e, r.left, r.bottom);
@@ -540,7 +540,7 @@ export function setWindowLocation(o, x, y) {
 export function setWindowTitle(o, title) {
     let e = getWindow(o);
     if (e) {
-        let tb = _firstChildWithClass(e, "ui_titlebar");
+        let tb = firstChildWithClass(e, "ui_titlebar");
         if (tb && tb.firstChild && tb.firstChild.nodeType === Node.TEXT_NODE) {
             tb.firstChild.nodeValue = title;
         }
@@ -661,9 +661,9 @@ export function setWindowResizable(o, isResizable) {
     let e = getWindow(o);
     if (e) {
         if (isResizable) {
-            _addClass(e, "resizable");
+            addClass(e, "resizable");
         } else {
-            _removeClass(e, "resizable");
+            removeClass(e, "resizable");
         }
     }
 }
@@ -674,7 +674,7 @@ export function resetWindowSize (o) {
         o.style.width = "";
         o.style.height = "";
 
-        let content = _firstChildWithClass(o, "ui_window_content");
+        let content = firstChildWithClass(o, "ui_window_content");
         content.style.width = "";
         content.style.height = "";
     }
@@ -683,7 +683,7 @@ export function resetWindowSize (o) {
 export function addWindowContent(o, ce) {
     let e = getWindow(o);
     if (e) {
-        let wc = _firstChildWithClass(e, "ui_window_content");
+        let wc = firstChildWithClass(e, "ui_window_content");
         if (wc) {
             wc.appendChild(ce);
         }
@@ -693,7 +693,7 @@ export function addWindowContent(o, ce) {
 export function getWindow(o) {
     let e = elementOf(o);
     if (e) {
-        return _nearestElementWithClass(e, "ui_window");
+        return nearestElementWithClass(e, "ui_window");
     } else {
         return undefined;
     }
@@ -802,7 +802,7 @@ export function getShowingTabName (o) {
 export function getTabbedContainer(o) {
     let e = elementOf(o);
     if (e) {
-        return _nearestElementWithClass(e, "ui_tab_container_wrapper");
+        return nearestElementWithClass(e, "ui_tab_container_wrapper");
     } else {
         return undefined;
     }
@@ -842,7 +842,7 @@ export function ColumnContainer (align=null, eid=null, title=null, isBordered=fa
 
 function initializeContainer (e) {
     let pe = e.parentElement;
-    if (e.dataset.title && !_containsClass(pe, "ui_container_wrapper")) {
+    if (e.dataset.title && !containsClass(pe, "ui_container_wrapper")) {
         let title = e.dataset.title;
         let cwe = createElement("DIV","ui_container_wrapper");
         let te = createElement("DIV", "ui_container_title");
@@ -923,19 +923,19 @@ export function expandPanel (o, cond) {
 }
 
 export function togglePanelExpansion(event) {
-    const panelHeader = _nearestElementWithClass( event.target, "ui_panel_header");
+    const panelHeader = nearestElementWithClass( event.target, "ui_panel_header");
     const panel = panelHeader.nextElementSibling;
 
     if (panelHeader.classList.contains("expanded")) { // collapse
-        _swapClass(panelHeader, "expanded", "collapsed");
-        _swapClass(panel, "expanded", "collapsed");
+        swapClass(panelHeader, "expanded", "collapsed");
+        swapClass(panel, "expanded", "collapsed");
 
         panel.style.maxHeight = panel.scrollHeight + "px"; // set the transition start value
         setTimeout(() => { panel.style.maxHeight = 0; }, 50 ) // set the end value (but not in this cycle)
 
     } else { // expand
-        _swapClass(panelHeader, "collapsed", "expanded");
-        _swapClass(panel, "collapsed", "expanded");
+        swapClass(panelHeader, "collapsed", "expanded");
+        swapClass(panel, "collapsed", "expanded");
 
         panel.style.visibility = "hidden"; // make sure we reflow but don't show
         panel.style.maxHeight = ''; // make sure we honor current content
@@ -953,7 +953,7 @@ export function getPanel(o) {
         if (e.classList.contains("ui_panel")) {
             return e;
         } else {
-            return _nearestElementWithClass( e, "ui_panel");
+            return nearestElementWithClass( e, "ui_panel");
         }
     }
     return undefined;
@@ -998,7 +998,7 @@ function initializeIcon (e) {
 }
 
 function initializeIcons() {
-    for (const icon of _getDocumentElementsByClassName("ui_icon")) initializeIcon(icon);
+    for (const icon of getDocumentElementsByClassName("ui_icon")) initializeIcon(icon);
 }
 
 export function setIconOn(event) {
@@ -1010,7 +1010,7 @@ export function setIconOff(event) {
 }
 
 export function toggleIcon(event) {
-    _toggleClass(event.target, "on");
+    toggleClass(event.target, "on");
 }
 
 function getIconBox() {
@@ -1074,9 +1074,9 @@ export function setButtonActive(o, isActive) {
     let e = getButton(o);
     if (e) {
         if (isActive) {
-            _addClass(e, "active");
+            addClass(e, "active");
         } else {
-            _removeClass(e, "active");
+            removeClass(e, "active");
         }
     }
 }
@@ -1161,7 +1161,7 @@ export function setVarText(o, text) {
     if (e) {
         e.innerText = text;
 
-        if (!_containsClass(e, "permanent")) {
+        if (!containsClass(e, "permanent")) {
             setLineHeight(e);
         }
     }
@@ -1229,7 +1229,7 @@ export function DateTimeInput(label, eid, width, opts = {}) {
 export function TimeInput(label, eid, width, opts = {}) {
     let extraCls = !opts.isDisabled ? ["input"] : [];
     if (opts.isFixed) extraCls.push("fixed");
-    let e = genField("datetime-local", extraCls, label, eid, opts);
+    let e = genField("time", extraCls, label, eid, opts);
 
     if (width) e.setAttribute("data-width", width);
     if (!label || label.length == 0) e.style.width = width;
@@ -1243,7 +1243,7 @@ export function TextField(label, eid, isInput, opts = {}) {
 }
 
 export function NumField(label, eid, isInput, width, opts = {}) {
-    let extraCls = isInput ? ["fixed", "input", "alignRight"] : ["fixed", "alignRight"];
+    let extraCls = isInput ? ["fixed", "input", "align_right"] : ["fixed", "align_right"];
     let e = genField("text", extraCls, label, eid, opts);
     if (width) e.setAttribute("data-width", width);
     return e;
@@ -1265,8 +1265,8 @@ function initializeField (e) {
         let inputType = e.dataset.type ? e.dataset.type : "text";
         let autocomplete = e.dataset.autocomplete;
 
-        //let dataWidth = _inheritableData(e, 'width');
-        //let labelWidth = _inheritableData(e, 'labelWidth');
+        //let dataWidth = inheritableData(e, 'width');
+        //let labelWidth = inheritableData(e, 'labelWidth');
         let dataWidth = e.dataset.width;
         let labelWidth = e.dataset.labelwidth; // attribute names are lowercased, i.e. "data-labelWidth" -> dataset.labelwidth
 
@@ -1282,7 +1282,7 @@ function initializeField (e) {
             field.type = inputType;
             field.autocomplete = autocomplete;
 
-            if (_hasBorderedParent(e)) {
+            if (hasBorderedParent(e)) {
                 field.style.border = 'none';
                 e.style.margin = '0';
             }
@@ -1292,7 +1292,7 @@ function initializeField (e) {
             if (e.classList.contains("input")) {
                 if (inputType == "text") {
                     field.setAttribute("placeholder", e.dataset.placeholder);
-                    field.addEventListener("keypress", _checkKeyEvent);
+                    field.addEventListener("keypress", checkKeyEvent);
                 } else if (inputType == "datetime-local" || inputType == "date" || inputType == "time") {
                     // nothing - the calendar icon would disappear if set readonly
                 } else {
@@ -1304,7 +1304,7 @@ function initializeField (e) {
 }
 registerUiClassInitializer("ui_field", initializeField);
 
-function _checkKeyEvent(event) {
+function checkKeyEvent(event) {
     if (event.key == "Enter") {
         document.activeElement.blur();
     }
@@ -1749,9 +1749,6 @@ function initializeLocationEntry(e) {
                 if (Math.abs(n1) > 180.0) { beep(); return;}
                 if (Math.abs(n2) > 90.0) { beep(); return; }
 
-                console.log(n1);
-                console.log(n2);
-
                 e._uiLon.value = n1;
                 e._uiLat.value = n2;
             }
@@ -1936,8 +1933,8 @@ export function setValue(o, text) {
 
 //--- time & date widgets
 
-var _timer = undefined;
-const _timerClients = [];
+var timer = undefined;
+const timerClients = [];
 
 const MILLIS_IN_DAY = 86400000;
 
@@ -1958,43 +1955,43 @@ export function Timer (label, eid) {
 
 document.addEventListener("visibilitychange", function() {
     if (document.visibilityState === 'visible') {
-        if (_timerClients.length > 0) startTime();
+        if (timerClients.length > 0) startTime();
     } else {
         stopTime();
     }
 });
 
-function _addTimerClient(e) {
-    _timerClients.push(e);
+function addTimerClient(e) {
+    timerClients.push(e);
 }
 
 export function startTime() {
-    if (!_timer) {
+    if (!timer) {
         let t = Date.now();
-        for (let e of _timerClients) {
+        for (let e of timerClients) {
             e._uiUpdateTime(t);
         }
 
-        _timer = setInterval(_timeTick, 1000);
+        timer = setInterval(timeTick, 1000);
     }
 }
 
-function _timeTick() {
-    if (_timerClients.length == 0) {
-        clearInterval(_timer);
-        _timer = undefined;
+function timeTick() {
+    if (timerClients.length == 0) {
+        clearInterval(timer);
+        timer = undefined;
     } else {
         let t = Date.now();
-        for (let client of _timerClients) {
+        for (let client of timerClients) {
             client._uiUpdateTime(t);
         }
     }
 }
 
 export function stopTime() {
-    if (_timer) {
-        clearInterval(_timer);
-        _timer = undefined;
+    if (timer) {
+        clearInterval(timer);
+        timer = undefined;
     }
 }
 
@@ -2015,13 +2012,13 @@ function initializeTimer(e) {
 
         tc._uiT0 = 0; // elapsed
         tc._uiTimeScale = 1;
-        tc._uiUpdateTime = (t) => { _updateTimer(tc, t); };
-        _addTimerClient(tc);
+        tc._uiUpdateTime = (t) => { updateTimer(tc, t); };
+        addTimerClient(tc);
     }
 }
 registerUiClassInitializer("ui_timer", initializeTimer);
 
-function _updateTimer(e, t) {
+function updateTimer(e, t) {
     if (e._uiT0 == 0) e._uiT0 = t;
 
     if (isShowing(e)) {
@@ -2046,7 +2043,7 @@ export function getTimer(o) {
     let e = elementOf(o);
     if (e && e.tagName == "DIV") {
         if (e.classList.contains("ui_timer_value")) return e;
-        else if (e.classList.contains("ui_timer")) return _firstChildWithClass("ui_timer_value");
+        else if (e.classList.contains("ui_timer")) return firstChildWithClass("ui_timer_value");
     }
     throw "not a timer";
 }
@@ -2110,14 +2107,14 @@ function initializeClock(e) {
         tc._uiTimeScale = 1;
         tc._isSet = false;
 
-        tc._uiUpdateTime = (t) => { _updateClock(tc, t); };
-        _addTimerClient(tc);
+        tc._uiUpdateTime = (t) => { updateClock(tc, t); };
+        addTimerClient(tc);
     }
 }
 registerUiClassInitializer( "ui_clock", initializeClock);
 
 
-function _updateClock(e, t) {
+function updateClock(e, t) {
     if (e._uiS0 == 0) { // first time initialization w/o previous uiSetClock
         e._uiS0 = t;
         e._uiSday = t / MILLIS_IN_DAY;
@@ -2155,7 +2152,7 @@ function _updateClock(e, t) {
 export function getClockDate(o) {
     let e = getClock(o);
     if (e) {
-        _updateClock(e, Date.now()); // make sure _uiDate is updated
+        updateClock(e, Date.now()); // make sure _uiDate is updated
         return e._uiDate;
     }
     return undefined;
@@ -2164,7 +2161,7 @@ export function getClockDate(o) {
 export function getClockEpochMillis(o) {
     let e = getClock(o);
     if (e && e._uiDate) {
-        _updateClock(e, Date.now()); // make sure _uiDate is updated
+        updateClock(e, Date.now()); // make sure _uiDate is updated
         return e._uiDate.getTime();
     }
     return 0;
@@ -2213,7 +2210,7 @@ export function getClock(o) {
     let e = elementOf(o);
     if (e && e.tagName == "DIV") {
         if (e.classList.contains("ui_clock_wrapper")) return e;
-        else if (e.classList.contains("ui_clock")) return _firstChildWithClass(e, "ui_clock_wrapper");
+        else if (e.classList.contains("ui_clock")) return firstChildWithClass(e, "ui_clock_wrapper");
     }
     throw "not a clock field";
 }
@@ -2243,8 +2240,8 @@ const sliderResizeObserver = new ResizeObserver(entries => {
         e._uiScale = (e._uiMaxValue - e._uiMinValue) / rangeRect.width;
         e._uiRangeOffX = (trackRect.width - rangeRect.width) / 2; // left offset of range in track
 
-        _positionLimits(e, trackRect, rangeRect);
-        _positionThumb(e);
+        positionLimits(e, trackRect, rangeRect);
+        positionThumb(e);
     }
 });
 
@@ -2276,10 +2273,10 @@ function initializeSlider (e) {
         let labelText = e.dataset.label;
 
         // default init - likely to be set by subsequent uiSetSliderRange/Value calls
-        let minValue = e._uiInitAttrs?.min ?? _parseInt(e.dataset.min, 0);
-        let maxValue = e._uiInitAttrs?.max ?? _parseInt(e.dataset.max, 100);
-        let step = e._uiInitAttrs?.step ?? _parseNumber(e.dataset.step);
-        let value = e._uiInitAttrs?.value ?? _parseInt(e.dataset.value, minValue);
+        let minValue = e._uiInitAttrs?.min ?? parseIntOr(e.dataset.min, 0);
+        let maxValue = e._uiInitAttrs?.max ?? parseIntOr(e.dataset.max, 100);
+        let step = e._uiInitAttrs?.step ?? parseNumber(e.dataset.step);
+        let value = e._uiInitAttrs?.value ?? parseIntOr(e.dataset.value, minValue);
         let fmt = e._uiInitAttrs?.fmt ?? null;
 
         let trackWidth = e.dataset.width;
@@ -2348,7 +2345,7 @@ function startDrag(event) {
     track.style.cursor = "ew-resize";
     track.addEventListener("mousemove", drag);
     document.addEventListener("mouseup", stopDrag);
-    _consumeEvent(event);
+    consumeEvent(event);
 
     function drag(event) {
         let e = event.currentTarget; // ui_slider_track
@@ -2358,19 +2355,19 @@ function startDrag(event) {
         else if (x > e._uiRangeWidth) x = e._uiRangeWidth;
 
         let v = e._uiMinValue + (x * e._uiScale);
-        let vv = _computeSliderValue(e, v);
+        let vv = computeSliderValue(e, v);
         if (vv != lastValue) {
             lastValue = vv;
             setSliderValue(e, vv);
         }
-        _consumeEvent(event);
+        consumeEvent(event);
     }
 
     function stopDrag(event) {
         track.style.cursor = "default";
         track.removeEventListener("mousemove", drag);
         document.removeEventListener("mouseup", stopDrag);
-        _consumeEvent(event);
+        consumeEvent(event);
     }
 }
 
@@ -2379,22 +2376,22 @@ function clickTrack(event) {
     if (e.classList.contains("ui_slider_track")) { // ignore drags causing clicks with the wrong target
         let x = event.offsetX - e._uiRangeOffX;
         let v = e._uiMinValue + (x * e._uiScale);
-        let vv = _computeSliderValue(e, v);
+        let vv = computeSliderValue(e, v);
         setSliderValue(e, vv);
-        _consumeEvent(event);
+        consumeEvent(event);
     }
 }
 
 function clickMin(event) {
     let e = event.target.parentElement;
     setSliderValue(e, e._uiMinValue);
-    _consumeEvent(event);
+    consumeEvent(event);
 }
 
 function clickMax(event) {
     let e = event.target.parentElement;
     setSliderValue(e, e._uiMaxValue);
-    _consumeEvent(event);
+    consumeEvent(event);
 }
 
 function clickNum(event) {
@@ -2402,14 +2399,14 @@ function clickNum(event) {
     let track = e.parentElement;
     let x = event.offsetX + e.getBoundingClientRect().x - track.getBoundingClientRect().x - track._uiRangeOffX;
     let v = track._uiMinValue + (x * track._uiScale);
-    let vv = _computeSliderValue(track, v);
+    let vv = computeSliderValue(track, v);
     setSliderValue(track, vv);
-    _consumeEvent(event);
+    consumeEvent(event);
 }
 
 //
 
-function _positionLimits(e, tr, rr) {
+function positionLimits(e, tr, rr) {
     let trackRect = tr ? tr : e.getBoundingClientRect();
     let rangeRect = rr ? rr : e._uiRange.getBoundingClientRect();
     let top = (rangeRect.height + 2) + "px";
@@ -2428,7 +2425,7 @@ function _positionLimits(e, tr, rr) {
     }
 }
 
-function _positionThumb(e) { // e is ui_slider_track
+function positionThumb(e) { // e is ui_slider_track
     let dx = ((e._uiValue - e._uiMinValue) / e._uiScale);
     e._uiThumb.style.left = dx + "px"; // relative pos
 
@@ -2442,7 +2439,7 @@ function _positionThumb(e) { // e is ui_slider_track
     }
 }
 
-function _computeSliderValue(e, v) {
+function computeSliderValue(e, v) {
     let minValue = e._uiMinValue;
     let maxValue = e._uiMaxValue;
 
@@ -2453,13 +2450,13 @@ function _computeSliderValue(e, v) {
     if (inc) {
         let vv = Math.min( minValue + Math.round( (v-minValue) / inc) * inc, maxValue);
         // avoid floating point artifacts such as 0.30000000000000004 for fractional steps
-        return parseFloat( vv.toFixed( Math.max( _numDecimals(inc), _numDecimals(minValue))));
+        return parseFloat( vv.toFixed( Math.max( numDecimals(inc), numDecimals(minValue))));
     } else {
         return v;
     }
 }
 
-function _numDecimals(v) {
+function numDecimals(v) {
     let s = v.toString();
     if (s.includes('e')) return 10; // exponential notation - we don't use such small steps
     let i = s.indexOf('.');
@@ -2474,13 +2471,13 @@ export function setSliderRange(o, min, max, step, numFormatter) {
         if (step) e._uiStep = step;
 
         if (numFormatter) e._uiNumFormatter = numFormatter;
-        if (e._uiLeftLimit) e._uiLeftLimit.innerText = _formattedNum(min, e._uiNumFormatter);
-        if (e._uiRightLimit) e._uiRightLimit.innerText = _formattedNum(max, e._uiNumFormatter);
+        if (e._uiLeftLimit) e._uiLeftLimit.innerText = formattedNum(min, e._uiNumFormatter);
+        if (e._uiRightLimit) e._uiRightLimit.innerText = formattedNum(max, e._uiNumFormatter);
 
-        if (_hasDimensions(e)) {
+        if (hasDimensions(e)) {
             if (e._uiRangeWidth) e._uiScale = (max - min) / e._uiRangeWidth; // otherwise this is only updated on resize
-            _positionLimits(e);
-            _positionThumb(e);
+            positionLimits(e);
+            positionThumb(e);
         }
     }
 }
@@ -2488,11 +2485,11 @@ export function setSliderRange(o, min, max, step, numFormatter) {
 export function setSliderValue(o, v) {
     let e = getSlider(o);
     if (e) {
-        let newValue = _computeSliderValue(e, v);
+        let newValue = computeSliderValue(e, v);
         if (newValue != e._uiValue) {
             e._uiValue = newValue;
-            if (_hasDimensions(e)) _positionThumb(e);
-            if (e._uiNum) e._uiNum.innerText = _formattedNum(newValue, e._uiNumFormatter);
+            if (hasDimensions(e)) positionThumb(e);
+            if (e._uiNum) e._uiNum.innerText = formattedNum(newValue, e._uiNumFormatter);
 
             let slider = e.parentElement;
             if (slider) slider.dispatchEvent(new Event('change'));
@@ -2511,7 +2508,7 @@ export function getSlider(o) {
     let e = elementOf(o);
     if (e && e.tagName == "DIV") {
         if (e.classList.contains("ui_slider_track")) return e;
-        else if (e.classList.contains("ui_slider")) return _firstChildWithClass(e, "ui_slider_track");
+        else if (e.classList.contains("ui_slider")) return firstChildWithClass(e, "ui_slider_track");
         else if (e.parentElement.classList.contains("ui_slider_track")) return e.parentElement;
     }
     throw "not a slider";
@@ -2592,17 +2589,17 @@ function initializeChoice (e) {
 registerUiClassInitializer("ui_choice", initializeChoice);
 
 export function isChoiceDisabled(o) {
-    return _isDisabled(getChoice(o));
+    return isDisabled(getChoice(o));
 }
 
 export function setChoiceDisabled(o, isDisabled) {
-    _setDisabled(getChoice(o), isDisabled);
+    setDisabled(getChoice(o), isDisabled);
 }
 
 export function setChoiceItems(o, items, selIndex = -1) {
     let e = getChoice(o);
     if (e) {
-        let prevChoices = _firstChildWithClass(e.parentElement, "ui_popup_menu");
+        let prevChoices = firstChildWithClass(e.parentElement, "ui_popup_menu");
         if (prevChoices) e.parentElement.removeChild(prevChoices);
         e._uiItems = items;
         e._uiSelIndex = -1;
@@ -2625,7 +2622,7 @@ export function setChoiceItems(o, items, selIndex = -1) {
                     let idx = i;
                     let mi = createElement("DIV", "ui_menuitem", itemLabel);
                     mi.addEventListener("mouseenter", () => { // keyboard navigation continues from here
-                        if (!_isKbdNav()) _setMenuHighlight(menu, mi);
+                        if (!isKbdNav()) setMenuHighlight(menu, mi);
                     });
                     mi.addEventListener("click", (event) => {
                         event.preventDefault();
@@ -2690,9 +2687,9 @@ export function getChoiceItems(o) {
 export function selectChoiceItemIndex(o, selIndex) {
     let e = getChoice(o);
     if (e) {
-        let menu = _firstChildWithClass(e.parentElement, "ui_popup_menu");
+        let menu = firstChildWithClass(e.parentElement, "ui_popup_menu");
         if (selIndex >= 0 && selIndex < menu.childNodes.length) {
-            let mi = _nthChildOf(menu, selIndex);
+            let mi = nthChildOf(menu, selIndex);
             if (e._uiSelIndex >= 0) { menu.children[e._uiSelIndex].classList.remove('checked'); }
             e._uiSelIndex = selIndex;
             mi.classList.add('checked');
@@ -2733,7 +2730,7 @@ export function getChoice(o) { // TODO - do we really want the ui_choice_value?
     let e = elementOf(o);
     if (e) {
         if (e.classList.contains("ui_choice_value")) return e;
-        else if (e.classList.contains("ui_choice")) return _firstChildWithClass(e, 'ui_choice_value');
+        else if (e.classList.contains("ui_choice")) return firstChildWithClass(e, 'ui_choice_value');
     }
     throw "not a choice";
 }
@@ -2743,7 +2740,7 @@ export function getChoice(o) { // TODO - do we really want the ui_choice_value?
 export function CheckBox (label, action, eid=null, isSelected=false, width=null, height=null) {
     let e = createElement("DIV", "ui_checkbox");
 
-    if (isSelected) _addClass(e, "checked");
+    if (isSelected) addClass(e, "checked");
 
     if (label) e.setAttribute("data-label", label);
     if (eid) e.setAttribute("id", eid);
@@ -2761,30 +2758,30 @@ export function CheckBox (label, action, eid=null, isSelected=false, width=null,
 
 function initializeCheckBox(e) {
     let labelText = e.dataset.label;
-    if (labelText && _hasNoChildElements(e)) {
-        _addCheckBoxComponents(e, labelText);
+    if (labelText && hasNoChildElements(e)) {
+        addCheckBoxComponents(e, labelText);
         e.setAttribute("tabindex", "0");
     }
 }
 registerUiClassInitializer( "ui_checkbox", initializeCheckBox);
 
 
-function _addCheckBoxComponents(e, labelText) {
+function addCheckBoxComponents(e, labelText) {
     let btn = createElement("DIV", "ui_checkbox_button");
-    btn.addEventListener("click", _clickCheckBoxBtn);
+    btn.addEventListener("click", clickCheckBoxBtn);
     e.appendChild(btn);
 
     if (labelText) {
         let lbl = createElement("DIV", "ui_checkbox_label", labelText);
-        lbl.addEventListener("click", _clickCheckBoxBtn);
+        lbl.addEventListener("click", clickCheckBoxBtn);
         e.appendChild(lbl);
     }
 }
 
 export function createCheckBox(initState, clickHandler) {
     let e = createElement("DIV", "ui_checkbox");
-    if (initState) _addClass(e, "checked");
-    _addCheckBoxComponents(e, ""); // no label for inline checkboxes
+    if (initState) addClass(e, "checked");
+    addCheckBoxComponents(e, ""); // no label for inline checkboxes
 
     if (clickHandler)  {
         e.addEventListener("click", clickHandler); // watch out - these don't get cloned
@@ -2794,24 +2791,24 @@ export function createCheckBox(initState, clickHandler) {
 }
 
 export function isCheckBoxDisabled(o) {
-    return _isDisabled(getCheckBox(o));
+    return isDisabled(getCheckBox(o));
 }
 
 export function setCheckBoxDisabled(o, isDisabled) {
-    _setDisabled(getCheckBox(o), isDisabled);
+    setDisabled(getCheckBox(o), isDisabled);
 }
 
-function _clickCheckBoxBtn(event) {
+function clickCheckBoxBtn(event) {
     let checkbox = getCheckBox(event);
     if (checkbox) {
-        _toggleClass(checkbox, "checked");
+        toggleClass(checkbox, "checked");
     }
 }
 
 export function toggleCheckBox(o) {
     let checkbox = getCheckBox(o);
     if (checkbox) {
-        return _toggleClass(checkbox, "checked");
+        return toggleClass(checkbox, "checked");
     }
     throw "not a checkbox";
 }
@@ -2819,8 +2816,8 @@ export function toggleCheckBox(o) {
 export function setCheckBox(o, check = true) {
     let e = getCheckBox(o);
     if (e) {
-        if (check) _addClass(e, "checked");
-        else _removeClass(e, "checked");
+        if (check) addClass(e, "checked");
+        else removeClass(e, "checked");
     }
 }
 
@@ -2865,7 +2862,7 @@ export function isCheckBoxSelected(o) {
 
 export function Radio (label,action,eid=null, isSelected=false) {
     let e = createElement("DIV", "ui_radio");
-    if (isSelected) _addClass(e, "selected");
+    if (isSelected) addClass(e, "selected");
 
     e.setAttribute("data-label", label);
     if (eid) e.setAttribute("id", eid);
@@ -2875,42 +2872,42 @@ export function Radio (label,action,eid=null, isSelected=false) {
 
 function initializeRadio (e) {
     let labelText = e.dataset.label;
-    if (_hasNoChildElements(e)) {
-        _addRadioComponents(e, labelText);
+    if (hasNoChildElements(e)) {
+        addRadioComponents(e, labelText);
         e.setAttribute("tabindex", "0");
     }
 }
 registerUiClassInitializer("ui_radio", initializeRadio);
 
-function _addRadioComponents(e, labelText) {
+function addRadioComponents(e, labelText) {
     let btn = createElement("DIV", "ui_radio_button");
-    btn.addEventListener("click", _clickRadio);
+    btn.addEventListener("click", clickRadio);
     e.appendChild(btn);
 
     if (labelText) {
         let lbl = createElement("DIV", "ui_radio_label", labelText);
-        lbl.addEventListener("click", _clickRadio);
+        lbl.addEventListener("click", clickRadio);
         e.appendChild(lbl);
     }
 }
 
 export function createRadio(initState, clickHandler, labelText) {
     let e = createElement("DIV", "ui_radio");
-    if (initState) _addClass(e, "selected");
-    _addRadioComponents(e, labelText);
+    if (initState) addClass(e, "selected");
+    addRadioComponents(e, labelText);
     if (clickHandler) e.addEventListener("click", clickHandler);
     return e;
 }
 
 export function isRadioBoxDisabled(o) {
-    return _isDisabled(getRadio(o));
+    return isDisabled(getRadio(o));
 }
 
 export function setRadioDisabled(o, isDisabled) {
-    _setDisabled(getRadio(o), isDisabled);
+    setDisabled(getRadio(o), isDisabled);
 }
 
-function _clickRadio(event) {
+function clickRadio(event) {
     let e = getRadio(event);
     if (e) {
         if (!e.classList.contains("selected")) {
@@ -2933,7 +2930,7 @@ export function selectRadio(o) {
                     if (r.classList.contains("selected")) r.classList.remove("selected");
                 }
             }
-            _addClass(e, "selected");
+            addClass(e, "selected");
         }
         return true;
     } else {
@@ -3011,17 +3008,17 @@ export function setSelector(o, newState) {
             setCheckBox(e, newState);
         } else if (e.classList.contains("ui_radio")) {
             if (newState) selectRadio(e);
-            else _removeClass(e, "selected");
+            else removeClass(e, "selected");
         }
     }
 }
 
 export function isSelectorDisabled(o) {
-    return _isDisabled(getSelector(o));
+    return isDisabled(getSelector(o));
 }
 
 export function setSelectorDisabled(o, isDisabled) {
-    _setDisabled(getSelector(o), isDisabled);
+    setDisabled(getSelector(o), isDisabled);
 }
 
 export function getSelectorLabel(o) {
@@ -3046,20 +3043,20 @@ function initializeKvTable (e) {
         let itemHeight = getRootVar("--list-item-height");
         let itemPadding = getRootVar("--list-item-padding");
 
-        let nRows = _intDataAttrValue(e, "rows", 8);
+        let nRows = intDataAttrValue(e, "rows", 8);
         e.style.maxHeight = `calc(${nRows} * (${itemHeight} + ${itemPadding}))`; // does not include padding, borders or margin
     }
 }
 registerUiClassInitializer("ui_kvtable", initializeKvTable);
 
 export function getKvTable(o) {
-    return _nearestElementWithClass(elementOf(o), "ui_kvtable");
+    return nearestElementWithClass(elementOf(o), "ui_kvtable");
 }
 
 export function setKvList (o, kvList, createValueElement = undefined) {
     let e = getKvTable(o);
     if (e) {
-        _removeChildrenOf(e);
+        removeChildrenOf(e);
         if (kvList) {
             kvList.forEach( kv=> {
                 let tr = createElement("TR");
@@ -3145,14 +3142,14 @@ function initializeList (e) {
         let itemHeight = getRootVar("--list-item-height");
         let itemPadding = getRootVar("--list-item-padding");
 
-        let nRows = _intDataAttrValue(e, "rows", 8);
+        let nRows = intDataAttrValue(e, "rows", 8);
 
         e.style.maxHeight = `calc(${nRows} * (${itemHeight} + ${itemPadding}))`; // does not include padding, borders or margin
         e.setAttribute("tabindex", "0");
-        if (e.firstElementChild && e.firstElementChild.classList.contains("ui_popup_menu")) _hoistChildElement(e.firstElementChild);
+        if (e.firstElementChild && e.firstElementChild.classList.contains("ui_popup_menu")) hoistChildElement(e.firstElementChild);
 
         if (!e._uiSelectAction) {
-            let selectAction = _dataAttrValue(e, "onselect"); // single click or programmatic
+            let selectAction = dataAttrValue(e, "onselect"); // single click or programmatic
             if (selectAction) {
                 e._uiSelectAction = Function("event", selectAction);
                 e.addEventListener("selectionChanged", e._uiSelectAction);
@@ -3220,12 +3217,12 @@ export function setListItemDisplayColumns(o, listAttrs, colSpecs) {
             if (totalWidth) totalWidth += " + ";
             totalWidth += w;
 
-            _setAlignment(ce, cs.attrs);
-            if (cs.attrs.includes("fixed")) _addClass(ce, "fixed");
-            if (cs.attrs.includes("small")) _addClass(ce, "small");
+            setAlignment(ce, cs.attrs);
+            if (cs.attrs.includes("fixed")) addClass(ce, "fixed");
+            if (cs.attrs.includes("small")) addClass(ce, "small");
 
             if (cs.edit) {
-                _addClass(ce, "edit");
+                addClass(ce, "edit");
                 ce._uiEditFunc = cs.edit;
                 // note we don't add an event listener here since ce is in the Row prototype
             }
@@ -3234,9 +3231,9 @@ export function setListItemDisplayColumns(o, listAttrs, colSpecs) {
             if (he) he.appendChild(createSubitemHeader(he, cs, w));
         });
 
-        if (!_containsClass(e, "ui_tree")) {
+        if (!containsClass(e, "ui_tree")) {
             e.style.width = `calc(${totalWidth} + var(--scrollbar-track-width) + 2*var(--border-width) + 2*var(--list-item-padding))`;
-            if (listAttrs.includes("fit")) _addClass(e, "fit");
+            if (listAttrs.includes("fit")) addClass(e, "fit");
         }
 
         e._uiRowPrototype = re;
@@ -3246,7 +3243,7 @@ export function setListItemDisplayColumns(o, listAttrs, colSpecs) {
 }
 
 export function editListItemField (e, changeAction) {
-    if (_containsClass(e, "ui_list_subitem")) {
+    if (containsClass(e, "ui_list_subitem")) {
         const controller = new AbortController();
         const { signal } = controller;
 
@@ -3254,14 +3251,14 @@ export function editListItemField (e, changeAction) {
         input.type = 'text';
         input.value = e.innerText;
 
-        if (_containsClass(e, "fixed")) _addClass(input, "fixed");
-        if (_containsClass(e, "align_right")) _addClass(input, "align_right");
-        if (_containsClass(e, "num")) _addClass(input, "num");
+        if (containsClass(e, "fixed")) addClass(input, "fixed");
+        if (containsClass(e, "align_right")) addClass(input, "align_right");
+        if (containsClass(e, "num")) addClass(input, "num");
         //..and perhaps more
 
         function removeInput() {
-            if (_containsClass(e, "active") && Object.is(e.lastElementChild, input)) {
-                _removeClass(e, "active");
+            if (containsClass(e, "active") && Object.is(e.lastElementChild, input)) {
+                removeClass(e, "active");
                 controller.abort();
                 //input.style.display = "none";
                 e.removeChild(input);
@@ -3306,7 +3303,7 @@ export function editListItemField (e, changeAction) {
             }
         }, { signal });
 
-        _addClass(e, "active");
+        addClass(e, "active");
         e.appendChild(input);
         input.focus();
     }
@@ -3316,7 +3313,7 @@ function createSubitemHeader(header, cs, w) {
     let e = createElement("DIV", "ui_list_subitem header");
     e.style.flexBasis = w;
     e.innerText = cs.name;
-    _setAlignment(e, cs.attrs);
+    setAlignment(e, cs.attrs);
 
     if (cs.tip) createTooltip(e, cs.tip);
 
@@ -3339,20 +3336,20 @@ export function setListItemDisplay(o, styleWidth, attrs, mapFunc) {
         if (mapFunc) e._uiMapFunc = mapFunc;
         if (styleWidth) e.style.width = styleWidth;
 
-        if (attrs.includes("alignLeft")) _addClass(e, "align_left");
-        else if (attrs.includes("alignRight")) _addClass(e, "align_right");
-        if (attrs.includes("fixed")) _addClass(e, "fixed");
-        if (attrs.includes("small")) _addClass(e, "small");
+        if (attrs.includes("alignLeft")) addClass(e, "align_left");
+        else if (attrs.includes("alignRight")) addClass(e, "align_right");
+        if (attrs.includes("fixed")) addClass(e, "fixed");
+        if (attrs.includes("small")) addClass(e, "small");
     }
 }
 
-function _setSubItemsOf(ie, item) {
+function setSubItemsOf(ie, item) {
     for (let i = 0; i < ie.childElementCount; i++) {
         let ce = ie.children[i];
         let v = ce._uiMapFunc(item);
 
         // remove old content (we don't accumulate)
-        _removeChildrenOf(ce);
+        removeChildrenOf(ce);
         ce.innerText = "";
 
         if (v instanceof HTMLElement) {
@@ -3363,9 +3360,9 @@ function _setSubItemsOf(ie, item) {
     }
 }
 
-function _setListItem(e, ie, item) {
+function setListItem(e, ie, item) {
     if (ie.childElementCount > 0) {
-        _setSubItemsOf(ie, item);
+        setSubItemsOf(ie, item);
     } else {
         ie.innerText = e._uiMapFunc(item,ie);
     }
@@ -3390,14 +3387,14 @@ export function getNthSubElementOfListItem(o, item, n) {
     if (e) {
         let it = e._uiItemMap.get(item);
         if (it) {
-            let sub = _nthChildOf(it, n);
+            let sub = nthChildOf(it, n);
             if (sub && sub.classList.contains("ui_list_subitem")) return sub;
             else return null;
         } else return null;
     } else return null;
 }
 
-function _cloneRowPrototype(proto) {
+function cloneRowPrototype(proto) {
     let e = proto.cloneNode(true);
     for (let i = 0; i < e.childElementCount; i++) {
         let ce = e.children[i];
@@ -3418,18 +3415,18 @@ function _cloneRowPrototype(proto) {
     return e;
 }
 
-function _createListItemElement(e, item, rowProto = undefined) {
+function createListItemElement(e, item, rowProto = undefined) {
     let ie = undefined;
 
     if (rowProto) {
-        ie = _cloneRowPrototype(rowProto);
-        _setSubItemsOf(ie, item);
+        ie = cloneRowPrototype(rowProto);
+        setSubItemsOf(ie, item);
     } else {
         ie = createElement("DIV", "ui_list_item", e._uiMapFunc(item));
     }
     ie._uiItem = item;
     e._uiItemMap.set(item, ie);
-    ie.addEventListener("click", _selectListItem);
+    ie.addEventListener("click", selectListItem);
     return ie;
 }
 
@@ -3437,7 +3434,7 @@ export function setListItems(o, items) {
     let e = getList(o);
     if (e) {
         // TODO - do we have to store/restore scrollLeft/scrollTop ?
-        _setSelectedItemElement(e, null);
+        setSelectedItemElement(e, null);
 
         if (items && items.length > 0) {
             let i = 0;
@@ -3447,15 +3444,15 @@ export function setListItems(o, items) {
 
             items.forEach(item => {
                 if (i < i1) { // replace existing element
-                    _setListItem(e, ies[i], item);
+                    setListItem(e, ies[i], item);
                 } else { // append new element
-                    let ie = _createListItemElement(e, item, proto);
+                    let ie = createListItemElement(e, item, proto);
                     e.appendChild(ie);
                 }
                 i++;
             });
 
-            if (e.childElementCount > i) _removeLastNchildrenOf(e, e.childElementCount - i);
+            if (e.childElementCount > i) removeLastNchildrenOf(e, e.childElementCount - i);
         } else {
             clearList(e);
         }
@@ -3471,13 +3468,13 @@ export function setListItems(o, items) {
 export function setTree(o,root) {
     let e = getTreeList(o);
     if (e) {
-        _setSelectedItemElement(e, null);
-        _removeChildrenOf(e);
+        setSelectedItemElement(e, null);
+        removeChildrenOf(e);
 
         if (root && root.constructor && root.constructor.name === 'ExpandableTreeNode') {
             e._uiRoot = root;
 
-            root.expandedDescendants().forEach( node=>e.appendChild(_createNodeElement(e, node)));
+            root.expandedDescendants().forEach( node=>e.appendChild(createNodeElement(e, node)));
         }
     }
 }
@@ -3508,7 +3505,7 @@ export function sortInTreeItem (o, item, pathName, isSticky=false) {
                 let ne = e.firstElementChild;
                 while (i--) ne = ne.nextElementSibling;
 
-                let newElement = _createNodeElement(e, firstNode); // the element to insert
+                let newElement = createNodeElement(e, firstNode); // the element to insert
                 if (ne) {
                     e.insertBefore(newElement, ne);
                 } else {
@@ -3530,7 +3527,7 @@ export function removeTreeItemPath(o, pathName) {
             let ce = getNodeElement(e, node);
             if (ce) { // it was visible
                 if (e._uiSelectedNodeElement && Object.is( e._uiSelectedNodeElement._uiNode, node)) {
-                    _setSelectedItemElement(e, null);
+                    setSelectedItemElement(e, null);
                 }
                 e.removeChild(ce);
             }
@@ -3540,7 +3537,7 @@ export function removeTreeItemPath(o, pathName) {
             if (!parentNode.hasChildren()){ // happens if it is a sticky node
                 let pe = getNodeElement(e, parentNode);
                 let prefixElem = pe.firstElementChild.firstElementChild; // ui_node { ui_node_header { ui_node_prefix, ui_node_name } }
-                if (prefixElem && _containsClass( prefixElem, "ui_node_prefix")) {
+                if (prefixElem && containsClass( prefixElem, "ui_node_prefix")) {
                     prefixElem.innerText = parentNode.nodePrefix();
                 }
             }
@@ -3550,7 +3547,7 @@ export function removeTreeItemPath(o, pathName) {
     return null; // wasn't there
 }
 
-function _createNodeElement(e, node) {
+function createNodeElement(e, node) {
     let ne = createElement("DIV", "ui_node");
     ne._uiNode = node;
 
@@ -3565,7 +3562,7 @@ function _createNodeElement(e, node) {
     let proto = e._uiRowPrototype;
     if (node.data) {
         if (proto) {
-            ne.appendChild( _createListItemElement(e, node.data, proto));
+            ne.appendChild( createListItemElement(e, node.data, proto));
         } else { // create an invisible dummy element so that it can be selected
             let ie = createElement("DIV", "ui_list_item");
             ie.style.display = "none";
@@ -3573,7 +3570,7 @@ function _createNodeElement(e, node) {
             ne.appendChild( ie); // add a dummy element
         }
     } else {
-        _addClass(nName, "no_data");
+        addClass(nName, "no_data");
     }
 
     //nName.addEventListener("click", selectNode);  // ??   1x if clicked on name, 2x if outside
@@ -3583,19 +3580,19 @@ function _createNodeElement(e, node) {
 }
 
 function selectNode (event) {
-    let ne = _nearestElementWithClass(event.target,"ui_node");
+    let ne = nearestElementWithClass(event.target,"ui_node");
     if (ne) {
         let list = nearestParentWithClass(ne, "ui_list");
-        if (list._uiSelectedNodeElement) _removeClass(list._uiSelectedNodeElement, "selected");
+        if (list._uiSelectedNodeElement) removeClass(list._uiSelectedNodeElement, "selected");
         list._uiSelectedNodeElement = ne;
-        _addClass(ne, "selected");
+        addClass(ne, "selected");
 
         let selElem = null;
         if (ne._uiNode.data) {
             let ie = ne.firstChild.nextElementSibling;
-            if (ie && _containsClass(ie, "ui_list_item")) selElem = ie;
+            if (ie && containsClass(ie, "ui_list_item")) selElem = ie;
         }
-         _setSelectedItemElement(list,selElem);
+         setSelectedItemElement(list,selElem);
     }
 }
 
@@ -3616,9 +3613,9 @@ export function collapseAllNodes (o) {
 }
 
 function repopulateNodes (e) {
-    _setSelectedItemElement(e, null);
-    _removeChildrenOf(e);
-    e._uiRoot.expandedDescendants().forEach( node=>e.appendChild(_createNodeElement(e, node)));
+    setSelectedItemElement(e, null);
+    removeChildrenOf(e);
+    e._uiRoot.expandedDescendants().forEach( node=>e.appendChild(createNodeElement(e, node)));
 }
 
 function clickNodePrefix(event) {
@@ -3638,15 +3635,15 @@ function clickNodePrefix(event) {
         let node = ne._uiNode;
         let nne = ne.nextElementSibling;
         node.expandedDescendants().forEach( dn=> {
-            let dne = _createNodeElement(e, dn, e._uiRowPrototype);
+            let dne = createNodeElement(e, dn, e._uiRowPrototype);
             if (nne) e.insertBefore(dne, nne);
             else e.appendChild(dne);
         });
     }
 
-    let ne = _nearestElementWithClass(event.target,"ui_node");
+    let ne = nearestElementWithClass(event.target,"ui_node");
     let e = ne.parentElement;
-    _consumeEvent(event);
+    consumeEvent(event);
 
     if (ne) {
         let node = ne._uiNode;
@@ -3697,7 +3694,7 @@ export function selectNodePath (o,path) {
         let n = e._uiRoot.findNode(path);
         if (n) {
             if (e._uiSelectedNodeElement) {
-                _removeClass(e._uiSelectedNodeElement, "selected");
+                removeClass(e._uiSelectedNodeElement, "selected");
                 e._uiSelectedNodeElement = null;
             }
 
@@ -3718,7 +3715,7 @@ export function selectNodePath (o,path) {
 
                         let nextElem = j < itemElements.length-1 ? itemElements[j+1] : null;
                         for (let cn=pn.firstChild; cn; cn = cn.nextSibling) {
-                            let ie = _createNodeElement(e, cn);
+                            let ie = createNodeElement(e, cn);
                             if (nextElem) { e.insertBefore( ie, nextElem) } else { e.appendChild( ie) }
                             if (Object.is( cn, n)) selElem = ie;
                         }
@@ -3761,9 +3758,9 @@ export function replaceNodeItem (o, oldItem, newItem) {
             ne._uiNode.data = newItem;
 
             let ie = ne.firstChild.nextElementSibling;
-            if (ie && _containsClass(ie, "ui_list_item")) {
+            if (ie && containsClass(ie, "ui_list_item")) {
                 e._uiItemMap.delete( oldItem);
-                _setListItem(e, ie, newItem);
+                setListItem(e, ie, newItem);
             }
         }
     }
@@ -3779,7 +3776,7 @@ export function getTreeList (o) {
 
 function selectAndShow(e, ie) {
     if (ie) {
-        _setSelectedItemElement(e, ie);
+        setSelectedItemElement(e, ie);
         ie.scrollIntoView({behavior: "smooth", block: "center"});
     }
 }
@@ -3794,7 +3791,7 @@ export function setSelectedListItem(o, item) {
 export function setSelectedListItemIndex(o, idx) {
     let listBox = getList(o);
     if (listBox) {
-        selectAndShow(listBox, _nthChildOf(listBox, idx));
+        selectAndShow(listBox, nthChildOf(listBox, idx));
     }
 }
 
@@ -3854,7 +3851,7 @@ export function setListItemCheckBox(o, item, cbIdx, newValue) {
 }
 
 function nextItemElement (ie) {
-    if (_containsClass(ie, "ui_list_item")) {
+    if (containsClass(ie, "ui_list_item")) {
         let p = ie.parentElement;
         if (p.classList.contains("ui_node")) { // it's a tree list
             if (p.nextElementSibling ){
@@ -3881,7 +3878,7 @@ export function selectPrevListItem(o) {
 }
 
 function prevItemElement (ie) {
-    if (_containsClass(ie, "ui_list_item")) {
+    if (containsClass(ie, "ui_list_item")) {
         let p = ie.parentElement;
         if (p.classList.contains("ui_node")) { // it's a tree list
             if (p.previousElementSibling){
@@ -3913,7 +3910,7 @@ export function getSelectedListItemIndex(o) {
     if (listBox) {
         let sel = listBox._uiSelectedItemElement;
         if (sel) {
-            return _childIndexOf(sel);
+            return childIndexOf(sel);
         }
     }
     return -1;
@@ -3923,7 +3920,7 @@ export function appendListItem(o, item) {
     let e = getList(o);
     if (e) {
         let proto = e._uiRowPrototype;
-        let ie = _createListItemElement(e, item, proto);
+        let ie = createListItemElement(e, item, proto);
         e.appendChild(ie);
     }
 }
@@ -3932,7 +3929,7 @@ export function insertListItem(o, item, idx) {
     let e = getList(o);
     if (e) {
         let proto = e._uiRowPrototype;
-        let ie = _createListItemElement(e, item, proto);
+        let ie = createListItemElement(e, item, proto);
         if (idx < e.childElementCount) {
             e.insertBefore(ie, e.children[idx]);
         } else {
@@ -3961,7 +3958,7 @@ export function replaceListItemIndex(o, idx, item) {
         if (idx >= 0 && idx < e.childElementCount) {
             let ie = e.children[idx];
             e._uiItemMap.delete(ie._uiItem);
-            _setListItem(e, ie, item);
+            setListItem(e, ie, item);
         }
     }
 }
@@ -3972,7 +3969,7 @@ export function replaceListItem(o, oldItem, newItem) {
         let ie = e._uiItemMap.get(oldItem);
         if (ie) {
             e._uiItemMap.delete(ie._uiItem);
-            _setListItem(e, ie, newItem);
+            setListItem(e, ie, newItem);
 
             if (Object.is( ie, e._uiSelectedItemElement)){
                 clearSelectedListItem(e);
@@ -3989,7 +3986,7 @@ export function updateSelectedListItem(o) {
     if (e) {
         let ie = e._uiSelectedItemElement;
         if (ie) {
-            _setListItem(e, ie, ie._uiItem);
+            setListItem(e, ie, ie._uiItem);
         }
     }
 }
@@ -4000,7 +3997,7 @@ export function updateListItem(o, item) {
     if (e) {
         let ie = e._uiItemMap.get(item);
         if (ie) {
-            _setListItem(e, ie, item);
+            setListItem(e, ie, item);
         }
     } else throw "not a list";
 }
@@ -4008,7 +4005,7 @@ export function updateListItem(o, item) {
 export function updateListItems(o) {
     let e = getList(o);
     if (e) {
-        e._uiItemMap.forEach( (ie,item) => _setListItem(e, ie, item));
+        e._uiItemMap.forEach( (ie,item) => setListItem(e, ie, item));
     }
 }
 
@@ -4017,7 +4014,7 @@ export function removeListItem(o, item) {
     if (e) {
         let ie = e._uiItemMap.get(item);
         if (ie) {
-            if (e._uiSelectedItemElement === ie) _setSelectedItemElement(e, null);
+            if (e._uiSelectedItemElement === ie) setSelectedItemElement(e, null);
             e._uiItemMap.delete(item);
             if (Object.is( ie.parentNode, e)) e.removeChild(ie);
         }
@@ -4048,12 +4045,12 @@ export function removeListItemFromList(o, items, selectionOnly = false) {
 export function removeLastNListItems(o, n) {
     let e = getList(o);
     if (e) {
-        _removeLastNchildrenOf(e, n);
+        removeLastNchildrenOf(e, n);
     }
 }
 
 // NOTE if this is a tree item elements hava a node element as parent (both are 'selected')
-function _setSelectedItemElement(listBox, itemElement, srcEvent) {
+function setSelectedItemElement(listBox, itemElement, srcEvent) {
     let prevItem = null;
     let nextItem = null;
 
@@ -4065,19 +4062,19 @@ function _setSelectedItemElement(listBox, itemElement, srcEvent) {
 
     } else {
         // remove current selection attrs
-        if (prevItemElem) _removeClass( prevItemElem, "selected");
-        if (listBox._uiSelectedNodeElement) _removeClass( listBox._uiSelectedNodeElement, "selected");
+        if (prevItemElem) removeClass( prevItemElem, "selected");
+        if (listBox._uiSelectedNodeElement) removeClass( listBox._uiSelectedNodeElement, "selected");
 
         if (!Object.is( prevItemElem,itemElement)) {
             if (itemElement) {
                 nextItem = itemElement._uiNode ? itemElement._uiNode.data : itemElement._uiItem;
 
                 listBox._uiSelectedItemElement = itemElement;
-                _addClass( itemElement, "selected");
+                addClass( itemElement, "selected");
 
-                if (_containsClass( itemElement.parentElement, "ui_node")) {
+                if (containsClass( itemElement.parentElement, "ui_node")) {
                     listBox._uiSelectedNodeElement = itemElement.parentElement;
-                    _addClass( itemElement.parentElement, "selected");
+                    addClass( itemElement.parentElement, "selected");
                 }
             } else {
                 listBox._uiSelectedItemElement = null;
@@ -4099,12 +4096,12 @@ function _setSelectedItemElement(listBox, itemElement, srcEvent) {
     }
 }
 
-function _selectListItem(event) {
+function selectListItem(event) {
     let itemElement = event.currentTarget;
     if (itemElement.classList.contains("ui_list_item")) {
         let listBox = nearestParentWithClass(itemElement, "ui_list");
         if (listBox) {
-            _setSelectedItemElement(listBox, itemElement, event);
+            setSelectedItemElement(listBox, itemElement, event);
         }
     }
 }
@@ -4113,18 +4110,18 @@ export function clearSelectedListItem(o) {
     let e = getList(o);
     if (e) {
         if (e._uiSelectedNodeElement) {
-            _removeClass(e._uiSelectedNodeElement, "selected");
+            removeClass(e._uiSelectedNodeElement, "selected");
             e._uiSelectedNodeElement = undefined;
         }
-        _setSelectedItemElement(e, null);
+        setSelectedItemElement(e, null);
     }
 }
 
 export function clearList(o) {
     let e = getList(o);
     if (e) {
-        _setSelectedItemElement(e, null);
-        _removeChildrenOf(e);
+        setSelectedItemElement(e, null);
+        removeChildrenOf(e);
     }
 }
 
@@ -4167,11 +4164,11 @@ export function ListControls (listId, first=null,up=null,down=null,last=null,cle
 }
 
 function initializeListControls(e) {
-    if (e.tagName == "DIV" && _hasNoChildElements(e)) {
+    if (e.tagName == "DIV" && hasNoChildElements(e)) {
         // note that this window might not yet be linked into the document so we have to dig the list up from our parent
         let w = getWindow(e); // this gets the nearest window
         if (w) {
-            let le = _findChildWithId(w, e._listId);
+            let le = findChildWithId(w, e._listId);
             if (le && le.classList.contains("ui_list")) {
                 e.appendChild( createListControlButton("⊼", e._first ? e._first : ()=>selectFirstListItem(le)));
                 e.appendChild( createListControlButton("⋀︎", e._up ? e._up : ()=>selectPrevListItem(le)));
@@ -4196,7 +4193,7 @@ function createTooltip (e, text) {
     document.body.appendChild(ett);
     e._uiTooltip = ett;
 
-    _addClass( e, "tooltipped");
+    addClass( e, "tooltipped");
 
     e.addEventListener("mouseenter", (event) =>{
         let e = event.target;
@@ -4210,9 +4207,9 @@ function createTooltip (e, text) {
 
             let y = cr.y - tcr.height - 8; // try above client
             if (y > 0) {
-                _addClass(ett, "above");
+                addClass(ett, "above");
             } else {
-                _addClass(ett, "below");
+                addClass(ett, "below");
                 y = cr.y + cr.height + 8;
             }
             ett.style.top = y + "px";
@@ -4235,15 +4232,15 @@ function createTooltip (e, text) {
 
 //--- menus
 
-var _uiActivePopupMenus = [];
-window.addEventListener("click", _windowPopupClickHandler);
-window.addEventListener("keydown", _popupKeyHandler, true); // capture phase so that we get keys before list handlers
-window.addEventListener("mousemove", _popupMouseMoveHandler, true);
+var uiActivePopupMenus = [];
+window.addEventListener("click", windowPopupClickHandler);
+window.addEventListener("keydown", popupKeyHandler, true); // capture phase so that we get keys before list handlers
+window.addEventListener("mousemove", popupMouseMoveHandler, true);
 
 // keyboard navigation mode: since browsers do not allow to move the mouse pointer we have to suppress CSS hover
 // rendering while the user navigates popups with the keyboard (see ui.css). This ends with the next real mouse move
 const KBD_NAV_CLS = "ui_popup_kbd_nav";
-var _lastMousePos = { x: -1, y: -1 };
+var lastMousePos = { x: -1, y: -1 };
 
 export function PopupMenu (eid=null) {
     return function (children) {
@@ -4271,8 +4268,8 @@ function createMenuItem (text, action=null, eid=null, isChecked=false, isDisable
     }
     if (eid) e.setAttribute("id", eid);
 
-    e.addEventListener("mouseenter", (event) => { if (!_isKbdNav()) _menuItemHandler(event); }); // see _popupMouseMoveHandler
-    e._uiHoverHandler = _menuItemHandler;
+    e.addEventListener("mouseenter", (event) => { if (!isKbdNav()) menuItemHandler(event); }); // see popupMouseMoveHandler
+    e._uiHoverHandler = menuItemHandler;
 
     e.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -4305,13 +4302,13 @@ export function SubMenu (text, action=null, eid=null, isChecked=false, isDisable
 }
 
 // any click outside popup closes the whole chain
-function _windowPopupClickHandler(event) {
+function windowPopupClickHandler(event) {
     closeAllActivePopups();
 }
 
 // keyboard navigation for the innermost active popup. Note that we only consume the keys we process
-function _popupKeyHandler(event) {
-    let menu = _peekTop(_uiActivePopupMenus);
+function popupKeyHandler(event) {
+    let menu = peekTop(uiActivePopupMenus);
     if (!menu) return;
 
     switch (event.key) {
@@ -4319,26 +4316,26 @@ function _popupKeyHandler(event) {
             closeAllActivePopups();
             break;
         case "ArrowDown":
-            _startKbdNav();
-            _moveMenuHighlight(menu, 1);
+            startKbdNav();
+            moveMenuHighlight(menu, 1);
             break;
         case "ArrowUp":
-            _startKbdNav();
-            _moveMenuHighlight(menu, -1);
+            startKbdNav();
+            moveMenuHighlight(menu, -1);
             break;
         case "ArrowRight": { // open submenu of highlighted item (no-op for items without submenu)
-            _startKbdNav();
-            let mi = _getMenuHighlight(menu);
-            if (mi && _firstChildWithClass(mi, "ui_popup_menu")) _activateMenuItem(mi);
+            startKbdNav();
+            let mi = getMenuHighlight(menu);
+            if (mi && firstChildWithClass(mi, "ui_popup_menu")) activateMenuItem(mi);
             break;
         }
         case "ArrowLeft": // close innermost submenu (no-op for top level popup)
-            _startKbdNav();
-            _closeTopSubmenu();
+            startKbdNav();
+            closeTopSubmenu();
             break;
         case "Enter": {
-            let mi = _getMenuHighlight(menu);
-            if (mi) _activateMenuItem(mi);
+            let mi = getMenuHighlight(menu);
+            if (mi) activateMenuItem(mi);
             break;
         }
         default:
@@ -4350,26 +4347,26 @@ function _popupKeyHandler(event) {
 }
 
 // the (direct) menuitems of a popup that can be selected - this skips separators and disabled items
-function _selectableMenuItems(menu) {
+function selectableMenuItems(menu) {
     return Array.from(menu.children).filter( c => c.classList.contains("ui_menuitem") && !c.classList.contains("disabled"));
 }
 
-function _getMenuHighlight(menu) {
+function getMenuHighlight(menu) {
     return Array.from(menu.children).find( c => c.classList.contains("highlighted"));
 }
 
-function _setMenuHighlight(menu, mi) {
+function setMenuHighlight(menu, mi) {
     for (const c of menu.children) c.classList.remove("highlighted");
     if (mi) mi.classList.add("highlighted");
 }
 
 // move highlight up (dir < 0) or down (dir > 0) with wrap-around. If there is no highlight yet we start at the checked
 // item (e.g. current choice), or the first/last item
-function _moveMenuHighlight(menu, dir) {
-    let items = _selectableMenuItems(menu);
+function moveMenuHighlight(menu, dir) {
+    let items = selectableMenuItems(menu);
     if (items.length == 0) return;
 
-    let cur = _getMenuHighlight(menu);
+    let cur = getMenuHighlight(menu);
     let idx = items.indexOf(cur);
     if (idx < 0) {
         let checked = items.findIndex( c => c.classList.contains("checked"));
@@ -4379,74 +4376,74 @@ function _moveMenuHighlight(menu, dir) {
     }
 
     let mi = items[idx];
-    _setMenuHighlight(menu, mi);
+    setMenuHighlight(menu, mi);
     mi.scrollIntoView({ block: "nearest" });
 }
 
 // trigger the highlighted menuitem as if it was clicked. Items with a submenu open it (and highlight its first item)
-function _activateMenuItem(mi) {
-    let sub = _firstChildWithClass(mi, "ui_popup_menu");
+function activateMenuItem(mi) {
+    let sub = firstChildWithClass(mi, "ui_popup_menu");
     if (sub) {
-        if (_peekTop(_uiActivePopupMenus) !== sub) _menuItemHandler({ target: mi });
-        _moveMenuHighlight(sub, 1);
+        if (peekTop(uiActivePopupMenus) !== sub) menuItemHandler({ target: mi });
+        moveMenuHighlight(sub, 1);
     } else {
         mi.click(); // this runs the click handlers which close all popups
     }
 }
 
 function closeAllActivePopups() {
-    for (let p of _uiActivePopupMenus) {
+    for (let p of uiActivePopupMenus) {
         p.style.visibility = "hidden";
     }
-    _uiActivePopupMenus = [];
+    uiActivePopupMenus = [];
     document.body.classList.remove(KBD_NAV_CLS);
 }
 
 // close the innermost submenu (if there is one). The highlight stays on the parent menuitem
-function _closeTopSubmenu() {
-    if (_uiActivePopupMenus.length > 1) {
-        let sub = _uiActivePopupMenus.pop();
+function closeTopSubmenu() {
+    if (uiActivePopupMenus.length > 1) {
+        let sub = uiActivePopupMenus.pop();
         sub.style.visibility = "hidden";
-        _setMenuHighlight(sub, null);
+        setMenuHighlight(sub, null);
     }
 }
 
-function _startKbdNav() {
+function startKbdNav() {
     document.body.classList.add(KBD_NAV_CLS);
 }
 
-function _isKbdNav() {
+function isKbdNav() {
     return document.body.classList.contains(KBD_NAV_CLS);
 }
 
 // a real mouse move ends keyboard navigation and applies the hover behavior to the menuitem under the pointer (mouseenter
 // events are ignored during keyboard navigation and precede mousemove events). Note that browsers might send synthetic
 // mouse events without position change (e.g. after scrolling), which we ignore
-function _popupMouseMoveHandler(event) {
-    let moved = (event.clientX != _lastMousePos.x || event.clientY != _lastMousePos.y);
-    _lastMousePos.x = event.clientX;
-    _lastMousePos.y = event.clientY;
+function popupMouseMoveHandler(event) {
+    let moved = (event.clientX != lastMousePos.x || event.clientY != lastMousePos.y);
+    lastMousePos.x = event.clientX;
+    lastMousePos.y = event.clientY;
 
-    if (moved && _isKbdNav()) {
+    if (moved && isKbdNav()) {
         document.body.classList.remove(KBD_NAV_CLS);
 
         let mi = event.target.closest ? event.target.closest("div.ui_menuitem") : null;
         if (mi && mi.parentNode) {
             if (mi._uiHoverHandler) mi._uiHoverHandler({ target: mi }); // highlight and (possibly) open/close submenus
-            else _setMenuHighlight(mi.parentNode, mi);
+            else setMenuHighlight(mi.parentNode, mi);
         }
     }
 }
 
-function _menuItemHandler(event) {
+function menuItemHandler(event) {
     let mi = event.target;
-    let sub = _firstChildWithClass(mi, "ui_popup_menu");
-    let currentTop = _peekTop(_uiActivePopupMenus);
+    let sub = firstChildWithClass(mi, "ui_popup_menu");
+    let currentTop = peekTop(uiActivePopupMenus);
 
-    if (mi.parentNode) _setMenuHighlight(mi.parentNode, mi); // keyboard navigation continues from here
+    if (mi.parentNode) setMenuHighlight(mi.parentNode, mi); // keyboard navigation continues from here
 
     if (currentTop !== mi.parentNode) {
-        _uiActivePopupMenus.pop();
+        uiActivePopupMenus.pop();
         currentTop.style.visibility = "hidden";
     }
 
@@ -4459,16 +4456,16 @@ function _menuItemHandler(event) {
         let y = (rect.top + h <= window.innerHeight) ? rect.top : rect.bottom - h;
 
         // style.left/top are relative to the containing block, which is the enclosing (absolute positioned) popup
-        _setPopupPosition( sub, mi.parentNode, x, y);
+        setPopupPosition( sub, mi.parentNode, x, y);
         sub.style.visibility = "visible";
 
-        _uiActivePopupMenus.push(sub);
+        uiActivePopupMenus.push(sub);
     }
 }
 
 // set the position of an absolute positioned popup from viewport coordinates x,y. Note that style.left/top are relative
 // to the padding box of the containing block, i.e. we have to subtract its viewport position and border widths
-function _setPopupPosition (popup, containingBlock, x, y) {
+function setPopupPosition (popup, containingBlock, x, y) {
     x = Math.max(0, x);
     y = Math.max(0, y);
 
@@ -4493,11 +4490,11 @@ export function popupMenu(event, o) {
         let y = Math.min( event.clientY, window.innerHeight - h);
 
         // style.left/top are relative to the containing block, which is the enclosing (absolute positioned) window
-        _setPopupPosition( popup, nearestParentWithClass(event.target, "ui_window"), x, y);
-        _setMenuHighlight( popup, null); // keyboard navigation starts fresh
+        setPopupPosition( popup, nearestParentWithClass(event.target, "ui_window"), x, y);
+        setMenuHighlight( popup, null); // keyboard navigation starts fresh
         popup.style.visibility = "visible";
 
-        _uiActivePopupMenus.push(popup);
+        uiActivePopupMenus.push(popup);
     }
 }
 main.exportFuncToMain(popupMenu);
@@ -4547,7 +4544,7 @@ export function setMenuItemDisabled(o, isDisabled = true) {
 export function toggleMenuItemCheck(event) {
     let mi = event.target;
     if (mi && mi.classList.contains("ui_menuitem")) {
-        return _toggleClass(mi, "checked");
+        return toggleClass(mi, "checked");
     } else {
         throw "not a menuitem";
     }
@@ -4601,7 +4598,7 @@ export function ProgressBar (eid,percent0=0,percent1=0) {
 }
 
 function initializeProgressBar(e) {
-    if (_hasNoChildElements(e)) {
+    if (hasNoChildElements(e)) {
         addProgressBarComponents(e);
     }
 }
@@ -4613,11 +4610,11 @@ export function setProgress2Bar (o, percent0=0, percent1=0) {
         e._uiP0 = Math.round(percent0);
         e._uiP1 = Math.round(percent1);
 
-        let p0 = e.firstElementChild();
+        let p0 = e.firstElementChild;
         if (p0) {
             p0.style.width = `${e._uiP0}%`;
-            let p1 = p0.firstElementChild();
-            p1.style.width = `${e._uiP1}%`;
+            let p1 = p0.firstElementChild;
+            if (p1) p1.style.width = `${e._uiP1}%`;
         }
     }
 }
@@ -4634,7 +4631,8 @@ export function getProgressBar(o) {
 
 //--- common panels
 
-export function LayerPanel (windowId, showAction, isExpanded=false) {
+// note the layer visibility checkbox in the panel header is added by odin_cesium.initLayerPanel(windowId, config, showAction)
+export function LayerPanel (windowId, isExpanded=false) {
     return Panel("layer", isExpanded, `${windowId}.layer`)(
         VarText( null, `${windowId}.layer-descr`)
     )
@@ -4716,12 +4714,12 @@ export function elementOf(o) {
     }
 }
 
-function _swapClass(element, oldCls, newCls) {
+function swapClass(element, oldCls, newCls) {
     element.classList.remove(oldCls);
     element.classList.add(newCls);
 }
 
-function _toggleClass(element, cls) {
+function toggleClass(element, cls) {
     if (element.classList.contains(cls)) {
         element.classList.remove(cls);
         return false;
@@ -4731,26 +4729,26 @@ function _toggleClass(element, cls) {
     }
 }
 
-function _addClass(element, cls) {
+function addClass(element, cls) {
     if (!element.classList.contains(cls)) element.classList.add(cls);
 }
 
-function _removeClass(element, cls) {
+function removeClass(element, cls) {
     element.classList.remove(cls);
 }
 
-function _containsClass(element, cls) {
+function containsClass(element, cls) {
     return element.classList.contains(cls);
 }
 
-function _getUiClass (e) {
+function getUiClass (e) {
     for (let c of e.classList) {
         if (c.startsWith("ui_")) return c;
     }
     return null;
 }
 
-function _containsAnyClass(element, ...cls) {
+function containsAnyClass(element, ...cls) {
     let cl = element.classList;
     for (c of cls) {
         if (cl.contains(c)) return true;
@@ -4762,15 +4760,15 @@ function setStyle (e, opts) {
     if (opts.color) e.style.color = opts.color;
     if (opts.background) e.style.background = opts.background;
     if (opts.border) e.style.border = opts.border;
-    if (opts.left) e.style.left = _numStyleValue( opts.left, "px");
-    if (opts.top) e.style.top = _numStyleValue( opts.top, "px");
-    if (opts.right) e.style.right = _numStyleValue( opts.right, "px");
-    if (opts.bottom) e.style.bottom = _numStyleValue( opts.bottom, "px");
-    if (opts.width) e.style.width = _numStyleValue(opts.width, "px");
-    if (opts.height) e.style.height = _numStyleValue(opts.height, "px");
+    if (opts.left) e.style.left = numStyleValue( opts.left, "px");
+    if (opts.top) e.style.top = numStyleValue( opts.top, "px");
+    if (opts.right) e.style.right = numStyleValue( opts.right, "px");
+    if (opts.bottom) e.style.bottom = numStyleValue( opts.bottom, "px");
+    if (opts.width) e.style.width = numStyleValue(opts.width, "px");
+    if (opts.height) e.style.height = numStyleValue(opts.height, "px");
 }
 
-function _numStyleValue (v, suffix) {
+function numStyleValue (v, suffix) {
     if (typeof v === 'number') return v +suffix;
     else return v;
 }
@@ -4794,13 +4792,13 @@ function setHeightStyle (e, minHeight=null, maxHeight=null) {
     if (style.length > 0) e.setAttribute("style", style);
 }
 
-function _setAlignment(e, attrs) {
+function setAlignment(e, attrs) {
     if (attrs.includes("alignLeft")) {
-        _addClass(e, "align_left");
+        addClass(e, "align_left");
     } else if (attrs.includes("alignRight")) {
-        _addClass(e, "align_right");
+        addClass(e, "align_right");
     } else if (attrs.includes("alignCenter")) {
-        _addClass(e, "align_center");
+        addClass(e, "align_center");
     }
 }
 
@@ -4810,7 +4808,7 @@ export function getRootVar(varName, defaultValue = undefined) {
     else return defaultValue;
 }
 
-function _rootVarInt(varName, defaultValue = 0) {
+function rootVarInt(varName, defaultValue = 0) {
     let v = getComputedStyle(document.documentElement).getPropertyValue(varName);
     if (v) {
         return parseInt(v, 10);
@@ -4819,7 +4817,7 @@ function _rootVarInt(varName, defaultValue = 0) {
     }
 }
 
-function _rootVarFloat(varName, defaultValue = 0.0) {
+function rootVarFloat(varName, defaultValue = 0.0) {
     let v = getComputedStyle(document.documentElement).getPropertyValue(varName);
     if (v) {
         return parseFloat(v);
@@ -4828,7 +4826,7 @@ function _rootVarFloat(varName, defaultValue = 0.0) {
     }
 }
 
-function _dataAttrValue(element, varName, defaultValue = "") {
+function dataAttrValue(element, varName, defaultValue = "") {
     let data = element.dataset;
     if (data) {
         let v = data[varName];
@@ -4837,7 +4835,7 @@ function _dataAttrValue(element, varName, defaultValue = "") {
     return defaultValue;
 }
 
-function _intDataAttrValue(element, varName, defaultValue = 0) {
+function intDataAttrValue(element, varName, defaultValue = 0) {
     let data = element.dataset;
     if (data) {
         let v = data[varName];
@@ -4846,7 +4844,7 @@ function _intDataAttrValue(element, varName, defaultValue = 0) {
     return defaultValue;
 }
 
-function _nearestElementWithClass(e, cls) {
+function nearestElementWithClass(e, cls) {
     while (e) {
         if (e.classList.contains(cls)) return e;
         e = e.parentElement;
@@ -4855,23 +4853,23 @@ function _nearestElementWithClass(e, cls) {
 }
 
 export function nearestParentWithClass(e, cls) {
-    return _nearestElementWithClass(e.parentElement, cls);
+    return nearestElementWithClass(e.parentElement, cls);
 }
 
-function _getChildren(e){
+function getChildren(e){
     let list = Array(e.childElementCount);
     for (let i=0; i<e.childElementCount; i++) list[i] = e.children[i];
     return list;
 }
 
-function _getDocumentElementsByClassName(cls) {
+function getDocumentElementsByClassName(cls) {
     let res = document.getElementsByClassName(cls);
     let list = Array(res.length);
     for (let i=0; i<res.length; i++) list[i] = res.item(i);
     return list;
 }
 
-function _childIndexOf(element) {
+function childIndexOf(element) {
     var i = -1;
     var e = element;
     while (e != null) {
@@ -4881,7 +4879,7 @@ function _childIndexOf(element) {
     return i;
 }
 
-function _firstChildWithClass(element, cls) {
+function firstChildWithClass(element, cls) {
     var c = element.firstChild;
     while (c) {
         if (c instanceof HTMLElement && c.classList.contains(cls)) {
@@ -4892,12 +4890,12 @@ function _firstChildWithClass(element, cls) {
     return undefined;
 }
 
-function _findChildWithId (e, id) {
+function findChildWithId (e, id) {
     if (e.id == id) return e;
 
     var ce = e.firstChild;
     while (ce) {
-        let ee = _findChildWithId(ce, id);
+        let ee = findChildWithId(ce, id);
         if (ee) return ee;
 
         ce = ce.nextElementSibling;
@@ -4906,7 +4904,7 @@ function _findChildWithId (e, id) {
     return null;
 }
 
-function _nthChildOf(element, n) {
+function nthChildOf(element, n) {
     if (n >= element.childNodes.length) return null;
 
     var i = 0;
@@ -4931,7 +4929,7 @@ function indexOfElement (e) {
     return idx;
 }
 
-function _removeLastNchildrenOf(element, n) {
+function removeLastNchildrenOf(element, n) {
     let i = 0;
     while (i < n && element.firstChild) {
         let le = element.lastElementChild;
@@ -4940,7 +4938,7 @@ function _removeLastNchildrenOf(element, n) {
     }
 }
 
-function _removeChildrenOf(element, keepFilter = undefined) {
+function removeChildrenOf(element, keepFilter = undefined) {
     let keepers = [];
 
     while (element.firstElementChild) {
@@ -4956,22 +4954,22 @@ function _removeChildrenOf(element, keepFilter = undefined) {
     }
 }
 
-function _isDisabled(e) {
-    return _containsClass(e, "disabled");
+function isDisabled(e) {
+    return containsClass(e, "disabled");
 }
 
-function _setDisabled(e, isDisabled) {
-    if (isDisabled) _addClass(e, "disabled");
-    else _removeClass(e, "disabled");
+function setDisabled(e, isDisabled) {
+    if (isDisabled) addClass(e, "disabled");
+    else removeClass(e, "disabled");
 }
 
 
-function _peekTop(array) {
+function peekTop(array) {
     let len = array.length;
     return (len > 0) ? array[len - 1] : undefined;
 }
 
-function _hasNoChildElements(element) {
+function hasNoChildElements(element) {
     return element.children.length == 0;
 }
 
@@ -4982,13 +4980,13 @@ export function createElement(tagName, clsList = undefined, txtContent = undefin
     return e;
 }
 
-function _moveChildElements(oldParent, newParent) {
+function moveChildElements(oldParent, newParent) {
     while (oldParent.firstElementChild){
         newParent.appendChild(oldParent.firstElementChild);
     }
 }
 
-function _hoistChildElement(e) {
+function hoistChildElement(e) {
     let parent = e.parentElement;
     if (parent.nextElementSibling) {
         parent.parentElement.insertBefore(e, parent.nextElementSibling);
@@ -4997,7 +4995,7 @@ function _hoistChildElement(e) {
     }
 }
 
-function _createDate(dateSpec) {
+function createDate(dateSpec) {
     if (dateSpec) {
         if (typeof dateSpec === "string") {
             if (dateSpec == "now") return new Date(Date.now());
@@ -5009,7 +5007,7 @@ function _createDate(dateSpec) {
     return undefined;
 }
 
-function _hasBorderedParent(e) {
+function hasBorderedParent(e) {
     let p = e.parentElement;
     if (p) {
         let cl = p.classList;
@@ -5018,13 +5016,13 @@ function _hasBorderedParent(e) {
     return false;
 }
 
-function _parentDataSet(e) {
+function parentDataSet(e) {
     let p = e.parentElement;
     return (p) ? p.dataset : undefined;
     _
 }
 
-function _inheritableData(e, key) {
+function inheritableData(e, key) {
     do {
         let v = e.dataset[key];
         if (v) return v;
@@ -5032,12 +5030,12 @@ function _inheritableData(e, key) {
     } while (e);
 }
 
-function _parseInt(s, defaultValue) {
+function parseIntOr(s, defaultValue) {
     if (s && s.length > 0) return parseInt(s);
     else return defaultValue;
 }
 
-function _parseNumber(s, defaultValue) {
+function parseNumber(s, defaultValue) {
     if (s && s.length > 0) {
         if (s.includes('.')) return parseFloat(s);
         else return parseInt(s);
@@ -5046,15 +5044,15 @@ function _parseNumber(s, defaultValue) {
     }
 }
 
-function _hasDimensions(e) {
+function hasDimensions(e) {
     return (e.getBoundingClientRect().width > 0);
 }
 
-function _formattedNum(v, fmt) {
+function formattedNum(v, fmt) {
     return fmt ? fmt.format(v) : v.toString();
 }
 
-function _consumeEvent(event) {
+function consumeEvent(event) {
     event.preventDefault();
     event.stopPropagation();
 }

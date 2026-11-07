@@ -207,7 +207,7 @@ function createWindow() {
     let nItems = 8;
 
     let view = ui.Window("Operational Fire Data", "fires", "./asset/odin_fires/fires-icon.svg")(
-        ui.LayerPanel("fires", toggleShowFires),
+        ui.LayerPanel("fires"),
         ui.Panel("fires", true)(
             ui.RowContainer()(
                 ui.List("fires.years", 5, selectYear),
@@ -408,12 +408,6 @@ function clearPerimeters () {
     ui.clearListItemCheckBoxes(firePerimeterView);
 
     releasePerimeterAssets();
-    odinCesium.requestRender();
-}
-
-function toggleShowFires(event) {
-    let showIt = ui.isCheckBoxSelected(event.target);
-    fireEntries.forEach( (fe)=>fe.setPerimeterVisibility( showIt));
     odinCesium.requestRender();
 }
 

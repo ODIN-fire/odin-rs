@@ -62,7 +62,7 @@ function initWindow() {
 
 function createWindow() {
     return ui.Window("Geo Layers", "geolayer", "./asset/odin_geolayer/geomarker-icon.svg")(
-        ui.LayerPanel("geolayer", toggleShowGeoLayer),
+        ui.LayerPanel("geolayer"),
         ui.Panel("geo layer sources", true)(
             ui.TreeList("geolayer.source.list", 15, "27rem", selectGeoLayerSource),
             ui.RowContainer()(
@@ -259,8 +259,4 @@ function selectGeoLayerSource(event) {
     if (e) {
         // TODO - show info
     }
-}
-
-function toggleShowGeoLayer(event) {
-    console.log("not yet")
 }

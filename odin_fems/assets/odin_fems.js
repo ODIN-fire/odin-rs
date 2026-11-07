@@ -248,7 +248,7 @@ function createWindow() {
     let maxFcRows = 7;
 
     return ui.Window("FEMS stations", "fems", "./asset/odin_fems/fems.svg")(
-        ui.LayerPanel("fems", toggleShowFems),
+        ui.LayerPanel("fems"),
         ui.Panel("stations", true)(
             stationView = ui.List("fems.stations", 8, selectStationEntry, null, null, zoomToStation)
         ),
@@ -343,11 +343,6 @@ function initFcFuelView( view, idx) {
 
 function showFems(cond) {
     dataSource.show = cond;
-    odinCesium.requestRender();
-}
-
-function toggleShowFems(event) {
-    dataSource.show = !dataSource.show;
     odinCesium.requestRender();
 }
 

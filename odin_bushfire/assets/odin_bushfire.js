@@ -111,7 +111,7 @@ function createIcon() {
 
 function createWindow() {
     let view = ui.Window("Bushfires", "fires", "./asset/odin_bushfire/fires-icon.svg")(
-        ui.LayerPanel("fires", toggleShowFires),
+        ui.LayerPanel("fires"),
         ui.Panel("fires", true)(
             ui.RowContainer("start")(
                 ui.Button("all", selAll),
@@ -393,13 +393,6 @@ async function loadPerimeter (fire) {
             } else console.log("no data for request: ", url);
         } else console.log("request failed: ", url);
     }, (reason) => console.log("failed to retrieve: ", url, ", reason: ", reason));
-}
-
-function toggleShowFires(event) {
-    let showIt = ui.isCheckBoxSelected(event.target);
-    dataSource.show = showIt;
-    showPerimeters(showIt);
-    odinCesium.requestRender();
 }
 
 function showFires(cond) {

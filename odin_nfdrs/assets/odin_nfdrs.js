@@ -181,7 +181,7 @@ function createIcon() {
 
 function createWindow() {
     return ui.Window("NFDRS", "nfdrs", "./asset/odin_nfdrs/nfdrs-icon.svg")(
-        ui.LayerPanel("nfdrs", toggleShowNfdrs),
+        ui.LayerPanel("nfdrs"),
         ui.Panel("input", false)(
             (sharedAreasView = ui.TreeList("nfdrs.areas", 8, "32rem", setAreaFromSelection)),
             ui.RowContainer()(
@@ -690,10 +690,6 @@ function zoomToBounds (b) {
 /* #endregion area selection and requests */
 
 /* #region layer visibility *****************************************************************************************/
-
-function toggleShowNfdrs (event) {
-    // the module panel checkbox is handled through odinCesium.initLayerPanel / showNfdrs
-}
 
 function showNfdrs (cond) {
     showLayers = cond;

@@ -52,8 +52,14 @@ pub use alarm::*;
 
 pub mod ws;
 
-mod live_connector;
-pub use live_connector::*;
+mod connector;
+pub use connector::*;
+
+mod ws_connector;
+pub use ws_connector::*;
+
+mod poll_connector;
+pub use poll_connector::*;
 
 mod errors;
 pub use errors::*;
@@ -1104,38 +1110,10 @@ pub type ExternalFileQuery = Query<GetExternalFile,SentinelFileResult>;
 
 /* #endregion file requests */
 
-/* #region connectors  ********************************************************************************************************/
-
-/// this is the abstraction over the actual source of external information, which can be either a live connection to a Delphire server
-/// or a replayer for archived data
-#[async_trait]
-pub trait SentinelConnector {
-
-    async fn start (&mut self, hself: ActorHandle<SentinelActorMsg>) -> Result<()>;
-
-    // note that these future do not wait until the request was resolved - only until the request has been queued (if it needs to)
-
-    async fn send_cmd (&mut self, cmd: ws::WsCmd) -> Result<()>;
-
-    async fn handle_sentinel_file_query (&self, file_query: Query<GetSentinelFile,Result<SentinelFile>>) -> Result<()>;
-
-    fn terminate (&mut self);
-
-    fn max_history(&self)->usize;
-
-    /// duration since last update after which we consider a device inactive
-    fn inactive_duration(&self)->Duration;
-
-    /// duration how often we check for inactive status
-    fn inactive_interval(&self)->Duration;
- }
-
-/* #endregion connectors */
-
 /* #region basic http getters *************************************************************************************************/
 
 // the reqwest::Response::json() alternative does not preserve enough error information
-async fn from_json<T> (response: Response)->Result<T> where T: DeserializeOwned {
+pub(crate) async fn from_json<T> (response: Response)->Result<T> where T: DeserializeOwned {
     let bytes = response.bytes().await?;
     serde_json::from_slice( &bytes).map_err(|e| {
         //let mut s = String::new();
@@ -1181,38 +1159,6 @@ pub async fn get_time_sorted_records <T> (client: &Client, base_uri: &str, acces
     let response = client.get(uri).bearer_auth(access_token).send().await?;
     let record_list: RecordList<T> = from_json(response).await?;
     Ok(record_list.data)
-}
-
-pub async fn get_records_since <T> (client: &Client, base_uri: &str, access_token: &str, uri_path: &str, last: &str) -> Result<Vec<SensorRecord<T>>>
-    where T: RecordDataBounds
-{
-    let uri = format!("{base_uri}{uri_path}?sort=timeRecorded,DESC&last={last}"); // FIXME - the uri_path has a heading '/'
-    let response = client.get(uri).bearer_auth(access_token).send().await?;
-    let record_list: RecordList<T> = from_json(response).await?;
-    Ok(record_list.data)
-}
-
-pub async fn get_latest_record <T> (client: &Client, base_uri: &str, access_token: &str,
-                                    device_id: &str, sensor_no:u32) -> Result<SensorRecord<T>>
-    where T: RecordDataBounds, SentinelUpdate: From<Arc<SensorRecord<T>>>
-{
-    let mut recs = get_time_sorted_records::<T>( client, base_uri, access_token, device_id, sensor_no, 1).await?;
-    recs.pop().ok_or( no_data(format!("for device: {}, sensor: {}, capability: {:?}", device_id, sensor_no, T::capability())))
-}
-
-async fn get_file_request (client: &Client, access_token: &str, uri: &str, pathname: &PathBuf)->Result<()> {
-    let mut response = client.get(uri).bearer_auth(access_token).send().await?;
-
-    let mut file = File::create(pathname)?;
-    while let Some(chunk) = response.chunk().await? {
-        file.write(&chunk)?;
-    }
-
-    Ok(())
-}
-
-pub fn get_image_uri (base_uri: &str, record_id: &str)->String {
-    format!("{base_uri}/images/{record_id}")
 }
 
 // Delphire server as of 07-25 rejects based on user-agent

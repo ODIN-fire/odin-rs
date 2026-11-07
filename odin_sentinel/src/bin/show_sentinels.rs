@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -16,7 +16,7 @@ use std::sync::Arc;
 use odin_build;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
-use odin_sentinel::{load_config, sentinel_service::SentinelService, LiveSentinelConnector, SentinelActor, SentinelStore, SentinelUpdate};
+use odin_sentinel::{load_config, sentinel_service::SentinelService, PollConnector, SentinelActor, SentinelStore, SentinelUpdate};
 
 
 run_actor_system!( actor_system => {
@@ -32,25 +32,25 @@ run_actor_system!( actor_system => {
 
     let init_action = dataref_action!(
         let hserver: ActorHandle<SpaServerMsg> = hserver.clone(),
-        let sender_id: Arc<String> = pre_sentinel.get_id() => 
+        let sender_id: Arc<String> = pre_sentinel.get_id() =>
         |_store: &SentinelStore| {
-            // we could directly send a BroadcastWsMsg here but if there are no connections yet that would 
+            // we could directly send a BroadcastWsMsg here but if there are no connections yet that would
             // create a potentially large WsMsg for naught
             Ok( hserver.try_send_msg( DataAvailable::new::<SentinelStore>(sender_id) )? )
         }
     );
 
-    let update_action = data_action!( 
-        let hserver: ActorHandle<SpaServerMsg> = hserver.clone() => 
+    let update_action = data_action!(
+        let hserver: ActorHandle<SpaServerMsg> = hserver.clone() =>
         |update:SentinelUpdate| {
             let ws_msg = WsMsg::json( SentinelService::mod_path(), "update", update)?;
             Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
         }
     );
 
-    let _hsentinel = spawn_pre_actor!( actor_system, pre_sentinel, 
-        SentinelActor::new( LiveSentinelConnector::new( load_config( "sentinel.ron")?), init_action, update_action)
+    let _hsentinel = spawn_pre_actor!( actor_system, pre_sentinel,
+        SentinelActor::new( PollConnector::new( load_config( "sentinel.ron")?)?, init_action, update_action)
     )?;
-    
+
     Ok(())
 });

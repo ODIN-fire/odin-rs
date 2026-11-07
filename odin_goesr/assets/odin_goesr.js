@@ -109,7 +109,7 @@ function createWindow() {
         "goesr",
         "./asset/odin_goesr/geo-sat-icon.svg",
     )(
-        ui.LayerPanel("goesr", toggleShowGoesr),
+        ui.LayerPanel("goesr"),
         ui.Panel("data sets", true)(
             ui.RowContainer()(
                 ui.CheckBox("lock step", toggleGoesrLockStep, "goesr.lockStep"),
@@ -787,11 +787,4 @@ function toggleFollowLatestGoesr(event) {
 function toggleGoesrLockStep(event) {
     lockStep = ui.isCheckBoxSelected(event.target);
     updateHotspots();
-}
-
-function toggleShowGoesr(event) {
-    let cb = ui.getCheckBox(event.target);
-    if (cb) {
-        showGoesr(ui.isCheckBoxSelected(cb));
-    }
 }

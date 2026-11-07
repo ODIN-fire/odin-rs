@@ -112,7 +112,7 @@ export class ImgWindow {
         let render = this.defaultRender;
 
         this.window = ui.Window(this.windowTitle, id, this.iconPath)(
-            ui.LayerPanel(id, toggleShowImgLayer),
+            ui.LayerPanel(id),
             ui.Panel("sources", true)(
                 (this.sourceView = ui.TreeList(this.elementId("source.list"), 15, "27rem", this.selectImgLayerSrc.bind(this))),
                 ui.RowContainer()(
@@ -438,8 +438,4 @@ function loadColorMap (src) {
             request.send();
         });
     }
-}
-
-function toggleShowImgLayer(event) {
-    console.log("not yet")
 }

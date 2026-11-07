@@ -84,7 +84,7 @@ function createWindow() {
         "himawari",
         "./asset/odin_himawari/himawari-icon.svg",
     )(
-        ui.LayerPanel("himawari", toggleShowHimawari),
+        ui.LayerPanel("himawari"),
         ui.Panel("data sets", true)(
             (dataSetView = ui.List("himawari.dataSets", 6, selectDataSet)),
             ui.RowContainer()(
@@ -204,13 +204,6 @@ function pixelQuality (e) {
 function showHimawari(cond) {
     dataSource.show = cond;
     odinCesium.requestRender();
-}
-
-function toggleShowHimawari(event) {
-    let cb = ui.getCheckBox(event.target);
-    if (cb) {
-        showHimawari(ui.isCheckBoxSelected(cb));
-    }
 }
 
 function toggleFollowLatest (event) {

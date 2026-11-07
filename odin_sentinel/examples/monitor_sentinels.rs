@@ -1,9 +1,9 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
+ * Copyright © 2024, United States Government, as represented by the Administrator of
  * the National Aeronautics and Space Administration. All rights reserved.
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
+ * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0.
  *
  * Unless required by applicable law or agreed to in writing, software distributed under
@@ -15,7 +15,7 @@
 use odin_build;
 use odin_actor::prelude::*;
 use odin_common::datetime::secs;
-use odin_sentinel::{load_config, LiveSentinelConnector, SentinelActor, SentinelStore, SentinelUpdate};
+use odin_sentinel::{load_config, WsConnector, SentinelActor, SentinelStore, SentinelUpdate};
 
 
 /* #region monitor actor *****************************************************************/
@@ -33,13 +33,13 @@ impl_actor! { match msg for Actor<SentinelMonitor,SentinelMonitorMsg> as
         println!("------------------------------ snapshot");
         println!("{}", msg.0);
     }
-    Update => cont! { 
+    Update => cont! {
         println!("------------------------------ update");
-        println!("{}", msg.0) 
+        println!("{}", msg.0)
     }
     Inactive => cont! {
         println!("------------------------------ inactive");
-        println!("{}", msg.0)  
+        println!("{}", msg.0)
     }
 }
 
@@ -53,7 +53,7 @@ run_async_main!({
     let hmonitor = spawn_actor!( actor_system, "monitor", SentinelMonitor{})?;
 
     let _hsentinel = spawn_actor!( actor_system, "sentinel", SentinelActor::new(
-        LiveSentinelConnector::new( load_config( "sentinel.ron")?), 
+        WsConnector::new( load_config( "sentinel.ron")?),
         dataref_action!( let hmonitor: ActorHandle<SentinelMonitorMsg> = hmonitor.clone() => |data:&SentinelStore| {
             let msg = Snapshot(data.to_json_pretty().unwrap());
             Ok( hmonitor.try_send_msg( msg)? )

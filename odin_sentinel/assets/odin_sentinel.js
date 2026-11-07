@@ -230,7 +230,7 @@ function createWindow() {
     let maxDataRows = 8;
 
     return ui.Window("Sentinels", "sentinel", "./asset/odin_sentinel/sentinel.svg")(
-        ui.LayerPanel("sentinel", toggleShowSentinels),
+        ui.LayerPanel("sentinel"),
         ui.List("sentinel.list", 10, selectSentinel,null,null,zoomToSentinel),
 
         ui.VarText(" ", "sentinel.name"),
@@ -257,11 +257,6 @@ function showSentinels (cond) { // triggered by panel
     odinCesium.requestRender();
 }
 
-
-function toggleShowSentinels(event) { // show action triggered by layer view (not panel)
-    sentinelDataSource.show = !sentinelDataSource.show;
-    odinCesium.requestRender();
-}
 
 function initSentinelView() {
     let view = ui.getList("sentinel.list");

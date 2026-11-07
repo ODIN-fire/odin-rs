@@ -158,7 +158,7 @@ function createIcon() {
 
 function createWindow() {
     return ui.Window("Orbiting Satellite Hotspots", "orbital", "./asset/odin_orbital/polar-sat-icon.svg")(
-        ui.LayerPanel("orbital", toggleShowOrbital),
+        ui.LayerPanel("orbital"),
         ui.Panel("area", false)(
             (sharedAreasView = ui.TreeList("orbital.areas", 10, "30rem", setAreaFromSelection)),
             ui.RowContainer()(
@@ -942,10 +942,6 @@ function toggleAreaHotspotsOnly(event){
         updateHotspots();
         showHotspots();
     }
-}
-
-function toggleShowOrbital(event) {
-    showHotspotAssets(ui.isCheckBoxSelected(event.target));
 }
 
 function selectCompleted(event) {

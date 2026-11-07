@@ -432,7 +432,7 @@ function createIcon() {
 
 function createWindow() {
     return ui.Window("Wind", "wind", "./asset/odin_wind/wind-icon.svg")(
-        ui.LayerPanel("wind", toggleShowWind),
+        ui.LayerPanel("wind"),
 
         ui.Panel("wind-fields", true)(
             ui.RowContainer()(
@@ -493,10 +493,6 @@ function initForecastView() {
 /* #endregion UI window */
 
 /* #region UI callbacks *************************************************************************************/
-
-function toggleShowWind (event) { // our local show/hide
-    // show/hide wind assets
-}
 
 function showWind (cond) { // layer mgnt interface
 
