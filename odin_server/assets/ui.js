@@ -14,6 +14,7 @@
 import * as main from "./main.js";
 import * as util from "./ui_util.js";
 import { ExpandableTreeNode, HMValue } from "./ui_data.js";
+import * as dialogs from "./ui_dialogs.js";
 
 
 //--- module initialization
@@ -24,16 +25,15 @@ var loadFunctions = [];
 var unloadFunctions = [];
 var postLoadFunctions = [];  // called after all loadFunctions have been executed
 
-document.addEventListener('load', e => {
+window.addEventListener('load', e => { // note the load event is dispatched on window, not document
     loadFunctions.forEach(f => f());
     postLoadFunctions.forEach(f => f());
 });
 
-document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-        loadFunctions.forEach(f => f());
-        console.log("modules terminated.");
-    }
+// 'pagehide' is the reliable page termination event ('visibilitychange' also fires when switching tabs, 'unload' is deprecated)
+window.addEventListener('pagehide', e => {
+    unloadFunctions.forEach(f => f());
+    console.log("modules terminated.");
 });
 
 export function registerLoadFunction(func) {
@@ -1663,7 +1663,7 @@ export function getDTGEntryDate(o) {
 
         if (year == "" || month == "" || day == "" || hour == "" || minute == "") return null;
         if (month > 12 || day > 31 || hour > 24 || minute > 60) {
-            alert("invalid DTG Entry input");
+            dialogs.alert("invalid DTG Entry input");
             return null;
         }
 
@@ -3173,10 +3173,10 @@ function listKeyDownHandler(event) {
     if (event.key === 'Escape') {
         clearSelectedListItem(list);
         //stopAllOtherProcessing(event);
-    } else if (event.key === 'ArrowDown') {
+    } else if (event.key === 'ArrowDown' && !event.altKey) {
         if (list._uiSelectedItemElement) selectNextListItem(list); else selectFirstListItem(list);
         stopAllOtherProcessing(event);
-    } else if (event.key === 'ArrowUp') {
+    } else if (event.key === 'ArrowUp' && !event.altKey) {
         if (list._uiSelectedItemElement) selectPrevListItem(list); else selectLastListItem(list);
         stopAllOtherProcessing(event);
     } else if (event.key === 'E') { // expand-all tree list only

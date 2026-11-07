@@ -28,10 +28,18 @@ We provide a number of additional mouse interactions and hotkeys to control both
 - alt + page-down : reset orthogonal view angle (towards center of earth)
 - alt + 1/2/3/4/5/6 : zoom to (`odin_cesium_config.js` configured) camera height level
 - alt + 'i'/'o' : zoom in/out
+- alt + '[' / ']' : decrease/increase brightness of the shown globe imagery in 0.1 steps (e.g. to make entities stand out)
 - esc : reset entity selection indicator (the green rectangle around selected objects)
 - alt + left-click in titlebar of ui window : move window to the left 
 - alt + 'l'/'r' or 't'/'b' : move top window to left/right or top/bottom
 - alt + 'n'/'p' : cycle forwards/backwards through ui windows
+- alt + print-screen (or F13) : save a screenshot of the browser tab (globe plus ui windows) as an image file
+- alt + shift + print-screen (or F13) : start/stop recording the browser tab as a video file (webm, or mp4 on Safari).
+  Recording can also be stopped with the browser's "Stop sharing" button. Resolution and bitrate are configured in the
+  `screenRecording` section of `odin_cesium_config.js`
+
+Screenshots and recordings use the browser Screen Capture API, i.e. the user has to confirm (Chrome) or select (Firefox,
+Safari) the captured tab each time. The filename is entered in a dialog and the file is saved as a browser download.
 
 
 ## How to access CesiumJS

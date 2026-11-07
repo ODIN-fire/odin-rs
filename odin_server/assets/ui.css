@@ -147,6 +147,61 @@ img.ui_titlebar_icon {
     width: auto;
 }
 
+/* modal dialogs (ui_dialogs.js) - shown in the top layer, centered by the user agent stylesheet */
+
+dialog.ui_dialog {
+    padding: 0;
+    min-width: 20rem;
+    max-width: 40rem;
+    color: var(--window-color);
+    background: var(--window-background);
+    border: var(--window-border);
+    box-shadow: var(--window-shadow);
+    user-select: none;
+}
+
+dialog.ui_dialog::backdrop {
+    background: rgba(0, 0, 0, 0.3); /* explicit since older browsers do not inherit custom properties in ::backdrop */
+}
+
+dialog.ui_dialog div.ui_titlebar {
+    cursor: default;
+}
+
+div.ui_dialog_content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--window-gap);
+    padding: var(--window-padding);
+}
+
+div.ui_dialog_msg {
+    font: var(--font);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+input.ui_field.ui_dialog_input {
+    width: 100%;
+}
+
+div.ui_dialog_buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--window-gap);
+    padding: 0 var(--window-padding) var(--window-padding) var(--window-padding);
+}
+
+div.ui_dialog_buttons input.ui_button {
+    min-width: 5rem;
+}
+
+div.ui_dialog_buttons input.ui_button:focus {
+    border: var(--focus-border);
+    outline: var(--focus-outline);
+}
+
 div.ui_titlebar button.ui_close_button {
     position: absolute;
     top: 3px;

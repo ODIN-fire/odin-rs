@@ -51,6 +51,11 @@ export class ImgWindow {
     // (e.g. for high resolution data that would be expensive to display for large areas). Cesium does not support
     // distance display conditions for imagery layers so we have to do this with a camera listener
     registerImagerySources(modName, maxCameraHeight=undefined) {
+        // keep the render sliders in sync if layer render parameters are changed by odin_cesium (e.g. brightness hotkeys)
+        odinCesium.registerImageryRenderChangeHandler( (changedSrcs) => {
+            if (this.selectedSrc && changedSrcs.includes( this.selectedSrc)) this.setImgSliderValues( this.selectedSrc);
+        });
+
         this.sources.forEach( (src) => {
             if (!src.show) src.show = false;
             if (src.maxCameraHeight === undefined) src.maxCameraHeight = maxCameraHeight;

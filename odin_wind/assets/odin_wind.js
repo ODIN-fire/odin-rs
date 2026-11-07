@@ -19,6 +19,7 @@ import * as main from "../odin_server/main.js";
 import * as util from "../odin_server/ui_util.js";
 import * as data from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
+import * as dialogs from "../odin_server/ui_dialogs.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
 import * as wf from "./windfield.js";
@@ -332,7 +333,7 @@ function handleRejectForecastRegion (rejectFcr) {
     if (fr) {
         fr.setActive(false);
         ui.updateListItem( regionView, fr);
-        alert( `region request rejected: ${rejectFcr.rejection}` );
+        dialogs.alert( `region request rejected: ${rejectFcr.rejection}` );
     }
 }
 

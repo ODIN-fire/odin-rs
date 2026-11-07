@@ -20,6 +20,7 @@ import * as main from "../odin_server/main.js";
 import * as util from "../odin_server/ui_util.js";
 import * as data from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
+import * as dialogs from "../odin_server/ui_dialogs.js";
 import * as ws from "../odin_server/ws.js";
 import * as settings from "../odin_server/ui_settings.js";
 
@@ -33,6 +34,7 @@ const LOCAL = "local-";  // prefix for local position set names
 
 const ORTHO_PITCH = -Math.PI/2;
 const TERRAIN_HEIGHT = 100000; // in meters
+const GLOBE_IMAGERY = "globe"; // module name of the globe (base) imagery sources registered by imglayer.js
 
 // mouse query cached positions
 const cp2 = new Cesium.Cartesian2(); // screen
@@ -213,6 +215,7 @@ export const viewerReadyPromise = new Promise( async (resolve,reject) => {
         timeline: false,
         animation: false,
         requestRenderMode: requestRenderMode,
+        ...config.contextOptions
     });
 
     viewer.resolutionScale = window.devicePixelRatio; // 2.0
@@ -290,12 +293,14 @@ export async function postInitialize() {
 //--- imagery providers/layers
 
 var imagerySources = [];
+var imageryRenderChangeHandlers = []; // functions to call with changed sources if layer render parameters are changed here
 
 // this has to be called from client modules *before* they await any promises to ensure proper module load order (which controls layer visibility)
 export function registerImagerySource(modName, src) {
     if (src.provider) {
         if (!src.show) src.show = false;
         src.layer = undefined;
+        src.modName = modName;
         imagerySources.push(src);
     } else {
         console.error("no provider for imagery source ", modName, src.pathName);
@@ -652,14 +657,14 @@ function addCurrentView() {
     let alt = Number.parseFloat(ui.getFieldValue("view.camera.altitude"));
 
     if (isNaN(lat) || isNaN(lon) || isNaN(alt)){
-        alert("please enter valid latitude, longitude and altitude");
+        dialogs.alert("please enter valid latitude, longitude and altitude");
         return;
     }
 
     let key = ui.getFieldValue(cameraName);
     if (key && isValidViewKey(key)) {
         main.setSharedItem( key, "GeoPoint3", new main.GeoPoint3( lon, lat, alt), true); // we add this as a locally shared var and update from the sharedHandler
-    } else alert("please enter valid view name: ", VIEW_PATTERN);
+    } else dialogs.alert("please enter valid view name: " + VIEW_PATTERN);
 }
 
 function pickViewPoint() {
@@ -683,7 +688,7 @@ function pickViewPoint() {
                 ui.resetElementColors(btn);
             });
         } else {
-            alert("please enter valid view name: ", VIEW_PATTERN);
+            dialogs.alert("please enter valid view name: " + VIEW_PATTERN);
             ui.resetElementColors(btn);
         }
     }, 100);
@@ -706,8 +711,8 @@ function removeView() {
     if (pos) {
         if (pos.isLocal) {
             main.removeSharedItem( pos.key);
-        } else alert("only local views can be removed here");
-    } else alert( "please select view to remove");
+        } else dialogs.alert("only local views can be removed here");
+    } else dialogs.alert( "please select view to remove");
 }
 
 function getConfigViews() {
@@ -1169,6 +1174,7 @@ export function showSelectionIndicator (cond) {
 
 export function clearSelectedEntity() {
     viewer.selectedEntity = null;
+    requestRender();
 }
 
 export function getSelectedEntity() {
@@ -1331,8 +1337,10 @@ function handleKeyDown(e) {
 
 // global hotkeys - make sure these don't collide with module specific handlers
 function globalKeyDownHandler(event) {
-    //if (Object.is( event.target, document.body)) { // otherwise this wasn't for us
-    if (event.altKey) {
+    if (event.code == "Escape") { // we reset on each Esc hit
+        clearSelectedEntity();
+
+    } else if (event.altKey) {
         switch (event.code) {
             case "Home": setHomeView(event.shiftKey); break;
             case "PageDown": setDownView(event.shiftKey); break;
@@ -1348,9 +1356,261 @@ function globalKeyDownHandler(event) {
             case "Digit4": zoomToHeightLevel(4, event.shiftKey); break;
             case "Digit5": zoomToHeightLevel(5, event.shiftKey); break;
             case "Digit6": zoomToHeightLevel(6, event.shiftKey); break;
-            case "Escape": clearSelectedEntity(); break;
+            case "PrintScreen": case "F13": captureScreen(event.shiftKey); break; // macOS reports it as F13 for external keyboards
+            case "BracketLeft": adjustImageryBrightness(false); break;
+            case "BracketRight": adjustImageryBrightness(true); break;
         }
     }
+}
+
+// change the brightness of the shown globe imagery layers (registered by imglayer.js) in 0.1 steps, e.g. to make
+// entities rendered on top of the globe stand out
+function adjustImageryBrightness(increaseBrightness) {
+    let delta = increaseBrightness ? 0.1 : -0.1;
+    let changed = imagerySources.filter( src => src.modName == GLOBE_IMAGERY && src.show && src.layer);
+
+    changed.forEach( src => {
+        let b = Math.round( (src.layer.brightness + delta) * 10) / 10; // don't accumulate floating point errors
+        src.layer.brightness = Math.min( Math.max( b, 0), 2.0); // range of the ImgWindow brightness slider
+    });
+
+    if (changed.length > 0) {
+        imageryRenderChangeHandlers.forEach( h => h(changed));
+        requestRender();
+    }
+}
+
+export function registerImageryRenderChangeHandler (handler) {
+    imageryRenderChangeHandlers.push(handler);
+}
+
+export function unregisterImageryRenderChangeHandler (handler) {
+    let idx = imageryRenderChangeHandlers.findIndex(h => h === handler);
+    if (idx >= 0) imageryRenderChangeHandlers.splice(idx,1);
+}
+
+// capture the current browser tab contents (globe plus all UI windows) and save it as an image file, or start/stop
+// recording it as a video if `isRecording` is set.
+// Since the DOM cannot be rendered into an image we have to use the Screen Capture API, which requires the user to
+// confirm (Chromium) or select (Firefox, Safari) the captured surface each time
+async function captureScreen(isRecording) {
+    if (isRecording && screenRecorder) { // second hotkey hit stops the recording
+        stopScreenRecording();
+        return;
+    }
+    if (isStartingRecording) return; // still waiting for the view to settle
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+        dialogs.alert("screen capture not supported by this browser");
+        return;
+    }
+    if (isRecording && !window.MediaRecorder) {
+        dialogs.alert("screen recording not supported by this browser");
+        return;
+    }
+
+    // starting the capture can resize the viewer (e.g. Chrome shows a "sharing this tab" bar). Cesium reports canvas
+    // resizes as camera moves (frustum change), and modules such as odin_wind hide their visualizations until the
+    // camera moveEnd event, which we therefore have to wait for before grabbing the frame or starting to record
+    let viewTracker = new ViewChangeTracker();
+    let stream;
+    try {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+            video: { displaySurface: "browser", frameRate: { ideal: recordingConfig().frameRate } },
+            audio: false,
+            preferCurrentTab: true,        // Chromium only: just offer this tab
+            selfBrowserSurface: "include",
+            surfaceSwitching: "exclude"
+        });
+    } catch (e) {
+        viewTracker.dispose();
+        if (e.name != "NotAllowedError") dialogs.alert("screen capture failed: " + e.message); // NotAllowedError: user cancelled
+        return;
+    }
+
+    if (isRecording) {
+        isStartingRecording = true;
+        try {
+            await startScreenRecording( stream, viewTracker);
+        } catch (e) {
+            stream.getTracks().forEach( t => t.stop());
+            dialogs.alert("screen recording failed: " + e.message);
+        } finally {
+            isStartingRecording = false;
+            viewTracker.dispose();
+        }
+        return;
+    }
+
+    let blob;
+    try {
+        blob = await grabVideoFrame(stream, viewTracker);
+    } catch (e) {
+        dialogs.alert("screen capture failed: " + e.message);
+        return;
+    } finally {
+        viewTracker.dispose();
+        stream.getTracks().forEach( t => t.stop());
+    }
+
+    let ext = (blob.type == "image/webp") ? "webp" : "png"; // Safari does not encode webp and falls back to png
+    let filename = `odin-${util.toYYYYMMDDhhmmZString(Date.now(), true)}.${ext}`;
+    dialogs.saveFile( blob, filename, { title: "Save Screen Capture" });
+}
+
+//--- screen recording
+
+// in order of preference. We prefer webm since Chrome's (macOS hardware) H.264 encoder produced corrupted mp4 streams
+// for Cesium content. Note that Chrome's webm files have no duration and seek index, which some players need
+const RECORDING_TYPES = [
+    "video/webm;codecs=vp9",        // Chrome, Firefox
+    "video/webm;codecs=vp8",
+    "video/webm",
+    "video/mp4;codecs=avc1.42E01E", // Safari
+    "video/mp4;codecs=avc1",
+    "video/mp4"
+];
+
+function recordingConfig() { // local config copies might not have screenRecording settings
+    return { fullResolution: true, frameRate: 30, bitsPerPixel: 0.1, minBitrate: 5000000, maxBitrate: 25000000,
+             ...config.screenRecording };
+}
+
+var screenRecorder = undefined; // only set while we record
+var isStartingRecording = false;
+
+async function startScreenRecording (stream, viewTracker) {
+    await viewTracker.waitForStableView( viewer.scene.cameraEventWaitTime + 700, 5000);
+
+    let cfg = recordingConfig();
+    let track = stream.getVideoTracks()[0];
+    if (track.readyState == "ended") return; // user already stopped sharing while we waited
+
+    // tell the browser to keep resolution (instead of frame rate) under load, which is what we need for small text
+    track.contentHint = "detail";
+
+    // fix the output size so that later window resizes are scaled into the original video size (not all players
+    // support resolution changes). Device pixels give sharper text on high-dpi displays, CSS pixels less encoder load.
+    // Not all browsers support resizeMode, hence we ignore failures
+    let { width, height, screenPixelRatio } = track.getSettings();
+    if (width && height) {
+        let scale = cfg.fullResolution ? 1 : 1 / (screenPixelRatio || window.devicePixelRatio || 1);
+        width = 2 * Math.round(width * scale / 2); // encoders want even dimensions
+        height = 2 * Math.round(height * scale / 2);
+        try {
+            await track.applyConstraints({ width: { exact: width }, height: { exact: height }, resizeMode: "crop-and-scale" });
+        } catch (e) {
+            console.log("could not fix recording size: ", e.message);
+        }
+    }
+
+    ({ width, height } = track.getSettings()); // whatever the browser gave us
+    let bitrate = Math.round( (width && height) ? width * height * cfg.frameRate * cfg.bitsPerPixel : cfg.minBitrate);
+    bitrate = Math.min( Math.max( bitrate, cfg.minBitrate), cfg.maxBitrate);
+
+    let mimeType = RECORDING_TYPES.find( t => MediaRecorder.isTypeSupported(t));
+    let recorder = new MediaRecorder( stream, { mimeType, videoBitsPerSecond: bitrate });
+    let chunks = [];
+    recorder.ondataavailable = (event) => { if (event.data.size > 0) chunks.push( event.data); };
+    let stopped = new Promise( resolve => { recorder.onstop = resolve; });
+
+    track.addEventListener( "ended", stopScreenRecording); // user clicked the browser "Stop sharing" button
+
+    screenRecorder = { stream, recorder, chunks, stopped };
+    recorder.start(1000); // collect data in 1sec chunks
+    console.log(`screen recording started: ${recorder.mimeType} ${width}x${height} ${(bitrate / 1e6).toFixed(1)} Mbit/s`);
+}
+
+async function stopScreenRecording () {
+    let rec = screenRecorder;
+    if (!rec) return;
+    screenRecorder = undefined;
+
+    if (rec.recorder.state != "inactive") rec.recorder.stop();
+    rec.stream.getTracks().forEach( t => t.stop());
+    await rec.stopped; // last chunk is delivered before onstop
+
+    let type = (rec.recorder.mimeType || "video/webm").split(";")[0];
+    let blob = new Blob( rec.chunks, { type });
+    let ext = (type == "video/mp4") ? "mp4" : "webm";
+    let filename = `odin-${util.toYYYYMMDDhhmmZString(Date.now(), true)}.${ext}`;
+    console.log(`screen recording stopped: ${(blob.size / 1e6).toFixed(1)} MB`);
+
+    // note this provides the user activation we need for the download if the browser "Stop sharing" button was used
+    dialogs.saveFile( blob, filename, { title: "Save Screen Recording" });
+}
+
+// keeps track of window resizes and camera moves so that we can wait until the view is stable
+class ViewChangeTracker {
+    constructor() {
+        this.lastChange = Date.now();
+        this.isMoving = false;
+
+        this.onResize = () => { this.lastChange = Date.now(); };
+        window.addEventListener( "resize", this.onResize);
+        this.removeMoveStart = viewer.camera.moveStart.addEventListener( () => { this.isMoving = true; this.lastChange = Date.now(); });
+        this.removeMoveEnd = viewer.camera.moveEnd.addEventListener( () => { this.isMoving = false; this.lastChange = Date.now(); });
+    }
+
+    // resolves once there was no resize or camera move for `quietTime` millis (or `maxTime` has passed)
+    async waitForStableView (quietTime, maxTime) {
+        let t0 = Date.now();
+        this.lastChange = Math.max( this.lastChange, t0);
+        while (true) {
+            let now = Date.now();
+            if ((!this.isMoving && (now - this.lastChange >= quietTime)) || (now - t0 > maxTime)) return;
+            requestRender(); // make sure Cesium keeps checking for camera updates (moveEnd)
+            await new Promise( resolve => setTimeout( resolve, 100));
+        }
+    }
+
+    dispose() {
+        window.removeEventListener( "resize", this.onResize);
+        this.removeMoveStart();
+        this.removeMoveEnd();
+    }
+}
+
+async function grabVideoFrame(stream, viewTracker) {
+    let video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.srcObject = stream;
+    await video.play();
+
+    // wait until the browser capture UI is gone, the viewer has its final size and visualizations are shown again.
+    // This has to cover Cesium's camera moveEnd delay (scene.cameraEventWaitTime) plus time for animations to build up
+    await viewTracker.waitForStableView( viewer.scene.cameraEventWaitTime + 700, 5000);
+
+    // make sure the latest scene state was rendered and made it into the stream
+    await renderFrame();
+    await nextVideoFrame( video, 500);
+
+    let canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage( video, 0, 0);
+    video.srcObject = null;
+
+    return new Promise( (resolve, reject) => {
+        canvas.toBlob( blob => blob ? resolve(blob) : reject( new Error("image encoding failed")), "image/webp", 0.92);
+    });
+}
+
+function renderFrame (timeout=1000) {
+    return new Promise( resolve => {
+        let done = () => { clearTimeout(timer); remove(); resolve(); };
+        let timer = setTimeout( done, timeout); // in case the render is skipped (target framerate)
+        let remove = viewer.scene.postRender.addEventListener( done);
+        requestRender();
+    });
+}
+
+// tab capture only produces new frames if the page changes, hence the timeout
+function nextVideoFrame (video, timeout) {
+    return new Promise( resolve => {
+        let timer = setTimeout( resolve, timeout);
+        if (video.requestVideoFrameCallback) video.requestVideoFrameCallback( () => { clearTimeout(timer); resolve(); });
+    });
 }
 
 function globalMouseClickHandler(event) {
@@ -1437,9 +1697,9 @@ function setViewFromFields() {
         let altM = parseFloat(alt);
 
         // TODO - we should check for valid ranges here
-        if (isNaN(latDeg)) { alert("invalid latitude: " + lat); return; }
-        if (isNaN(lonDeg)) { alert("invalid longitude: " + lon); return; }
-        if (isNaN(altM)) { alert("invalid altitude: " + alt); return; }
+        if (isNaN(latDeg)) { dialogs.alert("invalid latitude: " + lat); return; }
+        if (isNaN(lonDeg)) { dialogs.alert("invalid longitude: " + lon); return; }
+        if (isNaN(altM)) { dialogs.alert("invalid altitude: " + alt); return; }
 
         viewer.camera.flyTo({
             destination: Cesium.Cartesian3.fromDegrees(lonDeg, latDeg, altM),
@@ -1447,7 +1707,7 @@ function setViewFromFields() {
             duration: animationSecs
         });
     } else {
-        alert("please enter latitude, longitude and altitude");
+        dialogs.alert("please enter latitude, longitude and altitude");
     }
 }
 

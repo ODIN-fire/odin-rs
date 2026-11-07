@@ -21,6 +21,7 @@ import { schema } from "./odin_share_schema.js";
 
 import * as main from "../odin_server/main.js";
 import * as ui from "../odin_server/ui.js";
+import * as dialogs from "../odin_server/ui_dialogs.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
 import * as util from "../odin_server/ui_util.js";
@@ -312,12 +313,12 @@ function sendMsg(event) {
         }
 
     } else {
-        window.alert("please select publishing role for message");
+        dialogs.alert("please select publishing role for message");
     }
 }
 
-function clearMsgList (event) {
-    if (window.confirm("do you want to clear all messages?")) {
+async function clearMsgList (event) {
+    if (await dialogs.confirm("do you want to clear all messages?")) {
         messages = [];
         ui.clearList( msgList);
     }
@@ -420,7 +421,7 @@ function colorChanged (event) {
         if (color) {
             renderOpts.color = color;
             odinCesium.requestRender();
-        } else { alert("invalid color spec: ", clrSpec) }
+        } else { dialogs.alert("invalid color spec: " + clrSpec) }
     }
 }
 
@@ -675,7 +676,7 @@ function removeItem(event) {
         odinCesium.requestRender();
 
     } else {
-        window.alert("missing key or item not shared");
+        dialogs.alert("missing key or item not shared");
     }
 }
 
@@ -692,7 +693,7 @@ function saveItem(event) {
             let data = JSON.parse(dataSrc);
             let templ = (dataType == main.JSON) ? null : getTypeTemplate(key, dataType);
             if (!main.checkType( dataType, data, templ)) {
-                window.alert("entered data does not correspond with template");
+                dialogs.alert("entered data does not correspond with template");
                 return;
             }
 
@@ -700,10 +701,10 @@ function saveItem(event) {
             share.setSharedItem(key, dataType, data, isLocal, comment);
 
         } catch (error) {
-            window.alert("invalid JSON: " + error);
+            dialogs.alert("invalid JSON: " + error);
         }
     } else {
-        window.alert("missing shared item key, type or data");
+        dialogs.alert("missing shared item key, type or data");
     }
 }
 
@@ -756,10 +757,10 @@ function runSelectedEditor(event) {
             ui.selectChoiceItem(typeChoice, e.type); // if we run the editor we select a type
             e.editor( selItem ? selItem.value.data : null, valueCallback);
         } else {
-            window.alert("no editor selected");
+            dialogs.alert("no editor selected");
         }
     } else {
-        window.alert("no valid item key to edit");
+        dialogs.alert("no valid item key to edit");
     }
 }
 
@@ -1164,7 +1165,7 @@ function handleRoleAccepted (roleEntry) {
 }
 
 function handleRoleRejected (newRole) {
-    window.alert("user role rejected: ", newRole);
+    dialogs.alert("user role rejected: " + newRole);
 }
 
 function handleInitExtRoles (roleEntries) {

@@ -19,6 +19,7 @@ import { config } from "./editor_config.js";
 import * as main from "../odin_server/main.js";
 import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
+import * as dialogs from "../odin_server/ui_dialogs.js";
 import * as cesium from "./odin_cesium.js";
 
 const ellipsoid = Cesium.Ellipsoid.WGS84;
@@ -152,17 +153,17 @@ class PolyEditorWindow {
 
     getPointFromFields() {
         let lat = Number.parseFloat( ui.getFieldValue( this.latField));
-        if (!util.checkLat(lat)) { alert("missing of invalid latitude degrees"); return null; }
+        if (!util.checkLat(lat)) { dialogs.alert("missing of invalid latitude degrees"); return null; }
 
         let lon = Number.parseFloat( ui.getFieldValue( this.lonField));
-        if (!util.checkLon(lon)) { alert("missing of invalid longitude degrees"); return null; }
+        if (!util.checkLon(lon)) { dialogs.alert("missing of invalid longitude degrees"); return null; }
 
         let v = ui.getNonEmptyFieldValue( this.altField);
         let alt = v ? Number.parseFloat( v) : 0.0;
         if (Number.isNaN(alt)) {
             alt = 0.0;
         } else {
-            if (alt < 0) { alert("invalid altitude (>0)", alt); return null; }
+            if (alt < 0) { dialogs.alert("invalid altitude (>0): " + alt); return null; }
             if (!this.isMetric()) alt = util.feetToMeters(alt);
         }
 
@@ -1374,16 +1375,16 @@ export class RectEditor {
     // set from window fields
     _setPoints() {
         let west  = Number.parseFloat( ui.getFieldValue( this.editor.westField));
-        if (!util.checkLon(west)) { alert("missing of invalid west longitude"); return; }
+        if (!util.checkLon(west)) { dialogs.alert("missing of invalid west longitude"); return; }
 
         let south = Number.parseFloat( ui.getFieldValue( this.editor.southField));
-        if (!util.checkLat(south)) { alert("missing of invalid south latitude"); return; }
+        if (!util.checkLat(south)) { dialogs.alert("missing of invalid south latitude"); return; }
 
         let east  = Number.parseFloat( ui.getFieldValue( this.editor.eastField));
-        if (!util.checkLon(east)) { alert("missing of invalid east longitude"); return; }
+        if (!util.checkLon(east)) { dialogs.alert("missing of invalid east longitude"); return; }
 
         let north = Number.parseFloat( ui.getFieldValue( this.editor.northField));
-        if (!util.checkLat(north)) { alert("missing of invalid north latitude"); return; }
+        if (!util.checkLat(north)) { dialogs.alert("missing of invalid north latitude"); return; }
 
         if (this.cancelEntry) {
             this.cancelEntry();
@@ -1774,13 +1775,13 @@ export class CircleEditor {
 
     _setPoints (event) {
         let lon = Number.parseFloat( ui.getFieldValue( this.editor.lonField));
-        if (!util.checkLon(lon)) { alert("missing of invalid longitude degrees"); return null; }
+        if (!util.checkLon(lon)) { dialogs.alert("missing of invalid longitude degrees"); return null; }
 
         let lat = Number.parseFloat( ui.getFieldValue( this.editor.latField));
-        if (!util.checkLat(lat)) { alert("missing of invalid latitude degrees"); return null; }
+        if (!util.checkLat(lat)) { dialogs.alert("missing of invalid latitude degrees"); return null; }
 
         let radius = Number.parseFloat( ui.getFieldValue( this.editor.radiusField));
-        if (Number.isNaN(radius)) { alert("missing or invalid radius"); return null; }
+        if (Number.isNaN(radius)) { dialogs.alert("missing or invalid radius"); return null; }
         if (!this.isMetric) radius = util.usMilesToMeters( radius);
         let area = Math.PI * radius * radius;
 

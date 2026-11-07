@@ -17,6 +17,7 @@ import * as main from "../odin_server/main.js";
 import * as util from "../odin_server/ui_util.js";
 import * as data from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
+import * as dialogs from "../odin_server/ui_dialogs.js";
 import * as ws from "../odin_server/ws.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
 
@@ -1003,7 +1004,7 @@ function setAreaFromInput(event) { // text field input (WSEN)
         let north = parseFloat(a[3]);
 
         if (isNaN(west) || isNaN(south) || isNaN(east) || isNaN(north)) {
-            alert("invalid input (need west,south,east,north as comma separated degrees");
+            dialogs.alert("invalid input (need west,south,east,north as comma separated degrees");
         } else {
             rect = new main.GeoRect( west,south,east,north);
             setArea(rect)

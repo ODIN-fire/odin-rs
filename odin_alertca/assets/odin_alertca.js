@@ -32,14 +32,14 @@ ws.addWsHandler( MOD_PATH, handleWsMessages);                 // incoming websoc
 /* #region types ***************************************************************************************/
 
 class CameraAssets {
-    constructor(symbol, viewshed) {
+    constructor(symbol, fov) {
         this.symbol = symbol;
-        this.viewshed = viewshed;
+        this.fov = fov;
     }
 
     showAssets (cond) {
         if (this.symbol) this.symbol.show = cond;
-        if (this.viewshed) this.viewshed.show = cond;
+        if (this.fov) this.fov.show = cond;
     }
 }
 
@@ -158,16 +158,18 @@ class CameraEntry {
             }
         });
 
-        this.assets.viewshed = entity;
+        this.assets.fov = entity;
+        this.fovData = data; // the data item whose fov is shown
         cameraDataSource.entities.add(entity);
         return entity;
     }
 
     removeFovEntity () {
-        if (this.assets.viewshed) {
-            cameraDataSource.entities.remove(this.assets.viewshed); // there can only be one
-            this.assets.viewshed = null;
+        if (this.assets.fov) {
+            cameraDataSource.entities.remove(this.assets.fov); // there can only be one
+            this.assets.fov = null;
         }
+        this.fovData = null;
     }
 
     hasRecentAlerts () {
@@ -237,7 +239,9 @@ var dataView = undefined;
 var alertView = undefined;
 
 var showLatestCb = undefined;
-var latestImage = undefined; // { data, window } of the image window that is automatically shown in "show latest" mode
+var latestImage = undefined; // { ce, data, window } of the image window that is automatically shown in "show latest" mode
+var showFovCb = undefined;
+var latestFovEntry = undefined; // the camera entry that shows the fov of its latest image ("show latest" + "show fov" mode)
 
 // interactively changeable render parameters (initialized from config, see "layer parameters" panel)
 const TRACK_WIDTHS = [1, 1.5, 2, 3, 4, 5];
@@ -285,7 +289,10 @@ function createWindow() {
         ),
         ui.Panel("data", true)(
             ui.RowContainer("start")(
-                (showLatestCb = ui.CheckBox("show latest", toggleShowLatest, "alertca.showLatest", false)),
+                ui.ColumnContainer("start")(
+                    (showLatestCb = ui.CheckBox("show latest", toggleShowLatest, "alertca.showLatest", false)),
+                    (showFovCb = ui.CheckBox("show fov", toggleShowFovMode, "alertca.showFov", false))
+                ),
                 ui.HorizontalSpacer(0.5),
                 (dataView = ui.List( "alertca.data", 10))
             )
@@ -423,7 +430,7 @@ function initDataView() {
     if (view) {
         ui.setListItemDisplayColumns(view, ["fit", "header"], [
             { name: "show", tip: "show image", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.window, toggleShowImage) },
-            { name: "fov", tip: "show fov", width: "3rem", attrs: [], map: e => ui.createCheckBox(e.fovAsset, toggleShowFov) },
+            { name: "fov", tip: "show fov", width: "3rem", attrs: [], map: e => ui.createCheckBox(isFovShown(e), toggleShowFov) },
             ui.listItemSpacerColumn(0.5),
             { name: "dir", tip: "camera direction", width: "2.5rem", attrs: ["fixed", "alignRight"], map: e => util.f_0.format( e.azimut) },
             { name: "zoom", tip: "zoom factor (only for PTZ cameras)", width: "3rem", attrs: ["fixed", "alignRight"], map: e => (e.zoom !== undefined) ? util.f_1.format( e.zoom) : "-" },
@@ -499,9 +506,15 @@ function toggleShowLatest (event) {
     }
 }
 
-// show the latest image of the selected camera if we are in "show latest" mode. If we already have a latest image window
-// we just update its image, which keeps window position, size, scale and scroll offsets
+// show the latest image of the selected camera if we are in "show latest" mode (and its fov in "show fov" mode)
 function showLatestImage() {
+    showLatestImageWindow();
+    updateLatestFov();
+}
+
+// if we already have a latest image window we just update its image, which keeps window position, size, scale and
+// scroll offsets
+function showLatestImageWindow() {
     if (!isShowLatest() || !selectedCameraEntry) return;
 
     let data = selectedCameraEntry.latestData();
@@ -511,6 +524,7 @@ function showLatestImage() {
     let uri = "./alertca-data/" + data.image;
     if (latestImage) {
         latestImage.window.setImage( uri, imageTitle(data));
+        latestImage.ce = selectedCameraEntry;
         latestImage.data = data;
 
     } else {
@@ -530,7 +544,7 @@ function showLatestImage() {
             undefined, undefined, undefined, // default scale range
             (pos) => { if (latestImage) trackViewpoint( selectedCameraEntry, latestImage.data, pos); } // data changes with image
         );
-        latestImage = { data, window: w };
+        latestImage = { ce: selectedCameraEntry, data, window: w };
     }
 }
 
@@ -539,6 +553,7 @@ function closeLatestImage() {
         let w = latestImage.window;
         latestImage = undefined; // before we remove it so that latestImageClosed() knows this was not a user action
         ui.removeWindow(w);
+        updateLatestFov();
     }
 }
 
@@ -548,6 +563,7 @@ function latestImageClosed (w) {
     if (latestImage && Object.is( latestImage.window, w)) {
         latestImage = undefined;
         ui.setCheckBox( showLatestCb, false);
+        updateLatestFov();
     }
 }
 
@@ -571,6 +587,37 @@ function imageTitle (data) {
     }
 }
 
+// "show fov" mode: automatically show the fov of the latest image (only effective in "show latest" mode)
+function isShowFov() {
+    return ui.isCheckBoxSelected( showFovCb);
+}
+
+function toggleShowFovMode (event) {
+    updateLatestFov();
+}
+
+// show the fov of the latest image if "show latest" and "show fov" are set, otherwise remove a previous latest fov.
+// Note the latest image might belong to another camera than the selected one if the selected one has no image
+function updateLatestFov() {
+    let ce = (isShowFov() && latestImage) ? latestImage.ce : undefined;
+
+    if (latestFovEntry && !Object.is( latestFovEntry, ce)) {
+        latestFovEntry.removeFovEntity();
+        latestFovEntry = undefined;
+    }
+    if (ce) {
+        if (!Object.is( ce.fovData, latestImage.data)) ce.addFovEntity( latestImage.data);
+        latestFovEntry = ce;
+    }
+
+    ui.updateListItems( dataView); // fov checkboxes
+    odinCesium.requestRender();
+}
+
+function isFovShown (data) {
+    return selectedCameraEntry ? Object.is( selectedCameraEntry.fovData, data) : false;
+}
+
 function toggleShowFov (event) {
     let cb = ui.getCheckBox(event.target);
     if (cb) {
@@ -581,6 +628,7 @@ function toggleShowFov (event) {
             } else {
                 selectedCameraEntry.removeFovEntity();
             }
+            ui.updateListItems( dataView); // there is only one fov per camera, i.e. other fov checkboxes might change
         }
         odinCesium.requestRender();
     }

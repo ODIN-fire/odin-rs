@@ -1,6 +1,7 @@
 import * as util from "../odin_server/ui_util.js";
 import * as data from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
+import * as dialogs from "../odin_server/ui_dialogs.js";
 import * as code from "../odin_server/ui_code_input.js";
 
 const NML_TEXT=
@@ -105,7 +106,7 @@ function editLat(event) {
             item.lat = newLat;
         } else {
             ui.beep();
-            alert("invalid latitude input - enter float value");
+            dialogs.alert("invalid latitude input - enter float value");
         }
     });
 }
@@ -117,7 +118,7 @@ function editDate(event) {
             item.date = newDate;
         } else {
             ui.beep();
-            alert("invalid date input - enter 'mm/dd HH:MM:SS");
+            dialogs.alert("invalid date input - enter 'mm/dd HH:MM:SS");
         }
     });
 }

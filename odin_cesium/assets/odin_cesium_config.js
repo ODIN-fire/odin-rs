@@ -4,6 +4,12 @@
 Cesium.Ion.defaultAccessToken = null; // replace with your Cesium Ion access token from https://ion.cesium.com/tokens?page=1
 
 export const config = {
+    contextOptions: {
+        webgl: {
+            colorSpace: 'srgb'
+        }
+    },
+
     //terrainProvider: Cesium.createWorldTerrainAsync(),
     showTerrain: true,
     requestRenderMode: true,
@@ -18,8 +24,10 @@ export const config = {
       {key: "view/state/CA/Los Angeles",   default: { lat: 34.04000, lon: -118.02000, alt: 120000} }
     ],
     zoomLevels: [ 3500, 25000, 100000, 500000, 3000000, 7000000, 10000000 ],
-    animationSecs: 3, // duration of zoom/pan animation 
+    animationSecs: 3, // duration of zoom/pan animation
     localTimeZone: 'America/Los_Angeles',
+
+
     color: Cesium.Color.fromCssColorString('red'),
     outlineColor: Cesium.Color.fromCssColorString('yellow'),
     font: '16px sans-serif',
@@ -40,6 +48,14 @@ export const config = {
       })
     },
 
+    screenRecording: { // Alt+Shift+PrintScreen (or Alt+Shift+F13)
+      fullResolution: true, // record in device pixels (sharper text on high-dpi displays) instead of CSS pixels (less encoder load)
+      frameRate: 30,
+      bitsPerPixel: 0.1,    // per frame, i.e. bitrate = width * height * frameRate * bitsPerPixel
+      minBitrate: 5000000,  // [bit/s]
+      maxBitrate: 25000000  // [bit/s]
+    },
+
     ruler: {
       width: 400, // this is a max width - actual width will be computed
       height: 30,
@@ -48,5 +64,5 @@ export const config = {
       cssColor: "rgb(0,255,0)",
       font: "14px sans-serif",
       smallFont: "11px sans-serif"
-    }  
+    }
   };

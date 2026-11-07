@@ -40,6 +40,8 @@
     --margin: 3px;
     --gap: 3px;
     --focus-color: rgb(130, 130, 0);
+    --focus-border-color: var(--focus-color);
+    --focus-border: var(--border-width) solid var(--focus-border-color);
     --focus-outline: 1px solid var(--focus-color);
     /* icons (toplevel buttons with variable stroke/fill color SVGs and explicit 'on' state) */
     /*   background used for transparent image parts, color for image stroke and fill-color for image fill */

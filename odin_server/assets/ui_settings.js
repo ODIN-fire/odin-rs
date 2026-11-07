@@ -12,6 +12,7 @@
  * and limitations under the License.
  */
 import * as ui from "./ui.js";
+import * as dialogs from "./ui_dialogs.js";
 import {config} from "./ui_settings_config.js";
 
 //--- theme/settings UI
@@ -140,12 +141,12 @@ function selectTheme(event) {
     }
 }
 
-function saveLocalTheme() {
+async function saveLocalTheme() {
     if (themeVars) {
         let themeName = themeVars.theme.replaceAll("\"", "");
         if (!themeName.startsWith(LOCAL)) themeName = LOCAL + themeName;
 
-        themeName = prompt("Please enter local theme name", themeName);
+        themeName = await dialogs.prompt("Please enter local theme name", themeName);
         if (themeName) {
             themeName = themeName.trim();
             if (!themeName.startsWith(LOCAL)) themeName = LOCAL + themeName;
@@ -168,29 +169,29 @@ function saveLocalTheme() {
             ui.setButtonDisabled("settings.remove", false);
         }
     } else {
-        alert("no edited theme");
+        dialogs.alert("no edited theme");
     }
 }
 
 
-function removeLocalTheme() {
-    console.log("removing " + selectedTheme);
-    if (selectedTheme && selectedTheme.startsWith(LOCAL)) {
-        if (confirm("delete theme: " + selectedTheme + " ?")) {
+async function removeLocalTheme() {
+    let theme = selectedTheme; // selection might change while the dialog is open
+    if (theme && theme.startsWith(LOCAL)) {
+        if (await dialogs.confirm("delete theme: " + theme + " ?")) {
             let locThemes = getLocalThemes();
-            if (locThemes.find(e => e == selectedTheme)) {
-                locThemes = locThemes.filter(t => t !== selectedTheme);
+            if (locThemes.find(e => e == theme)) {
+                locThemes = locThemes.filter(t => t !== theme);
                 if (locThemes.length == 0) localStorage.removeItem(UI_THEMES);
                 else localStorage.setItem(UI_THEMES, JSON.stringify(locThemes));
             }
-            localStorage.removeItem(selectedTheme);
+            localStorage.removeItem(theme);
 
-            let remainingThemes = ui.getChoiceItems("settings.theme").filter(e => e !== selectedTheme);
+            let remainingThemes = ui.getChoiceItems("settings.theme").filter(e => e !== theme);
             ui.setChoiceItems("settings.theme", remainingThemes);
             ui.selectChoiceItemIndex("settings.theme", 0); // select the first one
         }
 
-    } else alert("no local theme selected");
+    } else dialogs.alert("no local theme selected");
 }
 
 function getThemes() {

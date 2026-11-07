@@ -19,6 +19,7 @@ import { config } from "./odin_nfdrs_config.js";
 import * as util from "../odin_server/ui_util.js";
 import * as data from "../odin_server/ui_data.js";
 import * as ui from "../odin_server/ui.js";
+import * as dialogs from "../odin_server/ui_dialogs.js";
 import * as ws from "../odin_server/ws.js";
 import * as main from "../odin_server/main.js";
 import * as odinCesium from "../odin_cesium/odin_cesium.js";
@@ -344,7 +345,7 @@ function handleUpdateMessage (run) {
     updateRunView();
 
     if (run.status === "failed") {
-        alert(`NFDRS run ${run.name} failed: ${run.error}`);
+        dialogs.alert(`NFDRS run ${run.name} failed: ${run.error}`);
     }
 }
 
@@ -361,7 +362,7 @@ function handleRemoveMessage (msg) {
 }
 
 function handleErrorMessage (msg) {
-    alert(msg.msg);
+    dialogs.alert(msg.msg);
 }
 
 /* #endregion websocket message handling */
@@ -502,16 +503,16 @@ function hideAllProducts (event) {
     odinCesium.requestRender();
 }
 
-function removeSelectedRun (event) {
+async function removeSelectedRun (event) {
     let entry = ui.getSelectedListItem(runView);
     if (entry) {
         if (entry.run.status === "pending") {
-            alert("cannot remove pending NFDRS run");
-        } else if (confirm(`remove NFDRS run ${entry.run.name} ?`)) {
+            dialogs.alert("cannot remove pending NFDRS run");
+        } else if (await dialogs.confirm(`remove NFDRS run ${entry.run.name} ?`)) {
             ws.sendWsMessage( MOD_PATH, "remove", { id: entry.id });
         }
     } else {
-        alert("no NFDRS run selected");
+        dialogs.alert("no NFDRS run selected");
     }
 }
 
@@ -556,13 +557,13 @@ function allProductLayers() {
 
 function requestRun (event) {
     if (!area) {
-        alert("no area selected");
+        dialogs.alert("no area selected");
         return;
     }
 
     let nHours = ui.getSelectedChoiceValue("nfdrs.hours");
     if (!nHours) {
-        alert("please select number of forecast hours");
+        dialogs.alert("please select number of forecast hours");
         return;
     }
 
@@ -612,7 +613,7 @@ function setAreaFromInput (event) { // text field input (WSEN)
         let north = parseFloat(a[3]);
 
         if (isNaN(west) || isNaN(south) || isNaN(east) || isNaN(north) || west >= east || south >= north) {
-            alert("invalid input (need west,south,east,north as comma separated degrees)");
+            dialogs.alert("invalid input (need west,south,east,north as comma separated degrees)");
         } else {
             setArea( new main.GeoRect( west, south, east, north));
         }

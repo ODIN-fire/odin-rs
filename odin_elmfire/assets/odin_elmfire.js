@@ -19,6 +19,7 @@ import { config } from "./odin_elmfire_config.js";
 
 import * as util from "../odin_server/ui_util.js";
 import * as ui from "../odin_server/ui.js";
+import * as dialogs from "../odin_server/ui_dialogs.js";
 import * as code from "../odin_server/ui_code_input.js";
 import * as ws from "../odin_server/ws.js";
 import * as main from "../odin_server/main.js";
@@ -850,10 +851,11 @@ function createWindow() {
 
 //--- listview initializations
 
-function removeSelectedFire(event) {
-    if (selectedEntry) {
-        if (window.confirm(`remove fire simulation '${selectedEntry.ef.name}'`)) {
-            let id = selectedEntry.id;
+async function removeSelectedFire(event) {
+    let entry = selectedEntry; // selection might change while the dialog is open
+    if (entry) {
+        if (await dialogs.confirm(`remove fire simulation '${entry.ef.name}'`)) {
+            let id = entry.id;
             ws.sendWsMessage(MOD_PATH, "removeElmfire", { id });
 
             // global asset cleanup happens upon receiving server response msg
@@ -1399,7 +1401,7 @@ function deleteIgnition() {
         ignitionEntries = ignitionEntries.filter( e => !Object.is(e, ign));
         ui.removeListItem(ignitionView, ign);
     } else {
-        alert("please select ignition to delete");
+        dialogs.alert("please select ignition to delete");
     }
 }
 
@@ -1509,7 +1511,7 @@ function addBarrier() {
     if (isUserBarrier(barrierType)) { // we need a name and then interactively pick positions
         let barrierName = ui.getFieldValue(barrierEntry);
         if (!barrierName || barrierName.length == 0) {
-            alert("please enter barrier name");
+            dialogs.alert("please enter barrier name");
             return;
         }
 
@@ -1519,7 +1521,7 @@ function addBarrier() {
             let step = parseStepLabel( ui.getSelectedChoiceValue(barrierStepCh));
             let agent = ui.getSelectedChoiceValue(barrierAgentCh);
             if (!agent || agent === NO_AGENT) {
-                alert("please select agent for air drop " + barrierName);
+                dialogs.alert("please select agent for air drop " + barrierName);
                 return;
             }
             ui.setButtonActive(barrierBtn, true);
@@ -1635,7 +1637,7 @@ function deleteBarrier() {
 
         if (ui.getFieldValue(barrierEntry) == be.name) ui.clearField(barrierEntry);
     } else {
-        alert("please select barrier to delete");
+        dialogs.alert("please select barrier to delete");
     }
 }
 
@@ -2032,7 +2034,7 @@ function toggleShowWind(event) {
                     shownWind = { entry: selectedEntry, idx };
                     updateWindDisplay();
                 } else {
-                    alert("no wind field output for this simulation");
+                    dialogs.alert("no wind field output for this simulation");
                 }
             }
 
@@ -2043,25 +2045,25 @@ function toggleShowWind(event) {
 
 //--- button click handlers
 
-function createRequest() {
+async function createRequest() {
     let nHours = ui.getSelectedChoiceValue("elmfire.nHours");
     let size = ui.getSelectedChoiceValue("elmfire.size");
 
     let name = ui.getFieldValue( nameEntry);
     if (name == "") {
-        alert("no name");
+        dialogs.alert("no name");
         return;
     }
 
     let pos = ui.getLocation(locEntry);
     if (!pos) {
-        alert("no center location");
+        dialogs.alert("no center location");
         return;
     }
 
     let date = ui.getDTGEntryEpochMillis(dtgEntry);
     if (!date) {
-        alert("no date");
+        dialogs.alert("no date");
         return;
     }
 
@@ -2070,13 +2072,13 @@ function createRequest() {
 
     let overwrite = false;
     if (fireEntries.has(id)) {
-        if (confirm(`Elmfire run "${name}" already exists, remove old entry?`)) {
+        if (await dialogs.confirm(`Elmfire run "${name}" already exists, remove old entry?`)) {
             overwrite = true;
         } else return;
     }
 
     if (ignitionEntries.length == 0) {
-        alert("no ignitions");
+        dialogs.alert("no ignitions");
         return;
     }
     // ignitions have to be within the simulated time window (starting at the full hour of date)
@@ -2084,14 +2086,14 @@ function createRequest() {
     let tEnd = date + nHours * 3600000;
     let invalid = ignitionEntries.find( ign => ign.date < tBase || ign.date > tEnd);
     if (invalid) {
-        alert(`ignition ${invalid.id} is outside of simulation time window`);
+        dialogs.alert(`ignition ${invalid.id} is outside of simulation time window`);
         return;
     }
     let ignitions = ignitionEntries.map( ign => ign.toJSON()); // without Cesium assets
 
     let missingFixed = getMissingFixed();
     if (missingFixed.length > 0) {
-        alert(`missing "fixed wx entries: ${missingFixed.join()}`);
+        dialogs.alert(`missing "fixed wx entries: ${missingFixed.join()}`);
         return;
     }
 
@@ -2328,13 +2330,13 @@ function updateSpottingView() {
 function storeSpec(tgtTextArea, nameField, msgType) {
     let source = ui.getTextAreaContent(tgtTextArea);
     if (!source || source.length == 0) {
-        alert("no source");
+        dialogs.alert("no source");
         return;
     }
 
     let name = ui.getFieldValue( nameField);
     if (!name || name.length == 0) {
-        alert("no name");
+        dialogs.alert("no name");
         return;
     }
 
@@ -2344,7 +2346,7 @@ function storeSpec(tgtTextArea, nameField, msgType) {
 function delSpec(nameField, msgType) {
     let name = ui.getFieldValue(nameField);
     if (!name || name.length == 0) {
-        alert("no name");
+        dialogs.alert("no name");
         return;
     }
 

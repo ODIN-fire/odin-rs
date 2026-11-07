@@ -1,5 +1,7 @@
 # ODIN Web Client User Interface Library
 
+<img class="left" src="../img/ui_widgets.png" width="30%">
+
 `odin-rs` comes with its own web client user interface library that provides the common UI widgets (`Window`, `List`, `CheckBox` etc.).
 The basic reasons why we do not use available 3rd party libraries is laid out in [design principles](../design_principles.md) but
 there are also application specific ones, namely:
@@ -19,7 +21,6 @@ by our `List` widget.
 (c) Theme support. We not only want to support a wide range of display sizes/resolutions and OS platforms (possibly with native UI 
 resemblance). Since we also target in-field applications there needs to be the end-user capability to choose between day/night displays
 and high/low contrast modes. This requires extensive configuration support both on the server and locally on clients.
-
 
 The `ui.js` module implements our library as a `odin_server` [asset](../odin_build/odin_build.md). It uses a fairly straight-forward
 [DOM](https://developer.mozilla.org/en-US/docs/Web/API/Document_Object_Model) manipulation through Javascript in which each of its
@@ -520,6 +521,43 @@ values (e.g. for downloads and processing).
 - `getRootVar(varName, defaultValue)` - get the value of a theme CSS custom property (e.g. `"--selection-background"`)
 - `registerThemeChangeHandler(handler)` - get notified if the user switches themes
 - `registerLoadFunction(func)`, `registerPostLoadFunction(func)` and `registerUnloadFunction(func)` - document
-  lifecycle hooks
+  lifecycle hooks (executed on the window `load` and `pagehide` events)
 - `enterFullScreen()`, `exitFullScreen()` and `toggleFullScreen()`
 - `stopAllOtherProcessing(event)`, `isShowing(e)`, `nearestParentWithClass(e, cls)` and `beep(duration, frequency, volume)`
+
+
+### Modal Dialogs (`ui_dialogs.js`)
+
+The `ui_dialogs.js` module provides themed replacements for the native browser `alert()`, `confirm()` and `prompt()`
+dialogs, which should not be used in ODIN modules. Dialogs are HTML
+[`dialog`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/dialog) elements shown with `showModal()`,
+i.e. they pop up centered, block input to the rest of the page and are always on top of other windows (regardless of
+z-index). Key events inside dialogs do not reach global key handlers. Dialogs can be operated without the mouse: the
+initial focus is on the "OK" button (or the text input of `prompt`), `Tab` and the `Left`/`Right` arrows move between
+buttons, `Enter` activates the focused button (or confirms a `prompt` input) and `Escape` cancels the dialog.
+
+All functions are asynchronous. Callers that depend on the result have to `await` it (which makes them `async`):
+
+```js
+import * as dialogs from "../odin_server/ui_dialogs.js";
+...
+async function removeSelectedEntry (event) {
+    let entry = selectedEntry; // capture state - the selection might change while the dialog is open
+    if (entry && await dialogs.confirm(`remove ${entry.name} ?`)) { ... }
+}
+```
+
+- `alert(msg, title)` - show a message, resolves when the dialog is closed
+- `confirm(msg, title, okLabel, cancelLabel)` - resolves to `true` if the user clicked "OK"
+- `prompt(msg, defaultValue, title)` - resolves to the entered text or `null` if cancelled
+- `openFiles(accept, multiple)` - opens the system file picker (via a hidden `<input type="file">`, which works in all
+  browsers) and resolves to an array of `File` objects (empty if cancelled). Has to be called from a user action
+  (click or keydown handler)
+- `saveFile(data, filename, opts)` - saves `data` (`Blob`, string, `ArrayBuffer`, typed array, plain object as JSON, or
+  a `Promise` of these) as a local file. Unless `opts.prompt` is `false` it first shows a dialog to edit the filename.
+  The file is saved as a browser download unless `opts.native` is set and the browser supports `showSaveFilePicker()`
+  (Chromium only). `opts.mimeType` and `opts.title` are optional. Resolves to the saved filename or `null` if cancelled
+- `isModalDialogOpen()`
+
+Dialogs are only meant for simple content (text, text input, buttons) - tooltips and popup menus of `ui.js` widgets
+are not shown on top of modal dialogs.
