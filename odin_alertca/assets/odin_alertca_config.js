@@ -43,6 +43,8 @@ export const config = {
       hitColor: Cesium.Color.RED,
       hitOutlineColor: Cesium.Color.YELLOW,
       hitOutlineWidth: 2,
+      serverSide: true,                     // compute terrain intersections on the server (requires AlertCaConfig.dem),
+                                            // otherwise (or if the server has no DEM) in the browser from Cesium terrain
       maxDist: 40000,                       // [m] length of bearing line and max distance for terrain intersection
       pitchUncertainty: 0.25,               // [deg] pitch error for which we show the intersection range
       delay: 300,                           // [ms] mouse rest time before we compute terrain intersections

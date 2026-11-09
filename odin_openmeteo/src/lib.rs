@@ -95,9 +95,7 @@ pub struct OpenMeteoConfig {
 
     pub initial_delay: Duration, // to apply on top of the computed schedule
     pub retry_delay: Duration, // between retries of not-yet-available downloads
-
-    /// how long to keep cached response files
-    pub max_age: Duration,
+    // note that we do not clean up cached response files - this is done by odin_scrub
 }
 
 // the different temporal categories we can retrieve through OpenMeteo

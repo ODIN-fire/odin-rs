@@ -19,7 +19,7 @@ use chrono::{DateTime,Utc,Datelike,Timelike};
 
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
-use odin_common::{collections::RingDeque,fs::remove_old_files};
+use odin_common::{collections::RingDeque};
 
 use crate::fill_in_position_heights;
 use crate::{
@@ -75,8 +75,7 @@ impl <I,U> BushfireActor <I,U>
     }
 
     async fn update (&mut self)->Result<()> {
-        remove_old_files( &*CACHE_DIR, self.config.max_file_age);
-
+        // note that we do not clean up our cache dir - this is done by odin_scrub
         let path = download_file( &self.client, &self.config.url, Utc::now()).await?;
         if path.is_file() {
             let mut features = get_features(&path)?;

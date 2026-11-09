@@ -965,7 +965,6 @@ pub struct SentinelConfig {
     pub(crate) access_token: String, // TODO - should probably be a [u8;N]
 
     pub max_history_len: usize, // maximum number of records to store per device/sensor capability
-    pub max_age: Duration, // maximum age after which additional data (images etc.) are deleted
 
     //--- poll mode timing
     pub poll_interval: Option<Duration>, // if set we don't use a websocket
@@ -990,7 +989,6 @@ impl Default for SentinelConfig {
 
             //--- the fields for which we have defaults
             max_history_len: 10,
-            max_age: days(1),
 
             poll_interval: Some(minutes(3)),
 

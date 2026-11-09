@@ -18,7 +18,7 @@ use chrono::{DateTime,Utc,Timelike};
 
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
-use odin_common::{datetime::{full_hour,hours}, fs::{remove_old_files, FileAvailable}};
+use odin_common::{datetime::{full_hour,hours}, fs::{FileAvailable}};
 use odin_wx::{AddDataSet,RemoveDataSet, WxDataSetRequest, WxFileAvailable};
 
 use crate::{errors::*, get_next_base_step, is_extended_forecast, queue_available_forecasts, DownloadCmd, HrrrConfig, HrrrFileRequest};

@@ -47,5 +47,7 @@ AlertCaConfig(
 
     update_interval: Duration(secs:180,nanos:0), // update every 3 min
     max_history: 10, // number of camera states we keep per camera
-    max_age: Duration(secs:3600,nanos:0), // keep data for 1h
+
+    // DEM for server side viewpoint tracking (view ray terrain intersections). Can also be Server("http://<serve_dem-host>:9019")
+    dem: Some(File("$ODIN_ROOT/data/odin_dem/3dep13-conus-i16/3dep13-conus-i16.vrt")),
 )

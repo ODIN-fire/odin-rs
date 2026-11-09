@@ -59,9 +59,11 @@ BushFireConfig (
     check_interval: Duration( secs: 1800, nanos: 0),  // check every 30min for updates
     max_history: 10, // number of records per fire we keep (in a ringbuffer)
     max_age: Duration( secs: 604800, nanos: 0), // ignore fires that were reported before (older than 1 week)
-    max_file_age: Duration( secs: 86400, nanos: 0) // keep files for one day
 )
 ```
+
+Downloaded data and generated perimeter files are stored in the `odin_bushfire` cache dir, which is cleaned up by
+[odin_scrub](../odin_scrub/odin_scrub.md).
 
 ## Web Application User Interface
 

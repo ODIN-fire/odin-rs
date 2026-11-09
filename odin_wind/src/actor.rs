@@ -25,7 +25,7 @@ use odin_common::{
     datetime::{hours,short_utc_datetime_string,utc_now},
     fs::{
         EnvPathBuf, basename, path_as_str, path_str_to_fname, path_to_lossy_string, path_to_unchecked_string,
-        remove_old_files, replace_env_var_path, set_accessed
+        replace_env_var_path, set_accessed
     },
     geo::GeoRect, pow2, sqrt,
     utm::{self, UtmPoint, UtmRect, UtmZone}
@@ -78,7 +78,7 @@ pub struct WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
     update_action: U,
 
     wn_task: Option<WnTask>,
-    timer: Option<AbortHandle>,
+    timer: Option<AbortHandle>, // to purge old forecasts
 }
 
 impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefAction<Forecast> {
@@ -248,6 +248,8 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
         let (dem_path, utm_bbox) = if let Some(wri) = self.wn_job_regions.get( &region) {
             (wri.dem_path.clone(), wri.utm_rect.bbox.clone())
         } else { return Err( op_failed!("no DEM path") ) };
+        // the DEM is only retrieved when a region is added - make sure it is not scrubbed while the region is still active
+        if set_accessed( dem_path.as_ref()).is_err() { warn!("failed to update access time of {:?}", dem_path) }
 
         if let Some(wx) = self.get_matching_wx( msg.request.as_ref()){ // do we have a WxService that created this request
 
@@ -411,13 +413,8 @@ impl <S,U> WindActor<S,U> where S: DataAction<SubscribeResponse>, U: DataRefActi
         }
     }
 
+    /// remove old Forecast entries. Note that we do not clean up our cache dir - this is done by odin_scrub
     fn cleanup (&mut self) {
-        //--- remove old files
-        if remove_old_files( &pkg_cache_dir!(), hours(6)).is_err() {
-            warn!("failed to cleanup cache");
-        }
-
-        //--- remove old Forecast entries
         let cut_off = utc_now() - hours(1); // remove forecasts for dates more than an hour ago
         purge_old_forecasts( &mut self.forecast_store, cut_off);
     }
@@ -476,7 +473,7 @@ impl_actor! { match msg for Actor<WindActor<S,U>,WindActorMsg>
     _Start_ => cont! {
         if let Ok(timer) = self.start_repeat_timer( 1, hours(1), true) {
             self.timer = Some(timer);
-        } else { error!("failed to start cleanup timer") }
+        } else { error!("failed to start forecast purge timer") }
 
         let hself = self.hself.clone();
         self.start( hself);

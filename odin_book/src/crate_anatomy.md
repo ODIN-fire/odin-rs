@@ -167,7 +167,7 @@ The module also defines the message interface of the actor, which usually includ
 - a `_Terminate_` system message for a controlled shutdown of the importer task
 
 Since actors are components of long running systems they also have to guarantee the system is running in bounded space.
-This might require periodic background tasks to clean up the store or the file system.
+This might require periodic background tasks to clean up the store or the file system (see [Cleanup](#cleanup) below).
 
 ### Web App Microservice Module
 
@@ -229,6 +229,39 @@ $ODIN_ROOT/      ┌───────┼ importer task  ◄─┼───�
  └──────────────────┘   └────────────┘
 ```
 
+
+## Cleanup
+
+ODIN servers are supposed to be long running - often for weeks or months without restart, and potentially on edge
+devices with limited resources. This means each crate has to make sure it executes in bounded memory- and disk-space,
+regardless of how long the server is running. An unbounded resource consumption that is negligible in a test run will
+eventually bring down a production server.
+
+For memory this is mostly a matter of data model design. Item stores should be bounded collections (e.g. time sorted
+ringbuffers based on `VecDeque`, see [Library Module](#library-module)) with a configured maximum history, and caches
+of computed results need an eviction policy.
+
+For disk space the typical culprit is the `$ODIN_ROOT/cache/<crate>/` directory that holds downloaded or computed
+transient data. Unless there are specific requirements crates should **not** implement their own cache cleanup but
+leave this to the [`odin_scrub`](odin_scrub/odin_scrub.md) system crate. The scrubber periodically deletes aged files and
+directories based on a single configuration (`scrub.ron`) with glob patterns and maximum ages, either from within
+an ODIN application or as a separate `run_scrubber` process. This avoids redundant cleanup code and per-crate timers
+that would wake up respective actor tasks. New crates that store transient files should therefore check if the
+existing scrubber configuration covers their cache directory, and add a respective matcher if their data has a
+different lifetime.
+
+Crates have to implement their own (time- or condition-triggered) cleanup if
+
+- they make heavy use of transient disk space that can exceed available storage within the scrub interval, e.g.
+  large intermediate files of simulations or data conversions that should be deleted as soon as they have been
+  processed
+- they have to control the lifetime of cached items themselves, e.g. if cached files are referenced by the actor
+  store or by connected clients and must not disappear before the referencing item is removed, or if items have to be
+  deleted on specific events rather than based on their age
+
+In these cases the scrubber configuration should exclude the respective directories (`Matcher.exclude`) so that
+both mechanisms do not interfere. Self-managed cleanup still has to guarantee bounded disk space, i.e. it also has to
+handle files that are left over from previous runs or crashes.
 
 ## Reference Development Process
 

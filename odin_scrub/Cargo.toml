@@ -1,0 +1,33 @@
+[package]
+name = "odin_scrub"
+version = "0.1.0"
+edition = "2024"
+build = "../build_resources.rs"
+
+[[bin]]
+name = "run_scrubber"
+path = "src/bin/run_scrubber.rs"
+
+[dependencies]
+lazy_static = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+globset = { workspace = true, features = ["serde1"] }
+
+thread-priority = "3.1"
+
+odin_build = { workspace = true }
+odin_macro = { workspace = true }
+odin_common = { workspace = true }
+
+[build-dependencies]
+odin_build = { workspace = true }
+
+[features]
+## inline crate-specific resources (configs and assets) into the executable (see odin_build)
+embedded_resources = []

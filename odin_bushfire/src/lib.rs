@@ -64,7 +64,6 @@ struct BushFireConfig {
     check_interval: Duration, // how often to download & check the database for new updates
     max_history: usize, // max number of most recent updates to keep for each bushfire
     max_age: Duration, // max age of fires
-    max_file_age: Duration, // duration after which to delete cache files
 }
 
 #[derive(Serialize,Debug,Clone)]

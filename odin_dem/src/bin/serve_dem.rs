@@ -27,6 +27,11 @@
 //!       width  : response data (image) width in pixels - we keep this optional and if not set use source data resolution
 //!       height : response data (image) height in pixels - see 'width'
 //!```
+//!
+//! Non-WMS end points are `GetWhDem`, `GetResDem` (DEM files for given width/height or resolution), `GetHeights`
+//! (POST of JSON `[[lon,lat],..]`, returning `[height,..]`) and `RayIntersections` (POST of JSON `[RayQuery,..]`,
+//! returning `[RayHit|null,..]`, see odin_dem::raycast). Ray intersections are computed on the native resolution of
+//! the DEM using a process wide block cache, which makes repeated queries for the same area cheap.
 
 
 use std::{collections::HashMap, default::Default, error::Error, net::{IpAddr, SocketAddr}, path::{Path,PathBuf}, sync::Arc, time::SystemTime};
@@ -54,7 +59,10 @@ use anyhow::Result;
 use odin_build::set_bin_context;
 use odin_common::{define_serde_struct, fs::{self,EnvPathBuf}, BoundingBox, strings::{deserialize_arr4,parse_array}, if_let, datetime };
 use odin_server::{spawn_server_task,ServerConfig, server_error};
-use odin_dem::{get_dem_heights, get_local_res_file_path, get_local_wh_file_path, get_res_dem, get_wh_dem, load_config, DemImgType, DemSRS, ResampleAlg};
+use odin_dem::{
+    get_dem_heights, get_local_res_file_path, get_local_wh_file_path, get_ray_intersections, get_res_dem, get_wh_dem, load_config,
+    DemImgType, DemSRS, RayQuery, ResampleAlg
+};
 
 
 /// DEM configuration data
@@ -119,6 +127,10 @@ async fn main () -> Result<()> {
         .route( "/GetHeights", post({
             let cfg = dem_config.clone();
             move |query:Query<GetHeightsQuery>, ps:Json<Vec<(f64,f64)>>| { get_heights_handler( query, cfg, ps) }
+        }))
+        .route( "/RayIntersections", post({
+            let cfg = dem_config.clone();
+            move |queries:Json<Vec<RayQuery>>| { ray_intersections_handler( cfg, queries) }
         }));
 
 
@@ -242,5 +254,21 @@ async fn get_heights_handler (Query(q): Query<GetHeightsQuery>, config: Arc<DemC
             }
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, "failed to retrieve DEM heights".to_string())
+    }
+}
+
+async fn ray_intersections_handler (config: Arc<DemConfig>, Json(queries): Json<Vec<RayQuery>>) -> impl IntoResponse {
+    // this might have to read DEM blocks, i.e. it can block
+    let res = tokio::task::spawn_blocking( move || get_ray_intersections( &config.vrt_path, &queries)).await;
+
+    match res {
+        Ok(Ok(hits)) => {
+            match serde_json::to_string(&hits) {
+                Ok(s) => (StatusCode::OK, s),
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, "failed to serialize ray intersections".to_string())
+            }
+        }
+        Ok(Err(e)) => (StatusCode::BAD_REQUEST, format!("failed to compute ray intersections: {e}")),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, "ray intersection task failed".to_string())
     }
 }

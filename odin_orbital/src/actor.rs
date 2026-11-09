@@ -26,7 +26,7 @@ use odin_job::JobScheduler;
 use odin_common::{
     collections::{empty_vec, RefVec, RingDeque},
     datetime::{self,days, hours, minutes, secs},
-    fs::{remove_old_files, set_filepath_contents},
+    fs::{set_filepath_contents},
     geo::GeoPolygon,
     json_writer::{JsonWritable, JsonWriter}
 };
@@ -231,8 +231,7 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
     async fn retrieve_data (&mut self, hself: ActorHandle<OrbitalHotspotActorMsg>)->Result<()> {
         let mut n_completed = 0;
 
-        self.drop_old_files(); // some house keeping first
-
+        // note that we do not clean up our cache dir - this is done by odin_scrub
         // move all upcoming overpasses that have passed into completed
         // note there might not be any (either because we had no upcoming overpasses yet or this is an update for a previously completed one)
         while let Some(o) = self.data.upcoming.front() {
@@ -296,11 +295,6 @@ impl <T,I,A,O,H> OrbitalHotspotActor <T,I,A,O,H>
 
     async fn terminate (&mut self)->Result<()> {
         self.scheduler.abort();
-        Ok(())
-    }
-
-    fn drop_old_files (&self)->Result<()> {
-        remove_old_files( &self.cache_dir, days(self.sat_info.back_days as u64 + 1))?;
         Ok(())
     }
 

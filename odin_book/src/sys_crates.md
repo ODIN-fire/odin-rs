@@ -19,6 +19,8 @@ ODIN system crates can be divided into the following categories:
   data sets and images
 - [odin_dem](odin_dem/odin_dem.md) - a simple digital elevation model based on [GDAL VRT](https://gdal.org/en/latest/drivers/raster/vrt.html)
 - [odin_wx](odin_wx/odin_wx.md) - a small weather service abstraction crate to support clients that have to work around the globe
+- [odin_scrub](odin_scrub/odin_scrub.md) - a configurable background scrubber that periodically deletes aged files and
+  directories (e.g. in the ODIN cache)
 
 ## architectural crates
 

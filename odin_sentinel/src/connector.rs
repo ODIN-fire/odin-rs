@@ -22,7 +22,7 @@ use reqwest::Client;
 use async_trait::async_trait;
 
 use odin_actor::prelude::*;
-use odin_common::{fs::remove_old_files, strings::str_from_last, collections::Snapshot};
+use odin_common::{strings::str_from_last, collections::Snapshot};
 
 use crate::*;
 use crate::actor::*;
@@ -181,17 +181,6 @@ pub(crate) async fn handle_file_query (config: &SentinelConfig, file_request_tx:
 pub(crate) fn get_file_uri (config: &SentinelConfig, record_id: &str, filename: &str)->Result<String> {
     // for now we just have image files so there is only one uri scheme
     Ok( get_image_uri( &config.base_uri, record_id) )
-}
-
-pub(crate) async fn file_cleanup_loop (config: Arc<SentinelConfig>, cache_dir: Arc<PathBuf>)->Result<()> {
-    let interval = minutes(60); // should we configure this?
-
-    loop {
-        // remove first so that frequent short runs that don't hit the interval do not accumulate
-        remove_old_files( cache_dir.as_ref(), config.max_age);
-        sleep(interval).await;
-    }
-    Ok(())
 }
 
 /* #endregion shared connector functions */

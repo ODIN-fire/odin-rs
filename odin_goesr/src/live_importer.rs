@@ -30,8 +30,6 @@ pub struct LiveGoesrHotspotImporterConfig {
     pub source: String, // e.g. "ABI-L2-FDCC"
     pub keep_files: bool,
     pub init_files: usize, // number of most recent data files to retrieve on initialization
-    pub cleanup_interval: Duration,
-    pub max_age: Duration,
 }
 
 /// the structure representing objects to collect and announce availability of live GoesR FDCC fire product data (hotspots)
@@ -45,13 +43,12 @@ pub struct LiveGoesrHotspotImporter {
 
     /// values set during initialization
     import_task: Option<AbortHandle>,
-    file_cleanup_task: Option<AbortHandle>,
 }
 
 impl LiveGoesrHotspotImporter {
     pub fn new (config: LiveGoesrHotspotImporterConfig) -> Self {
         let cache_dir = Arc::new( pkg_cache_dir!());
-        LiveGoesrHotspotImporter{ config, cache_dir, import_task:None, file_cleanup_task:None }
+        LiveGoesrHotspotImporter{ config, cache_dir, import_task:None }
     }
 
     async fn initialize  (&mut self, hself: ActorHandle<GoesrHotspotImportActorMsg>) -> Result<()> {
@@ -59,8 +56,8 @@ impl LiveGoesrHotspotImporter {
         let init_files = config.init_files;
         let s3_client = create_s3_client( &config.s3_region).await?;
 
+        // note that we do not cleanup our cache dir - this is done by odin_scrub
         self.import_task = Some( self.spawn_import_task( s3_client, hself)? );
-        self.file_cleanup_task = Some( self.spawn_file_cleanup_task()? );
         Ok(())
     }
 
@@ -70,17 +67,6 @@ impl LiveGoesrHotspotImporter {
 
         Ok( spawn( &format!("goes-{}-data-acquisition", self.config.sat_id), async move {
                 run_data_acquisition( hself, config, data_dir, client).await
-            })?.abort_handle()
-        )
-    }
-
-    fn spawn_file_cleanup_task(&mut self)-> Result<AbortHandle> {
-        let cache_dir = self.cache_dir.clone();
-        let cleanup_interval = self.config.cleanup_interval;
-        let max_age = self.config.max_age;
-
-        Ok( spawn( &format!("goes-{}-file-cleanup", self.config.sat_id), async move {
-                run_file_cleanup( cache_dir, cleanup_interval, max_age).await
             })?.abort_handle()
         )
     }
@@ -94,7 +80,6 @@ impl GoesrHotspotImporter for LiveGoesrHotspotImporter {
 
     fn terminate (&mut self) {
         if let Some(task) = &self.import_task { task.abort() }
-        if let Some(task) = &self.file_cleanup_task { task.abort() }
     }
 }
 
@@ -135,11 +120,4 @@ pub async fn run_data_acquisition (hself: ActorHandle<GoesrHotspotImportActorMsg
     }
 
     Ok(())
-}
-
-async fn run_file_cleanup (cache_dir: Arc<PathBuf>, interval: Duration, max_age: Duration) {
-    loop {
-        remove_old_files( &cache_dir.as_path(), max_age);
-        sleep(interval).await; // no need to compensate for cycle execution time
-    }
 }

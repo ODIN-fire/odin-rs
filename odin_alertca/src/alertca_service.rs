@@ -17,8 +17,8 @@ use std::{net::SocketAddr,any::type_name,fs, time::Duration};
 use axum::{
     http::{Uri,StatusCode},
     body::Body,
-    routing::{Router,get},
-    extract::{Path as AxumPath},
+    routing::{Router,get,post},
+    extract::{Path as AxumPath, Json},
     response::{Response,IntoResponse},
 };
 use async_trait::async_trait;
@@ -27,16 +27,34 @@ use odin_actor::prelude::*;
 use odin_build::{pkg_cache_dir, pkg_data_dir};
 use odin_server::prelude::*;
 use odin_cesium::ImgLayerService;
+use odin_dem::{DemSource, RayQuery};
 
 use crate::{load_asset, CameraStore, actor::{ExecSnapshotAction,AlertCaActorMsg}};
 
+/// max number of rays per ray intersection request (to bound server load)
+const MAX_RAYS: usize = 256;
+
 pub struct AlertCaService {
-    hactor: ActorHandle<AlertCaActorMsg>
+    hactor: ActorHandle<AlertCaActorMsg>,
+    dem: Option<DemSource> // for server side viewpoint tracking (see AlertCaConfig)
 }
 
 impl AlertCaService {
-    pub fn new (hactor: ActorHandle<AlertCaActorMsg>)->Self {
-        AlertCaService{hactor}
+    /// `dem` is required for server side viewpoint tracking (`viewTrack.serverSide` in odin_alertca_config.js), which
+    /// is normally obtained from the `dem` field of the `AlertCaConfig`
+    pub fn new (hactor: ActorHandle<AlertCaActorMsg>, dem: Option<DemSource>)->Self {
+        AlertCaService{hactor, dem}
+    }
+
+    /// terrain intersections for camera view rays (POST of JSON `[RayQuery,..]`, returning `[RayHit|null,..]`)
+    async fn rays_handler (dem: Option<DemSource>, Json(queries): Json<Vec<RayQuery>>) -> Response {
+        let Some(dem) = dem else { return (StatusCode::SERVICE_UNAVAILABLE, "no DEM configured").into_response() };
+        if queries.len() > MAX_RAYS { return (StatusCode::BAD_REQUEST, "too many rays").into_response() }
+
+        match dem.ray_intersections( &queries).await {
+            Ok(hits) => Json(hits).into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, format!("ray intersection failed: {e}")).into_response()
+        }
     }
 
     async fn data_handler (path: AxumPath<String>) -> impl IntoResponse {
@@ -72,6 +90,12 @@ impl SpaService for AlertCaService {
 
         spa.add_route( |router, spa_server_state| { // serve viewshed GeoJSON files (see compute_vsh)
             router.route( &format!("/{}/alertca-vsh/{{*unmatched}}", spa_server_state.name.as_str()), get(Self::viewshed_handler))
+        });
+
+        let dem = self.dem.clone();
+        spa.add_route( move |router, spa_server_state| { // server side viewpoint tracking
+            router.route( &format!("/{}/alertca-rays", spa_server_state.name.as_str()),
+                          post( move |queries: Json<Vec<RayQuery>>| Self::rays_handler( dem, queries)))
         });
 
         Ok(())

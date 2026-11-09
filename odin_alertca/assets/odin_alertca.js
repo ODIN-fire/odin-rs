@@ -897,19 +897,12 @@ async function computeViewRange (seq, ce, data, pos, bearing) {
     let u = config.viewTrack.pitchUncertainty;
     let maxDist = config.viewTrack.maxDist;
 
-    // the reported camera altitude is relative to MSL (and is the ground elevation) but Cesium terrain heights are
-    // relative to the WGS84 ellipsoid (~30m lower in CA). We therefore use the terrain height at the camera position
-    // plus the configured camera height above ground unless there is no topographic terrain
     let p0 = ce.position;
-    let origin = Cesium.Cartographic.fromDegrees( p0.lon, p0.lat, 0);
-    let th = await odinCesium.terrainHeight( origin);
-    origin.height = ((th != 0) ? th : (p0.alt || 0)) + ce.heightAboveGround;
+    let pitches = [pitch, pitch - u, pitch + u]; // hit, near, far
 
-    let [hit, near, far] = await Promise.all([
-        odinCesium.terrainIntersection( origin, bearing, pitch, maxDist),
-        odinCesium.terrainIntersection( origin, bearing, pitch - u, maxDist),
-        odinCesium.terrainIntersection( origin, bearing, pitch + u, maxDist)
-    ]);
+    let hits = (config.viewTrack.serverSide && !serverViewTrackFailed) ? await serverTerrainIntersections( ce, bearing, pitches, maxDist) : undefined;
+    if (!hits) hits = await clientTerrainIntersections( ce, bearing, pitches, maxDist);
+    let [hit, near, far] = hits;
     if (seq != viewTrackSeq || !viewTrack) return; // outdated
 
     viewTrack.angle.label.text = viewAngleText( bearing, pitch);
@@ -941,6 +934,52 @@ async function computeViewRange (seq, ce, data, pos, bearing) {
         viewTrack.hit.show = true;
     }
     odinCesium.requestRender();
+}
+
+var serverViewTrackFailed = false; // set if the server cannot compute terrain intersections (e.g. no DEM configured)
+
+// compute the terrain intersections of the camera view rays with the given pitches on the server (from the DEM
+// configured in AlertCaConfig). Ray origin is the camera height above the DEM terrain at the camera position.
+// Returns an array of { position: Cartographic, distance } or undefined entries, or undefined if the request failed
+async function serverTerrainIntersections (ce, bearing, pitches, maxDist) {
+    let p0 = ce.position;
+    let queries = pitches.map( pitch => ({ lon: p0.lon, lat: p0.lat, height: ce.heightAboveGround, aboveGround: true, bearing, pitch, maxDist }));
+
+    try {
+        let response = await fetch( "./alertca-rays", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify( queries)
+        });
+        if (!response.ok) {
+            let msg = await response.text();
+            if (response.status == 503) { // no DEM on server - don't try again
+                serverViewTrackFailed = true;
+                console.warn("server side view tracking not available, using client side terrain intersections: ", msg);
+            } else {
+                console.warn("server side view tracking failed: ", msg);
+            }
+            return undefined;
+        }
+        let rayHits = await response.json();
+        // heights are DEM (MSL) heights but we clamp hit positions to the (Cesium) terrain anyways
+        return rayHits.map( h => h ? { position: Cesium.Cartographic.fromDegrees( h.lon, h.lat, 0), distance: h.distance } : undefined);
+
+    } catch (err) {
+        console.warn("server side view tracking request failed: ", err);
+        return undefined;
+    }
+}
+
+// compute the terrain intersections of the camera view rays with the given pitches in the browser (from Cesium terrain)
+async function clientTerrainIntersections (ce, bearing, pitches, maxDist) {
+    // the reported camera altitude is relative to MSL (and is the ground elevation) but Cesium terrain heights are
+    // relative to the WGS84 ellipsoid (~30m lower in CA). We therefore use the terrain height at the camera position
+    // plus the configured camera height above ground unless there is no topographic terrain
+    let p0 = ce.position;
+    let origin = Cesium.Cartographic.fromDegrees( p0.lon, p0.lat, 0);
+    let th = await odinCesium.terrainHeight( origin);
+    origin.height = ((th != 0) ? th : (p0.alt || 0)) + ce.heightAboveGround;
+
+    return Promise.all( pitches.map( pitch => odinCesium.terrainIntersection( origin, bearing, pitch, maxDist)));
 }
 
 // bearing and (optional) pitch of the tracked view ray

@@ -16,10 +16,9 @@
 use std::{path::PathBuf, sync::Arc, collections::HashMap};
 use odin_actor::{load_config, prelude::*};
 use odin_actor::{error,debug,warn,info};
-use odin_common::{fs::remove_old_files, datetime::minutes};
 use odin_server::spa::{SpaServerMsg,DataAvailable,BroadcastWsMsg};
 use crate::{
-    pkg_cache_dir, get_json_update_msg,
+    get_json_update_msg,
     AlertCaConfig, Camera, AlertCaConnector, CameraStore, errors::{Result,OdinAlertCaError}
 };
 
@@ -43,7 +42,6 @@ pub struct AlertCaActor <C,I,U>
     config: Arc<AlertCaConfig>,
     connector: C,               // where we get the external data from
     store: Option<CameraStore>, // our internal store (initialized from the first CameraUpdates we get from the connector)
-    timer: Option<AbortHandle>,
 
     init_action: I,             // initialized interaction (triggered by self)
     update_action: U,           // update interactions (triggered by self)
@@ -56,7 +54,7 @@ impl <C,I,U> AlertCaActor <C,I,U>
         let config = Arc::new(config);
         let connector = connector_ctor( config.clone());
 
-        AlertCaActor{config, connector, store: None, timer: None, init_action, update_action}
+        AlertCaActor{config, connector, store: None, init_action, update_action}
     }
 
     /// the first CameraUpdates we get from the connector (after it was started from _Start_) initialize our store and
@@ -78,12 +76,6 @@ impl <C,I,U> AlertCaActor <C,I,U>
         }
 
         Ok(())
-    }
-
-    fn cleanup (&mut self) {
-        if remove_old_files( &pkg_cache_dir!(), self.config.max_age).is_err() {
-            warn!("failed to cleanup cache");
-        }
     }
 }
 
@@ -110,14 +102,7 @@ impl_actor! { match msg for Actor<AlertCaActor<C,I,U>, AlertCaActorMsg>
         if let Err(e) = self.connector.start( hself).await {  // this should eventually lead to a CameraUpdates that initializes our store
             error!("failed to start connector: {:?}", e)
         }
-
-        if let Ok(timer) = self.start_repeat_timer( 1, minutes(30), true) {
-            self.timer = Some(timer);
-        } else { error!("failed to start cleanup timer") }
-    }
-
-    _Timer_ => cont! {
-        self.cleanup();
+        // note that we do not clean up our cache dir - this is done by odin_scrub
     }
 
     _Terminate_ => stop! {

@@ -109,9 +109,10 @@ FemsConfig (
     tx_delay: Duration( secs: 60, nanos: 0), // wait 1 min after scheduled tx time
     check_interval: Duration( secs: 240, nanos: 0), // check every 4 min
     forecast_hours: 8,
-    max_file_age: Duration( secs: 21600, nanos: 0) // delete files after 6h
 )
 ```
+
+Retrieved files are stored in the `odin_fems` cache dir, which is cleaned up by [odin_scrub](../odin_scrub/odin_scrub.md).
 
 ## Example
 

@@ -46,6 +46,9 @@ pub enum OdinAlertCaError {
     #[error("config RON error {0}")]
     RonError( #[from] ron::error::SpannedError),
 
+    #[error("DEM error {0}")]
+    DemError( #[from] odin_dem::errors::OdinDemError),
+
     #[error("operation failed {0}")]
     OpFailedError(String)
 }

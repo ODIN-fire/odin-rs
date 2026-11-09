@@ -16,6 +16,7 @@
 use std::sync::Arc;
 
 use odin_build;
+use odin_scrub;
 use odin_common::{arc,json_writer::JsonWriter, vec_boxed};
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
@@ -33,6 +34,8 @@ use odin_bushfire::{Bushfire, BushfireService, BushfireStore, actor::{BushfireAc
 
 
 run_actor_system!( actor_system => {
+    odin_scrub::start_scrubber( odin_scrub::load_config("scrub.ron")?)?; // run cache cleanup background thread
+
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
     let pre_wx = PreActorHandle::new( &actor_system, "wx", 8);
     let pre_fire = PreActorHandle::new( &actor_system, "bushfires", 8);

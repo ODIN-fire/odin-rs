@@ -16,7 +16,6 @@
 
 use std::{io,fs::File,path::{Path,PathBuf},sync::Arc, time::Duration};
 use chrono::{DateTime,Utc,NaiveDate,NaiveTime,NaiveDateTime};
-use odin_common::fs::remove_old_files;
 use odin_actor::prelude::*;
 use crate::{
     HimawariConfig, HimawariHotspot, HimawariHotspotSet, PKG_CACHE_DIR,
@@ -45,19 +44,18 @@ pub struct LiveHimawariHotspotImporter {
 
     /// values set during initialization
     import_task: Option<AbortHandle>,
-    file_cleanup_task: Option<AbortHandle>,
 }
 
 impl LiveHimawariHotspotImporter {
     pub fn new (config: Arc<HimawariConfig>, cache_dir: Arc<PathBuf>) -> Self {
-        LiveHimawariHotspotImporter{ config, cache_dir, import_task:None, file_cleanup_task:None }
+        LiveHimawariHotspotImporter{ config, cache_dir, import_task:None }
     }
 
     async fn initialize  (&mut self, hself: ActorHandle<HimawariHotspotActorMsg>) -> Result<()> {
         let config = &self.config;
 
+        // note that we do not cleanup our cache dir - this is done by odin_scrub
         self.import_task = Some( self.spawn_import_task( hself)? );
-        self.file_cleanup_task = Some( self.spawn_file_cleanup_task()? );
         Ok(())
     }
 
@@ -101,23 +99,6 @@ impl LiveHimawariHotspotImporter {
         }
         Ok(())
     }
-
-    fn spawn_file_cleanup_task(&mut self)-> Result<AbortHandle> {
-        let config = self.config.clone();
-        let cache_dir = self.cache_dir.clone();
-
-        Ok( spawn( &format!("himawari-{}-file-cleanup", self.config.sat_id), async move {
-                Self::run_file_cleanup( config, cache_dir).await
-            })?.abort_handle()
-        )
-    }
-
-    async fn run_file_cleanup(config: Arc<HimawariConfig>, cache_dir: Arc<PathBuf>) {
-        loop {
-            remove_old_files( &cache_dir.as_path(), config.max_age);
-            sleep( config.cleanup_interval).await;
-        }
-    }
 }
 
 impl HimawariHotspotImporter for LiveHimawariHotspotImporter {
@@ -128,6 +109,5 @@ impl HimawariHotspotImporter for LiveHimawariHotspotImporter {
 
     fn terminate (&mut self) {
         if let Some(task) = &self.import_task { task.abort() }
-        if let Some(task) = &self.file_cleanup_task { task.abort() }
     }
 }

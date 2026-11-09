@@ -31,7 +31,7 @@ use async_trait::async_trait;
 use odin_common::{
     angle::{Latitude, Longitude},
     datetime::{self, elapsed_minutes_since, full_hour, secs},
-    fs::{ensure_writable_dir, odin_data_filename, path_str_to_fname, remove_old_files},
+    fs::{ensure_writable_dir, odin_data_filename, path_str_to_fname},
     geo::GeoRect,
     strings::{mk_string,to_sorted_string_vec}
 };
@@ -91,9 +91,7 @@ pub struct HrrrConfig {
 
     /// max retry attempts
     pub max_retry: u8,
-
-    /// how long to keep downloaded HRRR files
-    pub max_age: Duration,
+    // note that we do not clean up downloaded HRRR files - this is done by odin_scrub
 }
 
 impl Default for HrrrConfig {
@@ -116,7 +114,6 @@ impl Default for HrrrConfig {
             check_interval: secs(30),
             retry_delay: secs( 30),
             max_retry: 4,
-            max_age: datetime::hours(2),
         }
     }
 }
@@ -351,9 +348,6 @@ pub enum DownloadCmd {
 pub async fn process_download_requests<A> (rx: MpscReceiver<DownloadCmd>, cfg: Arc<HrrrConfig>, cache_dir: PathBuf, action: A)
     where A: DataAction<WxFileAvailable>
 {
-    remove_old_files( &cache_dir, cfg.max_age);
-    let mut last_cleanup = SystemTime::now();
-
     loop {
         match recv(&rx).await {
             Ok(DownloadCmd::GetFile(request)) => {
@@ -371,14 +365,6 @@ pub async fn process_download_requests<A> (rx: MpscReceiver<DownloadCmd>, cfg: A
             }
             Ok(DownloadCmd::Terminate) => { break }
             Err(_) => { break } // request queue closed, no use to go on
-        }
-
-        let now = SystemTime::now();
-        if let Ok(elapsed) = now.duration_since(last_cleanup) {
-            if elapsed > cfg.max_age {
-                remove_old_files( &cache_dir, cfg.max_age);
-                last_cleanup = now;
-            }
         }
     }
 }

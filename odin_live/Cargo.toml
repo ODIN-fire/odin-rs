@@ -30,6 +30,7 @@ odin_fems = { workspace = true }
 odin_landfire = { workspace = true }
 odin_elmfire = { workspace = true }
 odin_nfdrs = { workspace = true }
+odin_scrub = { workspace = true }
 
 tokio = { workspace = true }
 anyhow = { workspace = true }

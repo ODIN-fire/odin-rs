@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use odin_build;
 use odin_common::{arc,json_writer::JsonWriter, vec_boxed};
+use odin_scrub;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
 use odin_goesr::{GoesrHotspotService, actor::spawn_goesr_hotspot_actors};
@@ -43,6 +44,8 @@ use odin_openmeteo::ids::ModelId;
 // note that odin_sentinel, odin_n5 and odin_adsb all require non-public data sources and hence are feature gated
 
 run_actor_system!( actor_system => {
+    odin_scrub::start_scrubber( odin_scrub::load_config("scrub.ron")?)?; // run cache cleanup background thread
+
     let pre_server = PreActorHandle::new( &actor_system, "server", 64);
     let pre_hrrr = PreActorHandle::new( &actor_system, "hrrr", 8);
 
@@ -132,13 +135,15 @@ run_actor_system!( actor_system => {
 
     //--- spawn AlertCaActor
     let sender_id = "alertca";
+    let aca_config: odin_alertca::AlertCaConfig = odin_alertca::load_config("sf_bay_area.ron")?;
+    let aca_dem = aca_config.dem.clone(); // for server side viewpoint tracking
     let haca = spawn_actor!( actor_system, sender_id, AlertCaActor::new(
-        odin_alertca::load_config("sf_bay_area.ron")?,
+        aca_config,
         LiveAlertCaConnector::new,
         odin_alertca::actor::server_init_action( pre_server.to_actor_handle(), sender_id),
         odin_alertca::actor::server_update_action( pre_server.to_actor_handle())
     ))?;
-    let svc_list = svc_list.add( build_service!( => AlertCaService::new(  haca)));
+    let svc_list = svc_list.add( build_service!( let dem = aca_dem.clone() => AlertCaService::new( haca, dem)));
 
     //--- spawn the sentinel actor
     #[cfg(feature="sentinel")]

@@ -29,6 +29,12 @@ use odin_build::define_load_config;
 pub mod errors;
 use errors::OdinDemError;
 
+pub mod raycast;
+pub use raycast::{DemGrid, RayHit, RayQuery, DEFAULT_CURV_COEFF};
+
+pub mod blockcache;
+pub use blockcache::{DemBlockCache, get_ray_intersections};
+
 type Result<T> = std::result::Result<T, OdinDemError>;
 
 define_load_config!{}
@@ -281,6 +287,13 @@ pub async fn query_dem_heights (base_url: &str, no_data: Option<f64>, pts: &[(f6
     Ok(heights)
 }
 
+/// compute terrain intersections for the given rays on a remote `serve_dem` server (see `RayIntersections` route)
+pub async fn query_ray_intersections (base_url: &str, queries: &[RayQuery]) -> Result<Vec<Option<RayHit>>> {
+    let url = format!("{base_url}/RayIntersections");
+    let client = reqwest::Client::new();
+    let hits: Vec<Option<RayHit>> = odin_common::net::post_json_query( &client, &url, queries).await?;
+    Ok(hits)
+}
 
 /// potential DEM access alternatives
 /// this is the key abstraction for clients that should work with both a local filesystem DEM and a `serve_dem`` server
@@ -298,6 +311,31 @@ impl DemSource {
             }
             DemSource::File(path) => {
                 get_dem_heights( &path, no_data, locations)
+            }
+        }
+    }
+
+    /// a short, filename compatible identifier of this source that can be used to name cached files
+    pub fn cache_tag (&self)->String {
+        let s = match self {
+            DemSource::Server(url) => url.split("://").last().unwrap_or(url).to_string(),
+            DemSource::File(path) => fs::basename( path).map( |s| s.to_string()).unwrap_or_else( || path.to_string_lossy().to_string())
+        };
+        s.chars().map( |c| if c.is_ascii_alphanumeric() || c == '-' || c == '.' { c } else { '-' }).collect()
+    }
+
+    /// compute the terrain intersections for the given rays. This is executed by the process that has the local DEM,
+    /// i.e. for `DemSource::Server` it is delegated to the respective `serve_dem` server. Local DEMs have to use a
+    /// geographic SRS (which is the case for our VRTs) since rays are computed on the native DEM grid (see `blockcache`)
+    pub async fn ray_intersections (&self, queries: &[RayQuery]) -> Result<Vec<Option<RayHit>>> {
+        match self {
+            DemSource::Server(url) => {
+                query_ray_intersections( url.as_str(), queries).await
+            }
+            DemSource::File(path) => { // this might have to read DEM blocks - don't block the async runtime
+                let (path, queries) = (path.0.clone(), queries.to_vec());
+                tokio::task::spawn_blocking( move || get_ray_intersections( &path, &queries)).await
+                    .map_err( |e| op_failed( format!("ray intersection task failed: {e}")))?
             }
         }
     }

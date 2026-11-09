@@ -105,10 +105,10 @@ HimawariConfig(
 
     init_hours: 6, // initially retrieve 6h of data
     update_interval: Duration( secs: 300, nanos: 0), // check for new files every 5min
-    cleanup_interval: Duration( secs: 3600, nanos: 0), // remove old files > max_age once per hour
-    max_age: Duration(secs:43200,nanos:0),         // keep entries/files for 12hr
 )
 ```
+
+Downloaded files are kept in the `odin_himawari` cache dir, which is cleaned up by [odin_scrub](../odin_scrub/odin_scrub.md).
 
 ## Example
 

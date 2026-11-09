@@ -18,7 +18,7 @@ use reqwest::Client;
 use chrono::{DateTime,Utc,Datelike,Timelike};
 use uom::si::time::minute;
 
-use odin_common::{collections::RingDeque,fs::remove_old_files, datetime::{hours, minutes, utc_now}};
+use odin_common::{collections::RingDeque, datetime::{hours, minutes, utc_now}};
 use odin_actor::prelude::*;
 use odin_actor::{error,debug,warn,info};
 use odin_server::spa::{SpaServerMsg,DataAvailable,BroadcastWsMsg};
@@ -73,8 +73,7 @@ impl <I,U> FemsActor <I,U>
     }
 
     async fn update (&mut self)->Result<()> {
-        remove_old_files( &*CACHE_DIR, self.config.max_file_age);
-
+        // note that we do not clean up our cache dir - this is done by odin_scrub
         let now = utc_now();
 
         for (id,station) in self.store.iter_mut() {

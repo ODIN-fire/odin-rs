@@ -33,6 +33,7 @@ members = [
   "odin_landfire",
   "odin_elmfire",
   "odin_nfdrs",
+  "odin_scrub",
 
   "odin_live",
   "odin_live_aus",
@@ -76,6 +77,7 @@ odin_fems = {  version = "*", path = "odin_fems" }
 odin_landfire = {  version = "*", path = "odin_landfire" }
 odin_elmfire = { version = "*", path = "odin_elmfire" }
 odin_nfdrs = { version = "*", path = "odin_nfdrs" }
+odin_scrub = { version = "*", path = "odin_scrub" }
 
 # external crates for which we have to ensure the same version
 axum = { version = "0.8", features = [ "http2", "ws", "macros"] }

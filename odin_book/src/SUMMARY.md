@@ -46,6 +46,7 @@
     - [odin_dem](odin_dem/odin_dem.md)
     - [odin_gdal](odin_gdal/odin_gdal.md)
     - [odin_wx](odin_wx/odin_wx.md)
+    - [odin_scrub](odin_scrub/odin_scrub.md)
 
 - [5. Application Domain Crates](app_crates.md)
     - [odin_adsb](odin_adsb/odin_adsb.md)

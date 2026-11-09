@@ -27,7 +27,7 @@ use uom::si::{
 use bit_set::BitSet;
 use lazy_static::lazy_static;
 
-use odin_build::{define_load_config,define_load_asset, pkg_cache_dir};
+use odin_build::{define_load_config,define_load_asset, pkg_cache_dir, pkg_data_dir};
 use odin_common::{
     angle::{ser_rounded5_angle, ser_rounded_angle, Angle180, Angle90, Latitude, Longitude},
     cartesian3::{ser_rounded_cartesian3, Cartesian3},
@@ -412,28 +412,55 @@ pub fn get_time_vec (orbit_duration: Duration, time_step: Duration, start_time: 
 pub type ColumnVec<'a> = Matrix<f64, Const<3>, Const<1>, ViewStorage<'a, f64, Const<3>, Const<1>, Const<1>, Const<3>>>;
 
 
+/// the directory for satkit data files (ephemeris, gravity models, earth orientation parameters and space weather):
+/// `ODIN_ROOT/data/odin_orbital/satkit`.
+/// Since these are not transient cache data (and some of them are large) we keep them in the data dir, where they
+/// are not affected by cache scrubbing. Use the `get_ephemeris` tool to explicitly retrieve or update them
+pub fn satkit_data_dir ()->PathBuf {
+    pkg_data_dir!().join("satkit")
+}
+
 #[constructor(0)]
 pub extern "C" fn init_orbital_data () {
     if let Ok(skip) = std::env::var("ODIN_SKIP_SATKIT_INIT") {
         if skip == "1" || skip == "true" { return } // bail out
     }
-    let dir = pkg_cache_dir!().join("satkit");
+    let dir = satkit_data_dir();
     println!("using emphemeris from {:?}", dir);
     ensure_writable_dir(&dir).expect("failed to create satkit data dir");
     satkit::utils::set_datadir(&dir).expect("failed to set satkit data dir");
 
-    update_orbital_data().expect("failed to update satkit ephemeris");
+    if has_ephemeris(&dir) {
+        update_orbital_data( false).expect("failed to update satkit ephemeris");
+    } else {
+        println!("no satkit ephemeris found in {dir:?} - retrieving (use get_ephemeris to do this explicitly)");
+        update_orbital_data( true).expect("failed to retrieve satkit ephemeris");
+    }
 }
 
-// in long running servers this should be called periodically (once per day)
-pub fn update_orbital_data ()->Result<()> {
+/// do we have a JPL ephemeris file (`linux_p*.4XX` or `lnxp*.4XX`) in the given dir. This is the largest satkit
+/// data file and the one that is neither compiled into satkit nor regularly updated
+fn has_ephemeris (dir: &Path)->bool {
+    fs::read_dir(dir).map( |rd| {
+        rd.flatten().any( |e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            (name.starts_with("linux_p") || name.starts_with("lnxp")) && name.rsplit('.').next().is_some_and( |ext| ext.len() == 3 && ext.starts_with('4'))
+        })
+    }).unwrap_or(false)
+}
+
+/// update the satkit data files if they have not been updated within the last day or if `force` is set.
+/// Note that satkit only downloads static files (ephemeris, gravity models) if they are missing, and refreshes
+/// the regularly updated files (earth orientation and space weather) according to their publication cadence.
+/// In long running servers this should be called periodically (once per day)
+pub fn update_orbital_data (force: bool)->Result<()> {
     let dir = satkit::utils::datadir().map_err(|_| op_failed!("no satkit data dir set"))?;
     let last_mod = get_modified_timestamp(&dir).ok_or( op_failed!( "no modified timestamp of satkit data dir"))?;
     let now = SystemTime::now();
     let elapsed = now.duration_since(last_mod)
         .map_err(|e| op_failed!("invalid modification timestamp of data dir {dir:?}: {e}"))?;
 
-    if elapsed > days(1) {
+    if force || elapsed > days(1) {
         satkit::utils::update_datafiles( None, false).map_err( |e| op_failed!("failed to update satkit data dir: {}", e))?;
         set_modified_timestamp(&dir, now)?;
     } else {

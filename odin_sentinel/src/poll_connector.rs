@@ -109,14 +109,14 @@ impl SentinelConnector for PollConnector {
 /// the internal struct that holds the tasks of a started PollConnector:
 ///   - polling for records that are newer than the latest ones we know of
 ///   - file retrieval (for image files, which are downloaded automatically)
-///   - file cleanup
+///
+/// Note that we do not clean up downloaded files in our cache dir - this is done by odin_scrub. If a client
+/// requests a file that has been deleted it is downloaded again
 struct PollConnection {
     poll_task: AbortHandle,
 
     file_request_task: AbortHandle,
     file_request_tx: MpscSender<FileRequest>,
-
-    file_cleanup_task: AbortHandle,
 }
 
 impl PollConnection {
@@ -146,13 +146,10 @@ impl PollConnection {
                                  latest_recs, file_request_tx.clone())
             )?.abort_handle();
 
-            let file_cleanup_task = spawn( "sentinel-file-purge",
-                                           file_cleanup_loop( config.clone(), cache_dir.clone()))?.abort_handle();
-
             request_all_files( &config, &sentinel_store, &file_request_tx).await?;
             hself.send_msg( InitializeStore(sentinel_store)).await?;
 
-            Ok( PollConnection { poll_task, file_request_task, file_request_tx, file_cleanup_task } )
+            Ok( PollConnection { poll_task, file_request_task, file_request_tx } )
 
         } else {
             Err( OdinSentinelError::NoDevicesError)
@@ -180,7 +177,6 @@ impl PollConnection {
     fn terminate (&mut self) {
         self.poll_task.abort();
         self.file_request_task.abort();
-        self.file_cleanup_task.abort();
     }
 }
 

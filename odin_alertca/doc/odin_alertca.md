@@ -108,9 +108,14 @@ AlertCaConfig(
 
     update_interval: Duration(secs:180,nanos:0), // update every 3 min
     max_history: 10, // number of camera states we keep per camera
-    max_age: Duration(secs:3600,nanos:0), // keep data for 1h
+
+    // DEM for server side viewpoint tracking. Can also be Server("http://<serve_dem-host>:9019")
+    dem: Some(File("$ODIN_ROOT/data/odin_dem/3dep13-conus-i16/3dep13-conus-i16.vrt")),
 )
 ```
+
+Retrieved camera images are stored in the `odin_alertca` cache dir, which is cleaned up by [odin_scrub](../odin_scrub/odin_scrub.md).
+Make sure the respective scrubber matcher keeps images at least for `max_history * update_interval`.
 
 Cameras are either specified as plain ids or as `(id: .., height_above_ground: .., tilt_offset: ..)` structs with
 local camera attributes that are not (correctly) reported by AlertCalifornia. Both fields are optional:
@@ -132,20 +137,35 @@ position over the image is shown with a vertical and a horizontal line and repor
   position in [-1,1] and `hfov` is the (zoom dependent) horizontal field of view of the camera when the image was taken
 - for cameras that report their tilt (PTZ cameras), the **terrain intersection** of a ray with this bearing and the
   pitch `tilt + tilt_offset + atan(y * tan(vfov/2))` (vertical field of view computed from `hfov` and the image aspect
-  ratio). The ray starts at the terrain height of the camera position plus `height_above_ground` and is intersected
-  with the most detailed terrain by `odin_cesium::terrainIntersection()`. Rays that do not hit the terrain within
-  `viewTrack.maxDist` are labeled with "no terrain intersection"
+  ratio). The ray starts at the terrain height of the camera position plus `height_above_ground`. Rays that do not hit
+  the terrain within `viewTrack.maxDist` are labeled with "no terrain intersection"
 - the **view angle** of the ray (`bearing / pitch` in degrees) as a label at the camera position
 
 Colors and widths of the bearing line and the intersection range can be changed in the "layer parameters" panel of
 the window, which also controls color and alpha of displayed viewsheds (initial values are from `odin_alertca_config.js`).
+
+Terrain intersections are computed either on the server or in the browser, depending on `viewTrack.serverSide` in
+`odin_alertca_config.js` (default true):
+
+- **server side**: the browser sends the (hit,near,far) rays as a POST request to the `alertca-rays` route of the
+  `AlertCaService`, which computes them from the `dem` of the `AlertCaConfig` by means of
+  [odin_dem](../odin_dem/odin_dem.md) ray casting (native 3DEP resolution, a few ms per request once DEM blocks are
+  cached, 50-100ms otherwise). This uses the same DEM as viewsheds and has the best accuracy. If the server has no DEM
+  configured the browser automatically falls back to client side computation
+- **client side**: the rays are intersected with the most detailed Cesium terrain by `odin_cesium::terrainIntersection()`.
+  This requires retrieving and sampling terrain tiles along the whole ray, which typically takes 1-3.5s per tracked
+  position
+
+The mode should be chosen based on the expected number of users that simultaneously might use viewpoint tracking. If
+this number is less than 10 then server side computation is superior, both in terms of response time and accuracy.
 
 Clicking on the image freezes/unfreezes the tracked position. Since distances are very sensitive to pitch errors at
 grazing angles (`distance ~ camera height above terrain / tan(depression angle)`), the terrain intersection is shown as
 the range between the intersections for pitch ± `viewTrack.pitchUncertainty` (default 0.25°), labeled with the nominal
 distance and the range in km. Results are reliable in the near field and become increasingly uncertain towards the
 horizon. Other error sources are the camera height (`height_above_ground`), tilt calibration (`tilt_offset`), lens
-distortion, atmospheric refraction and the difference between the Cesium terrain and the DEM used for viewsheds.
+distortion, atmospheric refraction and (for client side computation) the difference between the Cesium terrain and the
+DEM used for viewsheds.
 
 Azimuth, tilt and zoom of each image are read from its overlay text (e.g. `elev:2812' X:-54.88 Y:-1.78 Z:1.0`) by means
 of OCR (`odin_alertca::overlay`, using the `odin_image::ocr` module with the PP-OCR models in

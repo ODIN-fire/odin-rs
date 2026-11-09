@@ -35,7 +35,7 @@ use reqwest::Client;
 use odin_build::pkg_cache_dir;
 use odin_common::{
     collections::process_async, datetime::{hours, secs, short_utc_datetime_string, ZERO},
-    fs::remove_old_files, geo::GeoRect, net::{get_file, NO_HEADERS, ZERO_ADDR},
+    geo::GeoRect, net::{get_file, NO_HEADERS, ZERO_ADDR},
     ron::{from_typed_compact_ron, TypedCompactRon}, ws
 };
 use odin_actor::prelude::*;
@@ -55,7 +55,6 @@ pub struct WindServerClientConfig {
     pub ws_uri: String,
     pub file_uri: String,
     pub(crate) access_token: String,
-    pub max_age: Duration,
     pub max_forecasts: usize,
     // ...probably more to follow
 }
@@ -74,7 +73,7 @@ pub struct WindServerClient<S,U> where S: DataAction<SubscribeResponse>, U: Data
     client: Client,
     pending_requests: HashMap<String,HashSet<SocketAddr>>, // region_name -> pending browser requests
     connector: Option<WindServerClientConnector>,
-    timer: Option<AbortHandle>, // housekeeping
+    // note that we do not clean up our cache dir - this is done by odin_scrub
 }
 
 struct WindServerClientConnector {
@@ -89,7 +88,7 @@ impl <S,U> WindServerClient<S,U> where S: DataAction<SubscribeResponse> + 'stati
         let forecast_store = HashMap::new();
         let pending_requests = HashMap::new();
         let client = Client::new();
-        WindServerClient { config, forecast_store, subscribe_action, update_action, client, pending_requests, connector: None, timer: None }
+        WindServerClient { config, forecast_store, subscribe_action, update_action, client, pending_requests, connector: None }
     }
 
     fn start (&mut self, hself: ActorHandle<WindServerClientMsg>)->Result<()> {
@@ -240,12 +239,6 @@ impl <S,U> WindServerClient<S,U> where S: DataAction<SubscribeResponse> + 'stati
             connector.ws_task.abort(); // this should close the websocket which the server will detect
         }
     }
-
-    fn cleanup (&mut self) {
-        if remove_old_files( &pkg_cache_dir!(), hours(6)).is_err() {
-            warn!("failed to cleanup cache");
-        }
-    }
 }
 
 async fn download_forecast_data( client: &Client, forecast: &Forecast, base_uri: &str, cache_dir: &PathBuf)->Result<()> {
@@ -291,16 +284,8 @@ impl_actor! { match msg for Actor<WindServerClient<S,U>,WindServerClientMsg>
     where S: DataAction<SubscribeResponse> + Sync, U: DataRefAction<Forecast> + Sync as
 
     _Start_ => cont! {
-        if let Ok(timer) = self.start_repeat_timer( 1, hours(1), false) {
-            self.timer = Some(timer);
-        } else { error!("failed to start cleanup timer") }
-
         let hself = self.hself.clone();
         check_err( self.start( hself), "failed to start");
-    }
-
-    _Timer_ => cont! {
-        self.cleanup();
     }
 
     // received from a client to start forecasts for the given area

@@ -5,6 +5,4 @@ OpenMeteoConfig(
 
     initial_delay: Duration( secs: 600, nanos: 0), // wait 10min before scheduled download attempt (this is on top of the OpenMetMetadata availability)
     retry_delay: Duration( secs: 120, nanos: 0),  // wait 2min between attempts to download not-yet-available updates
-
-    max_age: Duration( secs:43200, nanos:0), // keep downloaded files for max 12h
 )

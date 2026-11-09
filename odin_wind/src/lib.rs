@@ -65,7 +65,6 @@ define_load_asset!{}
 #[derive(Serialize,Deserialize,Debug)]
 pub struct WindConfig {
     pub fc_duration: Duration, // the duration for which we want to compute forecasts
-    pub max_age: Duration, // how long to keep cached data files
     pub max_forecasts: usize, // max number of forecasts to keep for each region (in ringbuffer)
     pub windninja_cmd: EnvPathBuf, // pathname for windninja executable
     pub mesh_res: f64, // WindNinja mesh resolution in meters

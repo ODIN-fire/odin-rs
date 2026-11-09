@@ -71,6 +71,33 @@ To that end communication between the two is using standard protocols and data f
 is to be able to re-implement each side without affecting the other.
 
 
+## Factor out common functionality
+
+`odin-rs` consists of a growing number of application domain crates that are developed independently but have to
+work together in the same server processes. Functionality that is needed by several of these crates should not be
+re-implemented in each of them but factored out into a system crate (or into an existing one such as `odin_common`).
+
+This has several advantages:
+
+- less code - common functions are implemented, tested and documented only once
+- consistency - all crates behave the same way and are configured the same way, which makes ODIN applications easier
+  to set up and operate
+- fewer runtime resources - a single shared service (e.g. one timer or one background thread) instead of one per crate
+  reduces the number of tasks that have to be woken up and scheduled in long running servers
+- separation of concerns - application domain crates can focus on their domain (data acquisition, processing and
+  visualization) instead of infrastructure
+
+Examples are [`odin_build`](odin_build/odin_build.md) (config and asset lookup), [`odin_server`](odin_server/odin_server.md)
+(web server and client UI library), [`odin_dem`](odin_dem/odin_dem.md) (elevation data) and
+[`odin_scrub`](odin_scrub/odin_scrub.md), which replaces individual cache cleanup tasks in domain crates by a single,
+configurable file system scrubber.
+
+A good indicator for factoring out is when a second crate needs the same functionality. Factored out functionality
+has to be generic and configurable, i.e. it must not depend on the crates that use it. Conversely, domain specific
+requirements that do not fit the common implementation (e.g. cache items whose lifetime is controlled by the domain
+data model) should remain in the domain crate rather than complicating the common one.
+
+
 ## Use the Rust type system to enforce correct semantics
 
 Many domain-specific 3rd party Rust libraries do abstract the memory type of variables (e.g. `f64`) but do little to enforce

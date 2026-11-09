@@ -30,6 +30,7 @@ use odin_common::{
     geo::{GeoPoint, GeoPoint3, GeoPolygon}, json_writer::{JsonWritable, JsonWriter, NumFormat}, net::{download_url, NO_HEADERS}
 };
 use odin_macro::{define_struct, public_struct};
+use odin_dem::{DemSource, RayHit, RayQuery};
 
 pub mod overlay;
 pub mod errors;
@@ -107,6 +108,75 @@ impl Camera {
             })
         })
     }
+
+    /// the (bearing,pitch) [deg] of the view ray through a relative image position. `x` and `y` are in [-1,1] with
+    /// (0,0) being the image center and y pointing up, `img_width` and `img_height` are the image dimensions (in pixels).
+    /// Bearing is clockwise from true north, pitch is negative for downward rays and includes the configured
+    /// `tilt_offset`. Returns `None` if the camera does not report its tilt.
+    /// NOTE - this has to be consistent with `trackViewpoint()` and `computeViewRange()` in odin_alertca.js
+    pub fn view_ray (&self, x: f64, y: f64, img_width: f64, img_height: f64)->Option<(f64,f64)> {
+        let tilt = self.tilt?.degrees();
+        let hfov = self.fov_angle.degrees().to_radians();
+        let vfov = 2.0 * ((hfov/2.0).tan() * img_height / img_width).atan(); // assuming square pixels
+
+        let bearing = (self.azimut.degrees() + (x * (hfov/2.0).tan()).atan().to_degrees() + 360.0) % 360.0;
+        let pitch = tilt + self.tilt_offset + (y * (vfov/2.0).tan()).atan().to_degrees();
+        Some( (bearing, pitch) )
+    }
+
+    /// the (hit,near,far) `RayQuery` triple for a relative image position (see [`view_ray`]), with `pitch` and
+    /// `pitch ± pitch_uncertainty` [deg]. The ray origin is `height_above_ground` above the DEM terrain at the camera
+    /// position, which is more consistent than the reported camera altitude (that is not necessarily based on the same
+    /// elevation data). Returns `None` if the camera does not report its tilt
+    pub fn view_ray_queries (&self, x: f64, y: f64, img_width: f64, img_height: f64, max_dist: f64, pitch_uncertainty: f64,
+                             curv_coeff: f64)->Option<(f64,f64,[RayQuery;3])> {
+        let (bearing,pitch) = self.view_ray( x, y, img_width, img_height)?;
+        let (lon, lat) = (self.position.longitude_degrees(), self.position.latitude_degrees());
+        let query = |pitch| RayQuery { lon, lat, height: self.height_above_ground, above_ground: true, bearing, pitch, max_dist, curv_coeff };
+        Some( (bearing, pitch, [ query(pitch), query(pitch - pitch_uncertainty), query(pitch + pitch_uncertainty) ]) )
+    }
+
+    /// compute the terrain locations of relative image positions `points` (see [`view_ray`]) for images of the given
+    /// size. Since distances are very sensitive to pitch errors at grazing angles we also return the `near` and `far`
+    /// intersections for `pitch ± pitch_uncertainty` [deg]. All rays are computed in a single `DemSource` query, which
+    /// is executed by the process that has the local DEM (i.e. this is a remote query for `DemSource::Server`).
+    /// Returns an empty Vec if the camera does not report its tilt
+    pub async fn locate_image_points (&self, dem: &DemSource, points: &[(f64,f64)], img_width: f64, img_height: f64,
+                                      max_dist: f64, pitch_uncertainty: f64, curv_coeff: f64)->Result<Vec<ImagePointLocation>> {
+        let mut rays: Vec<(f64,f64)> = Vec::with_capacity( points.len());
+        let mut queries: Vec<RayQuery> = Vec::with_capacity( points.len() * 3);
+        for (x,y) in points {
+            let Some((bearing, pitch, qs)) = self.view_ray_queries( *x, *y, img_width, img_height, max_dist, pitch_uncertainty, curv_coeff) else {
+                return Ok( Vec::new())
+            };
+            rays.push( (bearing,pitch));
+            queries.extend( qs);
+        }
+
+        let mut hits = dem.ray_intersections( &queries).await?.into_iter();
+        Ok( rays.into_iter().map( |(bearing,pitch)| {
+            let (hit, near, far) = (hits.next().flatten(), hits.next().flatten(), hits.next().flatten());
+            ImagePointLocation { bearing, pitch, hit, near, far }
+        }).collect())
+    }
+
+    /// single point version of [`locate_image_points`]. Returns `Ok(None)` if the camera does not report its tilt
+    pub async fn locate_image_point (&self, dem: &DemSource, x: f64, y: f64, img_width: f64, img_height: f64,
+                                     max_dist: f64, pitch_uncertainty: f64, curv_coeff: f64)->Result<Option<ImagePointLocation>> {
+        let mut locs = self.locate_image_points( dem, &[(x,y)], img_width, img_height, max_dist, pitch_uncertainty, curv_coeff).await?;
+        Ok( locs.pop())
+    }
+}
+
+/// the terrain location of an image point (see [`Camera::locate_image_point`]). Each of the intersections is `None`
+/// if the respective ray does not hit the terrain within the max distance
+#[derive(Debug,Clone)]
+pub struct ImagePointLocation {
+    pub bearing: f64,          // [deg] of view ray (clockwise from true north)
+    pub pitch: f64,            // [deg] of view ray (including tilt_offset)
+    pub hit: Option<RayHit>,   // terrain intersection for pitch
+    pub near: Option<RayHit>,  // terrain intersection for pitch - pitch_uncertainty
+    pub far: Option<RayHit>,   // terrain intersection for pitch + pitch_uncertainty
 }
 
 /// camera update messages contain the same camera objects as snapshot messages, but only the new state as data
@@ -233,7 +303,8 @@ struct AlertCaConfig {
     base_url: String, // for all-camera / image retrieval
     update_interval: Duration, // data retrieval interval
     max_history: usize, // number of camera states we keep per camera
-    max_age: Duration, // duration after which to drop camera data
+    #[serde(default)]
+    dem: Option<DemSource>, // DEM for server side viewpoint tracking (terrain intersections of camera view rays)
 }
 
 impl AlertCaConfig {

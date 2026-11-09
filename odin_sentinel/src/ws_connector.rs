@@ -122,7 +122,9 @@ impl SentinelConnector for WsConnector {
 ///   - websocket outbound (commands, including keepalive pings)
 ///   - websocket keepalive (scheduling ping messages for the IO task )
 ///   - file retrieval (for image files, which are downloaded automatically but independent of the websocket)
-///   - file cleanup
+///
+/// Note that we do not clean up downloaded files in our cache dir - this is done by odin_scrub. If a client
+/// requests a file that has been deleted it is downloaded again
 ///
 /// Note that our policy is to automatically initiate file downloads, i.e. subsequent file requests
 /// from clients only have to be notified once a download has finished. This means for each incoming
@@ -138,8 +140,6 @@ struct WsConnection {
 
     file_request_task: AbortHandle, // async task for file requests
     file_request_tx: MpscSender<FileRequest>, // channel to send file requests to the task
-
-    file_cleanup_task: AbortHandle, // periodic file cleanup task
 }
 
 impl WsConnection {
@@ -175,15 +175,11 @@ impl WsConnection {
                                file_request_tx.clone(), ws_cmd_rx)
             )?.abort_handle();
 
-            let file_cleanup_task = spawn( "sentinel-file-purge",
-                                           file_cleanup_loop( config.clone(), cache_dir.clone()))?.abort_handle();
-
             let live_conn = WsConnection {
                 hself: hself.clone(),
                 last_recv_epoch,
                 ws_task, ws_cmd_tx,
                 file_request_task, file_request_tx,
-                file_cleanup_task,
             };
             request_all_files( &config, &sentinel_store, &live_conn.file_request_tx).await?;
 
@@ -355,7 +351,6 @@ impl WsConnection {
     fn terminate(&mut self)->Result<()> {
         self.ws_task.abort();
         self.file_request_task.abort();
-        self.file_cleanup_task.abort();
 
         Ok(())
     }

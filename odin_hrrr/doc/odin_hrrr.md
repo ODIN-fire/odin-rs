@@ -72,7 +72,6 @@ HrrrConfig(
     check_interval: Duration::new(30, 0), // interval in which we check availability of new forecast steps
     retry_delay: Duration::new(30, 0), // how long to wait between consecutive attempts for not-yet-available files
     max_retry: 4, // how many times do we try to download not-yet-available files
-    max_age: Duration::new(21600, 0), // how long to keep downloaded files (6h)
 };
 ```
  
@@ -166,8 +165,9 @@ an edge server does not want to use a dedicated `HrrrActor` (see `get_hrrr.rs` b
 `HrrrDataSetRequests` requires the actor. The task has its own request queue - it does not schedule new forecast steps itself
 but depends on the application context (e.g. the `HrrrActor`) to do so, which is based on the HRRR schedule mentioned above.
 
-As an auxiliary function the task also removes old HRRR data files according to the `max_age` value of the provided `HrrrConfig`,
-i.e. it has to ensure disk space remains bounded.
+The task does not remove old HRRR data files - this is left to [odin_scrub](../odin_scrub/odin_scrub.md), which has to
+be running (either within the application or as a separate `run_scrubber` process) to ensure disk space remains bounded.
+Note that downloaded files have to be kept long enough for clients (such as `odin_wind`) to process them.
 
 
 ## 4. Applications

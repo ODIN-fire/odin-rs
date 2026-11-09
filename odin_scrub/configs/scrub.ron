@@ -1,0 +1,25 @@
+ScrubConfig (
+    priority: Some(0),         // OS thread priority
+    //log_file: Some("$ODIN_ROOT/scrub_log.csv"),
+
+    root_dir: "$ODIN_ROOT/cache",
+    scrub_interval: Duration(secs: 600,nanos: 0), // check every 10min
+    default_max_age: Duration(secs: 28800, nanos: 0), // delete after 8h
+
+    matchers: [ // ordered from general to specific
+        // the most general matcher. Cache contents of odin_elmfire and odin_nfdrs are explicitly managed by users
+        Matcher( glob: "odin_*/**/*", exclude: ["odin_elmfire/*", "odin_nfdrs/*"], max_age: None),
+
+        //--- crate specific max ages (keep in sync with crate data lifetimes)
+        Matcher( glob: "odin_alertca/*", max_age: Some( Duration(secs: 3600, nanos: 0))),       // 1h (> max_history * update_interval)
+        Matcher( glob: "odin_fems/*", max_age: Some( Duration(secs: 21600, nanos: 0))),         // 6h
+        Matcher( glob: "odin_hrrr/*", max_age: Some( Duration(secs: 21600, nanos: 0))),         // 6h (input for odin_wind)
+        Matcher( glob: "odin_wind/*", max_age: Some( Duration(secs: 21600, nanos: 0))),         // 6h (active region DEMs are touched on use)
+        Matcher( glob: "odin_goesr/*", max_age: Some( Duration(secs: 43200, nanos: 0))),        // 12h
+        Matcher( glob: "odin_himawari/*", max_age: Some( Duration(secs: 43200, nanos: 0))),     // 12h
+        Matcher( glob: "odin_openmeteo/*", max_age: Some( Duration(secs: 43200, nanos: 0))),    // 12h
+        Matcher( glob: "odin_sentinel/*", max_age: Some( Duration(secs: 86400, nanos: 0))),     // 1d (images are re-downloaded on demand)
+        Matcher( glob: "odin_bushfire/*", max_age: Some( Duration(secs: 86400, nanos: 0))),     // 1d (perimeter files are served from cache)
+        Matcher( glob: "odin_orbital/*", max_age: Some( Duration(secs: 345600, nanos: 0))),     // 4d (max back_days + 1)
+    ]
+)

@@ -59,8 +59,7 @@ pub struct HimawariConfig {
 
     pub init_hours: usize, // number of initial hours to retrieve
     pub update_interval: Duration, // how often to check for new data files
-    pub cleanup_interval: Duration, // how often to purge old data files
-    pub max_age: Duration, // max age of data files
+    // note that we do not clean up the cache dir - this is done by odin_scrub
 }
 
 /// raw data as we get it from the JAXA server

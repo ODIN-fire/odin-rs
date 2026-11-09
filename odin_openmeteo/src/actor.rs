@@ -17,7 +17,7 @@ use std::{collections::{HashMap, VecDeque}, path::{Path,PathBuf}, sync::Arc, tim
 use chrono::{DateTime, Local, NaiveDateTime, Timelike, Utc};
 use reqwest::{Client};
 
-use odin_common::{datetime::{self, day_start, days, with_hms}, fs::{file_length, odin_data_filename, remove_old_files}, geo::GeoRect, net::{NO_HEADERS, download_url}};
+use odin_common::{datetime::{self, day_start, days, with_hms}, fs::{file_length, odin_data_filename}, geo::GeoRect, net::{NO_HEADERS, download_url}};
 use odin_actor::{errors::op_failed, prelude::*};
 use odin_macro::public_struct;
 use odin_wx::{WxDataSetRequest,AddDataSet,RemoveDataSet,WxFileAvailable};
@@ -125,8 +125,6 @@ impl <A> OpenMeteoActor<A> where A: DataAction<WxFileAvailable> + 'static {
                 self.datasets.insert( request.clone(), OpenMeteoStatus::new( meta, basedate, forecasts.clone(), path.clone()));
                 self.file_avail_action.execute( WxFileAvailable::new( request, basedate, forecasts, path)).await;
 
-                remove_old_files( &*CACHE_DIR, self.config.max_age);
-
             } else { // it hasn't been update yet - reschedule in a couple of minutes
                 info!("retry OpenMet dataset {:?} in {} secs", request.region, self.config.retry_delay.as_secs());
                 if let Ok(mut scheduler) = hself.get_scheduler() {
@@ -179,9 +177,6 @@ impl <A> OpenMeteoActor<A> where A: DataAction<WxFileAvailable> + 'static {
 }
 
 impl_actor! { match msg for Actor<OpenMeteoActor<A>,OpenMeteoActorMsg> where A: DataAction<WxFileAvailable> + 'static + Sync as
-    _Start_ => cont! {
-        remove_old_files( &*CACHE_DIR, self.config.max_age);
-    }
     AddDataSet => cont! {
         let hself = self.hself.clone();
         self.add_dataset( hself, msg.0).await;

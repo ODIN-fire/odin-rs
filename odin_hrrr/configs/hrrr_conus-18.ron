@@ -19,5 +19,4 @@ HrrrConfig(
     check_interval: Duration(secs:30,nanos:0), // interval in which we check availability of new forecast steps
     retry_delay: Duration(secs:60,nanos:0), // how long to wait between consecutive attempts for failed downloads
     max_retry: 5, // how many times do we try to download not-yet-available files
-    max_age: Duration(secs:21600,nanos:0), // how long to keep downloaded files (6h)
 )

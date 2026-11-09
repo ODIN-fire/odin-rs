@@ -245,7 +245,6 @@ authorization data:
 
 ```rust,ignore
 WindConfig(
-    max_age: Duration( secs: 3600, nanos: 0), // 1h - how long to keep cached data files
     max_forecasts: 9, // max number of forecasts to keep for each region (in ringbuffer)
 
     windninja_cmd: "$ODIN_ROOT/bin/WindNinja_cli", // pathname for windninja executable (if not absolute path it has to be in PATH)

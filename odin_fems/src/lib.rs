@@ -86,7 +86,6 @@ struct FemsConfig {
     tx_delay: Duration, // how long to wait between station tx time and retrieval
     check_interval: Duration, // how often to download & check the database for new updates
     forecast_hours: u32, // the number of forecast hours to retrieve
-    max_file_age: Duration, // duration after which to delete cache files
     station_metadata: EnvPathBuf, // file with KD tree of all known stations
 }
 

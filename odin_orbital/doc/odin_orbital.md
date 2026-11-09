@@ -17,7 +17,8 @@ This chain does involve several external data sources for:
 
 - ephemeris data (input for orbit calculation)
   we currently obtain these through the external [satkit](https://docs.rs/satkit/latest/satkit/) crate from various sources 
-  (not requiring authentication but periodic updates)
+  (not requiring authentication but periodic updates). These files are stored in `ODIN_ROOT/data/odin_orbital/satkit/`
+  (see [Ephemeris Data](#ephemeris-data) below)
 - orbit parameters (e.g. in form of [TLE](https://en.wikipedia.org/wiki/Two-line_element_set))
   the authorative source is [space-track.org](https://www.space-track.org/) which requires a (free) user account and updates
   for each satellite every 6-12h
@@ -153,6 +154,9 @@ single [`SpaServer`](../odin_server/odin_server.md), which then serves both the 
 
 Since hotspot data size depends on the fire activity it can get large. Consequently, both overpasses and hotspots are directly stored
 as files in the `ODIN_ROOT/cache/odin_orbital/` directory (see [odin_build](../odin_build/odin_build.md)) and only annonced on the websocket.
+Old files in this directory are removed by [odin_scrub](../odin_scrub/odin_scrub.md) - the respective scrubber matcher should keep
+files for at least the maximum `back_days` (plus one) of all configured satellites. Since overpass and hotspot filenames start with the
+satellite id (e.g. `37849_..`) this can also be configured per satellite.
 It is up to the JS module to fetch these data files when the user wants to display available data. Apart from such on-demand retrieval
 (using JS [`Promises`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise)) the JS module
 also supports interactive selection/entry of incident areas (as geographic rectangles) which are then used to filter overpasses
@@ -254,3 +258,22 @@ run_actor_system!( actor_system => {
     Ok(())
 });
 ```
+
+## Ephemeris Data
+
+Orbit propagation and coordinate frame transformations require a number of [satkit](https://docs.rs/satkit/latest/satkit/) data
+files: a JPL ephemeris (~100MB), gravity models, Earth Orientation Parameters (EOP) and space weather data. These are not transient
+cache data and hence are stored in `ODIN_ROOT/data/odin_orbital/satkit/` (outside of the cache dir that is cleaned up by
+[odin_scrub](../odin_scrub/odin_scrub.md)).
+
+The files can be explicitly retrieved or updated with the `get_ephemeris` tool:
+
+```shell
+$> cargo run --bin get_ephemeris [-- [--force] [--dir <path>]]
+```
+
+Static files (ephemeris, gravity models) are only downloaded if they are missing, regularly updated files (EOP, space weather) are
+refreshed according to their publication cadence. `--force` re-fetches all files, `--dir` stores files in an alternative directory.
+
+When `odin_orbital` is initialized it automatically retrieves the files if there is no ephemeris yet, and it updates them if the last
+update was more than a day ago. This can be suppressed by setting the `ODIN_SKIP_SATKIT_INIT=1` environment variable.
