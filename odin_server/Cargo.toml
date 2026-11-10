@@ -1,6 +1,6 @@
 [package]
 name = "odin_server"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2024"
 
 build = "../build_resources.rs"
@@ -66,10 +66,17 @@ odin_build = { workspace = true }
 spa_server = { file = "spa_server.ron"}
 
 [package.metadata.odin_assets]
+# assets that are embedded with the `embedded_resources` feature (if ODIN_EMBED_RESOURCES is set at build time).
+# The not yet used login assets (login.html, odin-auth.css) and test_image.js/fire.webp are not embedded
 ws_js = { file = "ws.js" }
+main_js = { file = "main.js" }
 ui = { file = "ui.js" }
 ui_data = { file = "ui_data.js" }
-ui_utils = { file = "ui_utils.js" }
+ui_util = { file = "ui_util.js" }
+ui_windows = { file = "ui_windows.js" }
+ui_dialogs = { file = "ui_dialogs.js" }
+ui_code_input_js = { file = "ui_code_input.js" }
+ui_code_input_css = { file = "ui_code_input.css" }
 ui_settings_config = { file = "ui_settings_config.js"}
 ui_settings = { file = "ui_settings.js" }
 ui_css = { file = "ui.css" }
@@ -77,7 +84,11 @@ ui_load_theme_js = { file = "ui_load_theme.js"}
 ui_theme_dark_css = { file = "ui_theme_dark.css"}
 ui_theme_light_css = { file = "ui_theme_light.css"}
 ui_theme_night_css = { file = "ui_theme_night.css"}
-settings_icon_svg = { file = "settings_icon.svg"}
+settings_svg = { file = "settings.svg"}
+odin_icon_png = { file = "odin-icon-32x32.png"}
+# only used by the test_ui binary (note these are embedded in all binaries if the build has no ODIN_BIN_NAME context)
+test_ui_js = { file = "test_ui.js", bins = ["test_ui"] }
+img_svg = { file = "img.svg", bins = ["test_ui"] }
 
 
 [features]

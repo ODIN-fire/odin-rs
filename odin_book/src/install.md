@@ -100,6 +100,19 @@ $> cargo run --example hello_world
 hello world!
 ```
 
+#### Cargo features and `--all-features`
+
+Many crates have optional [Cargo features](https://doc.rust-lang.org/cargo/reference/features.html) (e.g.
+`embedded_resources` to compile configs and assets into executables, or `cesium_asset`). Please note that the workspace
+**cannot be built with `--all-features`** since [`odin_actor`](odin_actor/odin_actor.md) has mutually exclusive features
+to select its channel implementation (`tokio_kanal` - the default - and `tokio_flume`), which results in a deliberate
+compile error if both are enabled. Instead of `--all-features` either enable features explicitly
+(`--features embedded_resources,..`) or check the features of individual crates, e.g.
+
+```shell
+$> cargo check -p odin_dem --all-targets --all-features
+```
+
 For IDEs and editors we recommend:
 
 - [Visual Studio Code with the Rust Analyzer extension](https://code.visualstudio.com/docs/languages/rust) - just choose "File->Open Folder" 

@@ -46,6 +46,7 @@ pub fn create_config_data ()->Result<()> {
     let resource_crate = env::var("CARGO_PKG_NAME")?;
 
     write!( buf, "|map: &mut std::collections::HashMap<&'static str, odin_build::EmbeddedConfigEntry>| {{\n");
+    write!( buf, "let _ = &map; // map is not used if there are no embedded resources\n");
 
     if embed_resources {
         info!("---- embedding defined config resources of crate {}", resource_crate);
@@ -90,8 +91,8 @@ pub fn create_config_data ()->Result<()> {
     Ok(())
 }
 
-fn process_config_resource (r: &Resource, v: Vec<u8>)->Result<Vec<u8>> { 
-    utils::br_compress_vec( v.as_slice()) 
+fn process_config_resource (r: &Resource, v: Vec<u8>)->Result<Vec<u8>> {
+    utils::compress_vec( v.as_slice()) // has to match the decompress_vec() in define_load_config
 }
 
 // re-exports - those are used by the define_load_config macro but we don't want to expose them to callers

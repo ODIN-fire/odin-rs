@@ -106,8 +106,9 @@ more active actor left in the `ActorSystem`.
 
 For convenience we provide the `run_actor_system!{ .. }` macro that performs steps 1, 3 and 4. It is called like this:
 
-```rust
-..
+```rust,ignore
+use odin_actor::prelude::*;
+
 run_actor_system!( actor_system => {
    // step 2: spawn actors
    Ok(())
@@ -115,7 +116,8 @@ run_actor_system!( actor_system => {
 ```
 
 This macro automatically creates an async `main` function and imports both the `tokio` and `anyhow` crates which therefore
-need to be dependencies of the application crate (listed in its Cargo.toml).
+need to be dependencies of the application crate (listed in its Cargo.toml). It also sets the `odin_build` bin context
+(see `odin_build::set_bin_context!()`), i.e. it can only be used in binary targets (`src/bin/*.rs` or `src/main.rs`).
 
 To execute such an application with tracing support, launch it by setting both the `ODIN_TRACE` and the `RUST_LOG` environment
 variables, e.g. like

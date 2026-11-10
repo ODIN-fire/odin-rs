@@ -1,7 +1,8 @@
 [package]
 name = "odin_adsb"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2024"
+build = "../build_resources.rs"
 
 
 [dependencies]
@@ -30,6 +31,9 @@ odin_macro = { workspace = true }
 odin_action = { workspace = true }
 odin_server = { workspace = true }
 odin_cesium = { workspace = true }
+
+[build-dependencies]
+odin_build = { workspace = true }
 
 [features]
 ## inline crate-specific resources (configs and assets) into the executable (see odin_build)

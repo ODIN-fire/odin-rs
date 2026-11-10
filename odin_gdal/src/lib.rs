@@ -55,7 +55,7 @@ use gdal_sys::{self,
 };
 use geo::{Coord, Rect};
 
-use odin_build::{pkg_cache_dir,define_load_config};
+use odin_build::pkg_cache_dir;
 use odin_common::{
     BoundingBox, IndexBounds2D,
     fs::{existing_non_empty_file_from_path,get_filename_extension},
@@ -63,8 +63,6 @@ use odin_common::{
     utm::{UtmZone, geo_to_utm_zone, naive_utm_zone, utm_zone}
 };
 use crate::errors::{Result,misc_error, last_gdal_error, OdinGdalError, gdal_error, map_gdal_error, op_failed};
-
-define_load_config!{}
 
 lazy_static! {
     pub static ref CACHE_DIR: PathBuf = { pkg_cache_dir!() };

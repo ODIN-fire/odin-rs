@@ -1,7 +1,8 @@
 [package]
 name = "odin_wind"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2024"
+build = "../build_resources.rs"
 
 
 [dependencies]
@@ -38,6 +39,9 @@ odin_share = { workspace = true }
 odin_gdal = { workspace = true }
 
 tracing-subscriber = { workspace = true }
+
+[build-dependencies]
+odin_build = { workspace = true }
 
 [features]
 trace_server = []

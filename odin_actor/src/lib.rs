@@ -12,8 +12,7 @@
  * and limitations under the License.
  */
 #![allow(unused_imports)]
-
-#[doc = include_str!("../doc/odin_actor.md")]
+#![doc = include_str!("../doc/odin_actor.md")]
 
 use std::{
     pin::{Pin,pin}, 

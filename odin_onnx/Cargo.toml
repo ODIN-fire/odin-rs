@@ -1,6 +1,6 @@
 [package]
 name = "odin_onnx"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2024"
 
 
@@ -24,9 +24,3 @@ ndarray = { workspace = true }
 image = { workspace = true }
 
 ort = { version="2.0.0-rc.14", features = ["ndarray"] }
-
-
-[features]
-
-## inline crate-specific resources (configs and assets) into the executable (see odin_build)
-embedded_resources = []

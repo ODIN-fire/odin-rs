@@ -1,7 +1,8 @@
 [package]
 name = "odin_common"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2024"
+build = "../build_resources.rs"
 
 [[bin]]
 name = "get_files"
@@ -78,6 +79,9 @@ odin_build = { workspace = true }
 s3 = ["dep:aws-sdk-s3", "dep:aws-config", "dep:aws-smithy-types-convert", "dep:aws-smithy-runtime-api", "dep:aws-smithy-types", "dep:crc32c"]
 slack_admin = []
 dhat = ["dep:dhat"]
+
+## inline crate-specific resources (configs and assets) into the executable (see odin_build)
+embedded_resources = []
 
 [package.metadata.odin_configs]
 slack_admin = { file = "slack_admin.ron" }

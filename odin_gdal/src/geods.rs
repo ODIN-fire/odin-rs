@@ -26,7 +26,7 @@ use gdal;
 use odin_build;
 use odin_common::{fs::{self,EnvPathBuf}, net::{download_url, mime_type_for_extension, NO_HEADERS}, BoundingBox};
 use crate::{
-    CACHE_DIR, load_config, get_values_for_ds_positions, get_driver_name_for_extension, csl_string_list, create_wh_image_from_ds,
+    CACHE_DIR, get_values_for_ds_positions, get_driver_name_for_extension, csl_string_list, create_wh_image_from_ds,
     Dataset, SpatialRef, CslStringList,
     warp::{SimpleWarpBuilder},
     errors::{Result,OdinGdalError,invalid_filename,op_failed}

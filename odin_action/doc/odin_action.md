@@ -22,15 +22,37 @@ lifetime relationship to the context in which the actions were created.
  
 We support the following variants:
  
-- [`DataAction<T>`] trait and ['data_action`] macro
-- [`DataRefAction<T>`] trait and ['dataref_action`] macro
+- [`DataAction<T>`] trait and [`data_action`] macro
+- [`DataMutAction<T>`] trait and [`data_mut_action`] macro (for actions that mutate their own state)
 - [`BiDataAction<T,A>`] trait and [`bi_data_action`] macro
-- [`BiDataRefAction<T,A>`] trait and [`bi_dataref_action`] macro
-- [`DynDataAction<T>`] type and ['dyn_data_action`] macro
-- [`DynDataRefAction<T>`] type and ['dyn_dataref_action`] macro
+- [`DynDataAction<T>`] type and [`dyn_data_action`] macro
 
-The difference between `..DataAction` and `..DataRefAction` is how the owner data is passed into the trait's
-`execute(..)` function: as a moved value (`execute(&self,data:T)`) or as a reference (`execute(&self,data:&T)`).
+Owner data is passed into the trait's `execute(..)` function either as a moved value (`DataAction<Foo>`) or as a
+reference. Since actions are executed by owners that pass references to their own data (e.g. actor state) the
+respective action types have to accept references of arbitrary lifetimes, i.e. they are constrained by higher ranked
+trait bounds such as `for<'a> DataAction<&'a Foo>`. The macros automatically create such actions if the data argument
+is a reference:
+
+```rust
+let action = data_action!( let v: u64 = v => |data: &Foo| { ... }); // impl<'a> DataAction<&'a Foo> for ..
+..
+struct MyActor<A> where A: for<'a> DataAction<&'a Foo> { .. }        // or A: DataRefAction<Foo>
+```
+
+For brevity (and backwards compatibility) there are aliases for these reference actions:
+
+| alias | equivalent to |
+|---|---|
+| [`DataRefAction<T>`] trait, [`dataref_action`] macro | `for<'a> DataAction<&'a T>`, `data_action!(..=> \|data: &T\| ..)` |
+| [`DataRefMutAction<T>`] trait, [`dataref_mut_action`] macro | `for<'a> DataMutAction<&'a T>`, `data_mut_action!(..=> \|data: &T\| ..)` |
+| [`BiDataRefAction<T,A>`] trait, [`bi_dataref_action`] macro | `for<'a> BiDataAction<&'a T,A>`, `bi_data_action!(..=> \|data: &T, bidata: A\| ..)` |
+| [`DynDataRefAction<T>`] type, [`dyn_dataref_action`] macro | `Box<dyn for<'a> DynDataActionTrait<&'a T>>`, `dyn_data_action!(..=> \|data: &T\| ..)` |
+
+The alias traits are automatically implemented for all respective actions - they cannot (and do not need to) be
+implemented explicitly. The same holds for other data types with references (e.g. `for<'a> DataAction<Vec<&'a Foo>>`).
+
+The empty [`NoAction`] (created by `no_data_action()`, `no_dataref_action()` etc.) implements all non-dyn action
+traits for all data types and can be used where owners have optional actions.
  
 The `Bi..Action<T,B>` traits have `execute(..)` functions that take two arguments (of potentially different types). This is
 helpful in a context where the action body requires both owner state (`T`) and information that was passed to the 
@@ -53,15 +75,15 @@ or if return values of stored actions should be ignored.
 ```rust
 struct MyActor { ...
     data: MyData, 
-    actions: DynDataActionList<MyData>
+    actions: DynDataRefActionList<MyData>
 }
 ...
 impl MyActor {
-    async fn exec (&self, da: DynDataAction<MyData>) { 
+    async fn exec (&self, da: DynDataRefAction<MyData>) {
         da.execute(&self.data).await;
     }
 
-    fn store (&mut self, da: DynDataAction<MyData> ) { 
+    fn store (&mut self, da: DynDataRefAction<MyData> ) { 
         .. self actions.push( da) ..
     }
     ... self.actions.execute(&self.data, ignore_err).await ...
@@ -101,7 +123,7 @@ the example above expands into a block with three different parts: capture struc
     struct SomeDataAction { v1: String, v2: u64 }
 
     impl DataAction<Foo> for SomeDataAction {
-         async fn execute (&self, data: Foo)->std::result::Result<(),OdinActionError> {
+         async fn execute (&self, data: Foo)->std::result::Result<(),OdinActionFailure> {
              let v1 = &self.v1; let v2 = &self.v2;
              println!(...);
              Ok(())
@@ -112,29 +134,50 @@ the example above expands into a block with three different parts: capture struc
 }
 ```
 
-The action bodies are expressions that have to return a `Result<(),OdinActionError>` so that we can coerce errors in crates using
-`odin_action`. This means that we can use the `?` operator to shortcut within action bodies, but we have to map respective results
-by means of our `map_action_err()` function and make sure to use `action_ok()` instead of explicit `Ok(())` (to tell the compiler
-what `Result<T,E>` it refers to):
- 
+The action bodies are expressions that have to return a `Result<(),OdinActionFailure>`, which is the common error
+type of all actions so that we can store actions with the same data type in homogenous containers. Since
+[`OdinActionFailure`] can be created from anything that implements [`std::fmt::Display`] we can use the `?` operator
+within action bodies without explicit error mapping:
+
 ```rust
-fn compute_some_result(...)->Result<(),SomeError> {...}
+fn compute_some_result(...)->Result<Foo,SomeError> {...}
 ...
 data_action!( ... => |data: MyData| {
     ...
-    map_action_err( compute_some_result(...) )?
+    let foo = compute_some_result(...)?; // SomeError is converted into OdinActionFailure
     ...
-    action_ok()
-})
-```
- 
-For actions that end in a result no mapping is required (`map_action_err(..)` is automatically added by the macro expansion):
-
-```rust
-data_action!( ... => |data: MyData| {
-    ...
-    compute_some_result(...)
+    Ok(())
 })
 ```
 
-[`OdinActionError`] instances can be created from anything that implements [`ToString`]`
+Crates that want to map `OdinActionFailure` into their own error types can use the [`map_action_failure`] macro.
+
+## Why Actions Are Not Async Closures
+
+Since Rust 1.85 there are native async closures (`async |data: Foo| {..}`) and respective `std::ops::AsyncFn` /
+`AsyncFnMut` traits. Conceptually these would be a natural replacement for our action traits - they capture their
+environment, support reference arguments with arbitrary lifetimes and can have any number of arguments (which would
+make `Bi..Action` variants obsolete). We still use our own action traits for the following reasons:
+
+1. **`Send` futures in generic owners** - the primary use of actions is within actors (see
+   [odin_actor](../odin_actor/odin_actor.md)), which execute in spawned tasks and therefore require that all futures
+   they await are `Send`. Since action owners are generic over their action types (that is the whole point of actions)
+   this has to be provable for any action type parameter. `DataAction` guarantees this by declaring the return type of
+   `execute(..)` as `impl Future<..> + Send`. For async closures there is no way to express this on stable Rust yet -
+   it requires either [return type notation](https://github.com/rust-lang/rust/issues/109417)
+   (`A: AsyncFn(&Foo)->Result<..>, A::call(..): Send`) or nameable closure future types (`AsyncFnMut::CallRefFuture`,
+   which is part of the unstable `async_fn_traits` feature). Without such a bound a generic owner fails to compile with
+   "future cannot be sent between threads safely". Async closures only work if the owner knows the concrete closure type.
+2. **trait objects** - `AsyncFn` traits are not dyn-compatible, i.e. we would need our own [`DynDataActionTrait`]
+   anyways to send actions in messages or to store them in homogenous containers ([`DynDataActionList`]).
+3. **debugging** - closures do not implement `Debug`, which our action traits require so that owners (e.g. actor
+   states) can be logged and inspected.
+4. **empty actions** - [`NoAction`] (and the `is_empty()` method) would have to be replaced by `Option<..>` values in
+   all owners.
+
+To keep a future transition to native async closures simple **action instances should always be created through the
+macros of this crate** (`data_action!`, `dyn_data_action!` etc.) and not by explicit trait implementations. The macro
+syntax (`let «var»: «type» = «expr» .. => |«data»: «type»| «expr»`) already corresponds to a closure with explicit
+(clone) captures. Once the `Send` bound problem is solved in stable Rust these macros can expand into async closures and
+the action traits (resp. their [`DataRefAction`] style aliases) into respective `AsyncFn` bounds without changing
+the code that creates or executes actions. Only the dyn actions are likely to remain as they are.

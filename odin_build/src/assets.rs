@@ -19,10 +19,6 @@ pub extern crate lazy_static;
 use std::{io::Write,fs::{self,File},env,path::{Path,PathBuf},fmt::Write as FmtWrite, str, collections::HashMap, sync::Arc};
 use minifier::{js,css,json};  // js, json, css
 
-// we would prefer this but it locks in rkyv 0.7 through the not optional lightningcss dependency
-//use minify_html_onepass::{Cfg, truncate};  // html, svg
-//use simple_minify_html::{Cfg,minify};
-
 use bytes::Bytes;
 use crate::*; // this includes utils
 use crate::errors::*;
@@ -51,6 +47,7 @@ pub fn create_asset_data ()->Result<()> {
     let resource_crate = env::var("CARGO_PKG_NAME")?;
 
     write!( buf, "|map: &mut std::collections::HashMap<&'static str, odin_build::EmbeddedAssetEntry>| {{\n");
+    write!( buf, "let _ = &map; // map is not used if there are no embedded resources\n");
 
     if embed_resources {
         info!("---- embedding defined asset resources of crate {}", resource_crate);
@@ -72,7 +69,7 @@ pub fn create_asset_data ()->Result<()> {
                     let processed_data = process_asset_resource( &resource, data)?;
 
                     write!( buf, "static _D{}_: &[u8] = &{:?};\n", n_resources, processed_data);
-                    write!( buf, "map.insert( \"{}\", odin_build::EmbeddedAssetEntry{{ src: Bytes::from(_D{}_), is_encrypted:{} ));\n",
+                    write!( buf, "map.insert( \"{}\", odin_build::EmbeddedAssetEntry{{ src: Bytes::from(_D{}_), is_encrypted:{} }} );\n",
                             resource.file, n_resources, resource.encrypt);
                     n_resources += 1;
                 }
@@ -246,6 +243,8 @@ fn process_html (mut data: Vec<u8>)->Result<Vec<u8>> {
 
 #[cfg(feature = "minify_html_assets")]
 fn process_html (mut data: Vec<u8>)->Result<Vec<u8>> {
+    use simple_minify_html::{Cfg,minify};
+
     // if we use minify-html-onepass this locks in rkyv 0.7 through a non-optional lightningcss dependency
     //let cfg = &Cfg { minify_js: true, minify_css: true };
     //truncate( &mut data, cfg).map_err(|e| OdinBuildError::MinifyError(e.to_string()))?;

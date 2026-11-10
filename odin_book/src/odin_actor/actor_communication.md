@@ -308,12 +308,15 @@ by potential receivers).
 Data actions are defined and documented in the [`odin_action`] crate - while the **action** construct is not
 actor specific it is most useful to make actors from different domains inter-operable. They can be viewed as
 async "callbacks" that allow the sender to inject its own data into action executions. All the sender actor
-has to know is when to execute an action and what data to provide for its execution.
+has to know is when to execute an action and what data to provide for its execution. See [Why Actions Are Not Async Closures](../odin_action/odin_action.md#why-actions-are-not-async-closures)
+for why actions are not (yet) native async closures, and why they should always be created through the `odin_action` macros.
 
-Actions can be defined explicitly as in:
+The sender actor is generic over its action type and only constrains the data type the action takes. Actions are
+one-of-a-kind objects that are defined and instantiated at the actor system construction site (e.g. in `main()`)
+through the macros provided by [`odin_action`]:
 
 ```rust
-   // sender actor definition 
+   // sender actor definition
    struct Sender<A> where A: DataAction<SenderData> {
        action: A, ...
    }
@@ -324,16 +327,19 @@ Actions can be defined explicitly as in:
    }
    ...
    // action definition (at the actor system construction site, e.g. main())
-   struct MyDataAction {..}
-   impl DataAction<SenderData> for MyAction {
-       async fn execute (data: &SenderData)->Result<()> { ... } // ⬅︎ concrete action defined here
-   }
-
-   ...  Sender::new( MyDataAction{..}, ...)
+   let action = data_action!( let prefix: String = prefix.clone() => |data: SenderData| { // ⬅︎ concrete action defined here
+       println!("{prefix}: {data:?}");
+       Ok(())
+   });
+   ...  Sender::new( action, ...)
 ```
 
-More often actions are one-of-a-kind objects that are defined and instantiated through the macros that are
-provided by [`odin_action`], and their action expressions are sending messages to other actors:
+Although actions could also be defined by explicit `DataAction` implementations this should be avoided in favor of the
+macros (see [Why Actions Are Not Async Closures](../odin_action/odin_action.md#why-actions-are-not-async-closures)).
+
+If the sender passes a reference to its own data the action is a `DataRefAction<T>`, which is an alias for
+`for<'a> DataAction<&'a T>` (i.e. an action that accepts references of arbitrary lifetimes). Typically the action
+expressions send messages to other actors:
 
 ```rust
   // actor modules
@@ -351,22 +357,29 @@ provided by [`odin_action`], and their action expressions are sending messages t
   }
   
   // actor system construction site (e.g. main() function)
-     receiver1 = spawn_actor!( actor_system, "recv1", Receiver1{..})?;
-     receiver2 = spawn_actor!( actor_system, "recv1", Receiver1{..})?;
+     let receiver1 = spawn_actor!( actor_system, "recv1", Receiver1{..})?;
+     let receiver2 = spawn_actor!( actor_system, "recv2", Receiver2{..})?;
      ...
-     sender = spawn_actor!( actor_system, "sender", Sender::new(
-         dataref_action!( receiver1: ActorHandle<Receiver1Msg>, receiver2: ActorHandle<Receiver2Msg> => |data: &SenderData| {
-            receiver1.send_msg( Msg1::new( ...data.clone().,,)).await?;
-            receiver2.try_send_msg( Msg2::new(...data.translate() ...))
-         })
+     let sender = spawn_actor!( actor_system, "sender", Sender::new(
+         dataref_action!(
+             let receiver1: ActorHandle<Receiver1Msg> = receiver1.clone(),
+             let receiver2: ActorHandle<Receiver2Msg> = receiver2.clone() =>
+             |data: &SenderData| {
+                 receiver1.send_msg( Msg1::new( ...data.clone()...)).await?;
+                 Ok( receiver2.try_send_msg( Msg2::new( ...data.translate()...))? )
+             }
+         )
      ))?;
 ```
 
-The interesting aspect about the `data_action!(..)` macros is that they can capture data from the macro call site without
-requiring a closure (Rust does not yet support async closures). The general pattern of the macro call is as follows:
+The `data_action!(..)` macros define the action type and instantiate it, capturing (cloning) values from the macro call
+site. This is similar to an async closure with explicit captures. The general pattern of the macro call is as follows:
 ```
-data_action!( «captured-receiver-var» :  «capture-type», ... => |«data-var»: «data-var-type»| «execute-expr»)
+data_action!( let «capture-var»: «capture-type» = «capture-expr», ... => |«data-var»: «data-var-type»| «execute-expr»)
 ```
+The `«execute-expr»` has to return a `Result<(),OdinActionFailure>`, errors of other types can be propagated with the `?`
+operator. If `«data-var-type»` is a reference (`&T`) the macro creates an action for references of arbitrary lifetimes
+(`dataref_action!(..)` is an alias for this case).
 
 While data actions effectively separate sender and receiver code there is one last constraint: data actions have to be created
 upfront, at system construction time. We cannot send them to actors.
@@ -415,7 +428,9 @@ impl_actor! { match msg for Actor<SenderMsg,Sender> as
 receiver = spawn_actor!( actor_system, "receiver", Receiver::new(..))?;
 sender = spawn_actor!( actor_system, "sender", Sender::new(..))?;
 ...
-let action = send_msg_dyn_action!( receiver, |data: &SenderData| Msg1::new(data));
+let action = dyn_dataref_action!( let receiver: ActorHandle<ReceiverMsg> = receiver.clone() => |data: &SenderData| {
+    Ok( receiver.try_send_msg( Msg1::new(data))? )
+});
 sender.send_msg( AddUpdateAction(action)).await?;
 ```
 
@@ -432,7 +447,7 @@ problems:
 The back pressure problem arises if we send messages from within iteration cycles, as in:
 
 ```rust
-... dataref_action( ... |data: &Vec<SomeData>| {...
+... dataref_action!( ... => |data: &Vec<SomeData>| {...
       for e in data {
          ... receiver.try_send_msg( SomeMessage::new(e)); ...
       }
@@ -456,10 +471,10 @@ the respective message payload the solution is to collect the payloads into a co
 message, which turns the above case into:
 
 ```rust
-... dataref_action( ... |data: &Vec<SomeData>| {...
+... dataref_action!( ... => |data: &Vec<SomeData>| {...
       let msg_payload: Vec<SomePayload> = data.iter().map(|e| payload(e)).collect();
       receiver.try_send_msg( SomeMessage::new( msg_payload)) ...
     }) ...
 ```
 
-This also addresses the message variant size problem mentioned (above)[#message-size].
+This also addresses the message variant size problem mentioned [above](#message-size).

@@ -12,14 +12,13 @@
  * and limitations under the License.
  */
 #![allow(unused_macros)]
-
-#[doc = include_str!("../doc/odin_action.md")]
+#![doc = include_str!("../doc/odin_action.md")]
 
 // TODO - re-evaluate if we need our own type now that async closures are stabilized.
 // having all these specialized action types requiring special macro syntax is sub-optimal.
 // This is currently still required because of DynAction - async closures are not dyn-compatible
 
-use std::{fmt::Debug, marker::PhantomData, future::{Future,ready}, result::Result,
+use std::{fmt::Debug, future::{Future,ready}, result::Result, pin::Pin,
     any::type_name, ops::{Deref,DerefMut},
 };
 pub use async_trait::async_trait;
@@ -85,6 +84,9 @@ impl std::fmt::Display for OdinActionFailure {
 /// a trait that includes a single `execute(&self,T)` method returning a future.
 /// This is used as a type constraint for types that represent parameterized async actions taking
 /// a single data argument.
+///
+/// Actions that take a reference to data owned by the executing actor are `DataAction<&'a T>` for any lifetime `'a`,
+/// i.e. they are constrained by `for<'a> DataAction<&'a T>` or the equivalent [`DataRefAction<T>`] alias
 pub trait DataAction<T>: Debug + Send {
     fn execute (&self, data: T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send;
     fn is_empty (&self)->bool { false }
@@ -92,14 +94,35 @@ pub trait DataAction<T>: Debug + Send {
 
 /// macro to define and instantiate ad hoc action types that clone-capture local vars and take a single
 /// `execute(data)` argument. See [crate] doc for general use and expansion.
+/// If the data argument is a reference (`|data: &T|`) the action implements `DataAction<&'a T>` for all lifetimes `'a`
+/// (and hence [`DataRefAction<T>`])
 #[macro_export]
 macro_rules! data_action {
-    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty| $e:expr ) => {
-        {            
+    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty| $e:expr ) => {
+        {
             struct SomeDataAction { $( $v: $v_type ),* }
 
-            impl odin_action::DataAction<$data_type> for SomeDataAction {
-                async fn execute (&self, $data : $data_type) -> std::result::Result<(),odin_action::OdinActionFailure> {
+            impl<'a> $crate::DataAction<&'a $data_type> for SomeDataAction {
+                async fn execute (&self, $data : &'a $data_type) -> std::result::Result<(),$crate::OdinActionFailure> {
+                    $( let $v = &self. $v;)*
+                    $e
+                }
+            }
+            impl std::fmt::Debug for SomeDataAction {
+                fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "DataAction<&{}>", stringify!($data_type))
+                }
+            }
+
+            SomeDataAction{ $( $v: $v_expr ),* }
+        }
+    };
+    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty| $e:expr ) => {
+        {
+            struct SomeDataAction { $( $v: $v_type ),* }
+
+            impl $crate::DataAction<$data_type> for SomeDataAction {
+                async fn execute (&self, $data : $data_type) -> std::result::Result<(),$crate::OdinActionFailure> {
                     $( let $v = &self. $v;)*
                     $e
                 }
@@ -112,23 +135,25 @@ macro_rules! data_action {
 
             SomeDataAction{ $( $v: $v_expr ),* }
         }
-    }
+    };
 }
 
-/// an empty `DataAction<T>`. Transparent alternative for `Option<DataAction<T>>`
-pub struct NoDataAction<T> where T: Send { _phantom: PhantomData<T> }
+/// the empty action, which implements all (non-dyn) action traits for all data types. Transparent alternative for
+/// `Option<..Action>` (see the `no_..action()` functions)
+#[derive(Debug,Clone,Copy,Default)]
+pub struct NoAction;
 
-impl<T> DataAction<T> for NoDataAction<T> where T: Send {
-    fn execute (&self, _data: T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send { ready(Ok(()) )}
+impl NoAction {
+    /// inherent version so that calls on concrete `NoAction` values are not ambiguous between action traits
+    pub fn is_empty (&self)->bool { true }
+}
+
+impl<T> DataAction<T> for NoAction {
+    fn execute (&self, _data: T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send { ready(Ok(())) }
     fn is_empty (&self)->bool { true }
 }
-impl<T> Debug for NoDataAction<T> where T: Send {
-    fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NoDataAction<{}>", abbrev_type_name::<T>())
-    }
-}
 
-pub fn no_data_action<T>()->NoDataAction<T> where T: Send { NoDataAction { _phantom: PhantomData } }
+pub fn no_data_action()->NoAction { NoAction }
 
 /* #endregion DataAction */
 
@@ -140,29 +165,53 @@ pub trait DataMutAction<T>: Debug + Send {
     fn is_empty (&self)->bool { false }
 }
 
-/// macro to define and instantiate ad hoc action types that clone-capture local vars and take a single
-/// `execute(data)`` argument. See [crate] doc for general use and expansion.
+/// macro to define and instantiate ad hoc action types that capture mutable local vars and take a single
+/// `execute(data)` argument. See [crate] doc for general use and expansion.
 #[macro_export]
 macro_rules! data_mut_action {
-    ( $( let mut $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty| $e:expr ) => {
-        {            
+    ( $( let mut $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty| $e:expr ) => {
+        {
             struct SomeDataMutAction { $( $v: $v_type ),* }
 
-            impl odin_action::DataAction<$data_type> for SomeDataMutAction {
-                async fn execute (&mut self, $data : $data_type) -> std::result::Result<(),odin_action::OdinActionFailure> {
+            impl<'a> $crate::DataMutAction<&'a $data_type> for SomeDataMutAction {
+                async fn execute (&mut self, $data : &'a $data_type) -> std::result::Result<(),$crate::OdinActionFailure> {
                     $( let $v = &mut self. $v;)*
                     $e
                 }
             }
             impl std::fmt::Debug for SomeDataMutAction {
                 fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "DataAction<{}>", stringify!($data_type))
+                    write!(f, "DataMutAction<&{}>", stringify!($data_type))
                 }
             }
 
             SomeDataMutAction{ $( $v: $v_expr ),* }
         }
-    }
+    };
+    ( $( let mut $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty| $e:expr ) => {
+        {
+            struct SomeDataMutAction { $( $v: $v_type ),* }
+
+            impl $crate::DataMutAction<$data_type> for SomeDataMutAction {
+                async fn execute (&mut self, $data : $data_type) -> std::result::Result<(),$crate::OdinActionFailure> {
+                    $( let $v = &mut self. $v;)*
+                    $e
+                }
+            }
+            impl std::fmt::Debug for SomeDataMutAction {
+                fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "DataMutAction<{}>", stringify!($data_type))
+                }
+            }
+
+            SomeDataMutAction{ $( $v: $v_expr ),* }
+        }
+    };
+}
+
+impl<T> DataMutAction<T> for NoAction {
+    fn execute (&mut self, _data: T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send { ready(Ok(())) }
+    fn is_empty (&self)->bool { true }
 }
 
 /* #endregion DataMutAction */
@@ -171,7 +220,7 @@ macro_rules! data_mut_action {
 
 /// a [`DataAction<T>`] with an `async execute(..)` function that takes a second `bidata` parameter.
 /// This can be used for actions that combine owned and passed-in data in their action bodies.
-/// 
+///
 /// Note there is no corresponding `BiDynDataAction` as this normally would be a [`DynDataAction`]
 /// that captures the bidata. `BiDataAction` is a way to avoid the associated runtime cost of dyn actions
 /// if requester and actor both know the bidata type and the requester can pass it in through a message.
@@ -179,77 +228,118 @@ pub trait BiDataAction<T,A>: Debug + Send {
     fn execute (&self, data: T, bidata: A) -> impl Future<Output = Result<(),OdinActionFailure>> + Send;
 }
 
-/// macro to define and instantiate ad hoc actions taking two data arguments.
+/// macro to define and instantiate ad hoc actions taking two data arguments (of which the first can be a reference).
 /// See [crate] doc for general use and expansion.
 #[macro_export]
 macro_rules! bi_data_action {
-    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty, $bidata:ident: $bidata_type:ty| $e:expr ) => {
+    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty, $bidata:ident : $bidata_type:ty| $e:expr ) => {
         {
             struct SomeBiDataAction { $( $v: $v_type ),* }
 
-            impl BiDataAction<$data_type,$bidata_type> for SomeBiDataAction {
-                async fn execute (&self, $data : $data_type, $bidata : $anned_type) -> std::result::Result<(),OdinActionFailure {
+            impl<'a> $crate::BiDataAction<&'a $data_type,$bidata_type> for SomeBiDataAction {
+                async fn execute (&self, $data : &'a $data_type, $bidata : $bidata_type) -> std::result::Result<(),$crate::OdinActionFailure> {
                     $( let $v = &self. $v;)*
-                    map_action_err($e)
+                    $e
                 }
             }
             impl std::fmt::Debug for SomeBiDataAction {
                 fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "BiDataAction<{},{}>", stringify!($data_type),stringify!($bidata_type))
+                    write!(f, "BiDataAction<&{},{}>", stringify!($data_type), stringify!($bidata_type))
                 }
             }
 
-            SomeBiDataAction{ $( v: $v_expr ),* }
+            SomeBiDataAction{ $( $v: $v_expr ),* }
         }
-    }
+    };
+    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty, $bidata:ident : $bidata_type:ty| $e:expr ) => {
+        {
+            struct SomeBiDataAction { $( $v: $v_type ),* }
+
+            impl $crate::BiDataAction<$data_type,$bidata_type> for SomeBiDataAction {
+                async fn execute (&self, $data : $data_type, $bidata : $bidata_type) -> std::result::Result<(),$crate::OdinActionFailure> {
+                    $( let $v = &self. $v;)*
+                    $e
+                }
+            }
+            impl std::fmt::Debug for SomeBiDataAction {
+                fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "BiDataAction<{},{}>", stringify!($data_type), stringify!($bidata_type))
+                }
+            }
+
+            SomeBiDataAction{ $( $v: $v_expr ),* }
+        }
+    };
 }
 
-/// an empty [`BiDataAction<T,A>`]. Transparent alternative for `Option<DataAction<T,A>>`
-pub struct NoBiDataAction<T,A> where T: Send, A: Send { _phantom1: PhantomData<T>, _phantom2: PhantomData<A> }
+impl<T,A> BiDataAction<T,A> for NoAction {
+    fn execute (&self, _data: T, _bidata: A) -> impl Future<Output = Result<(),OdinActionFailure>> + Send { ready(Ok(())) }
+}
 
-impl<T,A> BiDataAction<T,A> for NoBiDataAction<T,A> where T: Send, A: Send {
-    fn execute (&self, _data: T, _bidata: A) -> impl Future<Output = Result<(),OdinActionFailure>> + Send { ready(Ok(()) )}
-}
-impl<T,A> Debug for NoBiDataAction<T,A> where T: Send, A: Send {
-    fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NoBiDataAction<{},{}>", abbrev_type_name::<T>(), abbrev_type_name::<A>())
-    }
-}
-pub fn no_bi_data_action<T,A>()->NoBiDataAction<T,A>  where T: Send, A: Send { 
-    NoBiDataAction { _phantom1: PhantomData, _phantom2: PhantomData } 
-}
+pub fn no_bi_data_action()->NoAction { NoAction }
 
 /* #endregion BiDataAction */
 
 /* #region DynDataAction *****************************************************************************************/
 
+/// the boxed future returned by dyn action `execute(..)` calls. It can borrow from both the action and the data
+pub type ActionFuture<'s> = Pin<Box<dyn Future<Output = Result<(),OdinActionFailure>> + Send + 's>>;
+
 /// a sendable [`DataAction<T>`] that can be stored in a homogenous container (as respective trait objects).
 /// This trait is mostly used implicitly through the corresponding [`DynDataAction<T>`] type.
-/// Note: this has per-execution runtime cost as the returned future needs to be pinboxed
-#[async_trait]
+/// Note: this has per-execution runtime cost as the returned future needs to be pinboxed.
+///
+/// We do not use `async_trait` here since it cannot express futures that borrow reference data arguments
+/// (`DynDataActionTrait<&'a T>`, see [`DynDataRefAction<T>`])
 pub trait DynDataActionTrait<T>: Debug + Send + Sync {
-    async fn execute (&self, data: T) -> Result<(),OdinActionFailure>;
+    fn execute<'s> (&'s self, data: T) -> ActionFuture<'s> where T: 's;
 }
 
-/// a type alias for a boxed [`DynDataActionTrait<T>`] trait object, used to send and store respective actions. 
-pub type DynDataAction<T> = Box<dyn DynDataActionTrait<T>>; 
+/// a type alias for a boxed [`DynDataActionTrait<T>`] trait object, used to send and store respective actions.
+pub type DynDataAction<T> = Box<dyn DynDataActionTrait<T>>;
 
-/// macro to define and instantiate ad hoc [`DynDataAction<T>`] types.
-/// See [crate] doc for general use and expansion.
-/// To be used where actions have to be send and/or stored in homogenous containers (as trait objects) 
+/// macro to define and instantiate ad hoc [`DynDataAction<T>`] types (or [`DynDataRefAction<T>`] types if the data
+/// argument is a reference). See [crate] doc for general use and expansion.
+/// To be used where actions have to be send and/or stored in homogenous containers (as trait objects)
 #[macro_export]
 macro_rules! dyn_data_action {
-    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty| $e:expr ) => {
+    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty| $e:expr ) => {
         {
-            use async_trait::async_trait;
-
             struct SomeDynDataAction { $( $v: $v_type ),* }
 
-            #[async_trait]
-            impl odin_action::DynDataActionTrait<$data_type> for SomeDynDataAction {
-                async fn execute (&self, $data : $data_type) -> std::result::Result<(),OdinActionFailure> {
+            impl SomeDynDataAction {
+                async fn exec<'a> (&self, $data : &'a $data_type) -> std::result::Result<(),$crate::OdinActionFailure> {
                     $( let $v = &self. $v;)*
                     $e
+                }
+            }
+            impl<'a> $crate::DynDataActionTrait<&'a $data_type> for SomeDynDataAction {
+                fn execute<'s> (&'s self, $data : &'a $data_type) -> $crate::ActionFuture<'s> where &'a $data_type: 's {
+                    Box::pin( self.exec( $data))
+                }
+            }
+            impl std::fmt::Debug for SomeDynDataAction {
+                fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "DynDataAction<&{}>", stringify!($data_type))
+                }
+            }
+
+            Box::new( SomeDynDataAction{ $( $v: $v_expr ),* })
+        }
+    };
+    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : $data_type:ty| $e:expr ) => {
+        {
+            struct SomeDynDataAction { $( $v: $v_type ),* }
+
+            impl SomeDynDataAction {
+                async fn exec (&self, $data : $data_type) -> std::result::Result<(),$crate::OdinActionFailure> {
+                    $( let $v = &self. $v;)*
+                    $e
+                }
+            }
+            impl $crate::DynDataActionTrait<$data_type> for SomeDynDataAction {
+                fn execute<'s> (&'s self, $data : $data_type) -> $crate::ActionFuture<'s> where $data_type: 's {
+                    Box::pin( self.exec( $data))
                 }
             }
             impl std::fmt::Debug for SomeDynDataAction {
@@ -258,196 +348,74 @@ macro_rules! dyn_data_action {
                 }
             }
 
-            Box::new(SomeDynDataAction{ $( $v: $v_expr ),* })
+            Box::new( SomeDynDataAction{ $( $v: $v_expr ),* })
         }
-    }
+    };
 }
 
 /* #endregion DynDataAction */
 
-/* #region DataRefAction *********************************************************************/
+/* #region reference action aliases ********************************************************************************/
 
-/// analoguous to [`DataAction<T>`] trait but taking a reference argument 
-pub trait DataRefAction<T>: Debug + Send {
-    fn execute (&self, data: &T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send;
-    fn is_empty (&self) -> bool { false }
-}
+// Actions that take references to data owned by the executing actor are just the respective by-value actions for
+// reference types with arbitrary lifetimes. The following traits and types are aliases for those (higher ranked)
+// trait bounds, and the `..ref..` macros are aliases for the respective by-value macros with a reference argument.
+// They are kept for brevity and backwards compatibility.
 
-/// macro to define and instantiate ad hoc actions taking a single reference argument. 
-/// See [crate] doc for general use and expansion.
+/// alias for `for<'a> DataAction<&'a T>`, i.e. an action that takes a reference argument with arbitrary lifetime.
+/// Note this is automatically implemented for all respective `DataAction` types - it cannot be implemented explicitly
+pub trait DataRefAction<T: ?Sized>: for<'a> DataAction<&'a T> {}
+impl<T: ?Sized, X> DataRefAction<T> for X where X: for<'a> DataAction<&'a T> {}
+
+/// alias for [`data_action`] with a reference argument (`|data: &T|`)
 #[macro_export]
 macro_rules! dataref_action {
     ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty| $e:expr ) => {
-        {
-            struct SomeDataRefAction { $( $v: $v_type ),* }
-
-            impl DataRefAction<$data_type> for SomeDataRefAction {
-                async fn execute (&self, $data : & $data_type) -> std::result::Result<(),OdinActionFailure> {
-                    $( let $v = &self. $v;)*
-                    $e
-                }
-            }
-            impl std::fmt::Debug for SomeDataRefAction {
-                fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "DataRefAction<{}>", stringify!($data_type))
-                }
-            }
-
-            SomeDataRefAction{ $( $v: $v_expr ),* }
-        }
+        $crate::data_action!( $( let $v : $v_type = $v_expr ),* => |$data : & $data_type| $e )
     }
 }
 
+pub fn no_dataref_action()->NoAction { NoAction }
 
-/// an empty [`DataRefAction<T>`]. Transparent alternative for `Option<DataRefAction<T>>`
-pub struct NoDataRefAction<T> where T: Send { _phantom: PhantomData<T> }
+/// alias for `for<'a> DataMutAction<&'a T>`
+pub trait DataRefMutAction<T: ?Sized>: for<'a> DataMutAction<&'a T> {}
+impl<T: ?Sized, X> DataRefMutAction<T> for X where X: for<'a> DataMutAction<&'a T> {}
 
-impl<T> DataRefAction<T> for NoDataRefAction<T> where T: Send {
-    fn execute (&self, _data: &T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send { ready(Ok(()) )}
-    fn is_empty (&self) -> bool { true }
-}
-impl<T> Debug for NoDataRefAction<T> where T: Send {
-    fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NoDataRefAction<{}>", abbrev_type_name::<T>())
-    }
-}
-pub fn no_dataref_action<T>()->NoDataRefAction<T> where T: Send { NoDataRefAction { _phantom: PhantomData } }
-
-/* #endregion DataRefAction */
-
-/* #region DataRefMutAction  *************************************************************************/
-
-/// analoguous to [`DataRefAction<T>`] trait but can mutate its state (but not the data ref)
-pub trait DataRefMutAction<T>: Debug + Send {
-    fn execute (&mut self, data: &T) -> impl Future<Output = Result<(),OdinActionFailure>> + Send;
-    fn is_empty (&self) -> bool { false }
-}
-
+/// alias for [`data_mut_action`] with a reference argument (`|data: &T|`)
 #[macro_export]
 macro_rules! dataref_mut_action {
     ( $( let mut $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty| $e:expr ) => {
-        {
-            struct SomeDataRefMutAction { $( $v: $v_type ),* }
-
-            impl DataRefMutAction<$data_type> for SomeDataRefMutAction {
-                async fn execute (&mut self, $data : & $data_type) -> std::result::Result<(),OdinActionFailure> {
-                    $( let $v = &mut self. $v;)*
-                    $e
-                }
-            }
-            impl std::fmt::Debug for SomeDataRefMutAction {
-                fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "DataRefAction<{}>", stringify!($data_type))
-                }
-            }
-
-            SomeDataRefMutAction{ $( $v: $v_expr ),* }
-        }
+        $crate::data_mut_action!( $( let mut $v : $v_type = $v_expr ),* => |$data : & $data_type| $e )
     }
 }
 
-/* #endregion DataRefMutAction */
+/// alias for `for<'a> BiDataAction<&'a T,A>`
+pub trait BiDataRefAction<T: ?Sized,A>: for<'a> BiDataAction<&'a T,A> {}
+impl<T: ?Sized, A, X> BiDataRefAction<T,A> for X where X: for<'a> BiDataAction<&'a T,A> {}
 
-/* #region BiDataRefAction ********************************************************************************/
-
-/// a [`DataRefAction`] with a second `bidata` execute argument, which can be used to pass information
-/// from the triggering request.
-/// Note there is no corresponding `BiDynDataRefAction` as this normally would be a [`DynDataRefAction`]
-/// that captures the bidata value from its definition site. `BiDataRefAction` is a way to avoid the associated
-/// runtime cost if requester and owner both know the bidata type and the requester can pass it in through a message.
-pub trait BiDataRefAction<T,A>: Debug + Send {
-    fn execute (&self, data: &T, bidata: A) -> impl Future<Output = Result<(),OdinActionFailure>> + Send;
-}
-
-/// macro to define and instantiate ad hoc actions taking two data arguments (of which the first is a reference).
-/// See [crate] doc for general use and expansion.
+/// alias for [`bi_data_action`] with a reference argument (`|data: &T, bidata: A|`)
 #[macro_export]
 macro_rules! bi_dataref_action {
-    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty, $bidata:ident: $bidata_type:ty| $e:expr ) => {
-        {
-            struct SomeBiDataRefAction { $( $v: $v_type ),* }
-
-            impl BiDataRefAction<$data_type,$bidata_type> for SomeBiDataRefAction {
-                async fn execute (&self, $data : & $data_type, $bidata : $bidata_type) -> std::result::Result<(),OdinActionFailure> {
-                    $( let $v = &self. $v;)*
-                    $e
-                }
-            }
-            impl std::fmt::Debug for SomeBiDataRefAction {
-                fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "SomeBiDataRefAction<{},{}>", stringify!($data_type),stringify!($bidata_type))
-                }
-            }
-
-            SomeBiDataRefAction{ $( $v: $v_expr ),* }
-        }
+    ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty, $bidata:ident : $bidata_type:ty| $e:expr ) => {
+        $crate::bi_data_action!( $( let $v : $v_type = $v_expr ),* => |$data : & $data_type, $bidata : $bidata_type| $e )
     }
 }
 
+pub fn no_bi_dataref_action()->NoAction { NoAction }
 
-/// an empty [`BiDataRefAction<T,A>`]. Transparent alternative for `Option<BiDataRefAction<T,A>>`
-pub struct NoBiDataRefAction<T,A>  where T: Send, A: Send { _phantom1: PhantomData<T>, _phantom2: PhantomData<A> }
-
-impl<T,A> BiDataRefAction<T,A> for NoBiDataRefAction<T,A>  where T: Send, A: Send {
-    fn execute (&self, _data: &T, _bidata: A) -> impl Future<Output = Result<(),OdinActionFailure>> + Send { ready(Ok(()) )}
-}
-impl<T,A> Debug for NoBiDataRefAction<T,A>  where T: Send, A: Send {
-    fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NoBiDataRefAction<{},{}>", abbrev_type_name::<T>(), abbrev_type_name::<A>())
-    }
-}
-
-pub fn no_bi_dataref_action<T,A>()->NoBiDataRefAction<T,A>  where T: Send, A: Send { 
-    NoBiDataRefAction { _phantom1: PhantomData, _phantom2: PhantomData } 
-}
-
-/* #endregion BiDataRefAction */
-
-/* #region DynDataRefAction *****************************************************************************************/
-
-/// analoguous to the [`DynDataActionTrait<T>`] but executing with a `&T` data reference.
-/// Just as `DynDataActionTrait` this is mostly used indirectly through its corresponding
-/// [`DynDataRefAction<T>`] type
-#[async_trait]
-pub trait DynDataRefActionTrait<T>: Debug + Send + Sync {
-    async fn execute (&self, data: &T) -> Result<(),OdinActionFailure>;
-}
-
-/// analoguous to [`DynDataAction<T>`] type but executing with a `&T` data reference
+/// a boxed [`DynDataActionTrait<&'a T>`] trait object for arbitrary lifetimes `'a`
 /// Note: this has per-execution runtime cost as the returned future needs to be pinboxed
-pub type DynDataRefAction<T> = Box<dyn DynDataRefActionTrait<T>>; 
+pub type DynDataRefAction<T> = Box<dyn for<'a> DynDataActionTrait<&'a T>>;
 
-/// macro to define and instantiate ad hoc action types taking a reference argument, to be used
-/// where action objects need to be [`Send`] and/or storable in homogenous containers (as trait objects).
-/// See [crate] doc for general use and expansion.
+/// alias for [`dyn_data_action`] with a reference argument (`|data: &T|`)
 #[macro_export]
 macro_rules! dyn_dataref_action {
     ( $( let $v:ident : $v_type:ty = $v_expr:expr ),* => |$data:ident : & $data_type:ty| $e:expr ) => {
-        {
-            use async_trait::async_trait;
-            use odin_action::DynDataRefActionTrait;
-
-            struct SomeDynDataRefAction { $( $v: $v_type ),* }
-
-            #[async_trait]
-            impl DynDataRefActionTrait<$data_type> for SomeDynDataRefAction {
-                async fn execute (&self, $data : & $data_type) -> std::result::Result<(),OdinActionFailure> {
-                    $( let $v = &self. $v;)*
-                    $e
-                }
-            }
-            impl std::fmt::Debug for SomeDynDataRefAction {
-                fn fmt (&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "DynDataRefAction<{}>", stringify!($data_type))
-                }
-            }
-
-            Box::new( SomeDynDataRefAction{ $( $v: $v_expr ),* } )
-        }
+        $crate::dyn_data_action!( $( let $v : $v_type = $v_expr ),* => |$data : & $data_type| $e )
     }
 }
 
-/* #endregion DynDataRefAction */
+/* #endregion reference action aliases */
 
 /* #region dyn action lists *********************************************************************************/
 

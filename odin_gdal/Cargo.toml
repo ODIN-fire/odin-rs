@@ -1,6 +1,6 @@
 [package]
 name = "odin_gdal"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2024"
 
 [[bin]]
@@ -60,8 +60,6 @@ odin_image = { workspace = true }
 odin_server = { workspace = true }
 
 [features]
-## inline crate-specific resources (configs and assets) into the executable (see odin_build)
-embedded_resources = []
 trace_server = []
 
 [dev-dependencies]
