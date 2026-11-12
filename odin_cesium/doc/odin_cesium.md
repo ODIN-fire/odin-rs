@@ -77,6 +77,97 @@ the `cesium_asset` option this has to correspond with the downloaded/installed v
 To see the current CesiumJS version please visit https://cesium.com/downloads/.
 
 
+## Local Terrain
+
+By default CesiumJS gets its terrain from [Cesium World Terrain](https://cesium.com/platform/cesium-ion/content/cesium-world-terrain/),
+which requires external network access from each browser and a Cesium Ion access token. The Ion terrain cannot be proxied
+since Cesium.js authenticates with dynamically created, short lived tokens. It is also known to hang on Safari when
+connected to some VPNs (the reason for the `fakeTerrain` option in `odin_cesium_config.js`).
+
+As an alternative `CesiumService` can serve terrain tiles that are computed on demand from a local DEM VRT, normally the
+[`odin_dem`](../odin_dem/odin_dem.md) 3DEP 1/3 arcsec VRT created by `encode_dem` and `build_dem_vrt`. This requires the
+`terrain` Cargo feature (which is default and adds a GDAL dependency) and a `$ODIN_ROOT/configs/odin_cesium/terrain.ron`
+config file:
+
+```rust,ignore
+TerrainConfig(
+    vrt_path: None,  // None: use `vrt_path` from $ODIN_ROOT/configs/odin_dem/dem.ron
+    geoid_path: Some("$ODIN_ROOT/data/odin_dem/us_nga_egm08_25.tif"), // EGM2008 geoid grid from PROJ
+    global_levels: 5,      // levels 0..=5 are available world-wide
+    max_level: None,       // None: computed from source resolution (15 for 1/3 arcsec)
+    seed_level: Some(6),   // pre-compute missing tiles up to level 6 when the server starts
+    cache_dir: None,       // None: $ODIN_ROOT/cache/odin_cesium/terrain
+)
+```
+
+If there is no `terrain.ron` (or the crate is built without the `terrain` feature) the browser uses Cesium World Terrain
+as before. On the client side `odin_cesium.js` selects the terrain provider in this order:
+
+1. an explicitly configured `terrainProviderPromise` in `odin_cesium_config.js`
+2. the local terrain provider, if the server has one (`terrain/layer.json` exists) and `localTerrain` is not set to `false`
+   in `odin_cesium_config.js`
+3. Cesium World Terrain
+
+### Tile Format and Computation
+
+Tiles use the Cesium [heightmap-1.0](https://github.com/CesiumGS/cesium/wiki/heightmap-1.0-terrain-format) format in a
+geographic (EPSG:4326) TMS tiling scheme with 2x1 tiles at level 0. Each tile has 65x65 u16 height samples (adjacent tiles
+share edge samples) with `h = v/5 - 1000`, i.e. 0.2m height resolution, followed by a child tile mask byte. Tiles are
+served gzipped (4-6 kB per tile) from the routes
+
+- `<app>/terrain/layer.json` - tiling scheme and tile availability
+- `<app>/terrain/{z}/{x}/{y}.terrain`
+
+To compute a tile we read the tile area from the VRT at about the tile sample resolution (GDAL uses the source overviews
+for coarse levels), bilinearly interpolate the 65x65 sample points and add the geoid undulation. DEM heights are
+orthometric (NAVD88 for 3DEP) whereas Cesium uses ellipsoidal (WGS84) heights. Without the geoid correction terrain
+would be 20-40m too high in CONUS relative to positions with ellipsoidal heights (aircraft, satellites, camera
+positions). The EGM2008 grid is loaded into memory at 5' spacing (37 MB), which is accurate to a few centimeters. EGM2008
+differs from NAVD88 by about 1-2m, which is irrelevant for display. DEM NoData (e.g. ocean) becomes mean sea level, i.e.
+the geoid surface.
+
+The `layer.json` lists the available tiles for each level, which is required by `Cesium.sampleTerrainMostDetailed()`
+(used e.g. by `terrainIntersection()` in `odin_cesium.js`). Levels `0..=global_levels` are available world-wide (outside
+of the DEM these tiles only contain the geoid surface). Availability for higher levels is computed from the extents and
+resolutions of all VRT sources (following nested VRTs), i.e. adding coarser regions outside of CONUS to the VRT
+automatically limits their max level. Cesium upsamples parent tiles where there are no available tiles.
+
+Computed tiles are stored in `<cache_dir>/<version>/{z}/{x}/{y}.terrain`. The version is derived from the modification
+times of the VRT files and the geoid grid, i.e. rebuilding the VRT automatically invalidates both the disk cache and
+browser caches (tile URLs include `?v=<version>`). Old version directories can be deleted manually or by `odin_scrub`.
+
+### Performance
+
+Measured on an Apple M4 Max with the CONUS 3DEP U16 VRT (967 source files, page-cached):
+
+| level | sample spacing | compute time per tile |
+|-------|----------------|-----------------------|
+| 0     | 2.8°           | ~7 s                  |
+| 3     | 0.35°          | ~1.1 s                |
+| 7     | 0.022°         | 10-20 ms              |
+| 9     | 0.0055°        | 0.2-12 ms             |
+| 11-15 | 1.4"-0.31"     | 0.1-4 ms              |
+
+Cached tiles are served in less than 5ms. Low levels are expensive because they touch hundreds of source files (each
+open plus overview read takes ~4ms). This is the reason for `seed_level`: missing tiles up to that level are computed in
+a background thread (4 threads) when the server starts. Levels 0-6 have about 2900 tiles (most of them outside of the DEM
+and hence cheap). Since tiles are cached this only takes time after the VRT changes. Seeding up to level 8 (5568 tiles,
+31 MB) takes about 9s with 16 threads. The CONUS 3DEP set has about 32 million available level 15 tiles, i.e. higher
+levels are only computed on demand.
+
+The `terrain_tiles` tool shows the configuration and per-level availability, computes single tiles and seeds the cache:
+
+```shell
+terrain_tiles                                      # show config and availability
+terrain_tiles --tile 0/0/0,12/1314/2916            # compute tiles (uncached) and show time and height range
+terrain_tiles --seed 8 -j 16                       # pre-compute missing tiles up to level 8
+```
+
+Heightmap tiles have no vertex normals, i.e. terrain lighting is flatter than with Cesium World Terrain. There is no
+terrain relief outside of the areas covered by the VRT (CONUS for 3DEP) since Cesium cannot combine terrain providers.
+Other regions can be added to the VRT with `build_dem_vrt` (see `odin_dem`).
+
+
 ## Testing Data and UI Rendering
 
 Since [client side](../odin_server/client.md) `odin-rs` code is written in Javascript there is - depending on the development

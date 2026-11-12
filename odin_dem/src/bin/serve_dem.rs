@@ -1,15 +1,17 @@
 /*
- * Copyright © 2024, United States Government, as represented by the Administrator of 
- * the National Aeronautics and Space Administration. All rights reserved.
+ * Copyright 2026 Peter Mehlitz
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
- * of the License at http://www.apache.org/licenses/LICENSE-2.0.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Unless required by applicable law or agreed to in writing, software distributed under
- * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
- * either express or implied. See the License for the specific language governing permissions
- * and limitations under the License.
+ *    http://apache.org
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 #![allow(unused)]
 
@@ -17,11 +19,11 @@
 //! elevation data. The main end point is
 //!```man_page
 //!      GET <host>:<port>/GetMap?<query>
-//! 
+//!
 //! with query parameters
-//! 
+//!
 //!       crs    : coordinate reference system ("epsg:<number>")
-//!       bbox   : comma separated list of coordinate boundaries in crs dimensions 
+//!       bbox   : comma separated list of coordinate boundaries in crs dimensions
 //!                (xmin,ymin,xmax,ymax - corresponds to west,south,east,north in epsg:4326)
 //!       format : response data image type ("tif", "png")
 //!       width  : response data (image) width in pixels - we keep this optional and if not set use source data resolution
@@ -37,7 +39,7 @@
 use std::{collections::HashMap, default::Default, error::Error, net::{IpAddr, SocketAddr}, path::{Path,PathBuf}, sync::Arc, time::SystemTime};
 
 use axum::{
-    body::Body, 
+    body::Body,
     extract::{MatchedPath,Query,Json},
     http::{Request, StatusCode as AxStatusCode},
     response::{Html,IntoResponse},
@@ -61,18 +63,8 @@ use odin_common::{define_serde_struct, fs::{self,EnvPathBuf}, BoundingBox, strin
 use odin_server::{spawn_server_task,ServerConfig, server_error};
 use odin_dem::{
     get_dem_heights, get_local_res_file_path, get_local_wh_file_path, get_ray_intersections, get_res_dem, get_wh_dem, load_config,
-    DemImgType, DemSRS, RayQuery, ResampleAlg
+    DemConfig, DemImgType, DemSRS, RayQuery, ResampleAlg
 };
-
-
-/// DEM configuration data
-define_serde_struct! { pub DemConfig: Debug = 
-    pub vrt_path: EnvPathBuf,
-    pub wms_capabilities_path: Option<EnvPathBuf>,
-    pub max_cache: u64       [default = "default_max_cache"]
-}
-
-fn default_max_cache() -> u64 { 1024*1024*100 } // 100MB - wouldn't be enough if used for map tiles
 
 /// non-WMS query version for given width/height
 define_serde_struct! { GetWhDemQuery: Debug =

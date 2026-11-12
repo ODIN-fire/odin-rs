@@ -1,15 +1,17 @@
 /*
- * Copyright © 2026, United States Government, as represented by the Administrator of
- * the National Aeronautics and Space Administration. All rights reserved.
+ * Copyright 2026 Peter Mehlitz
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License. You may obtain a copy
- * of the License at http://www.apache.org/licenses/LICENSE-2.0.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Unless required by applicable law or agreed to in writing, software distributed under
- * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
- * either express or implied. See the License for the specific language governing permissions
- * and limitations under the License.
+ *    http://apache.org
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 //! terrain ray casting directly on (geographic) source DEMs, with a lazily populated and size bounded block cache.
@@ -38,7 +40,7 @@ use crate::{
 /// default max number of cached DEM blocks (for 128x128 blocks this is 64MB)
 pub const DEFAULT_MAX_BLOCKS: usize = 1024;
 
-/// distance [m] between geodesic nodes of the ray track
+/// distance \[m\] between geodesic nodes of the ray track
 pub const NODE_DIST: f64 = 2000.0;
 
 /// approximate meters per degree latitude (only used to compute sample steps)
@@ -199,9 +201,9 @@ impl DemBlockCache {
         Ok( Some( (h00 * (1.0 - tx) + h10 * tx) * (1.0 - ty) + (h01 * (1.0 - tx) + h11 * tx) * ty ))
     }
 
-    /// find the first intersection of a ray with the terrain. The ray starts at `origin` with height `h0` [m] (in the
+    /// find the first intersection of a ray with the terrain. The ray starts at `origin` with height `h0` \[m\] (in the
     /// vertical datum of the DEM) and has the given `bearing` (deg clockwise from true north) and `pitch` (deg, negative
-    /// is downwards). Returns `Ok(None)` if the ray does not hit the terrain within `max_dist` [m] (horizontal) or leaves
+    /// is downwards). Returns `Ok(None)` if the ray does not hit the terrain within `max_dist` \[m\] (horizontal) or leaves
     /// the DEM before, and an error if the origin is outside of the DEM or below the terrain
     pub fn ray_intersection (&mut self, origin: &GeoPoint, h0: f64, bearing: f64, pitch: f64, max_dist: f64, curv_coeff: f64)->Result<Option<RayHit>> {
         let (lon0, lat0) = (origin.longitude_degrees(), origin.latitude_degrees());

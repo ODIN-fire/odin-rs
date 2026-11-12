@@ -1,15 +1,17 @@
 /*
- * Copyright © 2026, United States Government, as represented by the Administrator of
- * the National Aeronautics and Space Administration. All rights reserved.
+ * Copyright 2026 Peter Mehlitz
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License. You may obtain a copy
- * of the License at http://www.apache.org/licenses/LICENSE-2.0.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Unless required by applicable law or agreed to in writing, software distributed under
- * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
- * either express or implied. See the License for the specific language governing permissions
- * and limitations under the License.
+ *    http://apache.org
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 //! terrain ray casting.
@@ -76,7 +78,7 @@ pub struct RayQuery {
 }
 
 impl RayQuery {
-    /// a ray from a position that is `height_above_ground` [m] above the terrain, using the default curvature coefficient
+    /// a ray from a position that is `height_above_ground` \[m\] above the terrain, using the default curvature coefficient
     pub fn from_ground (lon: f64, lat: f64, height_above_ground: f64, bearing: f64, pitch: f64, max_dist: f64)->Self {
         RayQuery { lon, lat, height: height_above_ground, above_ground: true, bearing, pitch, max_dist, curv_coeff: DEFAULT_CURV_COEFF }
     }
@@ -202,7 +204,7 @@ impl DemGrid {
         DemGrid::from_dataset( &ds)
     }
 
-    /// get a DEM grid with resolution `res` [m] that covers `radius` [m] around `center` from the given `DemSource`.
+    /// get a DEM grid with resolution `res` \[m\] that covers `radius` \[m\] around `center` from the given `DemSource`.
     /// The UTM zone is the one of `center`. The underlying DEM file is cached by odin_dem (in its cache dir)
     pub async fn around (src: &DemSource, center: &GeoPoint, radius: f64, res: f64, alg: ResampleAlg)->Result<Self> {
         let utm = geo_to_utm( center).ok_or( op_failed( format!("position {center:?} cannot be mapped to UTM")))?;
@@ -251,7 +253,7 @@ impl DemGrid {
         self.height_at( utm.easting, utm.northing)
     }
 
-    /// the grid bearing [deg] of true north at the given position, i.e. the grid bearing of a true bearing `b` is
+    /// the grid bearing \[deg\] of true north at the given position, i.e. the grid bearing of a true bearing `b` is
     /// `b + grid_convergence(pos)`. Note this is the negative of the conventional grid convergence angle (which is the
     /// true bearing of grid north)
     pub fn grid_convergence (&self, pos: &GeoPoint)->Option<f64> {
@@ -263,9 +265,9 @@ impl DemGrid {
         Some( de.atan2( dn).to_degrees())
     }
 
-    /// find the first intersection of a ray with the terrain. The ray starts at `origin` with height `h0` [m] (in the
+    /// find the first intersection of a ray with the terrain. The ray starts at `origin` with height `h0` \[m\] (in the
     /// vertical datum of the DEM) and has the given `bearing` (deg clockwise from true north) and `pitch` (deg, negative
-    /// is downwards). Returns `Ok(None)` if the ray does not hit the terrain within `max_dist` [m] (horizontal) or leaves
+    /// is downwards). Returns `Ok(None)` if the ray does not hit the terrain within `max_dist` \[m\] (horizontal) or leaves
     /// the grid before, and an error if the origin is outside of the grid or below the terrain.
     /// The bearing is converted into a UTM grid bearing by correcting for the grid convergence at the ray origin.
     /// UTM scale distortions (< 0.1%) are ignored - distances are grid distances

@@ -1,0 +1,26 @@
+// config template for local Cesium terrain served by CesiumService (requires the "terrain" feature, which is default)
+// copy to $ODIN_ROOT/configs/odin_cesium/terrain.ron and adapt paths. If there is no terrain.ron the browser
+// uses Cesium World Terrain (which requires external network access and a Cesium Ion access token)
+
+TerrainConfig(
+    // DEM VRT (geographic, meters above MSL), e.g. created by odin_dem `build_dem_vrt`.
+    // If not set this uses the `vrt_path` of $ODIN_ROOT/configs/odin_dem/dem.ron
+    vrt_path: None,
+
+    // geoid undulation grid to convert MSL to ellipsoidal heights (as used by Cesium). This is the EGM2008 grid of PROJ
+    // (see `projinfo --searchpaths`). If not set terrain is 20-40m too high in CONUS w.r.t. ellipsoidal heights
+    geoid_path: Some("$ODIN_ROOT/data/odin_dem/us_nga_egm08_25.tif"),
+
+    // levels 0..=global_levels are available world-wide (geoid surface outside of DEM coverage)
+    global_levels: 5,
+
+    // max level - computed from VRT source resolutions if not set (15 for 1/3 arcsec 3DEP)
+    max_level: None,
+
+    // pre-compute missing tiles up to this level in the background when the server starts (low levels cover many
+    // DEM files and can take seconds per tile - 0/0/0 takes ~7s for 3DEP CONUS). None disables seeding
+    seed_level: Some(6),
+
+    // tile cache (default $ODIN_ROOT/cache/odin_cesium/terrain)
+    cache_dir: None,
+)

@@ -187,19 +187,43 @@ var ellipsoidTerrainProvider = new Cesium.EllipsoidTerrainProvider();
 var topoTerrainProvider = undefined;
 var terrainProvider = ellipsoidTerrainProvider;
 
+// precedence: explicitly configured provider, local terrain served by CesiumService (if configured on the server and
+// not disabled by config.localTerrain=false), Cesium World Terrain
+async function getTopoTerrainProvider() {
+    if (config.terrainProviderPromise) {
+        let provider = await config.terrainProviderPromise;
+        console.log("configured terrain provider loaded");
+        return provider;
+    }
+    if (config.localTerrain !== false) {
+        try {
+            let response = await fetch("terrain/layer.json", { method: "HEAD" });
+            if (response.ok) {
+                let provider = await Cesium.CesiumTerrainProvider.fromUrl("terrain");
+                console.log("local terrain provider loaded");
+                return provider;
+            }
+        } catch (e) {
+            console.log("local terrain provider failed: ", e);
+        }
+    }
+    let provider = await Cesium.createWorldTerrainAsync();
+    console.log("Cesium world terrain provider loaded");
+    return provider;
+}
+
 // use this promise in dependent JS modules that require the viewer to be instantiated.
 // Normal use is to do a toplevel await on viewerReadyPromise
 export const viewerReadyPromise = new Promise( async (resolve,reject) => {
 
     // WATCH OUT - on Safari awaiting Cesium.createWorldTerrainAsync() fails because of CORS rejection when connected to
     // (at least the NASA) VPN. This is not ODIN specific and also hangs https://sandcastle.cesium.com/?src=Clamp%20Entities%20to%20Ground.html&label=Terrain
-    // ultimately we want to fix this - and reduce client-side network traffic - by providing our own Cesium TerrainProvider (possibly from odin_dem)
+    // this is not required if the server provides local terrain (CesiumService with terrain.ron config)
     if (config.fakeTerrain) {
         console.log("faking terrain provider on Safari");
         topoTerrainProvider = ellipsoidTerrainProvider; // we fake it - this is to avoid the Safari hang
     } else {
-        topoTerrainProvider = await (config.terrainProviderPromise ? config.terrainProviderPromise : Cesium.createWorldTerrainAsync());
-        console.log("terrain provider loaded");
+        topoTerrainProvider = await getTopoTerrainProvider();
     }
     terrainProvider = config.showTerrain ? topoTerrainProvider : ellipsoidTerrainProvider;  // just the initialization - might be changed to topoTerrainProvider later
 

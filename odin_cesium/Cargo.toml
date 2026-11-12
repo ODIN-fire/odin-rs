@@ -9,6 +9,11 @@ build = "../build_resources.rs"
 name = "basic_globe"
 path = "src/bin/basic_globe.rs"
 
+[[bin]]
+name = "terrain_tiles"
+path = "src/bin/terrain_tiles.rs"
+required-features = ["terrain"]
+
 [dependencies]
 # our ODIN crates
 odin_build = { workspace = true }
@@ -28,6 +33,12 @@ reqwest = { workspace = true }
 http = { workspace = true }
 zip = { workspace = true }
 
+# optional local terrain (feature "terrain")
+odin_gdal = { workspace = true, optional = true }
+odin_dem = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
 [build-dependencies]
 odin_build = { workspace = true }
 
@@ -43,7 +54,10 @@ imglayer = { file = "imglayer.js"}
 imglayer_icon = { file = "imglayer.svg"}
 
 [features]
-default = ["cesium_proxy"]
+default = ["cesium_proxy", "terrain"]
+
+## serve local Cesium terrain tiles computed from a DEM VRT (see terrain.ron config). This adds a GDAL dependency
+terrain = ["dep:odin_gdal", "dep:odin_dem", "dep:flate2", "dep:serde_json"]
 
 trace_server = ["odin_server/trace_server"]
 embedded_resources = []

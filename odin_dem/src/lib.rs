@@ -35,9 +35,33 @@ pub use raycast::{DemGrid, RayHit, RayQuery, DEFAULT_CURV_COEFF};
 pub mod blockcache;
 pub use blockcache::{DemBlockCache, get_ray_intersections};
 
+pub mod encoding;
+pub use encoding::{DemEncoding, EncodeOptions, encode_dem_file, build_dem_vrt, collect_dem_files};
+
 type Result<T> = std::result::Result<T, OdinDemError>;
 
 define_load_config!{}
+
+/// DEM configuration (normally loaded from `$ODIN_ROOT/configs/odin_dem/dem.ron`)
+#[derive(Debug,Clone,Serialize,Deserialize)]
+pub struct DemConfig {
+    /// the VRT used by `serve_dem` (and default output of `build_dem_vrt`)
+    pub vrt_path: EnvPathBuf,
+
+    /// optional WMS capabilities file for `serve_dem` - if not set we don't serve WMS
+    #[serde(default)]
+    pub wms_capabilities_path: Option<EnvPathBuf>,
+
+    /// max size of the `serve_dem` file cache
+    #[serde(default="default_max_cache")]
+    pub max_cache: u64,
+
+    /// encoding of DEM source tiles as created by `encode_dem` and referenced by `build_dem_vrt` (U16, I16 or F32)
+    #[serde(default)]
+    pub encoding: DemEncoding,
+}
+
+fn default_max_cache() -> u64 { 1024*1024*100 } // 100MB - wouldn't be enough if used for map tiles
 
 /* #region supported image types, SRS and data sources ******************************************************************/
 

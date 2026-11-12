@@ -6,7 +6,7 @@ AlertCaConfig(
         "limekilncanyon-cam01", //"Axis-LimekilnCanyon",
         "pressonhill-cam01", // "Axis-PressonHill1",
         "pressonhill-cam02", //"Axis-PressonHill2",
-        (id: "mtchual-cam01", height_above_ground: 12.0), // "Axis-MtChaul", // NOTE: mis-spelled. Should be "MtChual"
+        (id: "mtchual-cam01", height_above_ground: 8.0), // "Axis-MtChual"
         (id: "lomaprieta-cam01", height_above_ground: 14.0), // "Axis-LomaPrieta",
         "mtrodoni-cam01", // "Axis-MtRodoni1",
         "mtbielawski-cam01", // "Axis-MtBielawski",
@@ -49,5 +49,5 @@ AlertCaConfig(
     max_history: 10, // number of camera states we keep per camera
 
     // DEM for server side viewpoint tracking (view ray terrain intersections). Can also be Server("http://<serve_dem-host>:9019")
-    dem: Some(File("$ODIN_ROOT/data/odin_dem/3dep13-conus-i16/3dep13-conus-i16.vrt")),
+    dem: Some(File("$ODIN_ROOT/data/odin_dem/3dep13-conus-u16/3dep13-conus-u16.vrt")),
 )

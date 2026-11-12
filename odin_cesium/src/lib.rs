@@ -33,6 +33,9 @@ define_load_asset!{}
 
 pub const CESIUM_VERSION: &'static str = "1.147";
 
+#[cfg(feature="terrain")]
+pub mod terrain;
+
 /* #region CesiumService *************************************************************************************/
 
 define_ws_payload!{ SetClock =
@@ -40,13 +43,53 @@ define_ws_payload!{ SetClock =
     time_scale: f32
 }
 
-/// this is a resource-only SpaService that provides basic Cesium plus our view UI
+/// this is a resource-only SpaService that provides basic Cesium plus our view UI.
+/// If built with the `terrain` feature and there is a `terrain.ron` config this also serves local terrain tiles
+/// (see [`terrain`]), which are then used by odin_cesium.js instead of Cesium World Terrain
 pub struct CesiumService {
-    // nothing yet
+    #[cfg(feature="terrain")]
+    terrain: Option<Arc<terrain::TerrainTiles>>,
 }
 
 impl CesiumService {
-    pub fn new()->Self { CesiumService{} }
+    pub fn new()->Self {
+        #[cfg(feature="terrain")]
+        {
+            CesiumService{ terrain: Self::load_terrain() }
+        }
+        #[cfg(not(feature="terrain"))]
+        {
+            CesiumService{}
+        }
+    }
+
+    /// create a CesiumService with an explicit terrain config
+    #[cfg(feature="terrain")]
+    pub fn with_terrain (config: &terrain::TerrainConfig)->Result<Self,anyhow::Error> {
+        Ok( CesiumService{ terrain: Some( Arc::new( terrain::TerrainTiles::new( config)?)) })
+    }
+
+    #[cfg(feature="terrain")]
+    fn load_terrain ()->Option<Arc<terrain::TerrainTiles>> {
+        match load_config::<terrain::TerrainConfig>("terrain.ron") {
+            Ok(config) => match terrain::TerrainTiles::new( &config) {
+                Ok(tiles) => {
+                    println!("serving local terrain from {:?} (max level {}, cache {:?})", tiles.vrt_path, tiles.availability.max_level(), tiles.cache_dir);
+                    let tiles = Arc::new(tiles);
+                    if let Some(level) = tiles.seed_level {
+                        let tiles = tiles.clone(); // tiles requested in the meantime are just computed concurrently
+                        std::thread::spawn( move || {
+                            let (n, n_err) = tiles.seed( level, 4, |_,_| {});
+                            if n > 0 { println!("seeded {n} terrain tiles up to level {level} ({n_err} errors)") }
+                        });
+                    }
+                    Some( tiles)
+                }
+                Err(e) => { eprintln!("local terrain disabled: {e:#}"); None }
+            }
+            Err(_) => None // no terrain config - use Cesium World Terrain
+        }
+    }
 }
 
 #[async_trait]
@@ -85,8 +128,18 @@ impl SpaService for CesiumService {
         // unfortunately we can't proxy CesiumWorldTerrain since it uses Cesium.js generated app keys for authentication
         // the API requires an "Authurization: Bearer .." access token which is NOT the normal (configured) user acces token but
         // is dynamically set from within Cesium.js (has a 1d expiration)
-        // the only robust solution for local/proxied terrain is to have our own Cesium TerrainProvider server
+        // hence we provide our own terrain tiles from a local DEM (see terrain.rs and the routes added below)
         //spa.add_proxy( "cesium-terrain", "https://assets.ion.cesium.com/us-east-1/asset_depot/1/CesiumWorldTerrain/v1.2");
+
+        #[cfg(feature="terrain")]
+        if let Some(tiles) = &self.terrain {
+            let tiles = tiles.clone();
+            spa.add_route( move |router, spa_server_state| {
+                router.route( &format!("/{}/terrain/{{*path}}", spa_server_state.name.as_str()), get({
+                    move |AxumPath(path): AxumPath<String>| terrain::terrain_handler( path, tiles.clone())
+                }))
+            });
+        }
 
         spa.add_css( asset_uri!("odin_cesium.css"));
 

@@ -17,6 +17,7 @@
 use std::sync::Arc;
 use odin_actor::prelude::*;
 use odin_server::prelude::*;
+use odin_scrub;
 use odin_alertca::{
     actor::AlertCaActor,
     alertca_service::AlertCaService,
@@ -26,6 +27,8 @@ use odin_alertca::{
 use anyhow::Result;
 
 run_actor_system!( actor_system => {
+    odin_scrub::start_scrubber( odin_scrub::load_config("scrub.ron")?)?; // run cache cleanup background thread
+
     let config: AlertCaConfig = load_config("sf_bay_area.ron")?;
     let pre_aca = PreActorHandle::new( &actor_system, "alertca", 8);
 

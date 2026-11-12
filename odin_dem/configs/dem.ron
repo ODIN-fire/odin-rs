@@ -1,0 +1,15 @@
+// config template for odin_dem (serve_dem, encode_dem and build_dem_vrt)
+// copy to $ODIN_ROOT/configs/odin_dem/dem.ron and adapt paths
+
+DemConfig(
+    vrt_path: "$ODIN_ROOT/data/odin_dem/3dep13-conus-u16/3dep13-conus-u16.vrt",
+    wms_capabilities_path: None, // if not set we don't serve WMS
+
+    max_cache: 268435456,  // 256 MB
+
+    // encoding of DEM source tiles created by encode_dem and referenced by build_dem_vrt:
+    //   U16 (default) - UInt16 with 0.1m resolution (scale 0.1, offset -500), ~85GB for 3DEP 1/3 arcsec CONUS
+    //   I16           - Int16 meters, ~25GB for CONUS
+    //   F32           - Float32 meters (original 3DEP), ~340GB for CONUS as downloaded
+    encoding: U16
+)

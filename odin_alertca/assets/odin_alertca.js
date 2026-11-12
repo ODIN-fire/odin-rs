@@ -900,7 +900,7 @@ async function computeViewRange (seq, ce, data, pos, bearing) {
     let p0 = ce.position;
     let pitches = [pitch, pitch - u, pitch + u]; // hit, near, far
 
-    let hits = (config.viewTrack.serverSide && !serverViewTrackFailed) ? await serverTerrainIntersections( ce, bearing, pitches, maxDist) : undefined;
+    let hits = (config.viewTrack.serverSide && !serverViewTrackFailed) ? await serverTerrainIntersections(ce, bearing, pitches, maxDist) : undefined;
     if (!hits) hits = await clientTerrainIntersections( ce, bearing, pitches, maxDist);
     let [hit, near, far] = hits;
     if (seq != viewTrackSeq || !viewTrack) return; // outdated

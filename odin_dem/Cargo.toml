@@ -14,6 +14,14 @@ path = "src/bin/serve_dem.rs"
 name = "get_dem"
 path = "src/bin/get_dem.rs"
 
+[[bin]]
+name = "encode_dem"
+path = "src/bin/encode_dem.rs"
+
+[[bin]]
+name = "build_dem_vrt"
+path = "src/bin/build_dem_vrt.rs"
+
 
 [dependencies]
 
