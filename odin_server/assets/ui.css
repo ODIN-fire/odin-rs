@@ -186,6 +186,40 @@ input.ui_field.ui_dialog_input {
     width: 100%;
 }
 
+/* login/enrollment dialogs */
+div.ui_dialog_field {
+    display: flex;
+    align-items: center;
+    gap: var(--window-gap);
+}
+
+div.ui_dialog_field label {
+    min-width: 6rem;
+    font-size: var(--font-size);
+}
+
+div.ui_dialog_error {
+    color: var(--alert-color, rgb(255, 90, 90));
+    font-size: var(--font-size);
+    white-space: pre-wrap;
+}
+
+img.ui_dialog_qr {
+    align-self: center;
+    width: 200px;
+    height: 200px;
+    padding: 8px;
+    background: white; /* QR codes need a light quiet zone, regardless of theme */
+    image-rendering: pixelated;
+}
+
+div.ui_dialog_code {
+    align-self: center;
+    font: var(--mono-font);
+    user-select: all;
+    overflow-wrap: anywhere;
+}
+
 div.ui_dialog_buttons {
     display: flex;
     justify-content: flex-end;

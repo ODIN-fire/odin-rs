@@ -53,7 +53,11 @@ type Result<T> = OdinServerResult<T>;
 pub struct ServerConfig {
     pub sock_addr: SocketAddr,
     pub tls: Option<TlsConfig>, // if set use TLS (https)
-    pub heartbeat_interval: Option<Duration>
+    pub heartbeat_interval: Option<Duration>,
+
+    /// optional user authentication/authorization. If not set (default) all resources are publicly accessible
+    #[serde(default, skip_serializing_if="Option::is_none")]
+    pub auth: Option<odin_common::auth::AuthConfig>,
 }
 
 impl ServerConfig {

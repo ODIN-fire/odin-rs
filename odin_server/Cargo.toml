@@ -8,6 +8,11 @@ build = "../build_resources.rs"
 [lib]
 doctest = false
 
+[[bin]]
+name = "auth_admin"
+path = "src/bin/auth_admin.rs"
+required-features = ["auth"]
+
 [dependencies]
 axum-server = { version = "0.8", features = ["tls-rustls"] }
 bytes = { workspace = true }
@@ -46,18 +51,15 @@ async-trait = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
 
-# pw protected servers and user sessions (we might put these behind a feature
-axum-login = { workspace = true }
-password-auth = {workspace = true }
-passwords = { workspace = true }
-sqlx = { workspace = true }
-tower-sessions = { workspace = true }
-tower-sessions-sqlx-store = { workspace = true }
 
 odin_build = { workspace = true }
 odin_macro = { workspace = true }
 odin_actor = { workspace = true }
 odin_common = { workspace = true }
+
+[dev-dependencies]
+webauthn-authenticator-rs = { workspace = true }
+url = { workspace = true }
 
 [build-dependencies]
 odin_build = { workspace = true }
@@ -67,7 +69,7 @@ spa_server = { file = "spa_server.ron"}
 
 [package.metadata.odin_assets]
 # assets that are embedded with the `embedded_resources` feature (if ODIN_EMBED_RESOURCES is set at build time).
-# The not yet used login assets (login.html, odin-auth.css) and test_image.js/fire.webp are not embedded
+# test_image.js/fire.webp are not embedded
 ws_js = { file = "ws.js" }
 main_js = { file = "main.js" }
 ui = { file = "ui.js" }
@@ -75,6 +77,7 @@ ui_data = { file = "ui_data.js" }
 ui_util = { file = "ui_util.js" }
 ui_windows = { file = "ui_windows.js" }
 ui_dialogs = { file = "ui_dialogs.js" }
+auth_js = { file = "auth.js" }
 ui_code_input_js = { file = "ui_code_input.js" }
 ui_code_input_css = { file = "ui_code_input.css" }
 ui_settings_config = { file = "ui_settings_config.js"}
@@ -99,4 +102,8 @@ embedded_resources = []
 code_input_proxy = []
 code_input_asset = []
 
-default = ["code_input_proxy"]
+## user authentication and role based authorization (see auth.rs and odin_common::auth). Servers with an `auth`
+## config refuse to start if this feature is not enabled
+auth = ["odin_common/auth"]
+
+default = ["code_input_proxy", "auth"]

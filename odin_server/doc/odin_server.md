@@ -343,6 +343,17 @@ run_actor_system!( actor_system => {
 });
 ```
 
+## Authentication and Authorization
+
+Servers can optionally authenticate users (with passkeys, authenticator apps or passwords) and authorize access based on
+configurable user roles. This is enabled by adding an `auth` section to the `ServerConfig` - without it all resources
+are public and there is no overhead. If enabled, the application document and its websocket require an authenticated
+session, proxied URLs require a session by default, and `SpaService` implementations can protect additional routes
+(`SpaComponents::add_protected_route(..)`) and incoming websocket messages (`SpaService::ws_msg_roles()`). Users are
+managed with the `auth_admin` tool. 
+
+Please refer to [Authentication and Authorization](auth.md) for details about concept, configuration and implementation.
+
 ## Client Interaction
 
 Please refer to the [Server-Client Interaction](client.md) section for details of how to write

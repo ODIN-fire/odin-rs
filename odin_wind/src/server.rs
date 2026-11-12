@@ -110,7 +110,7 @@ impl WindServer {
     }
 
     async fn handle_socket(mut ws: WebSocket, remote_addr: SocketAddr, hself: ActorHandle<WindServerMsg>) {
-        hself.send_msg( AddWsConnection{remote_addr,ws}).await;
+        hself.send_msg( AddWsConnection{remote_addr,ws,user:None}).await;
     }
 
     async fn add_connection(&mut self, hself: ActorHandle<WindServerMsg>, remote_addr: SocketAddr, ws: WebSocket)->Result<()> {
@@ -141,7 +141,7 @@ impl WindServer {
             };
 
             info!("connected to client {}", remote_addr);
-            self.connections.insert( remote_addr.clone(), WsConnection{ remote_addr, ws_sender, ws_receiver_task });
+            self.connections.insert( remote_addr.clone(), WsConnection{ remote_addr, ws_sender, ws_receiver_task, user: None });
         }
 
         Ok(())

@@ -1,225 +1,441 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of 
- * the National Aeronautics and Space Administration. All rights reserved.
+ * Copyright 2026 Peter Mehlitz
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. You may obtain a copy 
- * of the License at http://www.apache.org/licenses/LICENSE-2.0.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Unless required by applicable law or agreed to in writing, software distributed under
- * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
- * either express or implied. See the License for the specific language governing permissions
- * and limitations under the License.
- */
-#![allow(unused)]
-
-use axum::{
-    extract::Query,
-    http::StatusCode,
-    response::{Html, IntoResponse, Redirect},
-    routing::{get, post},
-    Form, Router,
-};
-//use axum_messages::{Message, Messages};
-use serde::{Serialize,Deserialize};
-use axum_login::{AuthUser, AuthnBackend, UserId};
-use password_auth::verify_password;
-use sqlx::{FromRow, SqlitePool};
-use tokio::task;
-use chrono::{DateTime,Utc,SecondsFormat};
-
-use crate::errors::OdinServerError;
-
-/* #region user and session model *************************************************************************/
-
-/*
--- Create users table.
-create table if not exists users
-(
-    id integer primary key not null,
-    username text not null unique,
-    password text not null
-);
-
--- Insert user.
-insert into users (id, username, password)
-values
-   (1, 'gonzo', '$argon2id$v=19$m=19456,t=2,p=1$VE0e3g7DalWHgDwou3nuRA$uC6TER156UQpk0lNQ5+jHM0l5poVjPA1he/Tyn9J4Zw');
+ *    http://apache.org
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
-#[derive(Clone, Serialize, Deserialize, FromRow)]
-pub struct User {
-    pub id: i64,
-    pub username: String,
-    pub email: String,
-    pub expires: i64, // epoch seconds
-    password: String,
-}
+//! axum integration of the server type independent [`odin_common::auth`] module: session cookies, the JSON routes
+//! for login/enrollment/logout/user info, a middleware to protect routes with roles and websocket origin checks.
+//! This is used by [`crate::spa::SpaServer`] but can also be used by other axum based servers.
+//!
+//! Routes (relative to the nesting path, e.g. `/<app>/auth`):
+//!
+//! | route                        | purpose |
+//! |------------------------------|---------|
+//! | `POST login/password`        | `{username,password}` -> session cookie |
+//! | `POST login/totp`            | `{username,code}` -> session cookie |
+//! | `POST login/passkey/start`   | `{username}` -> `{ceremony,options}` (for `navigator.credentials.get()`) |
+//! | `POST login/passkey/finish`  | `{ceremony,credential}` -> session cookie |
+//! | `POST enroll/info`           | `{token?}` -> `{user,methods}` (invite token or logged in user) |
+//! | `POST enroll/passkey/start`  | `{token?,label?}` -> `{ceremony,options}` (for `navigator.credentials.create()`) |
+//! | `POST enroll/passkey/finish` | `{ceremony,credential}` -> ok (+ session cookie if invite) |
+//! | `POST enroll/totp/start`     | `{token?}` -> `{ceremony,url,qrPng,secret}` |
+//! | `POST enroll/totp/finish`    | `{ceremony,code,label?}` -> ok (+ session cookie if invite) |
+//! | `POST enroll/password`       | `{token?,password}` -> ok (+ session cookie if invite) |
+//! | `POST logout`                | end session, clear cookie |
+//! | `GET user`                   | `{name,roles}` of the session user (401 if not authenticated) |
+//!
+//! POST requests have to use `Content-Type: application/json`, which together with `SameSite=Strict` session cookies
+//! protects against cross site request forgery.
 
-impl User {
-    pub fn to_formatted_string (&self)->String {
-        let exp = self.expiration_datetime();
-        format!("{} : {}, {}, {}, {}", 
-            self.username, self.id, self.email, 
-            self.expiration_datetime().to_rfc3339_opts(SecondsFormat::Secs, true), 
-            self.password)
-    }
+pub use odin_common::auth::{AuthConfig, AuthMethod, AuthError, ConnUser, RoleSet, RoleMap, MsgAcl, is_authorized};
 
-    pub fn expiration_datetime (&self)->DateTime<Utc> {
-        if let Some(dt) = DateTime::from_timestamp( self.expires, 0) {
-            dt
-        } else {
-            DateTime::<Utc>::MIN_UTC
-        }
-    }
-}
+#[cfg(feature="auth")]
+pub use imp::*;
 
-/// make sure we don't show passwords
-impl std::fmt::Debug for User {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("User")
-            .field("id", &self.id)
-            .field("username", &self.username)
-            .field("email", &self.username)
-            .field("expires", &DateTime::from_timestamp( self.expires, 0).map_or_else( || "<invalid>".to_string(), |dt| dt.to_rfc2822(),))
-            .finish()
-    }
-}
+#[cfg(not(feature="auth"))]
+pub use stub::*;
 
-/// the axum-login interface for User
-impl AuthUser for User {
-    type Id = i64;
-
-    fn id(&self) -> Self::Id { self.id }
-
-    /// NOTE - changing passwords invalidates open sessions
-    fn session_auth_hash(&self) -> &[u8] { self.password.as_bytes() }
-}
-
-/* #endregion user and session model */
-
-/* #region backend ****************************************************************************************/
-
-/// store for user/session data
-#[derive(Debug, Clone)]
-pub struct Backend {
-    db: SqlitePool,
-}
-
-impl Backend {
-    pub fn new(db: SqlitePool) -> Self {
-        Self { db }
+/// check if a websocket upgrade (or other) request comes from the same origin as the server (protection against
+/// cross site websocket hijacking with cookie based authentication). Requests without `Origin` header (non-browser
+/// clients) are accepted - they still need a valid session
+pub fn is_same_origin (headers: &http::HeaderMap)->bool {
+    let Some(origin) = headers.get( http::header::ORIGIN).and_then( |v| v.to_str().ok()) else { return true };
+    let Some(host) = headers.get( http::header::HOST).and_then( |v| v.to_str().ok()) else { return false };
+    match origin.split_once("://") {
+        Some((_, authority)) => authority.trim_end_matches('/') == host,
+        None => false
     }
 }
 
-/// the axum-login interface for Backend
-impl AuthnBackend for Backend {
-    type User = User;
-    type Credentials = Credentials;
-    type Error = OdinServerError;
+#[cfg(feature="auth")]
+mod imp {
+    use std::{net::SocketAddr, sync::Arc};
+    use axum::{
+        Json, Router,
+        extract::{ConnectInfo, Request, State},
+        http::{HeaderMap, HeaderValue, StatusCode, header},
+        middleware::{self, Next},
+        response::{IntoResponse, Response},
+        routing::{get, post},
+    };
+    use serde::Deserialize;
+    use serde_json::{json, Value};
+    use odin_common::auth::*;
+    pub use odin_common::auth::{Revalidation, LoginResult};
+    use crate::{ServerConfig, errors::{OdinServerResult, op_failed}};
 
-    async fn authenticate (&self,creds: Self::Credentials) -> Result<Option<Self::User>, Self::Error> {
-        let user: Option<Self::User> = sqlx::query_as("select * from users where username = ? ")
-            .bind(creds.username)
-            .fetch_optional(&self.db)
-            .await?;
-
-        // this is slow so it has to be spawned
-        task::spawn_blocking(|| {
-            // pw-based - directly compare the form input with the stored hash
-            Ok(user.filter(|user| verify_password(creds.password, &user.password).is_ok()))
-        })
-        .await?
+    /// the authentication context of an axum server
+    pub struct ServerAuth {
+        pub authenticator: Authenticator,
+        pub cookie_name: String,
+        pub secure_cookie: bool,
+        pub origins: Vec<String>,
     }
 
-    async fn get_user (&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
-        let user = sqlx::query_as("select * from users where id = ?")
-            .bind(user_id)
-            .fetch_optional(&self.db)
-            .await?;
-
-        Ok(user)
-    }
-}
-
-pub type AuthSession = axum_login::AuthSession<Backend>;
-
-/* #endregion backend */
-
-/*  #region auth route handlers ***************************************************************************/
-
-/// login POST data 
-#[derive(Debug, Clone, Deserialize)]
-pub struct Credentials {
-    pub username: String,
-    pub password: String,
-    pub next: Option<String>,
-}
-
-/// login GET query param
-#[derive(Debug, Deserialize)]
-pub struct NextUrl {
-    next: Option<String>,
-}
-
-/// the routes related to user authentication
-pub fn router() -> Router<()> {
-    Router::new()
-        .route("/login", post(self::post::login))
-        .route("/login", get(self::get::login))
-        .route("/logout", get(self::get::logout))
-}
-
-mod post {
-    use super::*;
-
-    /// the login dialog response
-    pub async fn login (mut auth_session: AuthSession, Form(creds): Form<Credentials>) -> impl IntoResponse {
-        let user = match auth_session.authenticate(creds.clone()).await {
-            Ok(Some(user)) => user,
-            Ok(None) => {
-                //messages.error("Invalid credentials");
-
-                let mut login_url = "/login".to_string();
-                if let Some(next) = creds.next {
-                    login_url = format!("{login_url}?next={next}");
-                };
-
-                return Redirect::to(&login_url).into_response();
+    impl ServerAuth {
+        /// create the auth context for a server. This fails if authentication would be done over plain HTTP on a
+        /// non-loopback address (unless `allow_insecure` is set) or if the auth config is inconsistent
+        pub async fn new (server_config: &ServerConfig, auth_config: &AuthConfig)->OdinServerResult<Self> {
+            let sock_addr = server_config.sock_addr;
+            let is_tls = server_config.tls.is_some();
+            if !is_tls && !sock_addr.ip().is_loopback() && !auth_config.allow_insecure {
+                return Err( op_failed( format!("authentication over plain HTTP on non-loopback address {sock_addr} requires TLS or 'allow_insecure: true'")))
             }
-            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            let origins = server_origins( server_config, auth_config);
+            let authenticator = Authenticator::new( auth_config.clone(), &origins).await.map_err( |e| op_failed( e.to_string()))?;
+
+            Ok( ServerAuth{ authenticator, cookie_name: format!("odin_session_{}", sock_addr.port()), secure_cookie: is_tls, origins })
+        }
+
+        pub fn config (&self)->&AuthConfig { self.authenticator.config() }
+        pub fn role_map (&self)->&RoleMap { self.authenticator.role_map() }
+
+        /// reload users and purge expired data (call periodically, e.g. from a heartbeat timer)
+        pub async fn refresh (&self) {
+            if let Err(e) = self.authenticator.refresh().await { eprintln!("auth refresh failed: {e}"); }
+        }
+
+        /// check the session of an established connection (call after [`Self::refresh`])
+        pub fn revalidate (&self, user: &ConnUser)->Revalidation { self.authenticator.revalidate( user) }
+
+        /// the session token of a request (from our session cookie)
+        pub fn session_token<'a> (&self, headers: &'a HeaderMap)->Option<&'a str> {
+            for v in headers.get_all( header::COOKIE) {
+                let Ok(s) = v.to_str() else { continue };
+                for c in s.split(';') {
+                    if let Some((k, v)) = c.trim().split_once('=') {
+                        if k == self.cookie_name { return Some(v) }
+                    }
+                }
+            }
+            None
+        }
+
+        /// the authenticated user of a request (None if there is no valid session)
+        pub async fn request_user (&self, headers: &HeaderMap)->Option<Arc<ConnUser>> {
+            match self.session_token( headers) {
+                Some(token) => self.authenticator.session_user( token).await,
+                None => None
+            }
+        }
+
+        fn session_cookie (&self, login: &LoginResult)->HeaderValue {
+            let max_age = (login.expires - now_secs()).max(0);
+            let secure = if self.secure_cookie { "; Secure" } else { "" };
+            HeaderValue::from_str( &format!("{}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}{secure}", self.cookie_name, login.token)).unwrap()
+        }
+
+        fn clear_cookie (&self)->HeaderValue {
+            let secure = if self.secure_cookie { "; Secure" } else { "" };
+            HeaderValue::from_str( &format!("{}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0{secure}", self.cookie_name)).unwrap()
+        }
+
+        /// the client side configuration for login/enroll documents (JSON)
+        pub fn client_config (&self)->Value {
+            json!({
+                "methods": self.authenticator.available_methods().iter().map( |m| m.as_str()).collect::<Vec<_>>(),
+                "rpId": self.config().rp_id,
+                "minPasswordLength": self.config().min_password_len,
+            })
+        }
+
+        /// the role set for a protected route `key`, using the `route_roles` config or `default_roles`
+        pub fn route_roles (&self, key: &str, default_roles: &[String])->OdinServerResult<RoleSet> {
+            let names = self.config().route_roles.get( key).map( |v| v.as_slice()).unwrap_or( default_roles);
+            self.role_map().role_set( names).map_err( |e| op_failed( format!("protected route '{key}': {e}")))
+        }
+
+        /// build the ACL for incoming websocket messages from service defaults and config overrides (config wins).
+        /// Unknown role names are an error
+        pub fn ws_msg_acl (&self, service_defaults: &[(String,Vec<String>)])->OdinServerResult<MsgAcl> {
+            let mut acl = MsgAcl::new();
+            let overrides = &self.config().ws_msg_roles;
+            for (key, names) in service_defaults {
+                if !overrides.contains_key( key) {
+                    acl.set( key, self.role_map().role_set( names).map_err( |e| op_failed( format!("ws message '{key}': {e} (define role or override in ws_msg_roles)")))?);
+                }
+            }
+            acl.set_from_names( overrides, self.role_map()).map_err( |e| op_failed( e.to_string()))?;
+            Ok(acl)
+        }
+    }
+
+    /// the origins under which the server is reachable for passkey ceremonies
+    fn server_origins (server_config: &ServerConfig, auth_config: &AuthConfig)->Vec<String> {
+        if !auth_config.rp_origins.is_empty() { return auth_config.rp_origins.clone() }
+        let proto = if server_config.tls.is_some() { "https" } else { "http" };
+        let port = server_config.sock_addr.port();
+        let host = &auth_config.rp_id;
+        let mut origins = vec![ format!("{proto}://{host}:{port}") ];
+        if (proto == "https" && port == 443) || (proto == "http" && port == 80) { origins.push( format!("{proto}://{host}")); }
+        origins
+    }
+
+    /* #region middleware ****************************************************************************************/
+
+    async fn require_roles (State((auth, required)): State<(Arc<ServerAuth>,RoleSet)>, mut req: Request, next: Next)->Response {
+        match auth.request_user( req.headers()).await {
+            Some(user) if user.is_authorized( required) => {
+                req.extensions_mut().insert( user); // handlers can use `Extension<Arc<ConnUser>>`
+                next.run( req).await
+            }
+            Some(_) => (StatusCode::FORBIDDEN, "not authorized").into_response(),
+            None => (StatusCode::UNAUTHORIZED, "not authenticated").into_response(),
+        }
+    }
+
+    /// protect all routes of `router` (which should only contain the routes to protect) so that they require an
+    /// authenticated user with any of the `required` roles (any authenticated user if `required` is empty)
+    pub fn protect (router: Router, auth: Arc<ServerAuth>, required: RoleSet)->Router {
+        router.route_layer( middleware::from_fn_with_state( (auth, required), require_roles))
+    }
+
+    /* #endregion middleware */
+
+    /* #region routes ********************************************************************************************/
+
+    /// called with the session id of a logged out session (e.g. to close its websocket connections)
+    pub type LogoutHook = Arc<dyn Fn(Arc<str>) + Send + Sync>;
+
+    #[derive(Clone)]
+    struct RouteState {
+        auth: Arc<ServerAuth>,
+        on_logout: LogoutHook,
+    }
+
+    /// the auth API routes. These should be nested under a path that is relative to the application document so that
+    /// clients can use relative URLs (e.g. `router.nest("/<app>/auth", auth_router(..))`)
+    pub fn auth_router (auth: Arc<ServerAuth>, on_logout: LogoutHook)->Router {
+        let state = RouteState{ auth, on_logout };
+        Router::new()
+            .route( "/login/password", post( login_password))
+            .route( "/login/totp", post( login_totp))
+            .route( "/login/passkey/start", post( passkey_login_start))
+            .route( "/login/passkey/finish", post( passkey_login_finish))
+            .route( "/enroll/info", post( enroll_info))
+            .route( "/enroll/passkey/start", post( passkey_enroll_start))
+            .route( "/enroll/passkey/finish", post( passkey_enroll_finish))
+            .route( "/enroll/totp/start", post( totp_enroll_start))
+            .route( "/enroll/totp/finish", post( totp_enroll_finish))
+            .route( "/enroll/password", post( password_enroll))
+            .route( "/logout", post( logout))
+            .route( "/user", get( user_info))
+            .with_state( state)
+    }
+
+    fn error_response (e: AuthError)->Response {
+        let status = match &e {
+            AuthError::InvalidCredentials | AuthError::NotAuthenticated => StatusCode::UNAUTHORIZED,
+            AuthError::NotAuthorized | AuthError::InvalidToken => StatusCode::FORBIDDEN,
+            AuthError::Locked(_) => StatusCode::TOO_MANY_REQUESTS,
+            AuthError::InvalidInput(_) | AuthError::UnknownCeremony | AuthError::MethodNotEnabled(_) | AuthError::WebAuthn(_) => StatusCode::BAD_REQUEST,
+            _ => StatusCode::INTERNAL_SERVER_ERROR
         };
-
-        if auth_session.login(&user).await.is_err() {
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-
-        //messages.success(format!("Successfully logged in as {}", user.username));
-
-        if let Some(ref next) = creds.next {
-            Redirect::to(next)
-        } else {
-            Redirect::to("/")
-        }
-        .into_response()
+        let msg = if e.is_client_error() { e.to_string() } else {
+            eprintln!("authentication error: {e}");
+            "internal server error".to_string()
+        };
+        (status, Json( json!({ "error": msg }))).into_response()
     }
+
+    fn login_response (auth: &ServerAuth, login: Option<LoginResult>)->Response {
+        match login {
+            Some(login) => {
+                let body = json!({ "ok": true, "user": login.user.name.as_ref() });
+                ([(header::SET_COOKIE, auth.session_cookie( &login)), (header::CACHE_CONTROL, HeaderValue::from_static("no-store"))], Json( body)).into_response()
+            }
+            None => Json( json!({ "ok": true })).into_response()
+        }
+    }
+
+    fn remote (addr: &SocketAddr)->String { addr.ip().to_string() }
+
+    #[derive(Deserialize)]
+    struct PasswordLogin { username: String, password: String }
+
+    async fn login_password (State(s): State<RouteState>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Json(req): Json<PasswordLogin>)->Response {
+        match s.auth.authenticator.login_password( req.username.trim(), &req.password, Some( &remote( &addr))).await {
+            Ok(login) => login_response( &s.auth, Some(login)),
+            Err(e) => error_response(e)
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct TotpLogin { username: String, code: String }
+
+    async fn login_totp (State(s): State<RouteState>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Json(req): Json<TotpLogin>)->Response {
+        match s.auth.authenticator.login_totp( req.username.trim(), &req.code, Some( &remote( &addr))).await {
+            Ok(login) => login_response( &s.auth, Some(login)),
+            Err(e) => error_response(e)
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct PasskeyLoginStart { username: String }
+
+    async fn passkey_login_start (State(s): State<RouteState>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Json(req): Json<PasskeyLoginStart>)->Response {
+        match s.auth.authenticator.passkey_login_start( req.username.trim(), Some( &remote( &addr))).await {
+            Ok((ceremony, options)) => Json( json!({ "ceremony": ceremony, "options": options })).into_response(),
+            Err(e) => error_response(e)
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct PasskeyLoginFinish { ceremony: String, credential: PublicKeyCredential }
+
+    async fn passkey_login_finish (State(s): State<RouteState>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Json(req): Json<PasskeyLoginFinish>)->Response {
+        match s.auth.authenticator.passkey_login_finish( &req.ceremony, &req.credential, Some( &remote( &addr))).await {
+            Ok(login) => login_response( &s.auth, Some(login)),
+            Err(e) => error_response(e)
+        }
+    }
+
+    async fn enroll_target (s: &RouteState, headers: &HeaderMap, token: Option<&str>)->AuthResult<EnrollTarget> {
+        let user = s.auth.request_user( headers).await;
+        s.auth.authenticator.enroll_target( token, user.as_deref()).await
+    }
+
+    #[derive(Deserialize)]
+    struct EnrollInfo { token: Option<String> }
+
+    async fn enroll_info (State(s): State<RouteState>, headers: HeaderMap, Json(req): Json<EnrollInfo>)->Response {
+        match enroll_target( &s, &headers, req.token.as_deref()).await {
+            Ok(target) => {
+                let mut cfg = s.auth.client_config();
+                cfg["user"] = json!( target.user_name());
+                cfg["invite"] = json!( matches!( target, EnrollTarget::Invite{..}));
+                Json( cfg).into_response()
+            }
+            Err(e) => error_response(e)
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct PasskeyEnrollStart { token: Option<String>, label: Option<String> }
+
+    async fn passkey_enroll_start (State(s): State<RouteState>, headers: HeaderMap, Json(req): Json<PasskeyEnrollStart>)->Response {
+        let res = match enroll_target( &s, &headers, req.token.as_deref()).await {
+            Ok(target) => s.auth.authenticator.passkey_enroll_start( target, req.label.filter( |l| !l.trim().is_empty())).await,
+            Err(e) => Err(e)
+        };
+        match res {
+            Ok((ceremony, options)) => Json( json!({ "ceremony": ceremony, "options": options })).into_response(),
+            Err(e) => error_response(e)
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct PasskeyEnrollFinish { ceremony: String, credential: RegisterPublicKeyCredential }
+
+    async fn passkey_enroll_finish (State(s): State<RouteState>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Json(req): Json<PasskeyEnrollFinish>)->Response {
+        match s.auth.authenticator.passkey_enroll_finish( &req.ceremony, &req.credential, Some( &remote( &addr))).await {
+            Ok(login) => login_response( &s.auth, login),
+            Err(e) => error_response(e)
+        }
+    }
+
+    async fn totp_enroll_start (State(s): State<RouteState>, headers: HeaderMap, Json(req): Json<EnrollInfo>)->Response {
+        let res = match enroll_target( &s, &headers, req.token.as_deref()).await {
+            Ok(target) => s.auth.authenticator.totp_enroll_start( target).await,
+            Err(e) => Err(e)
+        };
+        match res {
+            Ok(enr) => Json( json!({ "ceremony": enr.ceremony, "url": enr.url, "qrPng": enr.qr_png, "secret": enr.secret })).into_response(),
+            Err(e) => error_response(e)
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct TotpEnrollFinish { ceremony: String, code: String, label: Option<String> }
+
+    async fn totp_enroll_finish (State(s): State<RouteState>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Json(req): Json<TotpEnrollFinish>)->Response {
+        let label = req.label.as_deref().filter( |l| !l.trim().is_empty());
+        match s.auth.authenticator.totp_enroll_finish( &req.ceremony, &req.code, label, Some( &remote( &addr))).await {
+            Ok(login) => login_response( &s.auth, login),
+            Err(e) => error_response(e)
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct PasswordEnroll { token: Option<String>, password: String }
+
+    async fn password_enroll (State(s): State<RouteState>, headers: HeaderMap, ConnectInfo(addr): ConnectInfo<SocketAddr>, Json(req): Json<PasswordEnroll>)->Response {
+        let res = match enroll_target( &s, &headers, req.token.as_deref()).await {
+            Ok(target) => s.auth.authenticator.password_enroll( target, &req.password, Some( &remote( &addr))).await,
+            Err(e) => Err(e)
+        };
+        match res {
+            Ok(login) => login_response( &s.auth, login),
+            Err(e) => error_response(e)
+        }
+    }
+
+    async fn logout (State(s): State<RouteState>, headers: HeaderMap)->Response {
+        if let Some(token) = s.auth.session_token( &headers) {
+            match s.auth.authenticator.logout( token).await {
+                Ok(Some(session)) => (s.on_logout)( session),
+                Ok(None) => {}
+                Err(e) => return error_response(e)
+            }
+        }
+        ([(header::SET_COOKIE, s.auth.clear_cookie())], Json( json!({ "ok": true }))).into_response()
+    }
+
+    async fn user_info (State(s): State<RouteState>, headers: HeaderMap)->Response {
+        match s.auth.request_user( &headers).await {
+            Some(user) => {
+                let roles = s.auth.role_map().names_of( user.roles);
+                ([(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))],
+                 Json( json!({ "name": user.name.as_ref(), "roles": roles, "expires": user.expires }))).into_response()
+            }
+            None => error_response( AuthError::NotAuthenticated)
+        }
+    }
+
+    /* #endregion routes */
 }
 
-mod get {
-    use super::*;
+/// stub implementation if the crate is built without the `auth` feature. Servers with an `auth` config refuse to start
+#[cfg(not(feature="auth"))]
+mod stub {
+    use std::sync::Arc;
+    use axum::{Router, http::HeaderMap};
+    use serde_json::Value;
+    use odin_common::auth::*;
+    use crate::{ServerConfig, errors::{OdinServerResult, op_failed}};
 
-    /// the login dialog
-    pub async fn login (Query(NextUrl { next }): Query<NextUrl>) -> impl IntoResponse {
-        (StatusCode::OK, "login TBD")
-    }
+    pub enum ServerAuth {} // uninhabited - can't be instantiated
 
-    /// the logout dialog
-    pub async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
-        match auth_session.logout().await {
-            Ok(_) => Redirect::to("/login").into_response(),
-            Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    impl ServerAuth {
+        pub async fn new (_server_config: &ServerConfig, _auth_config: &AuthConfig)->OdinServerResult<Self> {
+            Err( op_failed("server config has 'auth' but odin_server was built without the 'auth' feature"))
         }
+        pub fn config (&self)->&AuthConfig { match *self {} }
+        pub fn role_map (&self)->&RoleMap { match *self {} }
+        pub async fn request_user (&self, _headers: &HeaderMap)->Option<Arc<ConnUser>> { match *self {} }
+        pub fn client_config (&self)->Value { match *self {} }
+        pub fn route_roles (&self, _key: &str, _default_roles: &[String])->OdinServerResult<RoleSet> { match *self {} }
+        pub fn ws_msg_acl (&self, _service_defaults: &[(String,Vec<String>)])->OdinServerResult<MsgAcl> { match *self {} }
+        pub async fn refresh (&self) { match *self {} }
+        pub fn revalidate (&self, _user: &ConnUser)->Revalidation { match *self {} }
     }
-}
 
-/* #endregion auth route handlers */
+    #[derive(Debug,Clone,Copy,PartialEq)]
+    pub enum Revalidation { Valid, RolesChanged(RoleSet), Invalid }
+
+    pub type LogoutHook = Arc<dyn Fn(Arc<str>) + Send + Sync>;
+
+    pub fn protect (router: Router, auth: Arc<ServerAuth>, _required: RoleSet)->Router { match *auth {} }
+    pub fn auth_router (auth: Arc<ServerAuth>, _on_logout: LogoutHook)->Router { match *auth {} }
+}

@@ -43,8 +43,8 @@ pub enum OdinServerError {
     #[error("axum error: {0}")]
     AxumError( #[from] axum::Error),
 
-    #[error("SQL error: {0}")]
-    Sqlx(#[from] sqlx::Error),
+    #[error("authentication error: {0}")]
+    Auth(#[from] odin_common::auth::AuthError),
 
     #[error("task join error: {0}")]
     TaskJoin(#[from] tokio::task::JoinError),

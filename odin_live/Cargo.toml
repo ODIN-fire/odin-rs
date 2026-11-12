@@ -43,3 +43,9 @@ odin_build = { workspace = true }
 sentinel = []
 n5 = []
 adsb = []
+
+# user authentication methods (default is none, i.e. public access). Other auth settings (roles, rp_id etc.) are taken
+# from the 'auth' section of spa_server.ron if present. Note odin_live doubles as integration test for production servers
+auth-pw = ["odin_server/auth"]
+auth-totp = ["odin_server/auth"]
+auth-passkey = ["odin_server/auth"]

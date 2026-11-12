@@ -72,6 +72,20 @@ crc32c = { version = "0.6.7", optional = true }
 
 odin_build = { workspace = true }
 
+# optional user authentication (feature "auth", see auth.rs)
+sqlx = { workspace = true, optional = true }
+webauthn-rs = { workspace = true, optional = true }
+totp-rs = { workspace = true, optional = true }
+password-auth = { workspace = true, optional = true }
+getrandom = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+
+[dev-dependencies]
+webauthn-authenticator-rs = { workspace = true }
+totp-rs = { workspace = true }
+url = { workspace = true }
+
 [build-dependencies]
 odin_build = { workspace = true }
 
@@ -82,6 +96,9 @@ dhat = ["dep:dhat"]
 
 ## inline crate-specific resources (configs and assets) into the executable (see odin_build)
 embedded_resources = []
+
+## user authentication (sessions, passkeys, TOTP, passwords) - see auth.rs
+auth = ["dep:sqlx", "dep:webauthn-rs", "dep:totp-rs", "dep:password-auth", "dep:getrandom", "dep:sha2", "dep:base64"]
 
 [package.metadata.odin_configs]
 slack_admin = { file = "slack_admin.ron" }

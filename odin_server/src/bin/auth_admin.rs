@@ -1,343 +1,147 @@
 /*
- * Copyright © 2025, United States Government, as represented by the Administrator of
- * the National Aeronautics and Space Administration. All rights reserved.
+ * Copyright 2026 Peter Mehlitz
  *
- * The “ODIN” software is licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License. You may obtain a copy
- * of the License at http://www.apache.org/licenses/LICENSE-2.0.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Unless required by applicable law or agreed to in writing, software distributed under
- * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
- * either express or implied. See the License for the specific language governing permissions
- * and limitations under the License.
+ *    http://apache.org
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-#![allow(unused)]
 
-use std::{path::{Path,PathBuf}, fs::{File,read_to_string}, io::Write};
-use odin_server::errors::OdinServerError;
-use tokio;
-use sqlx::{SqlitePool,SqliteConnection,Executor,sqlite::SqliteConnectOptions};
-use passwords::PasswordGenerator;
-use password_auth::generate_hash;
-use chrono::{Utc,DateTime,Days};
-use anyhow::{anyhow,Result};
-use odin_common::{define_cli, fs::path_to_lossy_string};
-use odin_server::errors::OdinServerResult;
-use odin_server::auth::User;
+//! auth_admin - user administration for ODIN servers with authentication (`auth` section in the server config).
+//! Users are created with roles and get an enrollment URL (valid for the configured `invite_ttl`), which they use to
+//! register their own credentials (passkey, TOTP authenticator app or password). Admins never handle user secrets
+//! (except for the `--set-password` bootstrap option). This works directly on the user database, i.e. also while
+//! servers are running (changes are picked up within 30 sec).
 
-define_cli! { ARGS [about="user database administration tool"] =
-    create: bool [help="create database if not existent", long, short],
-    list_all: bool [help="list database contents", long, short],
-    migrate: Option<PathBuf> [help="write SQL code to create table and populate it with current values", long, short],
-    add_user: Option<String> [help="add user name (fail if exists)", long, short],
-    update_user: Option<String> [help="update user email, password or expiration date", long, short],
-    email: Option<String> [help="user email", long, short],
-    days_valid: Option<u64> [help="number of days valid", long, default_value="365"],
-    password: Option<String> [help="password for new user", long, short],
-    remove_user: Option<String> [help="remove user name", long, short],
-    find_user: Option<String> [help="lookup user by name", long, short],
-    write_to: Option<PathBuf> [help="save database as table definition and values to SQL file", long],
-    read_from: Option<PathBuf> [help="restore database from saved SQL file", long],
-    db: PathBuf [help="user authentication database file"]
+use std::{io::{BufRead, Write}, path::PathBuf};
+use anyhow::{anyhow, Result};
+use odin_common::{define_cli, auth::{Authenticator, CredentialKind, now_secs}};
+use odin_server::ServerConfig;
+
+define_cli! { ARGS [about="auth_admin - user administration for ODIN servers with authentication"] =
+    config: Option<PathBuf> [help="server config file with 'auth' section (default: $ODIN_ROOT/configs/odin_server/spa_server.ron)", long],
+    list: bool [help="list users", long, short],
+    add_user: Option<String> [help="add user and print enrollment URL (requires --roles)", long],
+    invite: Option<String> [help="print new enrollment URL for existing user (e.g. to add credentials)", long],
+    roles: Option<String> [help="comma separated role names (for --add-user and --set-roles)", long],
+    expires_days: Option<u64> [help="account expiration in days (for --add-user)", long],
+    set_roles: Option<String> [help="set roles of user (requires --roles)", long],
+    disable: Option<String> [help="disable user (ends all sessions)", long],
+    enable: Option<String> [help="re-enable disabled user", long],
+    revoke: Option<String> [help="end all sessions of user", long],
+    remove_user: Option<String> [help="remove user including all credentials and sessions", long],
+    remove_credentials: Option<String> [help="remove credentials of user (all or --kind)", long],
+    kind: Option<String> [help="credential kind for --remove-credentials: passkey, totp or password", long],
+    set_password: Option<String> [help="set password of user (read from stdin) - requires 'Password' method", long],
+    app: Option<String> [help="application name for enrollment URLs (e.g. odin_live)", long],
+    url: Option<String> [help="server base URL for enrollment URLs (default derived from config)", long]
 }
 
 #[tokio::main]
 async fn main ()->Result<()> {
+    odin_build::set_bin_context!();
 
-    let create_db = !ARGS.db.is_file() && (ARGS.create || ARGS.read_from.is_some());
-
-    if !create_db && !ARGS.db.is_file() {
-        return Err( anyhow!("database file not found") )
-    }
-
-    let options = SqliteConnectOptions::new()
-        .filename(ARGS.db.to_str().unwrap())
-        .create_if_missing(create_db);
-    let pool = SqlitePool::connect_with(options).await?;
-
-    if create_db {
-        if ARGS.read_from.is_some() {
-            read_db(&pool).await?;
-        } else {
-            create_table( &pool).await?;
-        }
-    }
-
-    if ARGS.add_user.is_some() {
-        add_user( &pool).await?;
-    }
-
-    if ARGS.update_user.is_some() {
-        update_user( &pool).await?;
-    }
-
-    if ARGS.remove_user.is_some() {
-        remove_user( &pool).await?;
-    }
-
-    if ARGS.find_user.is_some() {
-        find_user( &pool).await?;
-    }
-
-    if ARGS.list_all {
-        list_all( &pool).await?;
-    }
-
-    if ARGS.write_to.is_some() {
-        write_db( &pool).await?;
-    }
-
-    Ok(())
-}
-
-async fn create_table (pool: &SqlitePool) -> Result<()> {
-    sqlx::query(  r#"
-        create table if not exists users
-        (
-            id integer primary key autoincrement,
-            username text not null unique,
-            email text not null unique,
-            expires integer not null,
-            password text not null
-        );
-    "#)
-    .execute(pool).await?;
-    Ok(())
-}
-
-async fn add_user (pool: &SqlitePool) -> Result<()> {
-    if let Some(username) = &ARGS.add_user
-    && let Some(email) = &ARGS.email
-    && let Some(days_valid) = ARGS.days_valid {
-        let gen_pw = generate_pw()?;
-        let pw = if let Some(pw) = &ARGS.password { pw } else {
-            println!("generated pw for user {}: {}", username, gen_pw);
-            &gen_pw
-        };
-        let pw_hash = generate_hash(&pw);
-        let expires = (Utc::now() + Days::new(days_valid)).timestamp();
-
-        sqlx::query(
-            r#"
-            INSERT INTO users (username, email, expires, password)
-            VALUES (?, ?, ?, ?)
-            "#,
-        )
-        .bind(username)
-        .bind(email)
-        .bind(expires)
-        .bind(pw_hash)
-        .execute(pool).await?;
-
-        Ok(())
-    } else {
-        Err( anyhow!("adding user failed - missing username or email"))
-    }
-}
-
-fn generate_pw ()->Result<String> {
-    let pg = PasswordGenerator {
-        length: 8,
-        numbers: true,
-        lowercase_letters: true,
-        uppercase_letters: true,
-        symbols: true,
-        spaces: false,
-        exclude_similar_characters: false,
-        strict: true,
+    let server_config: ServerConfig = match &ARGS.config {
+        Some(path) => ron::from_str( &std::fs::read_to_string( path)?)?,
+        None => odin_server::load_config("spa_server.ron")?
     };
+    let auth_config = server_config.auth.clone().ok_or_else( || anyhow!("server config has no 'auth' section"))?;
+    let auth = Authenticator::new( auth_config, &[]).await?;
 
-    pg.generate_one().map_err(|e| anyhow!(e))
-}
-
-async fn update_user (pool: &SqlitePool) -> Result<()> {
-    if let Some(username) = &ARGS.remove_user {
-        let user: Option<User> = sqlx::query_as(
-            r#"
-            SELECT id, username, email, expires, password
-            FROM users
-            WHERE username = ?
-            "#,
-         )
-        .bind(username)
-        .fetch_optional(pool)
-        .await?;
-
-        if let Some(user) = user {
-            if let Some(email) = &ARGS.email {
-                sqlx::query(
-                    r#"
-                    UPDATE users
-                    SET email = ?
-                    WHERE username = ?
-                    "#,
-                )
-                .bind( email)
-                .bind(username)
-                .execute(pool)
-                .await?;
-            }
-            if let Some(days_valid) = ARGS.days_valid {
-                let expires = (Utc::now() + Days::new(days_valid)).timestamp();
-                sqlx::query(
-                    r#"
-                    UPDATE users
-                    SET expires = ?
-                    WHERE username = ?
-                    "#,
-                )
-                .bind(expires)
-                .bind(username)
-                .execute(pool)
-                .await?;
-            }
-            if let Some(pw) = &ARGS.password {
-                let pw_hash = generate_hash(&pw);
-                sqlx::query(
-                    r#"
-                    UPDATE users
-                    SET password = ?
-                    WHERE username = ?
-                    "#,
-                )
-                .bind(pw_hash)
-                .bind(username)
-                .execute(pool)
-                .await?;
-            }
-
-            Ok(())
-        } else {
-            Err( anyhow!("update user failed - user does not exist"))
-        }
-    } else {
-        Err( anyhow!("update user failed - missing username"))
-    }
-}
-
-async fn remove_user (pool: &SqlitePool) -> Result<()> {
-    if let Some(username) = &ARGS.remove_user {
-        sqlx::query(
-            r#"
-            DELETE FROM users
-            WHERE username = ?
-            "#,
-        )
-        .bind(username)
-        .execute(pool)
-        .await?;
-
-        Ok(())
-    } else {
-        Err( anyhow!("removing user failed - missing username"))
-    }
-}
-
-async fn find_user (pool: &SqlitePool) -> Result<()> {
-    if let Some(username) = &ARGS.find_user {
-        let user: Option<User> = sqlx::query_as(
-            r#"
-            SELECT id, username, email, expires, password
-            FROM users
-            WHERE username = ?
-            "#,
-         )
-        .bind(username)
-        .fetch_optional(pool)
-        .await?;
-
-         if let Some(user) = user {
-            println!("{}", user.to_formatted_string());
-         } else {
-            println!("no matching entry found");
-         }
-
-        Ok(())
-    } else {
-        Err( anyhow!("user lookup failed - missing username"))
-    }
-}
-
-async fn list_all (pool: &SqlitePool) -> Result<()> {
-    let users: Vec<User> = sqlx::query_as(
-        r#"
-        SELECT id, username, email, expires, password
-        FROM users
-        ORDER BY username
-        "#,
-    )
-    .fetch_all(pool)
-    .await?;
-
-    for user in users {
-        println!("{}", user.to_formatted_string());
+    if let Some(name) = &ARGS.add_user {
+        let roles = role_list()?;
+        let expires = ARGS.expires_days.map( |d| now_secs() + (d * 86400) as i64);
+        auth.create_user( name, &roles, expires).await?;
+        println!("added user '{name}' with roles {roles:?}");
+        print_invite( &auth, &server_config, name).await?;
     }
 
+    if let Some(name) = &ARGS.invite { print_invite( &auth, &server_config, name).await?; }
 
+    if let Some(name) = &ARGS.set_roles {
+        let roles = role_list()?;
+        auth.set_roles( name, &roles).await?;
+        println!("set roles of '{name}' to {roles:?}");
+    }
+
+    if let Some(name) = &ARGS.disable { check( auth.store().set_disabled( name, true).await?, name)?; println!("disabled '{name}'"); }
+    if let Some(name) = &ARGS.enable { check( auth.store().set_disabled( name, false).await?, name)?; println!("enabled '{name}'"); }
+    if let Some(name) = &ARGS.revoke { check( auth.store().bump_epoch( name).await?, name)?; println!("revoked all sessions of '{name}'"); }
+    if let Some(name) = &ARGS.remove_user { check( auth.store().remove_user( name).await?, name)?; println!("removed '{name}'"); }
+
+    if let Some(name) = &ARGS.remove_credentials {
+        let user = auth.store().user_by_name( name).await?.ok_or_else( || anyhow!("unknown user '{name}'"))?;
+        let kind = ARGS.kind.as_deref().map( CredentialKind::parse).transpose()?;
+        let n = auth.store().remove_credentials( user.id, kind).await?;
+        auth.store().bump_epoch( name).await?;
+        println!("removed {n} credential(s) of '{name}' and ended its sessions");
+    }
+
+    if let Some(name) = &ARGS.set_password {
+        print!("new password for '{name}' (will be echoed): ");
+        std::io::stdout().flush()?;
+        let mut pw = String::new();
+        std::io::stdin().lock().read_line( &mut pw)?;
+        auth.set_password( name, pw.trim_end_matches(['\n','\r'])).await?;
+        println!("password set");
+    }
+
+    if ARGS.list { list_users( &auth).await?; }
     Ok(())
 }
 
-async fn write_db (pool: &SqlitePool) -> Result<()> {
-    if let Some(path) = &ARGS.write_to {
-        let mut file = File::create( path)?;
-
-        write!( file, "-- SQLite Database Backup\n");
-        write!( file, "-- Generated at: {}\n\n", chrono::Utc::now());
-
-        let schema: Vec<(String,)> = sqlx::query_as(
-            r#"
-            SELECT sql FROM sqlite_master
-            WHERE type='table' AND name='users'
-            "#,
-        )
-        .fetch_all(pool)
-        .await?;
-
-        for (create_sql,) in schema {
-            write!( file, "{};\n\n", create_sql);
-        }
-
-        let rows: Vec<(i64, String, String, i64, String)> = sqlx::query_as(
-            r#"
-            SELECT id, username, email, expires, password
-            FROM users
-            ORDER BY id
-            "#,
-        )
-        .fetch_all(pool)
-        .await?;
-
-        if !rows.is_empty() {
-            write!( file, "-- Insert data\n");
-            write!( file, "INSERT INTO users (id, username, email, expires, password) VALUES\n");
-            let mut i = rows.len();
-            for (id, username, email, expires, password) in rows {
-                write!( file,
-                    "    ({}, '{}', '{}', '{}', '{}')",
-                    id,
-                    username.replace("'", "''"),  // Escape single quotes
-                    email.replace("'", "''"),
-                    expires,
-                    password
-                );
-                i -= 1;
-                if i == 0 { write!(file, ";\n"); } else { write!(file, ",\n"); }
-            }
-        }
-
-        Ok(())
-    } else {
-        Err( anyhow!("no filename for storing SQL"))
-    }
+fn role_list ()->Result<Vec<String>> {
+    let roles = ARGS.roles.as_ref().ok_or_else( || anyhow!("missing --roles"))?;
+    Ok( roles.split(',').map( |s| s.trim().to_string()).filter( |s| !s.is_empty()).collect())
 }
 
-async fn read_db (pool: &SqlitePool) -> Result<()> {
-    let Some(path) = &ARGS.read_from else { return Err( anyhow!("no SQL filename for restoring database")) };
-    let sql_content = read_to_string(path)?;
+fn check (found: bool, name: &str)->Result<()> {
+    if found { Ok(()) } else { Err( anyhow!("unknown user '{name}'")) }
+}
 
-    sqlx::query( sqlx::AssertSqlSafe(sql_content))
-        .execute(pool)
-        .await?;
+async fn print_invite (auth: &Authenticator, config: &ServerConfig, name: &str)->Result<()> {
+    let (token, expires) = auth.create_invite( name).await?;
+    let base = ARGS.url.clone().unwrap_or_else( || base_url( config));
+    let app = ARGS.app.as_deref().unwrap_or("<app>");
+    println!("enrollment URL for '{name}' (valid until {}):", fmt_time( expires));
+    println!("  {base}/{app}/auth/enroll?token={token}");
+    Ok(())
+}
 
+/// best guess for the URL under which users reach the server
+fn base_url (config: &ServerConfig)->String {
+    let proto = if config.tls.is_some() { "https" } else { "http" };
+    let ip = config.sock_addr.ip();
+    let rp_id = config.auth.as_ref().map( |a| a.rp_id.as_str()).unwrap_or("localhost");
+    let host = if ip.is_loopback() { "localhost".to_string() }
+        else if rp_id != "localhost" { rp_id.to_string() }
+        else if ip.is_unspecified() { "<host>".to_string() } // bound to all interfaces - use --url
+        else { ip.to_string() };
+    format!("{proto}://{host}:{}", config.sock_addr.port())
+}
+
+fn fmt_time (epoch_secs: i64)->String {
+    chrono::DateTime::from_timestamp( epoch_secs, 0).map( |d| d.format("%Y-%m-%d %H:%M UTC").to_string()).unwrap_or_else( || epoch_secs.to_string())
+}
+
+async fn list_users (auth: &Authenticator)->Result<()> {
+    let now = now_secs();
+    let users = auth.store().users().await?;
+    println!("{:<20} {:<24} {:<8} {:<20} {:<26} {}", "user", "roles", "status", "expires", "credentials", "sessions");
+    for u in users {
+        let status = if u.disabled { "disabled" } else if !u.is_active( now) { "expired" } else { "active" };
+        let expires = u.expires.map( fmt_time).unwrap_or_else( || "-".into());
+        let creds = auth.store().credentials( u.id, None).await?;
+        let cred_list: Vec<String> = creds.iter().map( |c| c.label.clone().unwrap_or_else( || c.kind.as_str().to_string())).collect();
+        let sessions = auth.store().user_sessions( u.id).await?.iter().filter( |s| s.expires > now && s.epoch == u.epoch).count();
+        println!("{:<20} {:<24} {:<8} {:<20} {:<26} {}", u.name, u.roles, status, expires, cred_list.join(","), sessions);
+    }
     Ok(())
 }

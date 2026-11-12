@@ -122,7 +122,8 @@ pub async fn run_wms_server (config_path: String) -> Result<()> {
     let srv_config: ServerConfig = ServerConfig {
         sock_addr: config.sock_addr.clone(),
         tls: config.tls.clone(),
-        heartbeat_interval: None
+        heartbeat_interval: None,
+        auth: None
     };
 
     let cache_dir = Arc::new(CACHE_DIR.join( "wms"));
@@ -161,7 +162,8 @@ pub async fn run_server (config_path: String) -> Result<()> {
     let srv_config: ServerConfig = ServerConfig {
         sock_addr: config.sock_addr.clone(),
         tls: config.tls.clone(),
-        heartbeat_interval: None
+        heartbeat_interval: None,
+        auth: None
     };
 
     let cache_dir = Arc::new(CACHE_DIR.clone());

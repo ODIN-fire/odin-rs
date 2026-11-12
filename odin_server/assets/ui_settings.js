@@ -13,6 +13,7 @@
  */
 import * as ui from "./ui.js";
 import * as dialogs from "./ui_dialogs.js";
+import * as auth from "./auth.js";
 import {config} from "./ui_settings_config.js";
 
 //--- theme/settings UI
@@ -54,7 +55,20 @@ function createIcon() {
 }
 
 function createWindow() {
+    let components = [];
+    if (ui.isAuthenticationEnabled()) { // user info and session/credential functions
+        components.push(
+            ui.RowContainer()(
+                ui.VarText( userText(), "settings.user", "15rem"),
+                ui.Button("Add Credential", () => auth.addCredential()),
+                ui.Button("Logout", () => auth.logout())
+            )
+        );
+        ui.registerUserChangeHandler( () => ui.setVarText( "settings.user", userText()));
+    }
+
     return ui.Window("UI Settings", "settings", "./asset/odin_server/settings.svg")(
+        ...components,
         ui.RowContainer()(
             ui.Choice("theme", "settings.theme", selectTheme),
             ui.Button("Edit", editTheme),
@@ -70,6 +84,11 @@ function createWindow() {
             )
         )
     );
+}
+
+function userText() {
+    let name = ui.getUserName();
+    return name ? `user: ${name} [${ui.getUserRoles().join(", ")}]` : "not logged in";
 }
 
 function getThemeCss() {

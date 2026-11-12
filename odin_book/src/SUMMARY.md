@@ -41,6 +41,7 @@
     - [odin_server](odin_server/odin_server.md)
         - [Server/Client Interaction](odin_server/client.md)
         - [Web Client UI Library](odin_server/ui_library.md)
+        - [Authentication and Authorization](odin_server/auth.md)
     - [odin_cesium](odin_cesium/odin_cesium.md)
     - [odin_share](odin_share/odin_share.md)
     - [odin_dem](odin_dem/odin_dem.md)

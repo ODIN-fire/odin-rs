@@ -54,6 +54,7 @@ use odin_macro::define_struct;
 use odin_actor::prelude::*;
 
 use crate::{load_asset, asset_uri, self_crate, get_asset_response, spawn_server_task, ServerConfig, WsMsg, WsMsgParts, ws_service};
+use crate::auth::{self, ServerAuth, ConnUser, MsgAcl, RoleSet, Revalidation, is_authorized};
 use crate::errors::{connect_error, init_error, op_failed, OdinServerError, OdinServerResult};
 
 const HEARTBEAT_TIMER_ID: i64 = 1;
@@ -111,6 +112,15 @@ pub trait SpaService: Send + Sync + 'static {
         hself: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr, ws_msg_parts: &WsMsgParts
     ) -> OdinServerResult<WsMsgReaction> {
         Ok( WsMsgReaction::None )
+    }
+
+    /// role requirements for incoming websocket messages of this service as `(key, role-names)` pairs. Keys are
+    /// `"<mod_path>:<msg_type>"` or `"<mod_path>"` (all message types of a JS module). Messages from users without
+    /// any of the required roles are not passed to [`Self::handle_ws_msg`]. This is only used if the server has
+    /// authentication enabled. Defaults can be overridden by the `ws_msg_roles` field of the server's `AuthConfig`.
+    /// Role names have to be configured (or the key overridden) - otherwise the server refuses to start
+    fn ws_msg_roles (&self)->Vec<(String,Vec<String>)> {
+        Vec::new()
     }
 
     /// called when a connection is dropped by the client. Use to clean up SpaService instances that have to keep track of connections
@@ -214,7 +224,8 @@ impl SpaServiceList {
 #[derive(Clone)]
 pub struct SpaServerState {
     pub name: Arc<String>,
-    pub hself: ActorHandle<SpaServerMsg>
+    pub hself: ActorHandle<SpaServerMsg>,
+    pub auth: Option<Arc<ServerAuth>>, // None if the server does not use authentication
 }
 
 macro_rules! proxy_handler {
@@ -235,7 +246,10 @@ pub struct SpaServer {
 
     connections: HashMap<SocketAddr,WsConnection>, // updated when receiving an AddConnection actor message
     server_task: Option<JoinHandle<()>>, // for the server task itself, initialized upon _Start_
-    heartbeat_timer: Option<AbortHandle>
+    heartbeat_timer: Option<AbortHandle>,
+
+    auth: Option<Arc<ServerAuth>>, // set in start_server() if the config has an `auth` section
+    ws_acl: MsgAcl, // role requirements for incoming websocket messages (empty if no auth)
 }
 
 impl SpaServer {
@@ -247,7 +261,20 @@ impl SpaServer {
             services: service_list.services,
             connections: HashMap::new(),
             server_task: None,
-            heartbeat_timer: None
+            heartbeat_timer: None,
+            auth: None,
+            ws_acl: MsgAcl::new(),
+        }
+    }
+
+    /// the URL of the application document. If passkeys are used with `localhost` as WebAuthn relying party this
+    /// uses `localhost` instead of a loopback IP address (passkeys do not work with IP addresses)
+    pub fn doc_url (&self)->String {
+        let proto = if self.config.tls.is_some() {"https"} else {"http"};
+        match &self.config.auth {
+            Some(auth) if auth.rp_id == "localhost" && self.config.sock_addr.ip().is_loopback() =>
+                format!("{proto}://localhost:{}/{}", self.config.sock_addr.port(), self.name),
+            _ => format!("{}/{}", self.config.url(), self.name)
         }
     }
 
@@ -260,8 +287,16 @@ impl SpaServer {
     }
 
     /// called when receiving _Start_ message
-    fn start_server (&mut self, hself: ActorHandle<SpaServerMsg>)->OdinServerResult<()> {
+    async fn start_server (&mut self, hself: ActorHandle<SpaServerMsg>)->OdinServerResult<()> {
         if self.server_task.is_none() {
+            if let Some(auth_config) = &self.config.auth {
+                let auth = ServerAuth::new( &self.config, auth_config).await?;
+                let defaults: Vec<(String,Vec<String>)> = self.services.iter().flat_map( |s| s.service.ws_msg_roles()).collect();
+                self.ws_acl = auth.ws_msg_acl( &defaults)?;
+                println!("user authentication enabled ({:?})", auth.config().methods);
+                self.auth = Some( Arc::new( auth));
+            }
+
             if cfg!(feature="trace_server") {
                 // note this only succeeds if there is no global subscriber set yet
                 tracing_subscriber::fmt()
@@ -270,7 +305,7 @@ impl SpaServer {
                     .try_init();
             }
 
-            println!("serving SPA on {}/{}", self.config.url(), self.name);
+            println!("serving SPA on {}", self.doc_url());
             let router = self.build_router( &hself)?;
             self.server_task = Some(spawn_server_task( &self.config, router));
 
@@ -287,7 +322,7 @@ impl SpaServer {
     }
 
     fn open (&self) {
-        let url = format!("{}/{}", self.config.url(), self.name);
+        let url = self.doc_url();
         println!("opening default browser on {}", url);
         open::that( url);
     }
@@ -295,42 +330,69 @@ impl SpaServer {
     fn build_router (&self, hself: &ActorHandle<SpaServerMsg>)->OdinServerResult<Router> {
         let comps = SpaComponents::from_svcs( self.name.clone(), &self.services)?;
         let doc = Arc::new(comps.to_html( &self.name));
-        let assets = comps.assets;
+        let assets = comps.assets.clone();
 
-        let mut router = Router::new()
-            //--- the document route
-            .route( &format!("/{}", self.name), get({
-                let doc = doc.clone();
-                move |req: Request| { Self::doc_handler( req, doc) }
-            }));
+        let spa_server_state = SpaServerState { // note this is immutable state
+            name: Arc::new( self.name.clone()),
+            hself: hself.clone(),
+            auth: self.auth.clone(),
+        };
 
-        // add service specific routes
-        if !comps.routes.is_empty() {
-            let spa_server_state = SpaServerState { // note this is immutable state
-                name: Arc::new( self.name.clone()),
-                hself: hself.clone(),
-            };
-            for rf in comps.routes {
-                router = rf(router, spa_server_state.clone());
+        //--- the document route
+        let doc_path = format!("/{}", self.name);
+        let mut router = if let Some(auth) = &self.auth {
+            // without a valid session we serve a login document that preloads our assets
+            let login_doc = Arc::new( comps.to_auth_html( &self.name, "login", &auth.client_config()));
+            let auth = auth.clone();
+            Router::new().route( &doc_path, get( move |headers: HeaderMap| { Self::auth_doc_handler( headers, doc, login_doc, auth) }))
+        } else {
+            Router::new().route( &doc_path, get( move |req: Request| { Self::doc_handler( req, doc) }))
+        };
+
+        //--- authentication routes (login, enrollment, logout, user info)
+        if let Some(auth) = &self.auth {
+            let enroll_doc = Arc::new( comps.to_auth_html( &self.name, "enroll", &auth.client_config()));
+            router = router.route( &format!("/{}/auth/enroll", self.name), get( move || { Self::html_response( enroll_doc) }));
+
+            let hself = hself.clone();
+            let on_logout: auth::LogoutHook = Arc::new( move |session| { let _ = hself.try_send_msg( CloseSessionConnections{ session }); });
+            router = router.nest( &format!("/{}/auth", self.name), auth::auth_router( auth.clone(), on_logout));
+        }
+
+        //--- service specific routes
+        for rf in comps.routes {
+            router = rf(router, spa_server_state.clone());
+        }
+
+        //--- explicitly protected service routes (unprotected if there is no auth)
+        for (key, default_roles, rf) in comps.protected_routes {
+            if let Some(auth) = &self.auth {
+                let required = auth.route_roles( &key, &default_roles)?;
+                let protected = auth::protect( rf( Router::new(), spa_server_state.clone()), auth.clone(), required);
+                router = router.merge( protected);
+            } else {
+                router = rf( router, spa_server_state.clone());
             }
         }
 
-        // create the http_client once
+        //--- proxies (require an authenticated session unless disabled by config so that we are not an open proxy)
         let http_client = self.create_cached_client();
         let proxies = Arc::new(comps.proxies);  // used in mutiple handlers so we have to make it shareable
         let proxy_url = format!("/{}/proxy/{{*unmatched}}", self.name);
-
-        // now add the generic routes for proxies and assets
-        router = router
+        let proxy_router = Router::new()
             .route( &proxy_url, options( proxy_handler!( http_client, proxies)))
             .route( &proxy_url, head( proxy_handler!( http_client, proxies)))
-            .route( &proxy_url, get( proxy_handler!( http_client, proxies)))
+            .route( &proxy_url, get( proxy_handler!( http_client, proxies)));
             // TODO shall we also support POST ?
+        router = match &self.auth {
+            Some(auth) if auth.config().protect_proxies => router.merge( auth::protect( proxy_router, auth.clone(), RoleSet::NONE)),
+            _ => router.merge( proxy_router)
+        };
 
-            // 'key' is the owning crate
-            .route( &format!("/{}/asset/{{key}}/{{*unmatched}}", self.name), get({
-                move |uri_elems: AxumPath<(String,String)>, req: Request| { Self::asset_handler(uri_elems, req, assets)}
-            }));
+        //--- assets (always public - they must not contain sensitive data). 'key' is the owning crate
+        router = router.route( &format!("/{}/asset/{{key}}/{{*unmatched}}", self.name), get({
+            move |uri_elems: AxumPath<(String,String)>, req: Request| { Self::asset_handler(uri_elems, req, assets)}
+        }));
 
         // note this won't do anything unless there also is a tracing subscriber set somewhere
         if cfg!(feature="trace_server") {
@@ -352,6 +414,24 @@ impl SpaServer {
 
     async fn doc_handler (req: Request, doc: Arc<String>) -> Response {
         (StatusCode::OK, Body::from(doc.to_string())).into_response()
+    }
+
+    /// document handler for servers with authentication - serve the application document if the request has a valid
+    /// session, otherwise the login document
+    async fn auth_doc_handler (headers: HeaderMap, doc: Arc<String>, login_doc: Arc<String>, auth: Arc<ServerAuth>) -> Response {
+        match auth.request_user( &headers).await {
+            Some(user) => {
+                // embed the user so that ui.js can provide synchronous isUserAuthorized(role) checks during module init
+                let info = serde_json::json!({ "name": user.name.as_ref(), "roles": auth.role_map().names_of( user.roles) });
+                let script = format!("<head>\n<script>window.odinUser={};</script>", info.to_string().replace('<', "\\u003c"));
+                Self::html_response( Arc::new( doc.replacen( "<head>", &script, 1))).await
+            }
+            None => Self::html_response( login_doc).await
+        }
+    }
+
+    async fn html_response (doc: Arc<String>) -> Response {
+        ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], doc.to_string()).into_response()
     }
 
     async fn proxy_handler (path: AxumPath<String>, query: RawQuery, req: Request,
@@ -392,7 +472,17 @@ impl SpaServer {
             let filename = path.as_str();
             match lookup_fn( filename) {
                 Ok(bytes) => {
-                    get_asset_response( filename, bytes)
+                    // assets are revalidated with ETags so that browsers can use cached copies (e.g. preloaded by the
+                    // login document) without serving stale assets during development
+                    let etag = asset_etag( &bytes);
+                    if req.headers().get( header::IF_NONE_MATCH).map( |v| v.as_bytes() == etag.as_bytes()).unwrap_or(false) {
+                        return (StatusCode::NOT_MODIFIED, [(header::ETAG, etag), (header::CACHE_CONTROL, "no-cache".to_string())]).into_response()
+                    }
+                    let mut response = get_asset_response( filename, bytes);
+                    let hdrs = response.headers_mut();
+                    if let Ok(v) = header::HeaderValue::from_str( &etag) { hdrs.insert( header::ETAG, v); }
+                    hdrs.insert( header::CACHE_CONTROL, header::HeaderValue::from_static("no-cache"));
+                    response
                 }
                 Err(e) => {
                     // TODO - this has to discriminate between not found and extraction error
@@ -406,7 +496,7 @@ impl SpaServer {
 
     /// called when receiving AddConnection message
     /// note that we shouldn't block in an await for sending to ourselves
-    async fn add_connection(&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr, ws: WebSocket)->OdinServerResult<()> {
+    async fn add_connection(&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr, ws: WebSocket, user: Option<Arc<ConnUser>>)->OdinServerResult<()> {
         let raddr = remote_addr.clone();
         let name = raddr.to_string();
         let (mut ws_sender, mut ws_receiver) = ws.split();
@@ -431,9 +521,10 @@ impl SpaServer {
             })?
         };
 
-        let conn = WsConnection { remote_addr, ws_sender, ws_receiver_task };
+        let user_name = user.as_ref().map( |u| format!(" user '{}'", u.name)).unwrap_or_default();
+        let conn = WsConnection { remote_addr, ws_sender, ws_receiver_task, user };
         self.connections.insert( raddr, conn);
-        println!("connection added: {remote_addr:?} ({})", self.connections.len());
+        println!("connection added: {remote_addr:?}{user_name} ({})", self.connections.len());
 
         let conn_ref = self.connections.get_mut( &raddr).unwrap();
 
@@ -456,6 +547,10 @@ impl SpaServer {
     }
 
     async fn check_connections (&mut self, hself: ActorHandle<SpaServerMsg>)->OdinServerResult<()> {
+        if let Some(auth) = self.auth.clone() {
+            self.revalidate_connections( hself.clone(), &auth).await?;
+        }
+
         if !self.connections.is_empty() {
             let msg = Message::text( format!("__ping__ {}", epoch_millis())); // note this is not JSON
 
@@ -464,6 +559,56 @@ impl SpaServer {
                     error!("failed to send ping to {:?}: {}", conn.remote_addr, e);
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// close connections with expired or revoked sessions and update roles of connections whose user roles have
+    /// changed (notifying the client with a `__system__` message)
+    async fn revalidate_connections (&mut self, hself: ActorHandle<SpaServerMsg>, auth: &ServerAuth)->OdinServerResult<()> {
+        auth.refresh().await;
+
+        let mut invalid: Vec<SocketAddr> = Vec::new();
+        for conn in self.connections.values_mut() {
+            if let Some(user) = &conn.user {
+                match auth.revalidate( user) {
+                    Revalidation::Valid => {}
+                    Revalidation::RolesChanged(roles) => {
+                        conn.user = Some( Arc::new( ConnUser{ roles, ..(**user).clone() }));
+                        let roles: Vec<&str> = auth.role_map().names_of( roles);
+                        let msg = serde_json::json!({ "mod": "__system__", "userChanged": { "roles": roles } }).to_string();
+                        let _ = conn.ws_sender.send( Message::text( msg)).await;
+                    }
+                    Revalidation::Invalid => invalid.push( conn.remote_addr)
+                }
+            }
+        }
+        for remote_addr in invalid {
+            println!("closing connection {remote_addr:?} (session expired or revoked)");
+            self.close_connection( hself.clone(), remote_addr).await?;
+        }
+        Ok(())
+    }
+
+    /// close all connections of a (logged out) session
+    async fn close_session_connections (&mut self, hself: ActorHandle<SpaServerMsg>, session: Arc<str>)->OdinServerResult<()> {
+        let addrs: Vec<SocketAddr> = self.connections.values()
+            .filter( |c| c.user.as_ref().map( |u| u.session == session).unwrap_or(false))
+            .map( |c| c.remote_addr).collect();
+        for remote_addr in addrs {
+            println!("closing connection {remote_addr:?} (logout)");
+            self.close_connection( hself.clone(), remote_addr).await?;
+        }
+        Ok(())
+    }
+
+    /// server initiated close of a websocket connection
+    async fn close_connection (&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr)->OdinServerResult<()> {
+        if let Some(conn) = self.connections.get_mut( &remote_addr) {
+            let _ = conn.ws_sender.send( Message::Close(None)).await;
+            let _ = conn.ws_sender.close().await;
+            conn.ws_receiver_task.abort(); // otherwise it would send a RemoveWsConnection
+            self.remove_connection( hself, remote_addr).await?;
         }
         Ok(())
     }
@@ -493,6 +638,17 @@ impl SpaServer {
                 }
 
             } else { // this is a service specific application message - dispatch to each service to see if they want to process it
+                // check message authorization first (ws_acl is empty if the server does not use authentication)
+                if !self.ws_acl.is_empty() {
+                    if let Some(required) = self.ws_acl.required( ws_msg_parts.mod_path, ws_msg_parts.msg_type) {
+                        let user = self.connections.get( &remote_addr).and_then( |c| c.user.clone());
+                        if !is_authorized( user.as_deref(), required) {
+                            let msg = serde_json::json!({ "mod": "__system__", "denied": { "mod": ws_msg_parts.mod_path, "msgType": ws_msg_parts.msg_type } }).to_string();
+                            return self.send_ws_msg( remote_addr, msg).await;
+                        }
+                    }
+                }
+
                 // this is ugly - we have to sequentialize the service loop and the response processing so that we don't keep the mutable self borrow open,
                 // which would prohibit to call broadcast_/send_ws_msg(&mut self,...). The nested loops are just a way to avoid heap allocating the results
                 let mut i = 0;
@@ -601,6 +757,14 @@ impl SpaServer {
 }
 
 
+/// content based (weak) entity tag for asset data
+fn asset_etag (bytes: &[u8])->String {
+    use std::hash::{DefaultHasher, Hasher};
+    let mut hasher = DefaultHasher::new();
+    hasher.write( bytes);
+    format!("W/\"{:016x}-{}\"", hasher.finish(), bytes.len())
+}
+
 /* #region actor *********************************************************************************************/
 
 
@@ -651,14 +815,21 @@ pub struct SendWsMsg {
 #[derive(Debug)]
 pub struct Open {}
 
+/// close all websocket connections of a session (e.g. after logout)
+#[derive(Debug,Clone)]
+pub struct CloseSessionConnections {
+    pub session: Arc<str>, // the session id (see `ConnUser::session`)
+}
+
 define_actor_msg_set! { pub SpaServerMsg =
-     AddWsConnection | DataAvailable | DispatchIncomingWsMsg | BroadcastWsMsg | SendAllOthersWsMsg | SendGroupWsMsg | SendWsMsg | RemoveWsConnection | Open
+     AddWsConnection | DataAvailable | DispatchIncomingWsMsg | BroadcastWsMsg | SendAllOthersWsMsg | SendGroupWsMsg | SendWsMsg | RemoveWsConnection | Open |
+     CloseSessionConnections
 }
 
 impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
     _Start_ => cont! {
         let hself = self.hself.clone();
-        if let Err(e) = self.start_server( hself) {
+        if let Err(e) = self.start_server( hself).await {
             error!("failed to start server: {e:?}");
         }
     }
@@ -675,7 +846,7 @@ impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
     }
     AddWsConnection => cont! {
         let hself = self.hself.clone();
-        if let Err(e) = self.add_connection( hself, actor_msg.remote_addr, actor_msg.ws).await {
+        if let Err(e) = self.add_connection( hself, actor_msg.remote_addr, actor_msg.ws, actor_msg.user).await {
             error!("failed to add connection to {:?}: {:?}", actor_msg.remote_addr, e);
         }
     }
@@ -715,6 +886,12 @@ impl_actor! { match actor_msg for Actor<SpaServer,SpaServerMsg> as
         let hself = self.hself.clone();
         if let Err(e) = self.remove_connection( hself, actor_msg.remote_addr).await {
             error!("failed to remove connection to {:?}: {:?}", actor_msg.remote_addr, e);
+        }
+    }
+    CloseSessionConnections => cont! {
+        let hself = self.hself.clone();
+        if let Err(e) = self.close_session_connections( hself, actor_msg.session).await {
+            error!("failed to close session connections: {e:?}");
         }
     }
     _Terminate_ => stop! {
@@ -762,6 +939,9 @@ define_struct! { pub SpaComponents =
 
     // service specific routes
     routes: Vec<Box<dyn FnOnce(Router,SpaServerState)->Router + 'static>> = Vec::new(),
+
+    // explicitly protected service routes: (key, default roles, route function)
+    protected_routes: Vec<(String, Vec<String>, Box<dyn FnOnce(Router,SpaServerState)->Router + 'static>)> = Vec::new(),
 
     // the URIs we proxy. The key is the symbolic name for the proxied server, the value is the remote URI prefix to use
     proxies: HashMap<String,ProxySpec> = HashMap::new(), // symbolic-name -> ProxySpec
@@ -885,6 +1065,15 @@ impl SpaComponents {
         self.routes.push( Box::new(rf));
     }
 
+    /// add routes that require an authenticated user with any of the given `default_roles` (any authenticated user
+    /// if empty) when the server uses authentication. `key` identifies the routes in the `route_roles` map of the
+    /// server's `AuthConfig`, which can override the default roles. The route function receives an empty router and
+    /// should only add the routes that are protected. If the server does not use authentication this is the same as
+    /// [`Self::add_route`]. Handlers of protected routes can obtain the user with `Extension<Arc<ConnUser>>`
+    pub fn add_protected_route (&mut self, key: impl ToString, default_roles: &[&str], rf: impl FnOnce(Router,SpaServerState)->Router + 'static) {
+        self.protected_routes.push( (key.to_string(), default_roles.iter().map( |r| r.to_string()).collect(), Box::new(rf)));
+    }
+
     pub fn add_assets (&mut self, key: &'static str, load_asset_fn: LoadAssetFp) {
         self.assets.insert( key, load_asset_fn);
     }
@@ -949,6 +1138,36 @@ impl SpaComponents {
         write!( buf, "</body>\n");
         write!( buf, "</html>\n");
 
+        buf
+    }
+
+    /// render a document for authentication (`kind` is "login" or "enroll"). This only executes the theme and the
+    /// `odin_server/auth.js` module (which uses `ui.js` and `ui_dialogs.js`). All other local assets of the application
+    /// document are preloaded so that the application document loads faster after authentication. Proxied resources
+    /// are not preloaded since they require authentication. `client_cfg` is passed to the `auth.<kind>()` function
+    pub fn to_auth_html (&self, name: &str, kind: &str, client_cfg: &serde_json::Value)->String {
+        let mut buf = String::with_capacity(4096);
+        let is_local = |uri: &str| uri.starts_with("./asset/");
+
+        write!( buf, "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n");
+        write!( buf, "<title>{name}</title>\n");
+        write!( buf, "<base href=\"/{name}/\">\n"); // absolute since we are also served from /<name>/auth/enroll
+        write!( buf, "<link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"./asset/odin_server/odin-icon-32x32.png\">\n");
+
+        for item in &self.header_items {
+            match item {
+                HeaderItem::Css(uri) if is_local(uri) => write!( buf, "<link rel=\"stylesheet\" type=\"text/css\" href=\"{uri}\"/>\n"),
+                HeaderItem::Script(uri) if uri.ends_with("/ui_load_theme.js") => write!( buf, "<script src=\"{uri}\"></script>\n"),
+                HeaderItem::Script(uri) if is_local(uri) => write!( buf, "<link rel=\"preload\" as=\"script\" href=\"{uri}\">\n"),
+                HeaderItem::Module(uri) if is_local(uri) => write!( buf, "<link rel=\"modulepreload\" href=\"{uri}\">\n"),
+                _ => Ok(())
+            };
+        }
+        write!( buf, "</head>\n<body>\n");
+        write!( buf, "<script type=\"module\">\n");
+        write!( buf, "import * as auth from '/{name}/asset/odin_server/auth.js';\n");
+        write!( buf, "auth.{kind}({});\n", client_cfg);
+        write!( buf, "</script>\n</body>\n</html>\n");
         buf
     }
 

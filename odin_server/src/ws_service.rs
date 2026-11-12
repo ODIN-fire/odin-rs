@@ -13,9 +13,10 @@
  */
 #![allow(unused)]
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade, CloseFrame},
+    http::{HeaderMap, StatusCode},
     response::{Response,IntoResponse},
     routing::{Router,get},
     extract::connect_info::ConnectInfo
@@ -24,7 +25,8 @@ use futures::{sink::SinkExt, stream::StreamExt};
 use regex::Match;
 
 use crate::{
-    asset_uri, load_asset, self_crate, spa::{AddWsConnection, SpaComponents, SpaServerState, SpaService}, OdinServerResult
+    asset_uri, load_asset, self_crate, spa::{AddWsConnection, SpaComponents, SpaServerState, SpaService}, OdinServerResult,
+    auth::ConnUser
 };
 
 /// a SpaService that adds a shared websocket for all services that register for it
@@ -45,7 +47,7 @@ impl SpaService for WsService {
         spa.add_route( |router, spa_server_state| {
             router.route( &format!("/{}/ws", spa_server_state.name.as_str()), get( {
                 let state = spa_server_state.clone();
-                move |ws: WebSocketUpgrade, ci: ConnectInfo<SocketAddr>| { ws_handler(ws, ci, state) }
+                move |ws: WebSocketUpgrade, ci: ConnectInfo<SocketAddr>, headers: HeaderMap| { ws_handler(ws, ci, headers, state) }
             }))
         });
 
@@ -53,12 +55,26 @@ impl SpaService for WsService {
     }
 }
 
-async fn ws_handler (ws: WebSocketUpgrade, ConnectInfo(addr): ConnectInfo<SocketAddr>, sss: SpaServerState)->Response {
-    ws.on_upgrade( move |socket| handle_socket(socket, addr, sss)).into_response()
+/// the websocket upgrade handler. If the server uses authentication this requires a same-origin request with a
+/// valid session (cookie), the authenticated user is then passed on to the SpaServer with the new connection
+async fn ws_handler (ws: WebSocketUpgrade, ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap, sss: SpaServerState)->Response {
+    let user = match &sss.auth {
+        Some(auth) => {
+            if !crate::auth::is_same_origin( &headers) {
+                return (StatusCode::FORBIDDEN, "cross origin websocket request").into_response()
+            }
+            match auth.request_user( &headers).await {
+                Some(user) => Some(user),
+                None => return (StatusCode::UNAUTHORIZED, "not authenticated").into_response()
+            }
+        }
+        None => None
+    };
+    ws.on_upgrade( move |socket| handle_socket(socket, addr, user, sss)).into_response()
 }
 
-async fn handle_socket(mut ws: WebSocket, remote_addr: SocketAddr, sss: SpaServerState) {
-    sss.hself.send_msg( AddWsConnection{remote_addr,ws}).await;
+async fn handle_socket(mut ws: WebSocket, remote_addr: SocketAddr, user: Option<Arc<ConnUser>>, sss: SpaServerState) {
+    sss.hself.send_msg( AddWsConnection{remote_addr,ws,user}).await;
 }
 
 /* #region WsMsg serialization  *******************************************************************************/

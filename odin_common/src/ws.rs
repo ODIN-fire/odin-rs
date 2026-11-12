@@ -29,7 +29,7 @@ use tokio_tungstenite::{
 };
 use axum::extract::ws::{WebSocket,Message as AxMessage};
 use kanal::AsyncReceiver; // TODO - should we make this abstract?
-use crate::{datetime::secs, net::OdinNetError};
+use crate::{datetime::secs, net::OdinNetError, auth::ConnUser};
 
 pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -37,7 +37,8 @@ pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 pub struct WsConnection {
     pub remote_addr: SocketAddr,
     pub ws_sender: SplitSink<WebSocket,AxMessage>, // used to send through the websocket
-    pub ws_receiver_task: JoinHandle<()> // the task that (async) reads from the websocket
+    pub ws_receiver_task: JoinHandle<()>, // the task that (async) reads from the websocket
+    pub user: Option<Arc<ConnUser>>, // authenticated user (None if the server does not use authentication)
 }
 
 impl WsConnection {
@@ -45,13 +46,24 @@ impl WsConnection {
     pub async fn send (&mut self, msg: String)->Result<(),OdinNetError> {
         self.ws_sender.send( AxMessage::text(msg)).await.map_err(|e| OdinNetError::WsError( e.to_string()))
     }
+
+    /// name of the authenticated user (None if the server does not use authentication)
+    pub fn user_name (&self)->Option<&str> {
+        self.user.as_ref().map( |u| u.name.as_ref())
+    }
+
+    /// is this connection authorized for `required` roles (always true if the server does not use authentication)
+    pub fn is_authorized (&self, required: crate::auth::RoleSet)->bool {
+        crate::auth::is_authorized( self.user.as_deref(), required)
+    }
 }
 
 /// message type to process new connections
 #[derive(Debug)]
 pub struct AddWsConnection {
     pub remote_addr: SocketAddr,
-    pub ws: WebSocket
+    pub ws: WebSocket,
+    pub user: Option<Arc<ConnUser>>, // authenticated user of the websocket upgrade request (None if no authentication)
 }
 
 /// message type to remove connections

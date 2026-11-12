@@ -133,6 +133,23 @@ impl SpaService for GoesrService {
 ```
 
 
+#### Assets are public - they must not contain sensitive data
+
+All `asset/...` resources (JS modules, CSS, images, static config modules such as `odin_goesr_config.js`) are served
+without authentication, even if the server uses [user authentication](auth.md). The login document of such servers
+*preloads* all local assets of the application document (`<link rel="modulepreload">` for JS modules, `<link
+rel="preload">` for scripts) so that the application loads faster once the user is authenticated. This means:
+
+- **JS modules and other assets must not contain sensitive data** (credentials, access tokens, non-public
+  locations, personal information etc.). They should only contain code and static, public configuration.
+- Sensitive or user specific data has to be sent through the websocket (which requires an authenticated session) or
+  served from routes that are protected with `SpaComponents::add_protected_route(..)`.
+- Proxied resources (`proxy/...`) require an authenticated session by default (see `protect_proxies` in
+  [auth](auth.md)) and are hence not preloaded.
+
+Asset responses carry an `ETag` and `Cache-Control: no-cache`, i.e. browsers reuse cached (preloaded) assets after a
+cheap revalidation request, and changed assets are picked up on the next document load.
+
 ### 3.2 Client (Browser) Code
 
 Although there is no need for a specific structure or purpose of a JS module the ones implementing UI windows
@@ -478,3 +495,35 @@ register interactove editors for share types such as 'GeoLineString` but this is
 Apart from providing the basic sharing API and types `main.js` can also be used to define document global data through its
 `exportFunctionToMain(f)` and `exportObjectToMain(o)` functions, which make their arguments globally available in the DOM
 as `window.main.<name>`.
+
+
+### 3.4 User Authorization in Client Code
+
+If the server uses [authentication](auth.md) the application document is only served to authenticated users, and the
+server embeds the user name and roles into the document. JS modules can use the following `ui.js` functions to check
+if widgets should be disabled or functions hidden:
+
+```javascript
+import * as ui from "../odin_server/ui.js";
+...
+ui.isUserAuthorized("editor");            // user has role "editor"
+ui.isUserAuthorized(["editor","admin"]);  // user has any of the roles
+ui.isUserAuthorized();                    // there is an authenticated user
+ui.getUserName();                         // name of the user (null if no authentication)
+ui.getUserRoles();                        // array of role names (null if no authentication)
+ui.isAuthenticationEnabled();
+ui.registerUserChangeHandler( (user) => {...}); // roles changed (user is null if the session ended)
+```
+
+All `isUserAuthorized(..)` calls return `true` if the server does not use authentication, i.e. modules do not need
+to distinguish between servers with and without authentication. The functions are synchronous and can be used during
+module initialization (e.g. when creating windows). If an administrator changes the roles of a user the server
+notifies connected clients, and `ui.js` updates its user info and calls registered user change handlers.
+
+**Client side checks are only for the user interface.** Authorization is always enforced by the server, which drops
+incoming websocket messages that require roles the user does not have (see `SpaService::ws_msg_roles()` in
+[auth](auth.md)). Such rejections are reported to the client as an `odin-ws-msg-denied` DOM event:
+
+```javascript
+document.addEventListener("odin-ws-msg-denied", (e) => console.warn("not authorized:", e.detail.mod, e.detail.msgType));
+```

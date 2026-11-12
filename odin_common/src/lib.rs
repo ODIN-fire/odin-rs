@@ -37,6 +37,7 @@ pub mod admin;
 pub mod process;
 pub mod net;
 pub mod ws;
+pub mod auth;
 pub mod uom;
 pub mod json_writer;
 pub mod u8extractor;

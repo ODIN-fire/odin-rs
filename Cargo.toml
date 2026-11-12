@@ -83,6 +83,12 @@ odin_scrub = { version = "*", path = "odin_scrub" }
 axum = { version = "0.8", features = [ "http2", "ws", "macros"] }
 axum-login = { version = "0.18" }
 password-auth = { version = "1.0" }
+webauthn-rs = { version = "0.6.2" }
+webauthn-authenticator-rs = { version = "0.6.2", features = ["softpasskey"] }
+totp-rs = { version = "6.0", features = ["gen_secret", "otpauth", "qr"] }
+getrandom = { version = "0.3" }
+sha2 = { version = "0.10" }
+base64 = { version = "0.22" }
 passwords = { version = "3.1" }
 
 # TODO

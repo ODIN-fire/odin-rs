@@ -50,6 +50,55 @@ export function registerPostLoadFunction(func) {
 
 var themeChangeHandlers = [];
 
+//--- user authorization (only relevant if the server uses authentication)
+// servers with authentication embed the user of the document as `window.odinUser = {name, roles}`, i.e. the info is
+// available synchronously during module initialization. If it is not set the server does not use authentication and
+// everything is authorized. Note these checks are only for the UI (e.g. to disable widgets or hide functions) -
+// authorization is always enforced by the server
+
+var userInfo = window.odinUser || null;
+var userChangeHandlers = [];
+
+document.addEventListener("odin-user-changed", () => refreshUserInfo()); // dispatched by ws.js on server notification
+
+/// is the user authorized for `role` (a role name) or any of the roles if `role` is an array of names. Without
+/// argument this checks if there is an authenticated user. Always true if the server does not use authentication
+export function isUserAuthorized (role=undefined) {
+    if (!userInfo) return true; // no authentication
+    if (role === undefined || role === null) return !!userInfo.name;
+    let roles = Array.isArray(role) ? role : [role];
+    return roles.some( r => userInfo.roles.includes(r));
+}
+
+/// does the server use authentication
+export function isAuthenticationEnabled() { return userInfo != null; }
+
+/// name of the authenticated user (null if the server does not use authentication)
+export function getUserName() { return userInfo ? userInfo.name : null; }
+
+/// role names of the authenticated user (null if the server does not use authentication)
+export function getUserRoles() { return userInfo ? [...userInfo.roles] : null; }
+
+/// handler functions are called with the new user info `{name,roles}` (or null if the session ended)
+export function registerUserChangeHandler (handler) {
+    userChangeHandlers.push(handler);
+}
+
+/// update the user info from the server (`GET auth/user`) and notify user change handlers if it has changed
+export async function refreshUserInfo() {
+    if (!userInfo) return; // no authentication
+    try {
+        let response = await fetch("auth/user", {cache: "no-store"});
+        let newInfo = response.ok ? await response.json() : (response.status == 401 ? {name: null, roles: []} : userInfo);
+        if (JSON.stringify(newInfo.roles) != JSON.stringify(userInfo.roles) || newInfo.name != userInfo.name) {
+            userInfo = {name: newInfo.name, roles: newInfo.roles || []};
+            userChangeHandlers.forEach( h => h(userInfo.name ? userInfo : null));
+        }
+    } catch (e) {
+        console.log("failed to refresh user info: ", e);
+    }
+}
+
 //--- fullScreen support
 
 var isFullScreen = false;

@@ -1,5 +1,13 @@
 ServerConfig(
     sock_addr: "127.0.0.1:9009",
     tls: None,
-    heartbeat_interval: Some( Duration( secs: 60, nanos: 0) ) // check connections every 2min
+    heartbeat_interval: Some( Duration( secs: 60, nanos: 0) ), // check connections every 2min
+
+    // optional user authentication/authorization - see odin_book "Authentication and Authorization" (odin_server/auth.md)
+    // users are managed with the `auth_admin` tool. Without an `auth` section all resources are public
+    //auth: Some( AuthConfig(
+    //    roles: ["viewer", "editor", "admin"],
+    //    methods: [Passkey, Totp],   // passkeys need "localhost" or HTTPS with a DNS name, TOTP works on IP-only LANs
+    //    session_ttl: "12h",
+    //)),
 )

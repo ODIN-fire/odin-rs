@@ -39,6 +39,8 @@ use odin_landfire::{service::LandfireService,LandfireConfig};
 use odin_elmfire::{self,ElmfireRun, ElmfireService, actor::{ElmfireActor,ElmfireActorMsg}};
 use odin_nfdrs::{self, NfdrsActor, NfdrsService};
 use odin_openmeteo::ids::ModelId;
+use odin_common::auth::{AuthConfig, AuthMethod};
+use odin_server::ServerConfig;
 
 
 // note that odin_sentinel, odin_n5 and odin_adsb all require non-public data sources and hence are feature gated
@@ -181,10 +183,34 @@ run_actor_system!( actor_system => {
 
     //--- finally spawn the server actor
     let _hserver = spawn_pre_actor!( actor_system, pre_server, SpaServer::new(
-        odin_server::load_config("spa_server.ron")?,
+        configure_auth( odin_server::load_config("spa_server.ron")?),
         "live",
         svc_list
     ))?;
 
     Ok(())
 });
+
+/// default roles if spa_server.ron does not have an `auth` section
+const DEFAULT_ROLES: &[&str] = &["viewer", "editor", "admin"];
+
+/// user authentication is controlled by the `auth-passkey`, `auth-totp` and `auth-pw` features (default is none, i.e.
+/// public access). The selected methods override the `methods` of the `auth` config section, all other auth settings
+/// (roles, rp_id, session_ttl etc.) are taken from it. If there is no `auth` section we use defaults with DEFAULT_ROLES.
+/// Without any auth feature an `auth` section in spa_server.ron is ignored
+fn configure_auth (mut config: ServerConfig)->ServerConfig {
+    let mut methods: Vec<AuthMethod> = Vec::new();
+    #[cfg(feature="auth-passkey")] methods.push( AuthMethod::Passkey);
+    #[cfg(feature="auth-totp")] methods.push( AuthMethod::Totp);
+    #[cfg(feature="auth-pw")] methods.push( AuthMethod::Password);
+
+    if methods.is_empty() {
+        if config.auth.is_some() { println!("ignoring 'auth' section of spa_server.ron (built without auth-.. feature)"); }
+        config.auth = None;
+    } else {
+        let mut auth = config.auth.take().unwrap_or_else( || AuthConfig::with_roles( DEFAULT_ROLES));
+        auth.methods = methods;
+        config.auth = Some(auth);
+    }
+    config
+}

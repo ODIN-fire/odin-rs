@@ -61,6 +61,15 @@ rules:
 - types before functions - since functions operate on types those should be defined first
 
 
+### tests
+
+We keep tests in their dedicated directory, i.e. in the `tests/` directory of the crate (`<crate>/tests/test_<topic>.rs`),
+not as `#[cfg(test)] mod tests {..}` inside of source modules. This keeps sources small and focused on functionality
+and has the additional benefit that tests can only use the public API of the crate, i.e. they also serve as
+examples of how to use it. Tests that require optional crate features should be gated with `#[cfg(feature="..")]`
+(either for the whole file or for a module/function within it).
+
+
 ### data file name pattern
 
 Many `odin-rs` crates generate files that are stored in the `ODIN_ROOT/data/` or `ODIN_ROOT/cache/` directory trees

@@ -52,6 +52,100 @@ export async function prompt (msg, defaultValue="", title="Input") {
     return (await runDialog( dlg, input)) === "ok" ? input.value : null;
 }
 
+//--- authentication dialogs (used by auth.js). These only collect input - the protocol is implemented by auth.js
+
+const LOGIN_LABELS = { passkey: "Use passkey", totp: "Login with code", password: "Login with password" };
+const ENROLL_LABELS = { passkey: "Passkey", totp: "Authenticator app", password: "Password" };
+
+/// login dialog. `opts.methods` is an array of enabled methods ("passkey", "totp", "password") in order of
+/// preference. Optional `opts.username` (initial user name), `opts.message` and `opts.error` (shown in alert color).
+/// The dialog can't be cancelled. Resolves to `{method, username, secret}` with `secret` being the TOTP code or the
+/// password (undefined for passkeys)
+export async function loginDialog (opts={}) {
+    let methods = (opts.methods && opts.methods.length) ? opts.methods : ["password"];
+    let contents = [];
+    if (opts.message) contents.push( createMessage( opts.message));
+    if (opts.error) contents.push( createError( opts.error));
+
+    let user = createField( "user", "text", opts.username || "", "username webauthn");
+    contents.push( user.row);
+    let code = methods.includes("totp") ? createField( "code", "text", "", "one-time-code", {inputmode: "numeric", maxlength: "8"}) : null;
+    if (code) contents.push( code.row);
+    let pw = methods.includes("password") ? createField( "password", "password", "", "current-password") : null;
+    if (pw) contents.push( pw.row);
+
+    let buttons = methods.map( m => createButton( LOGIN_LABELS[m] || m, m));
+    let dlg = createDialog( opts.title || "Login", contents, buttons);
+    preventCancel( dlg);
+
+    // Enter submits with the method of the respective field
+    user.input.addEventListener("keydown", (e) => { if (e.key == "Enter") dlg.close( methods[0]); });
+    if (code) code.input.addEventListener("keydown", (e) => { if (e.key == "Enter") dlg.close("totp"); });
+    if (pw) pw.input.addEventListener("keydown", (e) => { if (e.key == "Enter") dlg.close("password"); });
+
+    let focus = user.input.value ? (code ? code.input : (pw ? pw.input : buttons[0])) : user.input;
+    let method = await runDialog( dlg, focus);
+    let secret = (method == "totp") ? code.input.value.trim() : (method == "password") ? pw.input.value : undefined;
+    return { method, username: user.input.value.trim(), secret };
+}
+
+/// let the user choose which credential to register. `opts.user` is the user name, `opts.methods` the available
+/// methods. Resolves to the selected method or null if cancelled (only possible if `opts.cancelable` is set)
+export async function enrollDialog (opts={}) {
+    let methods = opts.methods || [];
+    let contents = [ createMessage( opts.message || `register a credential for user '${opts.user}':`) ];
+    if (opts.error) contents.push( createError( opts.error));
+    let buttons = methods.map( m => createButton( ENROLL_LABELS[m] || m, m));
+    if (opts.cancelable) buttons.unshift( createButton("Cancel", "cancel"));
+    let dlg = createDialog( opts.title || "Register Credential", contents, buttons);
+    if (!opts.cancelable) preventCancel( dlg);
+
+    let method = await runDialog( dlg, buttons[ opts.cancelable ? 1 : 0]);
+    return methods.includes( method) ? method : null;
+}
+
+/// show the QR code / key of a new TOTP secret and ask for the first code. `opts.qrPng` is the base64 encoded PNG
+/// of the QR code, `opts.secret` the base32 encoded key. Resolves to the entered code or null if cancelled
+export async function totpSetupDialog (opts={}) {
+    let contents = [ createMessage("scan the QR code with your authenticator app (or enter the key manually), then enter the current code:") ];
+    if (opts.error) contents.push( createError( opts.error));
+    let img = document.createElement("IMG");
+    img.classList.add("ui_dialog_qr");
+    img.src = "data:image/png;base64," + opts.qrPng;
+    img.alt = "TOTP QR code";
+    contents.push( img);
+    let key = document.createElement("DIV");
+    key.classList.add("ui_dialog_code");
+    key.textContent = (opts.secret || "").replace(/(.{4})/g, "$1 ").trim();
+    contents.push( key);
+    let code = createField( "code", "text", "", "one-time-code", {inputmode: "numeric", maxlength: "8"});
+    contents.push( code.row);
+
+    let dlg = createDialog( opts.title || "Authenticator App", contents, [createButton("Cancel", "cancel"), createButton("Verify", "ok")]);
+    code.input.addEventListener("keydown", (e) => { if (e.key == "Enter") dlg.close("ok"); });
+    return (await runDialog( dlg, code.input)) === "ok" ? code.input.value.trim() : null;
+}
+
+/// ask for a new password (entered twice). Resolves to the password or null if cancelled
+export async function newPasswordDialog (opts={}) {
+    let minLength = opts.minLength || 12;
+    let error = opts.error;
+    while (true) {
+        let contents = [ createMessage( `new password (at least ${minLength} characters):`) ];
+        if (error) contents.push( createError( error));
+        let pw = createField( "password", "password", "", "new-password");
+        let pw2 = createField( "repeat", "password", "", "new-password");
+        contents.push( pw.row, pw2.row);
+        let dlg = createDialog( opts.title || "Password", contents, [createButton("Cancel", "cancel"), createButton("OK", "ok")]);
+        pw2.input.addEventListener("keydown", (e) => { if (e.key == "Enter") dlg.close("ok"); });
+
+        if ((await runDialog( dlg, pw.input)) !== "ok") return null;
+        if (pw.input.value.length < minLength) error = `password too short (min ${minLength} characters)`;
+        else if (pw.input.value !== pw2.input.value) error = "passwords do not match";
+        else return pw.input.value;
+    }
+}
+
 /// open the system file picker and resolve to an array of selected File objects (empty if cancelled).
 /// `accept` is a comma separated list of extensions and/or mime types (e.g. ".json,image/*").
 /// Note this has to be called from a user action (click or keydown handler) or browsers will ignore it
@@ -196,6 +290,42 @@ function createMessage (msg) {
     e.classList.add("ui_dialog_msg");
     e.textContent = msg;
     return e;
+}
+
+function createError (msg) {
+    let e = document.createElement("DIV");
+    e.classList.add("ui_dialog_error");
+    e.textContent = msg;
+    return e;
+}
+
+// a labeled input row. Returns {row, input}
+function createField (label, type, value, autocomplete, attrs={}) {
+    let row = document.createElement("DIV");
+    row.classList.add("ui_dialog_field");
+    let id = "ui_dialog_" + label.replace(/\W/g, "_");
+
+    let le = document.createElement("LABEL");
+    le.textContent = label;
+    le.htmlFor = id;
+    row.appendChild(le);
+
+    let input = document.createElement("INPUT");
+    input.id = id;
+    input.type = type;
+    input.classList.add("ui_field", "input", "ui_dialog_input");
+    input.value = value;
+    if (autocomplete) input.autocomplete = autocomplete;
+    input.spellcheck = false;
+    for (const [k,v] of Object.entries(attrs)) input.setAttribute(k, v);
+    row.appendChild(input);
+
+    return {row, input};
+}
+
+// dialogs that can't be dismissed with Escape
+function preventCancel (dlg) {
+    dlg.addEventListener("cancel", (event) => event.preventDefault());
 }
 
 function createTextInput (value) {
