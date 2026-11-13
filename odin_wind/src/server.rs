@@ -141,7 +141,7 @@ impl WindServer {
             };
 
             info!("connected to client {}", remote_addr);
-            self.connections.insert( remote_addr.clone(), WsConnection{ remote_addr, ws_sender, ws_receiver_task, user: None });
+            self.connections.insert( remote_addr.clone(), WsConnection{ remote_addr, ws_sender, ws_receiver_task, user: None, out_acl: None });
         }
 
         Ok(())

@@ -54,14 +54,59 @@ fn test_msg_acl () {
 }
 
 #[test]
+fn test_acl_keys () {
+    // module paths are normally Rust type names that contain '::'
+    assert_eq!( split_acl_key( "odin_share::share_service::ShareService:setShared"), ("odin_share::share_service::ShareService", "setShared"));
+    assert_eq!( split_acl_key( "odin_share::share_service::ShareService"), ("odin_share::share_service::ShareService", "*"));
+    assert_eq!( split_acl_key( "odin_share::share_service::ShareService:*"), ("odin_share::share_service::ShareService", "*"));
+    assert_eq!( split_acl_key( " m.js : x "), ("m.js", "x"));
+    assert_eq!( split_acl_key( "m.js"), ("m.js", "*"));
+
+    let rm = RoleMap::new( &["viewer", "editor"]).unwrap();
+    let viewer = rm.role_set( &["viewer"]).unwrap();
+    let editor = rm.role_set( &["editor"]).unwrap();
+    let mut acl = MsgAcl::new();
+    acl.set( "a::b::Svc", viewer);
+    acl.set( "a::b::Svc:secret", editor);
+    assert!( acl.contains_key( "a::b::Svc") && acl.contains_key( "a::b::Svc:*") && acl.contains_key( "a::b::Svc:secret"));
+    assert!( !acl.contains_key( "a::b::Svc:other"));
+    assert_eq!( acl.module_required( "a::b::Svc"), Some(viewer));
+    assert_eq!( acl.module_required( "a::b::Other"), None);
+    assert_eq!( acl.required( "a::b::Svc", "secret"), Some(editor));
+    assert_eq!( acl.required( "a::b::Svc", "data"), Some(viewer));
+}
+
+#[test]
+fn test_ws_msg_acl () {
+    assert_eq!( ws_msg_keys( r#"{"mod":"a::b::Svc","hotspots":[1,2,3]}"#), Some(("a::b::Svc", "hotspots")));
+    assert_eq!( ws_msg_keys( r#" { "mod" : "a::b::Svc" , "x" : {}}"#), Some(("a::b::Svc", "x")));
+    assert_eq!( ws_msg_keys( r#"{"msg":"a::b::Svc","x":1}"#), None);
+    assert_eq!( ws_msg_keys( "__ping__ 123"), None);
+    assert_eq!( ws_msg_keys( r#"{"mod":"a::b::Svc""#), None);
+
+    let rm = RoleMap::new( &["viewer", "editor"]).unwrap();
+    let editor = rm.role_set( &["editor"]).unwrap();
+    let mut acl = MsgAcl::new();
+    assert_eq!( acl.required_for_ws_msg( r#"{"mod":"a::b::Svc","x":1}"#), None);
+    acl.set( "a::b::Svc", editor);
+    assert_eq!( acl.required_for_ws_msg( r#"{"mod":"a::b::Svc","x":1}"#), Some(editor));
+    assert_eq!( acl.required_for_ws_msg( r#"{"mod":"a::b::Public","x":1}"#), None);
+    assert_eq!( acl.required_for_ws_msg( r#"{"mod":"__system__","userChanged":{}}"#), None);
+    assert_eq!( acl.required_for_ws_msg( "free form"), None);
+}
+
+#[test]
 fn test_config () {
-    let cfg: AuthConfig = ron::from_str( r#"AuthConfig( roles: ["viewer","editor"], session_ttl: "8h", ws_msg_roles: { "m.js:x": ["editor"] } )"#).unwrap();
+    let cfg: AuthConfig = ron::from_str( r#"AuthConfig( roles: ["viewer","editor"], session_ttl: "8h", ws_msg_roles: { "m.js:x": ["editor"] }, service_roles: { "a::b::Svc": ["viewer"] } )"#).unwrap();
     assert_eq!( cfg.session_ttl, Duration::from_secs( 8*3600));
     assert_eq!( cfg.methods, vec![AuthMethod::Passkey, AuthMethod::Totp]);
     assert!( cfg.protect_proxies);
     assert!( cfg.validate().is_ok());
     let mut bad = cfg.clone();
     bad.ws_msg_roles.insert( "m.js:y".into(), vec!["nobody".into()]);
+    assert!( bad.validate().is_err());
+    let mut bad = cfg.clone();
+    bad.service_roles.insert( "a::b::Other".into(), vec!["nobody".into()]);
     assert!( bad.validate().is_err());
     let mut ip = cfg.clone();
     ip.rp_id = "192.168.1.10".into();

@@ -20,8 +20,8 @@
 //! infrastructure such as [`crate::ws::WsConnection`]: role sets ([`RoleSet`], [`RoleMap`]), authenticated connection
 //! users ([`ConnUser`]), message access control lists ([`MsgAcl`]) and the [`AuthConfig`].
 //!
-//! The actual authentication (user store, sessions, passkey/TOTP/password methods) is in the [`Authenticator`] and
-//! [`AuthStore`] types, which require the `auth` feature (adding SQLite, WebAuthn and TOTP dependencies).
+//! The actual authentication (user store, sessions, passkey/TOTP/password methods) is in the `Authenticator` and
+//! `AuthStore` types, which require the `auth` feature (adding SQLite, WebAuthn and TOTP dependencies).
 //!
 //! Roles are configured as a list of up to [`MAX_ROLES`] names, which are mapped to bit positions of a `u64`
 //! ([`RoleSet`]), i.e. authorization checks are a single bitwise AND. A resource requires a [`RoleSet`] and a user
@@ -220,9 +220,10 @@ pub fn is_authorized (user: Option<&ConnUser>, required: RoleSet)->bool {
 
 /* #region message ACL ***********************************************************************************************/
 
-/// role requirements for messages identified by a module path and a message type (e.g. incoming websocket
-/// messages). Keys are specified as `"<mod_path>:<msg_type>"` or `"<mod_path>"` / `"<mod_path>:*"` for all message
-/// types of a module. Lookup does not allocate.
+/// role requirements for messages identified by a module path and a message type (e.g. websocket messages).
+/// Keys are specified as `"<mod_path>:<msg_type>"` or `"<mod_path>"` / `"<mod_path>:*"` for all message
+/// types of a module. Module paths can contain `::` (e.g. Rust type names such as `odin_share::share_service::ShareService`),
+/// the message type separator is the last single `:`. Lookup does not allocate.
 #[derive(Debug,Clone,Default)]
 pub struct MsgAcl {
     map: HashMap<String,HashMap<String,RoleSet>>,
@@ -235,17 +236,36 @@ impl MsgAcl {
 
     /// set (replace) the roles for `key` (`"<mod_path>[:<msg_type>|*]"`)
     pub fn set (&mut self, key: &str, roles: RoleSet) {
-        let (mod_path, msg_type) = match key.split_once(':') {
-            Some((m,t)) => (m.trim(), t.trim()),
-            None => (key.trim(), "*")
-        };
+        let (mod_path, msg_type) = split_acl_key( key);
         self.map.entry( mod_path.to_string()).or_default().insert( msg_type.to_string(), roles);
+    }
+
+    /// is there an explicit entry for `key` (`"<mod_path>[:<msg_type>|*]"`)
+    pub fn contains_key (&self, key: &str)->bool {
+        let (mod_path, msg_type) = split_acl_key( key);
+        self.map.get( mod_path).map( |m| m.contains_key( msg_type)).unwrap_or(false)
     }
 
     /// required roles for a message, `None` if there are no requirements (i.e. the message is not protected)
     #[inline]
     pub fn required (&self, mod_path: &str, msg_type: &str)->Option<RoleSet> {
         self.map.get( mod_path).and_then( |m| m.get( msg_type).or_else( || m.get("*")).copied())
+    }
+
+    /// required roles for a whole module (the `"<mod_path>"` / `"<mod_path>:*"` entry), `None` if the module is
+    /// not protected as a whole (individual message types still might be)
+    #[inline]
+    pub fn module_required (&self, mod_path: &str)->Option<RoleSet> {
+        self.map.get( mod_path).and_then( |m| m.get("*").copied())
+    }
+
+    /// required roles for a serialized websocket message `{"mod":"<mod_path>","<msg_type>":...}`. This only looks at
+    /// the message prefix (see [`ws_msg_keys`]), i.e. the cost does not depend on the payload size. Messages that do
+    /// not have this format are not protected
+    #[inline]
+    pub fn required_for_ws_msg (&self, ws_msg: &str)->Option<RoleSet> {
+        if self.map.is_empty() { return None }
+        ws_msg_keys( ws_msg).and_then( |(mod_path,msg_type)| self.required( mod_path, msg_type))
     }
 
     /// add role requirements from a key->role-names map (e.g. from a config), resolving names with `role_map`
@@ -255,6 +275,37 @@ impl MsgAcl {
         }
         Ok(())
     }
+}
+
+/// split an ACL key into `(mod_path, msg_type)` at the last single `:` (not part of a `::` path separator).
+/// Keys without message type return `"*"` as msg_type
+pub fn split_acl_key (key: &str)->(&str,&str) {
+    let key = key.trim();
+    let b = key.as_bytes();
+    let mut i = b.len();
+    while i > 0 {
+        i -= 1;
+        if b[i] == b':' {
+            if i > 0 && b[i-1] == b':' { i -= 1; continue } // skip "::"
+            if i+1 < b.len() && b[i+1] == b':' { continue }
+            let msg_type = key[i+1..].trim();
+            return (key[..i].trim(), if msg_type.is_empty() {"*"} else {msg_type})
+        }
+    }
+    (key, "*")
+}
+
+/// extract `(mod_path, msg_type)` from the prefix of a serialized websocket message `{"mod":"<mod_path>","<msg_type>":...}`
+/// (as created by `odin_server::WsMsg`). This does not parse (or even look at) the payload
+pub fn ws_msg_keys (ws_msg: &str)->Option<(&str,&str)> {
+    let s = ws_msg.trim_start().strip_prefix('{')?.trim_start()
+        .strip_prefix("\"mod\"")?.trim_start()
+        .strip_prefix(':')?.trim_start()
+        .strip_prefix('"')?;
+    let (mod_path, rest) = s.split_once('"')?;
+    let rest = rest.trim_start().strip_prefix(',')?.trim_start().strip_prefix('"')?;
+    let (msg_type, _) = rest.split_once('"')?;
+    Some( (mod_path, msg_type))
 }
 
 /* #endregion message ACL */
@@ -325,6 +376,12 @@ pub struct AuthConfig {
     #[serde(default)]
     pub ws_msg_roles: HashMap<String,Vec<String>>,
 
+    /// role requirements for services ("<mod_path>" -> role names) or outgoing websocket messages
+    /// ("<mod_path>:<msg_type>" -> role names). Users without any of the required roles do not receive messages of
+    /// protected services/message types. This overrides defaults of services (`SpaService::service_roles()`)
+    #[serde(default)]
+    pub service_roles: HashMap<String,Vec<String>>,
+
     /// require an authenticated session for proxied URLs (otherwise the server can be used as an open proxy)
     #[serde(default="default_true")]
     pub protect_proxies: bool,
@@ -371,6 +428,7 @@ impl AuthConfig {
             db_path: None,
             route_roles: HashMap::new(),
             ws_msg_roles: HashMap::new(),
+            service_roles: HashMap::new(),
             protect_proxies: true,
             allow_insecure: false,
             max_failures: default_max_failures(),
@@ -388,7 +446,7 @@ impl AuthConfig {
     pub fn validate (&self)->AuthResult<RoleMap> {
         let role_map = self.role_map()?;
         if self.methods.is_empty() { return Err( AuthError::Config("no authentication methods".into())) }
-        for names in self.route_roles.values().chain( self.ws_msg_roles.values()) {
+        for names in self.route_roles.values().chain( self.ws_msg_roles.values()).chain( self.service_roles.values()) {
             role_map.role_set( names)?;
         }
         if self.rp_id.parse::<std::net::IpAddr>().is_ok() && self.is_enabled( AuthMethod::Passkey) {

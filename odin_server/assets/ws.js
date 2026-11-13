@@ -99,6 +99,9 @@ function handleSystemMessage(msg) {
         document.dispatchEvent( new CustomEvent("odin-ws-msg-denied", {detail: msg.denied}));
     } else if (msg.userChanged) { // roles of the user have changed
         document.dispatchEvent( new CustomEvent("odin-user-changed", {detail: msg.userChanged}));
+    } else if (msg.serviceRevoked) { // user lost the roles for a protected service - modules should clear its data
+        console.warn("service revoked:", msg.serviceRevoked);
+        document.dispatchEvent( new CustomEvent("odin-service-revoked", {detail: msg.serviceRevoked}));
     } else {
         console.log("unknown system message: ", msg);
     }

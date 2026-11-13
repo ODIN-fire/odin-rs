@@ -51,7 +51,7 @@ export function registerPostLoadFunction(func) {
 var themeChangeHandlers = [];
 
 //--- user authorization (only relevant if the server uses authentication)
-// servers with authentication embed the user of the document as `window.odinUser = {name, roles}`, i.e. the info is
+// servers with authentication embed the user of the document as `window.odinUser = {name, roles, services}`, i.e. the info is
 // available synchronously during module initialization. If it is not set the server does not use authentication and
 // everything is authorized. Note these checks are only for the UI (e.g. to disable widgets or hide functions) -
 // authorization is always enforced by the server
@@ -70,6 +70,20 @@ export function isUserAuthorized (role=undefined) {
     return roles.some( r => userInfo.roles.includes(r));
 }
 
+/// is the user authorized for the protected service `mod` (the `MOD_PATH` of the JS module, i.e. the `mod_path` of the
+/// associated SpaService). Use this to decide if icons and windows of a service should be created at all - the server
+/// does not send data of protected services to unauthorized users. `user` defaults to the current user info (pass the
+/// argument of user change handlers to re-evaluate after role changes). This does not require a server round trip
+/// since the server embeds the roles of protected services in the document. Always true if the server does not use
+/// authentication or the service is not protected
+export function isServiceAuthorized (mod, user=userInfo) {
+    if (!user) return !userInfo; // no authentication (true), or the session ended (false)
+    let required = user.services ? user.services[mod] : undefined;
+    if (!required) return true; // not a protected service
+    if (!user.name) return false;
+    return required.length == 0 || required.some( r => user.roles.includes(r)); // empty: any authenticated user
+}
+
 /// does the server use authentication
 export function isAuthenticationEnabled() { return userInfo != null; }
 
@@ -79,7 +93,7 @@ export function getUserName() { return userInfo ? userInfo.name : null; }
 /// role names of the authenticated user (null if the server does not use authentication)
 export function getUserRoles() { return userInfo ? [...userInfo.roles] : null; }
 
-/// handler functions are called with the new user info `{name,roles}` (or null if the session ended)
+/// handler functions are called with the new user info `{name,roles,services}` (or null if the session ended)
 export function registerUserChangeHandler (handler) {
     userChangeHandlers.push(handler);
 }
@@ -91,7 +105,7 @@ export async function refreshUserInfo() {
         let response = await fetch("auth/user", {cache: "no-store"});
         let newInfo = response.ok ? await response.json() : (response.status == 401 ? {name: null, roles: []} : userInfo);
         if (JSON.stringify(newInfo.roles) != JSON.stringify(userInfo.roles) || newInfo.name != userInfo.name) {
-            userInfo = {name: newInfo.name, roles: newInfo.roles || []};
+            userInfo = {name: newInfo.name, roles: newInfo.roles || [], services: userInfo.services}; // services don't change
             userChangeHandlers.forEach( h => h(userInfo.name ? userInfo : null));
         }
     } catch (e) {

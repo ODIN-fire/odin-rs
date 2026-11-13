@@ -512,6 +512,7 @@ ui.isUserAuthorized();                    // there is an authenticated user
 ui.getUserName();                         // name of the user (null if no authentication)
 ui.getUserRoles();                        // array of role names (null if no authentication)
 ui.isAuthenticationEnabled();
+ui.isServiceAuthorized(MOD_PATH);         // user is authorized for the (protected) service of this module
 ui.registerUserChangeHandler( (user) => {...}); // roles changed (user is null if the session ended)
 ```
 
@@ -526,4 +527,43 @@ incoming websocket messages that require roles the user does not have (see `SpaS
 
 ```javascript
 document.addEventListener("odin-ws-msg-denied", (e) => console.warn("not authorized:", e.detail.mod, e.detail.msgType));
+```
+
+Services can also be protected as a whole (`SpaService::service_roles()` or the `service_roles` server config). The JS
+modules of such services are still loaded for all users (assets are public) but do not receive any data if the user is
+not authorized. To completely hide the user interface of such services, modules should only create their icons and
+windows if `ui.isServiceAuthorized(MOD_PATH)` returns true:
+
+```javascript
+const MOD_PATH = "odin_sentinel::sentinel_service::SentinelService"; // the mod_path of the associated SpaService
+...
+if (ui.isServiceAuthorized(MOD_PATH)) {
+    createIcon();
+    createWindow();
+    ...
+}
+```
+
+`isServiceAuthorized(mod, user)` does not require a server round trip - the server embeds the role requirements of
+all protected services into the document (`window.odinUser = {name, roles, services: {<mod_path>: [<role>..]}}`), and
+the check is done locally against the roles of the user. It returns true if the server does not use authentication or
+the service is not protected, i.e. modules do not have to know if (or with which roles) their service is protected -
+this is a deployment decision. Use this instead of explicit `isUserAuthorized(role)` calls for service level UI
+decisions. Note that only whole services are covered (`"<mod_path>"` keys), not individually protected message types.
+
+The optional `user` argument defaults to the current user info. Role changes do not require a reload: user change
+handlers receive the updated user info (the `services` map does not change during a session), which can be used to
+create or remove the UI when the service becomes available or unavailable:
+
+```javascript
+ui.registerUserChangeHandler( (user) => {
+    if (ui.isServiceAuthorized(MOD_PATH, user)) { /* create icon/window if not yet done */ }
+    else { /* remove icon/window, clear data */ }
+});
+``` If the user loses the required roles while connected the server sends a
+system message that is dispatched as an `odin-service-revoked` DOM event, upon which the module should clear its data
+(if roles are granted the server sends the initial data of the service again):
+
+```javascript
+document.addEventListener("odin-service-revoked", (e) => { if (e.detail.mod == MOD_PATH) clearData(); });
 ```

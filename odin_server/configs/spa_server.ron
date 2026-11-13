@@ -9,5 +9,6 @@ ServerConfig(
     //    roles: ["viewer", "editor", "admin"],
     //    methods: [Passkey, Totp],   // passkeys need "localhost" or HTTPS with a DNS name, TOTP works on IP-only LANs
     //    session_ttl: "12h",
+    //    service_roles: { "odin_sentinel::sentinel_service::SentinelService": ["editor","admin"] }, // protected services
     //)),
 )

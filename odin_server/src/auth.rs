@@ -60,7 +60,7 @@ pub fn is_same_origin (headers: &http::HeaderMap)->bool {
 
 #[cfg(feature="auth")]
 mod imp {
-    use std::{net::SocketAddr, sync::Arc};
+    use std::{net::SocketAddr, sync::Arc, collections::HashMap};
     use axum::{
         Json, Router,
         extract::{ConnectInfo, Request, State},
@@ -159,14 +159,23 @@ mod imp {
         /// build the ACL for incoming websocket messages from service defaults and config overrides (config wins).
         /// Unknown role names are an error
         pub fn ws_msg_acl (&self, service_defaults: &[(String,Vec<String>)])->OdinServerResult<MsgAcl> {
+            self.build_acl( service_defaults, &self.config().ws_msg_roles, "ws_msg_roles")
+        }
+
+        /// build the ACL for services and outgoing websocket messages from service defaults (`SpaService::service_roles()`)
+        /// and config overrides (config wins). Unknown role names are an error
+        pub fn service_acl (&self, service_defaults: &[(String,Vec<String>)])->OdinServerResult<MsgAcl> {
+            self.build_acl( service_defaults, &self.config().service_roles, "service_roles")
+        }
+
+        fn build_acl (&self, defaults: &[(String,Vec<String>)], overrides: &HashMap<String,Vec<String>>, what: &str)->OdinServerResult<MsgAcl> {
             let mut acl = MsgAcl::new();
-            let overrides = &self.config().ws_msg_roles;
-            for (key, names) in service_defaults {
+            for (key, names) in defaults {
                 if !overrides.contains_key( key) {
-                    acl.set( key, self.role_map().role_set( names).map_err( |e| op_failed( format!("ws message '{key}': {e} (define role or override in ws_msg_roles)")))?);
+                    acl.set( key, self.role_map().role_set( names).map_err( |e| op_failed( format!("'{key}': {e} (define role or override in {what})")))?);
                 }
             }
-            acl.set_from_names( overrides, self.role_map()).map_err( |e| op_failed( e.to_string()))?;
+            acl.set_from_names( overrides, self.role_map()).map_err( |e| op_failed( format!("{what}: {e}")))?;
             Ok(acl)
         }
     }
@@ -427,6 +436,7 @@ mod stub {
         pub fn client_config (&self)->Value { match *self {} }
         pub fn route_roles (&self, _key: &str, _default_roles: &[String])->OdinServerResult<RoleSet> { match *self {} }
         pub fn ws_msg_acl (&self, _service_defaults: &[(String,Vec<String>)])->OdinServerResult<MsgAcl> { match *self {} }
+        pub fn service_acl (&self, _service_defaults: &[(String,Vec<String>)])->OdinServerResult<MsgAcl> { match *self {} }
         pub async fn refresh (&self) { match *self {} }
         pub fn revalidate (&self, _user: &ConnUser)->Revalidation { match *self {} }
     }

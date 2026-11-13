@@ -349,8 +349,17 @@ Servers can optionally authenticate users (with passkeys, authenticator apps or 
 configurable user roles. This is enabled by adding an `auth` section to the `ServerConfig` - without it all resources
 are public and there is no overhead. If enabled, the application document and its websocket require an authenticated
 session, proxied URLs require a session by default, and `SpaService` implementations can protect additional routes
-(`SpaComponents::add_protected_route(..)`) and incoming websocket messages (`SpaService::ws_msg_roles()`). Users are
-managed with the `auth_admin` tool. 
+(`SpaComponents::add_protected_route(..)`), incoming websocket messages (`SpaService::ws_msg_roles()`) and whole
+services (`SpaService::service_roles()`), which are then neither initialized for nor send websocket messages to
+connections of unauthorized users. Users are managed with the `auth_admin` tool.
+
+Services that might be protected (by their own `service_roles()` or by the `service_roles` of the server config) have
+to observe the following constraints:
+
+- potentially protected data has to be sent as `WsMsg` with the service `mod_path` - free-form websocket messages can
+  not be filtered
+- sensitive data URLs have to be sent through the websocket (as `WsMsg`), since HTTP data routes are public by default
+- JS modules, their configs and HTML fragments are public assets and must not contain sensitive data
 
 Please refer to [Authentication and Authorization](auth.md) for details about concept, configuration and implementation.
 

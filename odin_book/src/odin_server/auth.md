@@ -28,6 +28,8 @@ The main design goals are:
 | proxied resources (`/<app>/proxy/...`) | require a valid session (unless `protect_proxies: false`) so that the server can't be used as an open proxy |
 | explicitly protected routes | require a session user with any of the configured roles |
 | incoming websocket messages | messages with configured role requirements are dropped if the user does not have the roles |
+| protected services | services with role requirements are not initialized for, and do not send websocket messages to users without the roles |
+| outgoing websocket messages | (`WsMsg`) messages with configured role requirements are only sent to users with the roles |
 | assets (`/<app>/asset/...`) | **public** - assets must not contain sensitive data (see [client](client.md)) |
 | other service routes (data, tiles etc.) | **public** unless added as protected routes |
 
@@ -221,7 +223,8 @@ ServerConfig(
         invite_ttl: "24h",             // validity of enrollment links
         db_path: None,                 // default $ODIN_ROOT/data/auth/auth.db
         route_roles: { "share": ["editor","admin"] },  // overrides for protected routes
-        ws_msg_roles: { "odin_share/odin_share.js:setShared": ["editor","admin"] }, // overrides for ws messages
+        ws_msg_roles: { "odin_share::share_service::ShareService:setShared": ["editor","admin"] }, // overrides for incoming ws messages
+        service_roles: { "odin_sentinel::sentinel_service::SentinelService": ["editor","admin"] }, // overrides for services / outgoing ws messages
         protect_proxies: true,         // default
         allow_insecure: false,         // allow plain HTTP on non-loopback addresses
         max_failures: 5,               // failed logins before lockout (per user name and per client address)
@@ -237,6 +240,7 @@ The server refuses to start if
 - authentication would be done over plain HTTP on a non-loopback address without `allow_insecure: true`
 - `odin_server` was built without the `auth` feature (default)
 - a service requires a websocket message role that is not configured (and not overridden in `ws_msg_roles`)
+- a service requires a service role that is not configured (and not overridden in `service_roles`)
 
 The `heartbeat_interval` determines how fast revoked sessions and role changes affect open connections.
 
@@ -287,7 +291,9 @@ impl SpaService for ShareService {
 }
 ```
 
-Keys are `"<mod_path>:<msg_type>"` or `"<mod_path>"` for all messages of a module. The `ws_msg_roles` config can
+Keys are `"<mod_path>:<msg_type>"` or `"<mod_path>"` for all messages of a module. Module paths are the
+`SpaService::mod_path()` values, which default to the Rust type names of the services (e.g.
+`odin_share::share_service::ShareService`) - the message type is separated by the last single `:`. The `ws_msg_roles` config can
 override the defaults (and add requirements for services that do not declare any). Messages from users without the
 required roles are not passed to `SpaService::handle_ws_msg(..)` - the client receives a `__system__` *denied*
 message instead.
@@ -295,6 +301,52 @@ message instead.
 Since `SpaService::init_connection(..)` receives the `WsConnection`, which includes the authenticated user
 (`conn.user: Option<Arc<ConnUser>>`, `None` if the server does not use authentication), services can also send role
 dependent initial data (`conn.is_authorized(roles)`).
+
+### Protected services
+
+Whole services (layers) can be restricted to users with certain roles by overriding `SpaService::service_roles()`:
+
+```rust
+impl SpaService for SentinelService {
+    ...
+    fn service_roles (&self) -> Vec<String> {
+        vec![ "editor".into(), "admin".into() ]
+    }
+}
+```
+
+The `service_roles` config can override these defaults (keys are service `mod_path`s, an empty role list makes a
+service available to any authenticated user) and also protect services that do not declare roles. For connections of
+users without any of the required roles the `SpaServer`
+
+- does not call `SpaService::init_connection(..)`, and ignores `reinitialize` requests of the client for this service
+- does not send any websocket message of the service's `mod_path` - this includes messages sent through
+  `BroadcastWsMsg`, `SendAllOthersWsMsg`, `SendGroupWsMsg`, `SendWsMsg`, `WsMsgReaction` and `WsConnection::send(..)`
+- does not pass incoming messages of the service to `SpaService::handle_ws_msg(..)` (unless `ws_msg_roles` has a more
+  specific entry for a message type)
+
+`service_roles` config keys of the form `"<mod_path>:<msg_type>"` protect individual outgoing message types of
+otherwise public services (they do not affect `init_connection(..)` calls). If roles of a connected user change
+(detected by the heartbeat re-validation) the server calls `init_connection(..)` for services that became available,
+and sends a `{"mod":"__system__","serviceRevoked":{"mod":"<mod_path>"}}` message for services that are no longer
+available, which `ws.js` dispatches as an `odin-service-revoked` DOM event. Client modules of protected services should
+listen for this event (and/or use `registerUserChangeHandler(..)`) to clear their data and disable their UI. Client
+modules can use `ui.isServiceAuthorized(MOD_PATH)` to decide if they create their icons and windows at all - the role
+requirements of protected services are embedded in the document (`window.odinUser.services`), i.e. this check does
+not require a server round trip (see [client](client.md)).
+
+Outgoing messages are filtered by inspecting the `{"mod":"<mod_path>","<msg_type>":` prefix of the serialized message
+(see `odin_common::auth::ws_msg_keys()`), i.e. the cost does not depend on the payload size and existing message
+senders do not have to be changed. If there are no protected services or message types the filter is a no-op. This
+implies the following **constraints for services that might be protected**:
+
+1. **potentially protected data has to be sent as `WsMsg`** (`WsMsg::json(..)` or `ws_msg_from_json(..)`) using the
+   service `mod_path`. Free-form websocket messages can not be filtered and are sent to all connections
+2. **sensitive data URLs have to be sent through the websocket**. HTTP data routes of services are public by default
+   (unless added as protected routes) - only clients that know the URLs (from protected websocket messages) can
+   retrieve the data. Do not put such URLs or data into assets, JS module configs or HTML fragments
+3. **JS modules and their configs are public assets** - they are loaded for all users, also for users that are not
+   authorized for the service. Modules should check `isUserAuthorized(..)` to hide their UI elements
 
 ### Client side
 
@@ -332,7 +384,7 @@ browser                                     SpaServer
    |  POST auth/login/{passkey|totp|password}  |
    |------------------------------------------>|  Set-Cookie: odin_session_<port>=<token>; HttpOnly; SameSite=Strict
    |  GET /<app>  (reload with cookie)         |
-   |------------------------------------------>|  application document with window.odinUser={name,roles}
+   |------------------------------------------>|  application document with window.odinUser={name,roles,services}
    |  GET /<app>/ws  (cookie, same origin)     |
    |------------------------------------------>|  101 - connection with ConnUser
 ```
@@ -381,7 +433,8 @@ roles are updated (and the client is notified so that `ui.js` can update its use
 
 - `odin_common/tests/test_auth.rs` - sessions, revocation, role changes, lockout, TOTP (incl. replay), passkey
   registration/authentication with a software authenticator (`webauthn-authenticator-rs`)
-- `odin_server/tests/test_auth.rs` - JSON API, cookies, protected routes, origin check, insecure config detection
+- `odin_server/tests/test_auth.rs` - JSON API, cookies, protected routes, origin check, insecure config detection,
+  service ACLs and `WsMsg` prefix compatibility
 - `odin_live` built with the `auth-passkey`, `auth-totp` and/or `auth-pw` features serves as integration test for
   production servers (most ODIN services with authentication)
 
@@ -393,5 +446,6 @@ login, logout, revocation, password login, role change notification, TOTP enroll
 - passkey login requires the user name (no discoverable credential / conditional UI login yet)
 - no self-service account recovery - a lost device requires a new enrollment link from the administrator
 - no web based user administration (use `auth_admin`)
-- authorization is per message type, not per data item (e.g. no per-layer data filtering)
-- outgoing (broadcast) websocket messages are not filtered by roles
+- authorization is per service or message type, not per data item (e.g. no per-sensor data filtering)
+- free-form (non-`WsMsg`) websocket messages are not filtered by roles
+- HTTP data routes of protected services are not protected automatically (use `add_protected_route(..)` if needed)

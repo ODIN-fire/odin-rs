@@ -29,7 +29,7 @@ use tokio_tungstenite::{
 };
 use axum::extract::ws::{WebSocket,Message as AxMessage};
 use kanal::AsyncReceiver; // TODO - should we make this abstract?
-use crate::{datetime::secs, net::OdinNetError, auth::ConnUser};
+use crate::{datetime::secs, net::OdinNetError, auth::{ConnUser,MsgAcl,RoleSet}};
 
 pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -39,12 +39,37 @@ pub struct WsConnection {
     pub ws_sender: SplitSink<WebSocket,AxMessage>, // used to send through the websocket
     pub ws_receiver_task: JoinHandle<()>, // the task that (async) reads from the websocket
     pub user: Option<Arc<ConnUser>>, // authenticated user (None if the server does not use authentication)
+    pub out_acl: Option<Arc<MsgAcl>>, // role requirements for outgoing messages (None if there are none)
 }
 
 impl WsConnection {
-    // note this should not be used if we send multiple messages to the same connection (use feed() or send_all() in this case)
+    /// send a websocket message if the user of this connection is authorized for it (see [`Self::may_receive`]).
+    /// Messages for which the user is not authorized are silently dropped (this is not an error).
+    /// Note this should not be used if we send multiple messages to the same connection (use feed() or send_all() in this case)
     pub async fn send (&mut self, msg: String)->Result<(),OdinNetError> {
+        if !self.may_receive( &msg) { return Ok(()) }
         self.ws_sender.send( AxMessage::text(msg)).await.map_err(|e| OdinNetError::WsError( e.to_string()))
+    }
+
+    /// is the user of this connection authorized to receive `msg`. This is always true if there is no user (server
+    /// without authentication) or no outgoing message ACL. Only messages created by `WsMsg` (`{"mod":..,"<msg_type>":..}`)
+    /// can be filtered - free-form messages are always sent
+    #[inline]
+    pub fn may_receive (&self, msg: &str)->bool {
+        match (&self.user, &self.out_acl) {
+            (Some(user), Some(acl)) => acl.required_for_ws_msg( msg).map( |r| user.roles.satisfies(r)).unwrap_or(true),
+            _ => true
+        }
+    }
+
+    /// is the user of this connection authorized for messages that require `required` roles (`None` means not protected).
+    /// Use this if the same message is sent to several connections, to avoid re-computing the required roles
+    #[inline]
+    pub fn is_authorized_for (&self, required: Option<RoleSet>)->bool {
+        match (required, &self.user) {
+            (Some(r), Some(user)) => user.roles.satisfies(r),
+            _ => true
+        }
     }
 
     /// name of the authenticated user (None if the server does not use authentication)
@@ -53,7 +78,7 @@ impl WsConnection {
     }
 
     /// is this connection authorized for `required` roles (always true if the server does not use authentication)
-    pub fn is_authorized (&self, required: crate::auth::RoleSet)->bool {
+    pub fn is_authorized (&self, required: RoleSet)->bool {
         crate::auth::is_authorized( self.user.as_deref(), required)
     }
 }

@@ -179,3 +179,37 @@ fn test_same_origin () {
     assert!( !is_same_origin( req( Some("https://evil.example.com"), "localhost:9009").headers()));
     assert!( !is_same_origin( req( Some("http://localhost:9010"), "localhost:9009").headers()));
 }
+
+/// outgoing message filtering relies on the `{"mod":..,"<msg_type>":..}` prefix of serialized WsMsgs
+#[test]
+fn test_ws_msg_format () {
+    use odin_server::{WsMsg, ws_service::ws_msg_from_json};
+    use odin_common::auth::ws_msg_keys;
+
+    let json = WsMsg::json( "odin_x::service::XService", "hotspots", vec![1,2,3]).unwrap();
+    assert_eq!( ws_msg_keys( &json), Some(("odin_x::service::XService", "hotspots")));
+    let json = ws_msg_from_json( "odin_x::service::XService", "update", r#"{"a":1}"#);
+    assert_eq!( ws_msg_keys( &json), Some(("odin_x::service::XService", "update")));
+}
+
+#[tokio::test]
+async fn test_service_acl () {
+    let dir = TestDir::new("service_acl");
+    let mut config = server_config( &dir, "127.0.0.1:9124", false);
+    config.auth.as_mut().unwrap().service_roles.insert( "odin_y::YService".into(), vec!["viewer".into()]);
+    let auth = ServerAuth::new( &config, config.auth.as_ref().unwrap()).await.unwrap();
+    let viewer = auth.role_map().role_set( &["viewer"]).unwrap();
+    let editor = auth.role_map().role_set( &["editor"]).unwrap();
+
+    let defaults = vec![
+        ("odin_x::XService".to_string(), vec!["editor".to_string()]),
+        ("odin_y::YService".to_string(), vec!["editor".to_string()]), // overridden by config
+    ];
+    let acl = auth.service_acl( &defaults).unwrap();
+    assert_eq!( acl.module_required( "odin_x::XService"), Some(editor));
+    assert_eq!( acl.module_required( "odin_y::YService"), Some(viewer));
+    assert_eq!( acl.module_required( "odin_z::ZService"), None);
+
+    // undefined roles are config errors
+    assert!( auth.service_acl( &[("odin_x::XService".to_string(), vec!["nobody".to_string()])]).is_err());
+}

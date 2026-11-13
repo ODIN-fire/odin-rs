@@ -123,6 +123,19 @@ pub trait SpaService: Send + Sync + 'static {
         Vec::new()
     }
 
+    /// role names required for this service as a whole (empty means the service is public). This is only used if the
+    /// server has authentication enabled. For connections of users without any of these roles the server
+    /// - does not call [`Self::init_connection`]
+    /// - does not send websocket messages of this service's [`Self::get_mod_path`]
+    /// - does not pass incoming messages of this service to [`Self::handle_ws_msg`] (unless `ws_msg_roles` says otherwise)
+    ///
+    /// Defaults can be overridden by the `service_roles` field of the server's `AuthConfig`, which can also protect
+    /// individual outgoing message types (`"<mod_path>:<msg_type>"` keys). Note that only `WsMsg` formatted messages
+    /// can be filtered and that HTTP routes and assets are not covered - sensitive data URLs have to be sent as WsMsg
+    fn service_roles (&self)->Vec<String> {
+        Vec::new()
+    }
+
     /// called when a connection is dropped by the client. Use to clean up SpaService instances that have to keep track of connections
     /// This is async so that it can send messages (e.g. to Broadcase WsMsgs to other connections)
     async fn remove_connection (&mut self, hself: &ActorHandle<SpaServerMsg>, remote_addr: &SocketAddr) -> OdinServerResult<()> {
@@ -148,6 +161,7 @@ pub enum WsMsgReaction {
 struct SpaSvc {
     service: Box<dyn SpaService>, // we can keep this in a Box since this is not shared and only used from within the actor task
     is_data_available: bool, // this is where we store the data_available() response of the service
+    required: Option<RoleSet>, // roles required for this service (None if public or no authentication)
 }
 
 impl SpaSvc {
@@ -155,6 +169,7 @@ impl SpaSvc {
         SpaSvc {
             service: Box::new(service),
             is_data_available: false,
+            required: None,
         }
     }
 }
@@ -250,6 +265,7 @@ pub struct SpaServer {
 
     auth: Option<Arc<ServerAuth>>, // set in start_server() if the config has an `auth` section
     ws_acl: MsgAcl, // role requirements for incoming websocket messages (empty if no auth)
+    out_acl: Option<Arc<MsgAcl>>, // role requirements for services and outgoing websocket messages (None if there are none)
 }
 
 impl SpaServer {
@@ -264,6 +280,7 @@ impl SpaServer {
             heartbeat_timer: None,
             auth: None,
             ws_acl: MsgAcl::new(),
+            out_acl: None,
         }
     }
 
@@ -293,6 +310,21 @@ impl SpaServer {
                 let auth = ServerAuth::new( &self.config, auth_config).await?;
                 let defaults: Vec<(String,Vec<String>)> = self.services.iter().flat_map( |s| s.service.ws_msg_roles()).collect();
                 self.ws_acl = auth.ws_msg_acl( &defaults)?;
+
+                let defaults: Vec<(String,Vec<String>)> = self.services.iter()
+                    .filter_map( |s| { let roles = s.service.service_roles(); (!roles.is_empty()).then( || (s.service.get_mod_path().to_string(), roles)) })
+                    .collect();
+                let out_acl = auth.service_acl( &defaults)?;
+                for svc in self.services.iter_mut() {
+                    let mod_path = svc.service.get_mod_path().to_string();
+                    svc.required = out_acl.module_required( &mod_path);
+                    if let Some(required) = svc.required { // protected services also protect their incoming messages per default
+                        if !self.ws_acl.contains_key( &mod_path) { self.ws_acl.set( &mod_path, required) }
+                        println!("service {mod_path} requires roles {:?}", auth.role_map().names_of( required));
+                    }
+                }
+                if !out_acl.is_empty() { self.out_acl = Some( Arc::new( out_acl)) }
+
                 println!("user authentication enabled ({:?})", auth.config().methods);
                 self.auth = Some( Arc::new( auth));
             }
@@ -343,8 +375,9 @@ impl SpaServer {
         let mut router = if let Some(auth) = &self.auth {
             // without a valid session we serve a login document that preloads our assets
             let login_doc = Arc::new( comps.to_auth_html( &self.name, "login", &auth.client_config()));
+            let service_roles = Arc::new( self.service_roles_json( auth));
             let auth = auth.clone();
-            Router::new().route( &doc_path, get( move |headers: HeaderMap| { Self::auth_doc_handler( headers, doc, login_doc, auth) }))
+            Router::new().route( &doc_path, get( move |headers: HeaderMap| { Self::auth_doc_handler( headers, doc, login_doc, auth, service_roles) }))
         } else {
             Router::new().route( &doc_path, get( move |req: Request| { Self::doc_handler( req, doc) }))
         };
@@ -418,16 +451,25 @@ impl SpaServer {
 
     /// document handler for servers with authentication - serve the application document if the request has a valid
     /// session, otherwise the login document
-    async fn auth_doc_handler (headers: HeaderMap, doc: Arc<String>, login_doc: Arc<String>, auth: Arc<ServerAuth>) -> Response {
+    async fn auth_doc_handler (headers: HeaderMap, doc: Arc<String>, login_doc: Arc<String>, auth: Arc<ServerAuth>, service_roles: Arc<serde_json::Value>) -> Response {
         match auth.request_user( &headers).await {
             Some(user) => {
-                // embed the user so that ui.js can provide synchronous isUserAuthorized(role) checks during module init
-                let info = serde_json::json!({ "name": user.name.as_ref(), "roles": auth.role_map().names_of( user.roles) });
+                // embed the user and the roles of protected services so that ui.js can provide synchronous
+                // isUserAuthorized(role) and isServiceAuthorized(mod) checks during module init
+                let info = serde_json::json!({ "name": user.name.as_ref(), "roles": auth.role_map().names_of( user.roles), "services": service_roles.as_ref() });
                 let script = format!("<head>\n<script>window.odinUser={};</script>", info.to_string().replace('<', "\\u003c"));
                 Self::html_response( Arc::new( doc.replacen( "<head>", &script, 1))).await
             }
             None => Self::html_response( login_doc).await
         }
+    }
+
+    /// `{ "<mod_path>": [<role-name>..], ..}` for all protected services (an empty role list means any authenticated user)
+    fn service_roles_json (&self, auth: &ServerAuth)->serde_json::Value {
+        let map: serde_json::Map<String,serde_json::Value> = self.services.iter()
+            .filter_map( |svc| svc.required.map( |r| (svc.service.get_mod_path().to_string(), serde_json::json!( auth.role_map().names_of(r)))))
+            .collect();
+        serde_json::Value::Object( map)
     }
 
     async fn html_response (doc: Arc<String>) -> Response {
@@ -522,14 +564,17 @@ impl SpaServer {
         };
 
         let user_name = user.as_ref().map( |u| format!(" user '{}'", u.name)).unwrap_or_default();
-        let conn = WsConnection { remote_addr, ws_sender, ws_receiver_task, user };
+        let out_acl = if user.is_some() { self.out_acl.clone() } else { None };
+        let conn = WsConnection { remote_addr, ws_sender, ws_receiver_task, user, out_acl };
         self.connections.insert( raddr, conn);
         println!("connection added: {remote_addr:?}{user_name} ({})", self.connections.len());
 
         let conn_ref = self.connections.get_mut( &raddr).unwrap();
 
-        for svc in self.services.iter_mut() { // tell services to send their initial data
-            svc.service.init_connection( &hself, svc.is_data_available, conn_ref).await.map_err(|e| connect_error(e))?;
+        for svc in self.services.iter_mut() { // tell services to send their initial data (if the user is authorized)
+            if conn_ref.is_authorized_for( svc.required) {
+                svc.service.init_connection( &hself, svc.is_data_available, conn_ref).await.map_err(|e| connect_error(e))?;
+            }
         }
 
         Ok(())
@@ -574,10 +619,29 @@ impl SpaServer {
                 match auth.revalidate( user) {
                     Revalidation::Valid => {}
                     Revalidation::RolesChanged(roles) => {
+                        let old_roles = user.roles;
                         conn.user = Some( Arc::new( ConnUser{ roles, ..(**user).clone() }));
-                        let roles: Vec<&str> = auth.role_map().names_of( roles);
-                        let msg = serde_json::json!({ "mod": "__system__", "userChanged": { "roles": roles } }).to_string();
+                        let role_names: Vec<&str> = auth.role_map().names_of( roles);
+                        let msg = serde_json::json!({ "mod": "__system__", "userChanged": { "roles": role_names } }).to_string();
                         let _ = conn.ws_sender.send( Message::text( msg)).await;
+
+                        // update protected services: initialize newly granted ones, notify the client about revoked ones
+                        for svc in self.services.iter_mut() {
+                            if let Some(required) = svc.required {
+                                match (old_roles.satisfies( required), roles.satisfies( required)) {
+                                    (false, true) => {
+                                        println!("service {} granted for connection {:?}", svc.service.get_mod_path(), conn.remote_addr);
+                                        svc.service.init_connection( &hself, svc.is_data_available, conn).await.map_err(|e| connect_error(e))?;
+                                    }
+                                    (true, false) => {
+                                        println!("service {} revoked for connection {:?}", svc.service.get_mod_path(), conn.remote_addr);
+                                        let msg = serde_json::json!({ "mod": "__system__", "serviceRevoked": { "mod": svc.service.get_mod_path() } }).to_string();
+                                        let _ = conn.ws_sender.send( Message::text( msg)).await;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
                     }
                     Revalidation::Invalid => invalid.push( conn.remote_addr)
                 }
@@ -676,20 +740,30 @@ impl SpaServer {
 
     async fn reinitialize_svc (&mut self, hself: ActorHandle<SpaServerMsg>, remote_addr: SocketAddr, mod_path: &str)->OdinServerResult<()>{
         if let Some(conn_ref) = self.connections.get_mut( &remote_addr) {
-            println!("reinitializing service {} for connection {remote_addr:?}", mod_path);
             if let Some(svc) = self.services.iter_mut().find( |svc| svc.service.get_mod_path() == mod_path) {
+                if !conn_ref.is_authorized_for( svc.required) { return Ok(()) } // user is not authorized for this service
+                println!("reinitializing service {} for connection {remote_addr:?}", mod_path);
                 svc.service.init_connection( &hself, svc.is_data_available, conn_ref).await.map_err(|e| connect_error(e))?;
             }
         }
         Ok(())
     }
 
+    /// roles required to receive the (serialized WsMsg) message `m`, None if the message is not protected.
+    /// This only inspects the message prefix and is a no-op if there are no protected services/messages
+    #[inline]
+    fn required_for (&self, m: &str)->Option<RoleSet> {
+        self.out_acl.as_ref().and_then( |acl| acl.required_for_ws_msg( m))
+    }
+
     /// send a ws message to all connections.
     /// this does not bail on message delivery failure
     async fn broadcast_ws_msg (&mut self, m: String)->OdinServerResult<()> {
         // TODO - use feed() or send_all() for batches
+        let required = self.required_for( &m);
         let ws_msg = Message::text(m);
         for conn in self.connections.values_mut() {
+            if !conn.is_authorized_for( required) { continue }
             if let Err(e) = conn.ws_sender.send(ws_msg.clone()).await {
                 error!("failed to broadcast ws message to {:?}: {}", conn.remote_addr, e);
             }
@@ -700,9 +774,10 @@ impl SpaServer {
     /// send ws message to all but `except_addr`. Use this for messages that originate from `except_addr`
     /// and should only be distributed to other connections
     async fn send_all_others_ws_msg (&mut self, except_addr: SocketAddr, m: String)->OdinServerResult<()> {
+        let required = self.required_for( &m);
         let ws_msg = Message::text(m);
         for conn in self.connections.values_mut() {
-            if conn.remote_addr != except_addr {
+            if conn.remote_addr != except_addr && conn.is_authorized_for( required) {
                 if let Err(e) = conn.ws_sender.send(ws_msg.clone()).await {
                     error!("failed to distribute ws message to {:?}: {}", conn.remote_addr, e);
                 }
@@ -713,9 +788,11 @@ impl SpaServer {
 
     /// send ws message to the provided group of remote addresses
     async fn send_group_ws_msg (&mut self, addr_group: Vec<SocketAddr>, m: String)->OdinServerResult<()> {
+        let required = self.required_for( &m);
         let ws_msg = Message::text(m);
         for remote_addr in &addr_group {
             if let Some(conn) = self.connections.get_mut(remote_addr) {
+                if !conn.is_authorized_for( required) { continue }
                 if let Err(e) = conn.ws_sender.send(ws_msg.clone()).await {
                     error!("failed to distribute ws message to {:?}: {}", conn.remote_addr, e);
                 }
@@ -726,8 +803,10 @@ impl SpaServer {
 
     /// send a ws message to `remote_addr`
     async fn send_ws_msg (&mut self, remote_addr: SocketAddr, m: String)->OdinServerResult<()> {
+        let required = self.required_for( &m);
         let ws_msg = Message::text(m);
         if let Some(conn) = self.connections.get_mut( &remote_addr) {
+            if !conn.is_authorized_for( required) { return Ok(()) }
             if let Err(e) = conn.ws_sender.send( ws_msg).await {
                 error!("failed to send ws message to {:?}: {}", conn.remote_addr, e);
             }
