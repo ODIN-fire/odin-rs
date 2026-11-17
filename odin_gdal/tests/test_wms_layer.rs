@@ -21,7 +21,7 @@ use gdal::{DriverManager, raster::{Buffer, GdalType}, spatial_ref::SpatialRef};
 use odin_common::fs::EnvPathBuf;
 use odin_gdal::{
     cmap::CmapEntry, errors::Result, geods::GeoDsSrs,
-    wms_srv::{WmsGetMap, WmsLayer, WmsLayerConfig, WmsRequest, WmsStyleConfig, parse_wms_request}
+    wms_srv::{WmsConfig, WmsGetMap, WmsLayer, WmsLayerConfig, WmsRequest, WmsService, WmsStyleConfig, parse_wms_request}
 };
 
 const N: usize = 100; // raster size (N x N cells of 0.01deg)
@@ -150,4 +150,44 @@ fn test_feature_value () {
 
     let fv = layer.feature_value( GeoDsSrs::WGS84, -100.0, 37.5).unwrap(); // outside of dataset
     assert!( fv.is_nodata);
+}
+
+/// dynamic layers (e.g. downloaded time steps) that are added and removed at runtime
+#[test]
+fn test_dynamic_layers () {
+    let path = tmp_path( "wms_dyn.tif");
+    create_ds( &path, vec![1.0f32; N*N], None);
+    let cache_dir = tmp_path( "wms_dyn_cache");
+    let _ = std::fs::remove_dir_all( &cache_dir);
+
+    let config = WmsConfig { title: "dynamic".into(), max_cache: 1024*1024, max_renders: 1, max_downsample: 16.0, layers: vec![] };
+    let wms = WmsService::new( config, cache_dir.clone(), None);
+    assert!( wms.layer_names().is_empty());
+
+    let layer = |name: &str| {
+        let mut lc = layer_config( &path, vec![], vec![ WmsStyleConfig::Alpha{ min: 0.0, max: 1.0 }]);
+        lc.name = name.into();
+        WmsLayer::new( &lc, None).unwrap()
+    };
+    wms.add_layer( layer("a"));
+    wms.add_layer( layer("b"));
+    assert_eq!( wms.layer_names(), vec!["a", "b"]);
+    assert!( wms.layer("a").is_some() && wms.has_layer("b"));
+
+    // replacing a layer keeps its position but removes its cached images
+    let cached = cache_dir.join("a").join("style").join("img.png");
+    std::fs::create_dir_all( cached.parent().unwrap()).unwrap();
+    std::fs::write( &cached, b"png").unwrap();
+    let old = wms.layer("a").unwrap();
+    wms.add_layer( layer("a"));
+    assert_eq!( wms.layer_names(), vec!["a", "b"]);
+    assert!( !cached.exists());
+    assert!( old.res_m > 0.0); // shared layers stay usable for requests that still hold them
+
+    std::fs::create_dir_all( cached.parent().unwrap()).unwrap();
+    std::fs::write( &cached, b"png").unwrap();
+    assert!( wms.remove_layer("a"));
+    assert!( !wms.remove_layer("a"));
+    assert_eq!( wms.layer_names(), vec!["b"]);
+    assert!( !cache_dir.join("a").exists());
 }

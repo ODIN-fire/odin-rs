@@ -26,6 +26,12 @@ and transparent images for requests that are much coarser than the data resoluti
 add the configuration (`wms_srv::WmsConfig`) and the routes for their `odin_server::spa::SpaService` implementation -
 see [`odin_landfire`](../odin_landfire/odin_landfire.md) for an example.
 
+Layers are either static (configured in `WmsConfig::layers`) or dynamic, i.e. added and removed at runtime with
+`WmsService::add_layer(..)` and `WmsService::remove_layer(..)`. This is used for data sets that change over time such
+as downloaded time series (each time step is a separate layer, see [`odin_nexrad`](../odin_nexrad/odin_nexrad.md)).
+Replacing or removing a layer also removes its cached images. Layers are shared (`Arc`), i.e. requests that are
+already processing a removed layer still complete.
+
 GetFeatureInfo responses are GeoJSON FeatureCollections with one Point feature per queried layer that has `layer`,
 `value` (null for nodata), `nodata` and `name` properties (color map entry name for categorical data). Values are read
 from the original datasets, i.e. they do not depend on any rendering parameters.

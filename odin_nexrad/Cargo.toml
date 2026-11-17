@@ -1,0 +1,38 @@
+[package]
+name = "odin_nexrad"
+version = "0.5.0"
+edition = "2024"
+build = "../build_resources.rs"
+
+[dependencies]
+# our ODIN crates
+odin_build = { workspace = true }
+odin_common = { workspace = true, features = ["s3"] }
+odin_action = { workspace = true }
+odin_actor = { workspace = true }
+odin_macro = { workspace = true }
+odin_server = { workspace = true }
+odin_cesium = { workspace = true }
+odin_gdal = { workspace = true }
+
+nexrad = { workspace = true, features = ["data", "process", "render"] }
+tokio = { workspace = true }
+axum = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ron = { workspace = true }
+chrono = { workspace = true }
+gdal = { workspace = true }
+csv = { workspace = true }
+clap = { workspace = true }
+thiserror = { workspace = true }
+lazy_static = { workspace = true }
+anyhow = { workspace = true }
+
+[build-dependencies]
+odin_build = { workspace = true }
+
+[features]
+## inline crate-specific resources (configs and assets) into the executable (see odin_build)
+embedded_resources = []

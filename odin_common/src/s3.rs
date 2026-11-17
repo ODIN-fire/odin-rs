@@ -38,6 +38,9 @@ pub enum OdinS3Error {
     #[error("AWS S3 list object error {0}")]
     AWSS3ListObjectError( #[from] aws_smithy_runtime_api::client::result::SdkError<aws_sdk_s3::operation::list_objects::ListObjectsError, aws_smithy_runtime_api::http::Response>),
 
+    #[error("AWS S3 list object (v2) error {0}")]
+    AWSS3ListObjectV2Error( #[from] aws_smithy_runtime_api::client::result::SdkError<aws_sdk_s3::operation::list_objects_v2::ListObjectsV2Error, aws_smithy_runtime_api::http::Response>),
+
     #[error("AWS byte stream download error {0}")]
     AWSByteStreamError( #[from] aws_smithy_types::byte_stream::error::Error),
 
@@ -72,6 +75,27 @@ impl S3Object {
                 d <= dt
             } else { false }
         } else { false }
+    }
+
+    /// the object key ("" if there is none)
+    pub fn key_str (&self)->&str {
+        self.key.as_deref().unwrap_or("")
+    }
+
+    /// the last element of the object key (e.g. the file name for "/" separated keys)
+    pub fn key_name (&self)->&str {
+        let key = self.key_str();
+        key.rsplit('/').next().unwrap_or(key)
+    }
+
+    /// object size in bytes (0 if not set)
+    pub fn size_bytes (&self)->u64 {
+        self.size.map( |s| s.max(0) as u64).unwrap_or(0)
+    }
+
+    /// last modified date as chrono DateTime (None if not set or not convertible)
+    pub fn last_modified_utc (&self)->Option<DateTime<Utc>> {
+        self.last_modified.and_then( |d| d.to_chrono_utc().ok())
     }
 }
 
@@ -117,6 +141,60 @@ pub async fn get_last_s3_object (client: &Client, dt: DateTime<Utc>, bucket: &st
     let result = builder.send().await?;
 
     Ok( result.contents.and_then(|mut v| v.pop()).map(|o| S3Object(o)) )
+}
+
+/// retrieve all objects for given bucket/prefix with keys after `start_after` (in key order), using paginated
+/// ListObjectsV2 requests (i.e. this also works for more than 1000 objects). `start_after` can be used to only
+/// get new objects since a previous listing. The result can be empty
+pub async fn list_s3_objects (client: &Client, bucket: &str, prefix: &str, start_after: Option<&str>) -> Result<Vec<S3Object>> {
+    let mut objects: Vec<S3Object> = Vec::new();
+    let mut continuation_token: Option<String> = None;
+
+    loop {
+        let mut builder = client.list_objects_v2().bucket(bucket).prefix(prefix);
+        if let Some(key) = start_after { builder = builder.start_after(key); }
+        if let Some(token) = &continuation_token { builder = builder.continuation_token(token); }
+
+        let result = builder.send().await?;
+        objects.extend( result.contents().iter().cloned().map( S3Object));
+
+        match (result.is_truncated(), result.next_continuation_token()) {
+            (Some(true), Some(token)) => continuation_token = Some(token.to_string()),
+            _ => break
+        }
+    }
+    Ok(objects)
+}
+
+/// retrieve the common prefixes ("sub-directories") of objects with the given prefix up to the next `delimiter`,
+/// e.g. the station directories "2026/11/17/KMUX/",.. for prefix "2026/11/17/" and delimiter "/"
+pub async fn list_s3_prefixes (client: &Client, bucket: &str, prefix: &str, delimiter: &str) -> Result<Vec<String>> {
+    let mut prefixes: Vec<String> = Vec::new();
+    let mut continuation_token: Option<String> = None;
+
+    loop {
+        let mut builder = client.list_objects_v2().bucket(bucket).prefix(prefix).delimiter(delimiter);
+        if let Some(token) = &continuation_token { builder = builder.continuation_token(token); }
+
+        let result = builder.send().await?;
+        prefixes.extend( result.common_prefixes().iter().filter_map( |cp| cp.prefix().map( |p| p.to_string())));
+
+        match (result.is_truncated(), result.next_continuation_token()) {
+            (Some(true), Some(token)) => continuation_token = Some(token.to_string()),
+            _ => break
+        }
+    }
+    Ok(prefixes)
+}
+
+/// download the object with the given key into memory
+pub async fn get_s3_object_bytes (client: &Client, bucket: &str, key: &str) -> Result<Vec<u8>> {
+    let mut object = client.get_object().bucket(bucket).key(key).send().await?;
+    let mut data: Vec<u8> = Vec::with_capacity( object.content_length().unwrap_or(0).max(0) as usize);
+    while let Some(bytes) = object.body.try_next().await? {
+        data.extend_from_slice( &bytes);
+    }
+    Ok(data)
 }
 
 /// download a given `S3Object` and store it under its key as filename within the given path.

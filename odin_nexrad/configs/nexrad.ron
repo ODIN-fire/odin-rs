@@ -1,0 +1,30 @@
+// example NexradConfig for NEXRAD WSR-88D Level II import (see odin_nexrad/doc/odin_nexrad.md)
+
+NexradConfig (
+    bucket: "unidata-nexrad-level2", // public AWS S3 bucket with Level II archive volumes
+    region: "us-east-1",
+
+    // ICAO ids of imported stations (see `list_nexrad --stations` and `nexrad_timing --all`)
+    stations: [ "KMUX", "KDAX", "KBBX", "KHNX", "KBHX" ],
+
+    products: [ BaseReflectivity, CompositeReflectivity ],
+    resolution: 0.005,   // product grid cell size [deg] (~500m). Grid extents are computed from max sweep ranges
+    min_dbz: 5.0,        // reflectivity below this is not displayed (transparent)
+    max_downloads: 12,   // time steps we keep per station and product
+    backfill: 6,         // most recent volumes per station we retrieve on startup (if we don't have them)
+
+    // stations scan with weather dependent intervals (~4.5-10min) and volumes are published ~5-7min after scan
+    // start. We check at last scan + last interval + median publication delay + check_delay, then every retry_delay
+    check_delay: "30s",
+    retry_delay: "1m",
+
+    keep_volumes: false, // keep downloaded Level II volumes (for analysis of polar data)
+    stations_csv: Some("$ODIN_ROOT/data/odin_nexrad/Weather_Radar_Stations.csv"), // fallback station positions
+
+    wms: (
+        title: "ODIN NEXRAD WMS",
+        max_cache: 268435456, // 256MB of cached GetMap images
+        max_renders: 4,
+        max_downsample: 64.0,
+    ),
+)

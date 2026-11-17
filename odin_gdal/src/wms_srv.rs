@@ -23,9 +23,12 @@
 //!
 //! This module provides the generic parts (request parsing, layer configuration, rendering, caching and the request
 //! handlers of `WmsService`). Data source crates (e.g. odin_landfire) provide the configuration, color map readers and
-//! the routes for their `odin_server::spa::SpaService` implementations
+//! the routes for their `odin_server::spa::SpaService` implementations.
+//!
+//! Layers are either static (configured in `WmsConfig`) or dynamic, i.e. added and removed at runtime with
+//! `WmsService::add_layer(..)` / `WmsService::remove_layer(..)` (e.g. for downloaded time series such as odin_nexrad)
 
-use std::{collections::HashMap, io::Cursor, path::{Path,PathBuf}, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
+use std::{collections::HashMap, io::Cursor, path::{Path,PathBuf}, sync::{Arc, RwLock, atomic::{AtomicUsize, Ordering}}};
 use axum::{http::{HeaderMap, StatusCode, Uri, header}, response::{IntoResponse, Response}};
 use gdal::{Dataset, raster::GdalDataType, spatial_ref::{AxisMappingStrategy, CoordTransform, SpatialRef}};
 use image::{ImageEncoder, codecs::png::{CompressionType, FilterType, PngEncoder}, ExtendedColorType};
@@ -211,7 +214,7 @@ fn parse_get_feature_info (mut params: HashMap<String,String>)->std::result::Res
 /* #region WMS layers *****************************************************************************************/
 
 /// the static WMS configuration (normally part of the data source specific service config)
-#[derive(Deserialize,Debug)]
+#[derive(Deserialize,Debug,Clone)]
 pub struct WmsConfig {
     pub title: String,
     #[serde(default="default_max_cache")]
@@ -220,7 +223,8 @@ pub struct WmsConfig {
     pub max_renders: usize, // max number of concurrent GetMap image computations (each one opens the layer GeoTIFF)
     #[serde(default="default_max_downsample")]
     pub max_downsample: f64, // requests with pixels larger than this factor times the data cell size get transparent images
-    pub layers: Vec<WmsLayerConfig>, // in order of capabilities
+    #[serde(default)]
+    pub layers: Vec<WmsLayerConfig>, // static layers in order of capabilities (dynamic layers are added at runtime)
 }
 
 fn default_max_cache()->u64 { 1024*1024*1024 } // 1GB
@@ -230,7 +234,7 @@ fn default_max_renders()->usize { 4 }
 // level 4) tile already takes several seconds. Such requests are mostly for ancestor tiles Cesium uses as fallback
 fn default_max_downsample()->f64 { 16.0 }
 
-#[derive(Deserialize,Debug)]
+#[derive(Deserialize,Debug,Clone)]
 pub struct WmsLayerConfig {
     pub name: String,
     pub title: String,
@@ -243,7 +247,7 @@ pub struct WmsLayerConfig {
 
 /// the supported WMS styles (colorizations). Each one can only be used once per layer since the style name is
 /// derived from the type ("cmap" or "alpha")
-#[derive(Deserialize,Debug)]
+#[derive(Deserialize,Debug,Clone)]
 pub enum WmsStyleConfig {
     /// categorical (8 or 16 bit integer) data with a color map file that is read by a data source specific CmapReader
     Cmap(EnvPathBuf),
@@ -545,9 +549,9 @@ pub fn get_cache_path (cache_dir: &Path, layer: &WmsLayer, style: &WmsStyle, req
     cache_dir.join( &layer.name).join( layer.style_key( style, req)).join( fname)
 }
 
-/// generate WMS 1.3.0 capabilities for the configured layers (in config order). The online_resource is the absolute URL
+/// generate WMS 1.3.0 capabilities for the given layers (in order). The online_resource is the absolute URL
 /// of our WMS endpoint
-pub fn capabilities_xml (config: &WmsConfig, layers: &HashMap<String,WmsLayer>, online_resource: &str)->String {
+pub fn capabilities_xml (title: &str, lcs: &[&WmsLayer], online_resource: &str)->String {
     let url = xml_escape( online_resource);
     let mut s = String::with_capacity( 4096);
 
@@ -581,14 +585,13 @@ pub fn capabilities_xml (config: &WmsConfig, layers: &HashMap<String,WmsLayer>, 
       <Title>{title}</Title>
       <CRS>EPSG:4326</CRS>
       <CRS>CRS:84</CRS>
-"#, title = xml_escape( &config.title)));
+"#, title = xml_escape( title)));
 
-    let lcs: Vec<&WmsLayer> = config.layers.iter().filter_map( |lc| layers.get( &lc.name)).collect();
-    if let Some(b) = union_bounds( &lcs) {
+    if let Some(b) = union_bounds( lcs) {
         s.push_str( &geo_bbox_xml( &b, "      "));
     }
 
-    for layer in lcs {
+    for layer in lcs.iter() {
         s.push_str( &format!("      <Layer queryable=\"1\" opaque=\"0\">\n        <Name>{}</Name>\n        <Title>{}</Title>\n",
                              xml_escape( &layer.name), xml_escape( &layer.title)));
         if let Some(descr) = &layer.descr {
@@ -630,7 +633,7 @@ fn geo_bbox_xml (b: &[f64;4], indent: &str)->String {
 /// of the SpaService that uses it
 pub struct WmsService {
     pub config: WmsConfig,
-    pub layers: HashMap<String,WmsLayer>,
+    layers: RwLock<WmsLayers>, // static (configured) and dynamic layers
     cache_dir: PathBuf,
     n_cached: AtomicUsize,
 
@@ -641,13 +644,76 @@ pub struct WmsService {
     render_permits: Semaphore,
 }
 
+/// the layers of a WmsService in capabilities order. Layers are shared (Arc) so that requests can keep using them
+/// while they are replaced or removed
+#[derive(Default)]
+struct WmsLayers {
+    map: HashMap<String,Arc<WmsLayer>>,
+    order: Vec<String>,
+}
+
 impl WmsService {
     /// create a new service, loading all configured layers. Layers that can't be loaded are reported and skipped.
     /// The read_cmap function is required if layers have cmap styles
     pub fn new (config: WmsConfig, cache_dir: PathBuf, read_cmap: Option<&CmapReader>)->Self {
-        let layers = load_layers( &config, read_cmap);
+        let mut layers = WmsLayers::default();
+        let mut loaded = load_layers( &config, read_cmap);
+        for lc in &config.layers {
+            if let Some(layer) = loaded.remove( &lc.name) {
+                layers.order.push( lc.name.clone());
+                layers.map.insert( lc.name.clone(), Arc::new( layer));
+            }
+        }
         let render_permits = Semaphore::new( config.max_renders.max(1));
-        WmsService { config, layers, cache_dir, n_cached: AtomicUsize::new(0), render_permits }
+        WmsService { config, layers: RwLock::new( layers), cache_dir, n_cached: AtomicUsize::new(0), render_permits }
+    }
+
+    /// get a (shared) layer by name
+    pub fn layer (&self, name: &str)->Option<Arc<WmsLayer>> {
+        self.layers.read().unwrap().map.get( name).cloned()
+    }
+
+    /// names of all current layers (in capabilities order)
+    pub fn layer_names (&self)->Vec<String> {
+        self.layers.read().unwrap().order.clone()
+    }
+
+    pub fn has_layer (&self, name: &str)->bool {
+        self.layers.read().unwrap().map.contains_key( name)
+    }
+
+    /// add a dynamic layer (e.g. a new time step of a downloaded data set). If there already is a layer with the same
+    /// name it is replaced and its cached images are removed. New layers are appended to the capabilities order
+    pub fn add_layer (&self, layer: WmsLayer) {
+        let name = layer.name.clone();
+        let replaced = {
+            let mut layers = self.layers.write().unwrap();
+            let replaced = layers.map.insert( name.clone(), Arc::new( layer)).is_some();
+            if !replaced { layers.order.push( name.clone()); }
+            replaced
+        };
+        if replaced { self.remove_cached_images( &name); }
+    }
+
+    /// remove a (dynamic) layer and its cached images. Returns false if there was no such layer. Note that requests
+    /// that are already processing this layer still complete, i.e. the layer dataset should only be removed afterwards
+    /// if those requests should succeed. Removing cached images is file system IO (normally fast)
+    pub fn remove_layer (&self, name: &str)->bool {
+        let removed = {
+            let mut layers = self.layers.write().unwrap();
+            let removed = layers.map.remove( name).is_some();
+            if removed { layers.order.retain( |n| n != name); }
+            removed
+        };
+        if removed { self.remove_cached_images( name); }
+        removed
+    }
+
+    fn remove_cached_images (&self, layer_name: &str) {
+        let dir = self.cache_dir.join( layer_name);
+        if dir.is_dir() {
+            if let Err(e) = std::fs::remove_dir_all( &dir) { eprintln!("failed to remove WMS cache of layer {layer_name}: {e}"); }
+        }
     }
 
     /// handler for WMS requests (GetCapabilities, GetMap)
@@ -656,7 +722,11 @@ impl WmsService {
             Ok(WmsRequest::GetMap(gm)) => self.get_map( gm).await,
             Ok(WmsRequest::GetFeatureInfo(gfi)) => self.get_feature_info( gfi).await,
             Ok(WmsRequest::GetCapabilities) => {
-                let xml = capabilities_xml( &self.config, &self.layers, &online_resource( headers, uri));
+                let xml = {
+                    let layers = self.layers.read().unwrap();
+                    let lcs: Vec<&WmsLayer> = layers.order.iter().filter_map( |n| layers.map.get(n).map( |l| l.as_ref())).collect();
+                    capabilities_xml( &self.config.title, &lcs, &online_resource( headers, uri))
+                };
                 (StatusCode::OK, [(header::CONTENT_TYPE, "text/xml")], xml).into_response()
             }
             Err(e) => e.into_response()
@@ -666,7 +736,7 @@ impl WmsService {
     /// handler for JSON color map legend requests of layers with cmap styles ("<layer>" or "<layer>.json")
     pub fn handle_legend (&self, layer_name: &str)->Response {
         let layer_name = layer_name.strip_suffix(".json").unwrap_or( layer_name);
-        if let Some(layer) = self.layers.get( layer_name) && let Some(json) = layer.json_legend() {
+        if let Some(layer) = self.layer( layer_name) && let Some(json) = layer.json_legend() {
             (StatusCode::OK, [(header::CONTENT_TYPE, "application/json")], json).into_response()
         } else {
             (StatusCode::NOT_FOUND, "unknown color map").into_response()
@@ -677,7 +747,7 @@ impl WmsService {
         if gm.layers.len() != 1 {
             return WmsException::new( Some("LayerNotDefined"), "only single layer requests are supported").into_response()
         }
-        let Some(layer) = self.layers.get( &gm.layers[0]) else {
+        let Some(layer) = self.layer( &gm.layers[0]) else {
             return WmsException::new( Some("LayerNotDefined"), format!("unknown layer {}", gm.layers[0])).into_response()
         };
         if !matches!( gm.img_type, GeoDsImgType::PNG) {
@@ -708,7 +778,7 @@ impl WmsService {
         // GDAL calls and file IO are blocking, i.e. we must not execute them on async runtime worker threads
         let res = tokio::task::spawn_blocking({
             let svc = self.clone();
-            move || svc.get_png( &gm)
+            move || svc.get_png( &layer, &gm)
         }).await;
 
         match res {
@@ -722,15 +792,16 @@ impl WmsService {
     }
 
     async fn get_feature_info (self: &Arc<Self>, gfi: WmsGetFeatureInfo)->Response {
-        if let Some(name) = gfi.query_layers.iter().find( |l| !self.layers.contains_key( *l)) {
-            return WmsException::new( Some("LayerNotDefined"), format!("unknown layer {name}")).into_response()
+        let mut layers: Vec<Arc<WmsLayer>> = Vec::with_capacity( gfi.query_layers.len());
+        for name in &gfi.query_layers {
+            match self.layer( name) {
+                Some(layer) => layers.push( layer),
+                None => return WmsException::new( Some("LayerNotDefined"), format!("unknown layer {name}")).into_response()
+            }
         }
 
         // single pixel reads are cheap, i.e. we don't need render permits but GDAL calls are still blocking
-        let res = tokio::task::spawn_blocking({
-            let svc = self.clone();
-            move || svc.feature_info_json( &gfi)
-        }).await;
+        let res = tokio::task::spawn_blocking( move || Self::feature_info_json( &layers, &gfi)).await;
 
         match res {
             Ok(Ok(json)) => (StatusCode::OK, [(header::CONTENT_TYPE, "application/json")], json).into_response(),
@@ -744,12 +815,12 @@ impl WmsService {
 
     /// GeoJSON FeatureCollection with one Point feature per query layer. Properties are "layer", "value" (null for
     /// nodata), "nodata" and "name" (color map entry name, the layer title for non-categorical data)
-    fn feature_info_json (&self, gfi: &WmsGetFeatureInfo)->Result<String> {
+    fn feature_info_json (layers: &[Arc<WmsLayer>], gfi: &WmsGetFeatureInfo)->Result<String> {
         let (x, y) = gfi.position();
-        let mut features: Vec<serde_json::Value> = Vec::with_capacity( gfi.query_layers.len());
+        let mut features: Vec<serde_json::Value> = Vec::with_capacity( layers.len());
 
-        for layer_name in &gfi.query_layers {
-            let layer = self.layers.get( layer_name).ok_or( misc_error( format!("unknown layer {layer_name}")))?; // already checked
+        for layer in layers {
+            let layer_name = &layer.name;
             let fv = layer.feature_value( gfi.map.srs, x, y)?;
 
             let value = if fv.is_nodata { serde_json::Value::Null } else { serde_json::json!( fv.value) };
@@ -771,8 +842,7 @@ impl WmsService {
     }
 
     /// get PNG image for request, either from cache or by rendering it from the layer dataset (blocking)
-    fn get_png (&self, gm: &WmsGetMap)->Result<Vec<u8>> {
-        let layer = self.layers.get( &gm.layers[0]).ok_or( misc_error("unknown layer".into()))?; // already checked
+    fn get_png (&self, layer: &WmsLayer, gm: &WmsGetMap)->Result<Vec<u8>> {
         let style = layer.style_for( gm).ok_or( misc_error("unknown style".into()))?; // already checked
         let path = get_cache_path( &self.cache_dir, layer, style, gm);
 

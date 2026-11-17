@@ -879,8 +879,15 @@ impl ActorSystem {
         iter_op_result("terminate_all", len, failed)
     }
 
+    /// terminate the system.
+    /// Note that we wait without a timeout so that we could attach a debugger or
+    /// tokio_console in case an actor (or spawned task) hangs the termination process.
+    /// The underlying assumption is that nothing should happen in the application after
+    /// a `terminate_all()` was called (other than processing _Terminate_ messages)
+    /// TODO - should we log in which actor it hangs? How? This would require instrumentation of
+    /// each _Terminate_ match arm of all actors
     pub async fn terminate_and_wait (&mut self, to: Duration)->Result<()> {
-        self.terminate_all( to).await;
+        self.terminate_all( to).await; // acceptable to wait w/o timeout (see function comment)
 
         let res = self.wait_all(to).await;
         if (res.is_err()) {

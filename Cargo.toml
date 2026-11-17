@@ -31,6 +31,7 @@ members = [
   "odin_bushfire",
   "odin_fems",
   "odin_landfire",
+  "odin_nexrad",
   "odin_elmfire",
   "odin_nfdrs",
   "odin_scrub",
@@ -66,7 +67,7 @@ odin_wind   = { version = "*", path = "odin_wind" }
 odin_adsb  = { version = "*", path = "odin_adsb" }
 odin_n5     = { version = "*", path = "odin_n5" }
 odin_alertca = { version = "*", path = "odin_alertca" }
-odin_onnx = { version = "*", path = "odin_onnx" }
+#odin_onnx = { version = "*", path = "odin_onnx" } # not yet used by anybody
 odin_fires = { version = "*", path = "odin_fires" }
 odin_himawari = { version = "*", path = "odin_himawari" }
 odin_image =  { version = "*", path = "odin_image" }
@@ -81,7 +82,6 @@ odin_scrub = { version = "*", path = "odin_scrub" }
 
 # external crates for which we have to ensure the same version
 axum = { version = "0.8", features = [ "http2", "ws", "macros"] }
-axum-login = { version = "0.18" }
 password-auth = { version = "1.0" }
 webauthn-rs = { version = "0.6.2" }
 webauthn-authenticator-rs = { version = "0.6.2", features = ["softpasskey"] }
@@ -89,7 +89,6 @@ totp-rs = { version = "6.0", features = ["gen_secret", "otpauth", "qr"] }
 getrandom = { version = "0.3" }
 sha2 = { version = "0.10" }
 base64 = { version = "0.22" }
-passwords = { version = "3.1" }
 
 # TODO
 # reqwest 0.13 is required for clients using TLS 1.3 but unfortunately blocked by a
@@ -106,11 +105,8 @@ http-cache-reqwest = { git = "https://github.com/06chaynes/http-cache", features
 
 tower = { version = "0.5", features = ["full"] }
 tower-http = { version = "0.7", features = ["full"] }
-tower-sessions = { version = "0.15.0", default-features = false, features = ["signed"] }
-tower-sessions-sqlx-store = { version = "0.15", features = ["sqlite"] }
 sqlx = { version = "0.9", features = ["sqlite", "time", "runtime-tokio"] }
 http = { version = "1.5" }
-cacache = { version = "13.1" }
 headers = { version = "0.4" }
 url = { version = "2.5" }
 bytes = { version = "1.11" }
@@ -122,7 +118,7 @@ tokio-tungstenite = { version = "0.30", features = ["native-tls"] }
 #tokio-tungstenite = { version = "0.29.0", features = ["rustls"] } # this requires to explicitly handle certificates
 tokio-util = { version = "0.7", features = ["full"] }
 kanal = { version = "0.1", features = ["async"] } # TODO - do we want to promote this to workspace? What about flume?
-rustls = { version = "0.23" }
+#rustls = { version = "0.23" }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0" }
 serde_repr = { version = "0.1" }
@@ -162,12 +158,13 @@ wkt = { version = "0.14", features = ["serde"] }
 nalgebra = { version = "0.35"}
 lazy_static = { version = "1.5" }
 paste = { version ="1.0" }
-regex = { version = "1.12" }
+regex = { version = "1.13" }
 hashbrown = { version = "0.17" }
 bit-set = { version = "0.10", features = ["serde"] }
 ndarray = { version = "0.17" }
 interp = { version = "2.1" }
 flate2 = { version = "1.1" }
+nexrad = { version = "1.0", default-features = false } # NEXRAD Level II decoding/processing (we use odin_common::s3 for AWS access)
 miniz_oxide = { version = "0.9" }
 memchr = { version = "2.8" }
 clap = { version = "4.6", features = ["derive"]}
