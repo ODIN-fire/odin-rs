@@ -50,10 +50,22 @@ Analysis that requires the original polar data or other moments (e.g. tracking w
 along radials, see [McCarthy et al. 2022](https://doi.org/10.1029/2021JD036158)) should use the Level II volumes,
 which can be kept in the cache (`keep_volumes`) as `$ODIN_ROOT/cache/odin_nexrad/<station>/volumes/<volume-name>`.
 
-Products are resampled from the polar sweep data onto a geographic grid with `resolution` degree cells that covers
-the max range of the used sweeps (±460km, i.e. ~2070x1650 cells at 0.005°). Each cell gets the max valid reflectivity
-of the used sweeps at its position (for base reflectivity this is just the value of the lowest sweep). Computing both
-products of a volume takes about 1.5sec (debug build). The GeoTIFFs are tiled, compressed (~200-300KB) and have
+Products are resampled from the polar sweep data onto a geographic grid that covers the max range of the used
+sweeps (±460km). Cell sizes are configured in meters (`resolution_m`, default 250m = the Level II gate interval) and
+converted into degrees per station so that cells are square at the station latitude (at 250m this is a ~3670x3670
+grid). Since the azimuthal gate width grows with range (0.5° super-resolution radials are 87m wide at 10km, 960m at
+110km and 4km at 460km) no fixed grid resolution matches the polar data everywhere. Each cell therefore gets the max
+valid reflectivity of the used sweeps from two passes:
+
+1. sampling of the nearest gate at each cell center - this gives each cell a value where gates are larger than cells
+   (far range)
+2. mapping of each gate center into its cell - this makes sure no gate is lost where gates are smaller than cells
+   (near range). Without it a 0.005° grid would skip about half of the gates within 110km (3 out of 4 within 30km),
+   which can miss small cores close to the radar in composite reflectivity
+
+For base reflectivity this is just the value of the lowest sweep. `resolution_m` is therefore only a trade-off between
+display detail and file size / computation time - larger cells do not lose max values. Computing both products of a
+volume at 250m takes about 0.9sec (release build, 5sec debug build). The GeoTIFFs are tiled, compressed (~0.6-0.9MB at 250m) and have
 overviews and a color table with the reflectivity scale of `nexrad-render`. Reflectivity below `min_dbz` (default 5
 dBZ, rendered black by `nexrad-render`) is transparent.
 
@@ -79,18 +91,32 @@ Layers are colorized with the color table and support `GetFeatureInfo` value loo
 
 The "NEXRAD Radar" window has the following panels:
 
-- **stations** - the configured stations with the scan time of their latest time step. Stations are also shown on the
-  map, selecting a station symbol selects the station in the list (double click in the list zooms to the station).
-  The "show" checkbox of a station (set by default) controls if its time step is displayed and queried by "pick".
-  De-selected stations keep their time step (still updated by "show latest"), explicitly showing a time step of a
-  de-selected station selects it again
-- **time steps** - one tab per product ("base", "composite") with the time steps of the selected station (newest on
-  top) and a "show" checkbox for each. Each station shows at most one time step at a time. "show latest of all
-  stations" shows the newest time step of the selected product tab for all stations (and follows new imports).
-  Explicitly showing a time step resets "show latest" (other stations keep their time steps)
-- **display** - layer opacity
+<img class="left" src="../img/odin_nexrad-ui.png" width="40%">
+
+- **stations** - the configured stations with the age of their (displayed or available) time step at the time cursor
+  in minutes and the scan time of their latest time step. The "show" checkbox of a station (set by default) controls
+  if the station contributes to the display, i.e. if its time steps are listed, displayed and queried by "pick". Since
+  stations overwrite each other where they overlap this is how users select the stations that are relevant for a
+  region (closer stations have lower beams and higher resolution). The age column shows which stations are current.
+  De-selected stations keep their time step as a hidden layer. Stations are also shown on the map, selecting a station
+  symbol selects the station in the list, double click in the list zooms to the station. Zooming in on a station
+  shows an info label with its name, displayed time step and age, and latest scan time
+- **time cursor** - what is displayed is determined by a time cursor T (shown left of the "show latest of selected"
+  checkbox): each shown station displays its newest time step <= T of the active product, unless that is older than
+  T - max age (display panel). With "show latest of selected" T is the newest time step of the shown stations and
+  follows new imports
+- **time steps** - one tab per product ("base", "composite") with the time steps of all shown stations (newest on
+  top), with station id and a "show" checkbox for each, i.e. the checked entries are what is displayed. The list
+  controls below the tabs step the time cursor through the time steps of the active tab (resetting "show latest"),
+  the clear button hides all time steps. Explicitly checking/unchecking a time step (manual mode) only changes the
+  display of its station
+- **display** - "nearest station on top" (default on) re-stacks the displayed layers after each camera move so that
+  where stations overlap the station closest to the view center is on top (it has the lowest beam and the highest
+  resolution). Together with "max age" (default 15min, 5-60min) this approximates a mosaic of the shown stations
+  without additional server side products, while users can still exclude stations explicitly. Opacity applies to
+  all layers. Initial values are set in `odin_nexrad_config.js` (`nearestOnTop`, `maxAge`, `opacity`)
 - **value** - the value of all displayed time steps at a map position can be looked up with the "pick" button or
-  shift+click (WMS GetFeatureInfo)
+  shift+click (WMS GetFeatureInfo). The age column shows the age of the respective time step at the time cursor
 
 ## server routes and messages
 
@@ -111,7 +137,7 @@ NexradConfig (
     region: "us-east-1",
     stations: [ "KMUX", "KDAX", "KBBX", "KHNX", "KBHX" ],
     products: [ BaseReflectivity, CompositeReflectivity ],
-    resolution: 0.005,   // product grid cell size [deg]
+    resolution_m: 250.0, // product grid cell size [m]
     min_dbz: 5.0,        // reflectivity below this is transparent
     max_downloads: 12,   // time steps we keep per station and product
     backfill: 6,         // most recent volumes per station retrieved on startup

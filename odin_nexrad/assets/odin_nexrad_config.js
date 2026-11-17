@@ -30,19 +30,25 @@ export const config = {
     ],
     product: "bref",   // initially shown product
 
-    maximumLevel: 9,   // most detailed (geographic tiling scheme) level we request (products have 0.005deg cells)
+    maximumLevel: 9,   // most detailed (geographic tiling scheme) level we request (~150m pixels, products have 250m cells)
     opacity: 0.7,      // initial layer opacity
-    showLatest: true,  // initially show (and follow) the latest time step of all stations
+    showLatest: true,  // initially show (and follow) the latest time step of the shown stations
+    maxAge: 15,        // [min] initial max age of displayed time steps at the time cursor (display panel)
+    nearestOnTop: true, // initially put the station closest to the view center on top where stations overlap (display panel)
 
     // station symbols
     station: {
-        color: Cesium.Color.fromCssColorString("#00ffff"),
+        color: Cesium.Color.fromCssColorString("#ff0000"),
         noDataColor: Cesium.Color.fromCssColorString("#808080"),
-        outlineColor: Cesium.Color.BLACK,
+        outlineColor: Cesium.Color.YELLOW,
         pointSize: 8,
         labelFont: "14px sans-serif",
-        labelOffset: new Cesium.Cartesian2( 8, 0),
+        labelOffset: new Cesium.Cartesian2(8, 0),
+        labelColor: Cesium.Color.YELLOW,
         labelBackground: Cesium.Color.fromCssColorString("#00000060"),
         labelDC: new Cesium.DistanceDisplayCondition( 0, 3000000),
+        infoFont: "12px monospace", // station info (name, displayed time step and age, latest time step)
+        infoOffset: new Cesium.Cartesian2(8, 12),
+        infoDC: new Cesium.DistanceDisplayCondition( 0, 200000),
     },
 }

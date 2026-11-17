@@ -20,6 +20,7 @@
 use std::{path::{Path, PathBuf}, time::Duration};
 use chrono::{DateTime, NaiveDate, TimeZone, TimeDelta, Utc};
 use odin_nexrad::{*, product::*, store::*};
+use nexrad::model::{data::{GateStatus, SweepField}, geo::{GeoPoint, PolarPoint}};
 
 fn t (h: u32, m: u32, s: u32)->DateTime<Utc> { Utc.with_ymd_and_hms( 2026, 11, 17, h, m, s).unwrap() }
 
@@ -238,7 +239,7 @@ fn test_compute_products () {
     let _ = std::fs::remove_dir_all( &cache_dir);
 
     let t0 = std::time::Instant::now();
-    let entries = compute_products( &scan, &station("KMUX"), &NexradProduct::ALL, t(0,0,0), 0.005, 5.0, &cache_dir).unwrap();
+    let entries = compute_products( &scan, &station("KMUX"), &NexradProduct::ALL, t(0,0,0), 250.0, 5.0, &cache_dir).unwrap();
     println!("computed {} products in {:?}", entries.len(), t0.elapsed());
     assert_eq!( entries.len(), 2);
 
@@ -247,11 +248,12 @@ fn test_compute_products () {
         let (w, h) = ds.raster_size();
         let gt = ds.geo_transform().unwrap();
         assert_eq!( ds.spatial_ref().unwrap().auth_code().unwrap(), 4326);
-        assert!( (gt[1] - 0.005).abs() < 1e-9 && (gt[5] + 0.005).abs() < 1e-9);
+        let (res_lon, res_lat) = cell_size_deg( 37.155, 250.0); // site latitude of the volume might differ slightly
+        assert!( (gt[1] - res_lon).abs() < 1e-6 && (gt[5] + res_lat).abs() < 1e-6, "cell size {},{}", gt[1], gt[5]);
         // grid is centered on KMUX (37.155,-121.898) and covers ~460km
         let (lon_c, lat_c) = (gt[0] + gt[1] * w as f64 / 2.0, gt[3] + gt[5] * h as f64 / 2.0);
         assert!( (lon_c + 121.898).abs() < 0.05 && (lat_c - 37.155).abs() < 0.05, "center {lat_c},{lon_c}");
-        assert!( h as f64 * 0.005 > 8.0);
+        assert!( h as f64 * res_lat > 8.0);
 
         let band = ds.rasterband(1).unwrap();
         assert!( band.overview_count().unwrap() >= 3);
@@ -275,4 +277,62 @@ fn test_compute_products () {
     let layer = wms.wms.layer( &entries[0].layer_name()).unwrap();
     let fv = layer.feature_value( odin_gdal::geods::GeoDsSrs::WGS84, -121.898, 37.155).unwrap(); // radar position
     println!("value at radar position: {fv:?}");
+}
+
+#[test]
+fn test_grid () {
+    let (res_lon, res_lat) = cell_size_deg( 37.0, 250.0);
+    assert!( (res_lat * METERS_PER_DEG_LAT - 250.0).abs() < 1e-6);
+    assert!( (res_lon * METERS_PER_DEG_LAT * 37.0f64.to_radians().cos() - 250.0).abs() < 1e-6); // square at 37°
+
+    let extent = nexrad::model::geo::GeoExtent { min: GeoPoint { latitude: 36.0, longitude: -123.0 }, max: GeoPoint { latitude: 38.0, longitude: -121.0 } };
+    let grid = ProductGrid::for_station( &extent, 37.0, 250.0).unwrap();
+    assert_eq!( grid.height, (2.0 / res_lat).ceil() as usize);
+    assert_eq!( grid.width, (2.0 / res_lon).ceil() as usize);
+
+    let c = grid.cell_center( 3, 5);
+    assert_eq!( grid.cell_index( c.latitude, c.longitude), Some( 3 * grid.width + 5));
+    assert_eq!( grid.cell_index( 38.1, -122.0), None);
+    assert_eq!( grid.cell_index( 37.0, -120.9), None);
+}
+
+/// single gates have to show up in the max product even if grid cells are much larger than gates (near range)
+#[test]
+fn test_resample_gates () {
+    let st = station("KMUX");
+    let cs = station_coordinate_system( &st).unwrap();
+    let mut field = SweepField::builder( "REF", "dBZ")
+        .azimuth_angles_degrees( (0..720).map( |i| i as f32 * 0.5 + 0.25).collect())
+        .azimuth_spacing_degrees( 0.5)
+        .elevation_angle_degrees( 0.5)
+        .first_gate_range_km( 2.125)
+        .gate_interval_km( 0.25)
+        .gate_count( 400)
+        .build().unwrap();
+    for az in 0..720 { for g in 0..400 { field.set( az, g, 20.0, GateStatus::Valid).unwrap(); } }
+    // isolated cores close to the radar (~6km and ~12km) and a range folded gate
+    field.set( 101, 16, 60.0, GateStatus::Valid).unwrap();
+    field.set( 403, 40, 55.5, GateStatus::Valid).unwrap();
+    field.set( 600, 200, 0.0, GateStatus::RangeFolded).unwrap();
+
+    let extent = cs.sweep_extent( field.max_range_km());
+    let grid = ProductGrid::for_station( &extent, cs.latitude(), 2000.0).unwrap(); // 2km cells (~8x8 gates at 12km)
+    let codes = resample_max( std::slice::from_ref( &field), &cs, &grid);
+
+    for (az, gate, dbz) in [(101usize, 16usize, 60.0f32), (403, 40, 55.5)] {
+        let polar = PolarPoint { azimuth_angle_degrees: field.azimuth_angles_degrees()[az] as f64,
+                                 range_km: 2.125 + gate as f64 * 0.25, elevation_angle_degrees: 0.5 };
+        let p = cs.polar_to_geo( polar);
+        let idx = grid.cell_index( p.latitude, p.longitude).unwrap();
+        assert_eq!( codes[idx], dbz_to_code( dbz), "gate {az},{gate} lost");
+        assert_eq!( codes.iter().filter( |c| **c == dbz_to_code( dbz)).count(), 1);
+    }
+
+    // valid values have priority over range folded
+    let n_folded = codes.iter().filter( |c| **c == REF_RANGE_FOLDED).count();
+    assert_eq!( n_folded, 0);
+    // everything within range has a value, outside it is below threshold
+    let n_bg = codes.iter().filter( |c| **c == dbz_to_code( 20.0)).count();
+    let n_expected = (std::f64::consts::PI * field.max_range_km().powi(2) / 4.0) as usize; // ~102km disk, 4km² cells
+    assert!( (n_bg as f64 - n_expected as f64).abs() < 0.05 * n_expected as f64, "{n_bg} cells in range, expected ~{n_expected}");
 }

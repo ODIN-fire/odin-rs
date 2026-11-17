@@ -8,7 +8,7 @@ NexradConfig (
     stations: [ "KMUX", "KDAX", "KBBX", "KHNX", "KBHX" ],
 
     products: [ BaseReflectivity, CompositeReflectivity ],
-    resolution: 0.005,   // product grid cell size [deg] (~500m). Grid extents are computed from max sweep ranges
+    resolution_m: 250.0, // product grid cell size [m] (Level II gate interval). Grid extents are computed from max sweep ranges
     min_dbz: 5.0,        // reflectivity below this is not displayed (transparent)
     max_downloads: 12,   // time steps we keep per station and product
     backfill: 6,         // most recent volumes per station we retrieve on startup (if we don't have them)

@@ -14,16 +14,16 @@
  * limitations under the License.
  */
 
-//! computation of geo-referenced products from decoded Level II volumes. Products are resampled from the polar sweep
-//! data onto a geographic (EPSG:4326) grid that covers the max range of the used sweeps, encoded as 8 bit
-//! reflectivity codes (see [`crate::dbz_to_code`]) and stored as tiled GeoTIFFs with a color table (the
-//! reflectivity scale of the `nexrad-render` crate) and overviews
+//! computation of geo-referenced products from decoded Level II volumes (in WSR-88D format).
+//! Products are resampled from the polar sweep data onto a geographic (EPSG:4326) grid that covers the
+//! max range of the used sweeps, encoded as 8 bit reflectivity codes (see [`crate::dbz_to_code`]) and stored
+//! as tiled GeoTIFFs with a color table (the reflectivity scale of the `nexrad-render` crate) and overviews
 
-use std::{path::{Path,PathBuf}, thread};
+use std::{path::{Path,PathBuf}, thread, sync::atomic::{AtomicU8, Ordering}};
 use chrono::{DateTime, Utc};
 use gdal::{Dataset, DriverManager, raster::{Buffer, ColorEntry, ColorTable, PaletteInterpretation, RasterCreationOptions}, spatial_ref::SpatialRef};
 use nexrad::{
-    model::{data::{GateStatus, Product, Scan, SweepField}, geo::{GeoExtent, GeoPoint, RadarCoordinateSystem}, meta::Site},
+    model::{data::{GateStatus, Product, Scan, SweepField}, geo::{GeoExtent, GeoPoint, PolarPoint, RadarCoordinateSystem}, meta::Site},
     render::default_scale
 };
 use odin_gdal::cmap::CmapEntry;
@@ -67,58 +67,116 @@ pub fn station_extent (station: &Station, max_range_km: f64)->Result<[f64;4]> {
     Ok( [e.min.longitude, e.min.latitude, e.max.longitude, e.max.latitude] )
 }
 
-/// a geographic product grid with square cells of `resolution` degrees (row 0 is the north edge)
+/// meters per degree latitude (on the spherical earth model of the nexrad crate, radius 6371km)
+pub const METERS_PER_DEG_LAT: f64 = 6_371_000.0 * std::f64::consts::PI / 180.0;
+
+/// a geographic (EPSG:4326) product grid (row 0 is the north edge). Cell sizes are in degrees and can differ for
+/// latitude and longitude (see [`ProductGrid::for_station`])
 #[derive(Debug,Clone,PartialEq)]
 pub struct ProductGrid {
     pub west: f64,
     pub north: f64,
-    pub resolution: f64,
+    pub res_lon: f64,
+    pub res_lat: f64,
     pub width: usize,
     pub height: usize,
 }
 
 impl ProductGrid {
-    /// grid that covers the given extent (rounded up to whole cells)
-    pub fn covering (extent: &GeoExtent, resolution: f64)->Result<Self> {
-        if !(resolution > 0.0) { return Err( op_failed!("invalid grid resolution {resolution}")) }
-        let width = ((extent.max.longitude - extent.min.longitude) / resolution).ceil() as usize;
-        let height = ((extent.max.latitude - extent.min.latitude) / resolution).ceil() as usize;
+    /// grid with `res_lon` x `res_lat` degree cells that covers the given extent (rounded up to whole cells)
+    pub fn covering (extent: &GeoExtent, res_lon: f64, res_lat: f64)->Result<Self> {
+        if !(res_lon > 0.0 && res_lat > 0.0) { return Err( op_failed!("invalid grid resolution {res_lon},{res_lat}")) }
+        let width = ((extent.max.longitude - extent.min.longitude) / res_lon).ceil() as usize;
+        let height = ((extent.max.latitude - extent.min.latitude) / res_lat).ceil() as usize;
         if width == 0 || height == 0 { return Err( op_failed!("empty product grid")) }
-        Ok( ProductGrid { west: extent.min.longitude, north: extent.max.latitude, resolution, width, height })
+        Ok( ProductGrid { west: extent.min.longitude, north: extent.max.latitude, res_lon, res_lat, width, height })
+    }
+
+    /// grid that covers `extent` with cells of `resolution_m` meters at the latitude of the radar site, i.e. cells are
+    /// square at the site latitude (at 460km north/south the longitude cell size is off by about ±6%)
+    pub fn for_station (extent: &GeoExtent, site_latitude: f64, resolution_m: f64)->Result<Self> {
+        let (res_lon, res_lat) = cell_size_deg( site_latitude, resolution_m);
+        Self::covering( extent, res_lon, res_lat)
     }
 
     pub fn geotransform (&self)->[f64;6] {
-        [ self.west, self.resolution, 0.0, self.north, 0.0, -self.resolution ]
+        [ self.west, self.res_lon, 0.0, self.north, 0.0, -self.res_lat ]
     }
 
     /// center of a grid cell
     pub fn cell_center (&self, row: usize, col: usize)->GeoPoint {
-        GeoPoint { latitude: self.north - (row as f64 + 0.5) * self.resolution, longitude: self.west + (col as f64 + 0.5) * self.resolution }
+        GeoPoint { latitude: self.north - (row as f64 + 0.5) * self.res_lat, longitude: self.west + (col as f64 + 0.5) * self.res_lon }
+    }
+
+    /// linear index of the grid cell that contains a position (None if outside of the grid)
+    pub fn cell_index (&self, latitude: f64, longitude: f64)->Option<usize> {
+        let col = (longitude - self.west) / self.res_lon;
+        let row = (self.north - latitude) / self.res_lat;
+        if col >= 0.0 && row >= 0.0 && (col as usize) < self.width && (row as usize) < self.height {
+            Some( row as usize * self.width + col as usize)
+        } else {
+            None
+        }
     }
 }
 
-/// resample sweep fields onto a grid. Each cell gets the max valid reflectivity of all fields at its position (for a
-/// single field this is just the field value), or REF_RANGE_FOLDED / REF_BELOW_THRESHOLD if there is no valid value.
-/// Rows are computed in parallel
-pub fn resample_max (fields: &[SweepField], cs: &RadarCoordinateSystem, grid: &ProductGrid)->Vec<u8> {
-    let mut codes = vec![REF_BELOW_THRESHOLD; grid.width * grid.height];
-    let n_threads = thread::available_parallelism().map( |n| n.get()).unwrap_or(4).min( grid.height).max(1);
-    let rows_per_thread = grid.height.div_ceil( n_threads);
+/// (longitude, latitude) cell size in degrees for `resolution_m` meters at a given latitude
+pub fn cell_size_deg (latitude: f64, resolution_m: f64)->(f64,f64) {
+    let res_lat = resolution_m / METERS_PER_DEG_LAT;
+    let res_lon = res_lat / latitude.to_radians().cos().max(1e-6);
+    (res_lon, res_lat)
+}
 
+/// resample sweep fields onto a grid. Each cell gets the max valid reflectivity of all fields within it, or
+/// REF_RANGE_FOLDED / REF_BELOW_THRESHOLD if there is no valid value. This is computed in two passes:
+///
+/// 1. sample all fields at each cell center, so that every cell within range gets a value even if it is smaller than
+///    the gates (far range, where the azimuthal gate width exceeds the cell size)
+/// 2. map each gate center into its grid cell (keeping the max), so that no gate is lost if gates are smaller than
+///    cells (near range). Without this pass the max of composite reflectivity could miss small cores close to the radar
+///
+/// Both passes are computed in parallel and combined with an (atomic) max of the codes. Since our code order is
+/// valid values > REF_RANGE_FOLDED > REF_BELOW_THRESHOLD this also implements the status priority.
+/// Gate centers are at `first_gate_range + i * gate_interval` (see `RadarCoordinateSystem::polar_to_geo`), for
+/// which we look up the nearest gate in pass 1 (`value_at_polar` floors the range)
+pub fn resample_max (fields: &[SweepField], cs: &RadarCoordinateSystem, grid: &ProductGrid)->Vec<u8> {
+    let codes: Vec<AtomicU8> = (0..grid.width * grid.height).map( |_| AtomicU8::new( REF_BELOW_THRESHOLD)).collect();
+    let n_threads = thread::available_parallelism().map( |n| n.get()).unwrap_or(4).max(1);
+
+    // pass 1: cell centers (row chunks)
+    let rows_per_thread = grid.height.div_ceil( n_threads.min( grid.height));
     thread::scope( |scope| {
-        for (chunk_idx, chunk) in codes.chunks_mut( rows_per_thread * grid.width).enumerate() {
-            let row0 = chunk_idx * rows_per_thread;
+        for row0 in (0..grid.height).step_by( rows_per_thread) {
+            let codes = &codes;
             scope.spawn( move || {
-                for (i, row_codes) in chunk.chunks_mut( grid.width).enumerate() {
-                    let row = row0 + i;
-                    for (col, code) in row_codes.iter_mut().enumerate() {
-                        *code = sample_max( fields, cs, grid.cell_center( row, col));
+                for row in row0..(row0 + rows_per_thread).min( grid.height) {
+                    for col in 0..grid.width {
+                        let code = sample_max( fields, cs, grid.cell_center( row, col));
+                        if code != REF_BELOW_THRESHOLD { codes[row * grid.width + col].fetch_max( code, Ordering::Relaxed); }
                     }
                 }
             });
         }
     });
-    codes
+
+    // pass 2: gate centers (radial chunks of each field)
+    thread::scope( |scope| {
+        for field in fields {
+            let n_az = field.azimuth_count();
+            if n_az == 0 { continue }
+            let az_per_thread = n_az.div_ceil( n_threads.min( n_az));
+            for az0 in (0..n_az).step_by( az_per_thread) {
+                let codes = &codes;
+                scope.spawn( move || {
+                    for az_idx in az0..(az0 + az_per_thread).min( n_az) {
+                        splat_radial( field, az_idx, cs, grid, codes);
+                    }
+                });
+            }
+        }
+    });
+
+    codes.into_iter().map( |c| c.into_inner()).collect()
 }
 
 fn sample_max (fields: &[SweepField], cs: &RadarCoordinateSystem, p: GeoPoint)->u8 {
@@ -128,7 +186,8 @@ fn sample_max (fields: &[SweepField], cs: &RadarCoordinateSystem, p: GeoPoint)->
 
     for field in fields {
         let Some(polar) = cs.geo_to_polar( p, field.elevation_angle_degrees() as f64) else { continue };
-        if let Some((v, status)) = field.value_at_polar( polar.azimuth_angle_degrees, polar.range_km) {
+        // value_at_polar floors (range - first_gate_range) / gate_interval - shift by half a gate to get the nearest gate center
+        if let Some((v, status)) = field.value_at_polar( polar.azimuth_angle_degrees, polar.range_km + field.gate_interval_km() / 2.0) {
             match status {
                 GateStatus::Valid => if v > max_dbz { max_dbz = v; is_valid = true; }
                 GateStatus::RangeFolded => is_range_folded = true,
@@ -138,6 +197,28 @@ fn sample_max (fields: &[SweepField], cs: &RadarCoordinateSystem, p: GeoPoint)->
     }
 
     if is_valid { dbz_to_code( max_dbz) } else if is_range_folded { REF_RANGE_FOLDED } else { REF_BELOW_THRESHOLD }
+}
+
+/// map all gates of a radial into the grid cells that contain their centers
+fn splat_radial (field: &SweepField, az_idx: usize, cs: &RadarCoordinateSystem, grid: &ProductGrid, codes: &[AtomicU8]) {
+    let (Some(values), Some(statuses)) = (field.radial_values( az_idx), field.radial_statuses( az_idx)) else { return };
+    let Some(&azimuth) = field.azimuth_angles_degrees().get( az_idx) else { return };
+    let elevation = field.elevation_angle_degrees() as f64;
+    let r0 = field.first_gate_range_km();
+    let dr = field.gate_interval_km();
+
+    for (gate_idx, (v, status)) in values.iter().zip( statuses.iter()).enumerate() {
+        let code = match status {
+            GateStatus::Valid => dbz_to_code( *v),
+            GateStatus::RangeFolded => REF_RANGE_FOLDED,
+            _ => continue
+        };
+        let polar = PolarPoint { azimuth_angle_degrees: azimuth as f64, range_km: r0 + gate_idx as f64 * dr, elevation_angle_degrees: elevation };
+        let p = cs.polar_to_geo( polar);
+        if let Some(idx) = grid.cell_index( p.latitude, p.longitude) {
+            codes[idx].fetch_max( code, Ordering::Relaxed);
+        }
+    }
 }
 
 /// RGBA colors for all 256 reflectivity codes (the nexrad-render reflectivity scale). Codes below `min_dbz` and the
@@ -164,16 +245,16 @@ pub fn reflectivity_cmap (min_dbz: f32)->Vec<CmapEntry> {
     }).collect()
 }
 
-/// compute a product of a scan and store it as GeoTIFF. Note this is blocking and compute intensive (GDAL file IO
+/// compute a product of a scan with `resolution_m` meter grid cells and store it as GeoTIFF. Note this is blocking and compute intensive (GDAL file IO
 /// and resampling)
 pub fn compute_product (scan: &Scan, station: &Station, product: NexradProduct, scan_time: DateTime<Utc>,
-                        resolution: f64, min_dbz: f32, cache_dir: &Path)->Result<NexradEntry> {
+                        resolution_m: f64, min_dbz: f32, cache_dir: &Path)->Result<NexradEntry> {
     let fields = product_fields( scan, product);
     if fields.is_empty() { return Err( op_failed!("no reflectivity sweeps for {} {}", station.id, product.name())) }
 
     let cs = coordinate_system( scan, station)?;
     let max_range = fields.iter().map( |f| f.max_range_km()).fold( 0.0, f64::max);
-    let grid = ProductGrid::covering( &cs.sweep_extent( max_range), resolution)?;
+    let grid = ProductGrid::for_station( &cs.sweep_extent( max_range), cs.latitude(), resolution_m)?;
     let codes = resample_max( &fields, &cs, &grid);
 
     let entry = NexradEntry::new( cache_dir, &station.id, product, scan_time);
@@ -183,8 +264,8 @@ pub fn compute_product (scan: &Scan, station: &Station, product: NexradProduct, 
 
 /// compute all requested products of a scan
 pub fn compute_products (scan: &Scan, station: &Station, products: &[NexradProduct], scan_time: DateTime<Utc>,
-                         resolution: f64, min_dbz: f32, cache_dir: &Path)->Result<Vec<NexradEntry>> {
-    products.iter().map( |p| compute_product( scan, station, *p, scan_time, resolution, min_dbz, cache_dir)).collect()
+                         resolution_m: f64, min_dbz: f32, cache_dir: &Path)->Result<Vec<NexradEntry>> {
+    products.iter().map( |p| compute_product( scan, station, *p, scan_time, resolution_m, min_dbz, cache_dir)).collect()
 }
 
 /// write 8 bit codes as tiled GeoTIFF with palette, EPSG:4326 SRS and overviews (atomically, through a tmp file)

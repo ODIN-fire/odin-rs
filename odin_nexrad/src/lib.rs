@@ -77,9 +77,13 @@ pub struct NexradConfig {
     #[serde(default="default_products")]
     pub products: Vec<NexradProduct>,
 
-    /// cell size of the geographic (EPSG:4326) product grids in degrees. The grid extent of each station is computed
-    /// from the max range of its sweeps
-    pub resolution: f64,
+    /// cell size of the geographic (EPSG:4326) product grids in meters (default 250m, the Level II gate interval).
+    /// This is converted into per-station degree cell sizes that are square at the station latitude. The grid extent of
+    /// each station is computed from the max range of its sweeps. Since every gate contributes to the cell that contains
+    /// it this does not lose max values for cells that are larger than gates - it is a trade-off between display detail
+    /// and file size / computation time
+    #[serde(default="default_resolution_m")]
+    pub resolution_m: f64,
 
     /// reflectivity values below this threshold are not displayed (transparent)
     #[serde(default="default_min_dbz")]
@@ -115,6 +119,7 @@ pub struct NexradConfig {
 }
 
 fn default_min_dbz()->f32 { 5.0 }
+fn default_resolution_m()->f64 { 250.0 }
 fn default_bucket()->String { DEFAULT_BUCKET.to_string() }
 fn default_region()->String { DEFAULT_REGION.to_string() }
 fn default_products()->Vec<NexradProduct> { vec![ NexradProduct::BaseReflectivity, NexradProduct::CompositeReflectivity ] }
@@ -151,6 +156,8 @@ impl NexradProduct {
 
 // product GeoTIFFs store reflectivity as 8 bit codes with 0.5 dBZ resolution, using the same encoding as Level II
 // reflectivity data (WSR-88D ICD: scale 2.0, offset 66.0), i.e. this does not lose any precision of the source data
+// (in radar speak a "gate" is the time window in which to process the returned signal, which effectively is defining
+// the max supported range)
 
 /// code for gates with signal below the detection threshold (rendered transparent)
 pub const REF_BELOW_THRESHOLD: u8 = 0;
@@ -231,7 +238,7 @@ pub fn configured_stations (config: &NexradConfig)->Vec<Station> {
 
 /* #region volumes ****************************************************************************************************/
 
-/// a Level II volume in the S3 bucket
+/// a Level II volume in the S3 bucket (representing the objects we download)
 #[derive(Debug,Clone,PartialEq)]
 pub struct VolumeInfo {
     pub station: String,
@@ -327,6 +334,7 @@ pub fn decode_volume (data: Vec<u8>)->Result<nexrad::model::data::Scan> {
 /* #region timing *****************************************************************************************************/
 
 /// scan interval and publication delay statistics of a station, computed from the volumes of a S3 listing
+/// Note this is not just station but also weather specific (i.e. variable). In order to minimize latency we need to compute it
 #[derive(Debug,Clone,PartialEq)]
 pub struct VolumeTiming {
     pub count: usize,

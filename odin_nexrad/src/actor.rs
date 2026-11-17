@@ -235,7 +235,7 @@ async fn process_volume (config: &Arc<NexradConfig>, client: &S3Client, cache_di
     let (config, cache_dir, station, scan_time) = (config.clone(), cache_dir.to_path_buf(), station.clone(), volume.scan_time);
     tokio::task::spawn_blocking( move || {
         let scan = decode_volume( data)?;
-        compute_products( &scan, &station, &config.products, scan_time, config.resolution, config.min_dbz, &cache_dir)
+        compute_products( &scan, &station, &config.products, scan_time, config.resolution_m, config.min_dbz, &cache_dir)
     }).await.map_err( |e| op_failed!("processing task failed: {e}"))?
 }
 
