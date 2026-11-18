@@ -138,6 +138,12 @@ pub fn read_res_file<P,Q> (
     let ds_path = ds_file.as_ref();
     ds_path.try_exists()?;
 
+    if let Some(dir) = res_file.as_ref().parent() { // the cache dir might not exist yet (or might have been scrubbed)
+        if !dir.is_dir() {
+            std::fs::create_dir_all(dir)?;
+        }
+    }
+
     if !res_file.as_ref().is_file() {
         let create_opts = img_type.gdal_create_options();
         let img_extension = img_type.file_extension();

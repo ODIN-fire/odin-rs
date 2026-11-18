@@ -17,7 +17,7 @@ use strum::AsRefStr;
 
 /// Known HRRR query field names
 /// We use a public enum with non-standard variant names to avoid explicit (error prone) mapping to &str
-/// Valid names from https://nomads.ncep.noaa.gov/gribfilter.php?ds=hrrr_2d
+/// Valid names from <https://nomads.ncep.noaa.gov/gribfilter.php?ds=hrrr_2d>
 /// (the query names cannot be algorithmically derived since the height qualifiers would require explicit '_' variant name exceptions)
 #[derive(Deserialize,Debug,AsRefStr,Clone,Hash,PartialEq,Eq,Ord)]
 #[allow(nonstandard_style)]

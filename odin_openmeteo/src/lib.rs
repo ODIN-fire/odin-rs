@@ -103,7 +103,7 @@ pub enum OpenMeteoTemporal {
     Current, Minutely, Hourly, Daily
 }
 
-/// the OpenMeteo response to metadata queries (see https://open-meteo.com/en/docs/model-updates)
+/// the OpenMeteo response to metadata queries (see <https://open-meteo.com/en/docs/model-updates>)
 /// projected next update is scheduled at t + dt
 #[derive(Deserialize,Debug,PartialEq,Eq,Clone)]
 #[public_struct]
@@ -169,7 +169,7 @@ pub trait DataSet {
     // (even if we ask for specific grid positions as location lists)
 
     /// inverse distance weighted mutation. Each element pair consists of the normalized weight and the corresponding dataset item
-    /// own fields are computed by summation of the pair products: sum(ds[i].0 * ds[i].1)
+    /// own fields are computed by summation of the pair products: `sum(ds[i].0 * ds[i].1)`
     /// Note this requires a neutral (zero'ed) ctor
     fn idw (&mut self, ds: &[(f64,&Self)]);
 

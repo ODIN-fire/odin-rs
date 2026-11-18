@@ -33,7 +33,7 @@ use crate::{
     errors::{Result, op_failed}
 };
 
-/// max range [km] of NEXRAD reflectivity sweeps (used for station extents before we have data)
+/// max range \[km\] of NEXRAD reflectivity sweeps (used for station extents before we have data)
 pub const MAX_RANGE_KM: f64 = 460.0;
 
 /// overview levels of product GeoTIFFs
@@ -61,7 +61,7 @@ pub fn station_coordinate_system (station: &Station)->Result<RadarCoordinateSyst
     Ok( RadarCoordinateSystem::new( &site))
 }
 
-/// geographic extent [west,south,east,north] of a station for a max range (e.g. for display before we have products)
+/// geographic extent \[west,south,east,north\] of a station for a max range (e.g. for display before we have products)
 pub fn station_extent (station: &Station, max_range_km: f64)->Result<[f64;4]> {
     let e = station_coordinate_system( station)?.sweep_extent( max_range_km);
     Ok( [e.min.longitude, e.min.latitude, e.max.longitude, e.max.latitude] )

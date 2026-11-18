@@ -16,7 +16,7 @@
 
 //! extraction of camera state values from the text overlay of AlertCalifornia images. The overlay is a single line at
 //! the bottom of each image, e.g. `axis-blackmtscc elev:2812' X:-54.88 Y:-1.78 Z:1.0 .ALERT OPS.. 2026/11/03 13:38:53.52`
-//! with camera elevation [ft], pan (X, [-180,180] degrees), tilt (Y, degrees) and zoom factor (Z). These values are
+//! with camera elevation \[ft\], pan (X, [-180,180] degrees), tilt (Y, degrees) and zoom factor (Z). These values are
 //! exact for the respective image, whereas the AlertCalifornia camera data (`all_cameras`) is updated separately and
 //! does not include PTZ values for all cameras
 

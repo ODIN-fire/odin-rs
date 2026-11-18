@@ -18,7 +18,7 @@ use uom::si::{f64::Length, length::kilometer};
 
 /// Known OpenMeteo query field names
 /// We use a public enum with non-standard variant names to avoid explicit (error prone) mapping to &str
-/// Valid names from https://open-meteo.com/en/docs (look at API URL to see query values of selected fields)
+/// Valid names from <https://open-meteo.com/en/docs> (look at API URL to see query values of selected fields)
 /// (the query names cannot be algorithmically derived since the height qualifiers would require explicit '_' variant name exceptions)
 #[derive(Deserialize,Debug,AsRefStr,Clone,Hash,PartialEq,Eq)]
 #[allow(nonstandard_style)]

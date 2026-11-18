@@ -129,7 +129,7 @@ pub fn str_from_last<'a> (s: &'a str, c: char) -> Option<&'a str> {
 
 /// parse Fortan Namelist array lines of the form "var = val,...", stripping comment lines and line comments
 /// this is a cheap alternative to using deserialization with the 'nml' crate in case we don't have explicit group sources
-/// (i.e. the "&<group> ... /" wrapper is missing)
+/// (i.e. the `&<group> ... /` wrapper is missing)
 pub fn parse_nml_array_line<T> (line: &str)->Result<Option<(String,Vec<T>)>,String>
     where T: FromStr + Display, <T as FromStr>::Err: Display
 {

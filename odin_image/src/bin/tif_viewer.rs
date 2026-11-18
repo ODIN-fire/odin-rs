@@ -348,7 +348,7 @@ impl RasterData {
 /// Maps a scalar raster value in [data_min, data_max] (or nodata) to an RGB triplet.
 /// Implementors only need to provide `map_value`; the viewer calls it per pixel.
 pub trait ColorMapper {
-    /// Map a valid raster value (already clamped to [0,1] normalised range) to RGB.
+    /// Map a valid raster value (already clamped to \[0,1\] normalised range) to RGB.
     /// `t` is the linearly normalised position: 0.0 = data_min, 1.0 = data_max.
     fn map_normalized(&self, t: f32) -> (u8, u8, u8);
 

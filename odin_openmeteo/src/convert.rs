@@ -246,7 +246,7 @@ pub fn create_hourly_geo_ds<T,P,U,F> (
     Ok( result )
 }
 
-/// create a GDAL dataset with stacked hourly bands from an Array2<HourlyLocationData<T>> grid using the supplied band value extractor function
+/// create a GDAL dataset with stacked hourly bands from an `Array2<HourlyLocationData<T>>` grid using the supplied band value extractor function
 pub fn create_stacked_hourly_utm_ds<T,P,U,F> (
     path: P,
     copts: &RasterCreationOptions,

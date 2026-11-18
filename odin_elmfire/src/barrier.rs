@@ -16,7 +16,7 @@
 
 //! fuel breaks and air drops (see doc/odin_elmfire.md "Fuel Breaks and Air Drops")
 //!
-//! ELMFIRE only supports barriers through a (single band) "barriers.tif" raster of barrier widths [m]. A burning barrier
+//! ELMFIRE only supports barriers through a (single band) "barriers.tif" raster of barrier widths \[m\]. A burning barrier
 //! cell does not spread further unless 1.5 x flame length exceeds the barrier width, i.e. this is a fuel break model
 //! that is in effect for the whole simulation. We map user barriers to ELMFIRE inputs as follows:
 //!  - fuel breaks narrower than the landfire cell size (hand lines, dozer lines): barriers.tif with the real width
@@ -54,7 +54,7 @@ pub struct MoistureModification {
     pub decay: MoistureDecay,
 }
 
-/// initial moisture increase [percent] for fully covered cells (scaled by cell coverage)
+/// initial moisture increase \[percent\] for fully covered cells (scaled by cell coverage)
 #[derive(Deserialize, Debug, Clone, Copy)]
 pub enum MoistureIncrease {
     Add(f64), // add given percentage points to the (forecast) moisture

@@ -163,7 +163,7 @@ pub fn apply_index_margin (bbox: &mut BoundingBox<usize>, margin: usize, n_cols:
     bbox.south = if bbox.south + margin > n_rows { n_rows } else { bbox.south + margin };
 }
 
-/// index rectangle. We don't use BoundingBox<usize> for this to avoid the common pitfall of inclusive/exclusive right/bottom bounds
+/// index rectangle. We don't use `BoundingBox<usize>` for this to avoid the common pitfall of inclusive/exclusive right/bottom bounds
 #[derive(Debug)]
 pub struct IndexBounds2D {
     pub left: usize,

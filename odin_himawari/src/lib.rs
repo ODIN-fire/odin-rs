@@ -63,7 +63,7 @@ pub struct HimawariConfig {
 }
 
 /// raw data as we get it from the JAXA server
-/// see https://www.eorc.jaxa.jp/ptree/documents/README_Himawari_L2WLF.txt
+/// see <https://www.eorc.jaxa.jp/ptree/documents/README_Himawari_L2WLF.txt>
 #[derive(Deserialize,Debug)]
 pub struct RawHimawariHotspot {
     pub id: u32, // fire grid id

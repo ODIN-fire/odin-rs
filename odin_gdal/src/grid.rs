@@ -31,7 +31,7 @@ use crate::errors::{Result, last_gdal_error, misc_error};
 
 /* #region GDALGridAlgorithm structs *************************************************************************/
 
-/// see https://gdal.org/en/stable/tutorials/gdal_grid_tut.html
+/// see <https://gdal.org/en/stable/tutorials/gdal_grid_tut.html>
 pub enum GdalGridAlgorithmOptions {
     NearestNeighbor(GDALGridNearestNeighborOptions),
     Linear(GDALGridLinearOptions),

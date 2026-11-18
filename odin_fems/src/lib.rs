@@ -74,8 +74,8 @@ lazy_static! {
 define_load_config!{}
 define_load_asset!{}
 
-/// FEMS stations: https://fems.fs2c.usda.gov
-/// queries (graphql): https://wildfireweb-prod-media-bucket.s3.us-gov-west-1.amazonaws.com/s3fs-public/2025-09/FEMS%20Climatology%20API%20External%20User%20Guide.pdf
+/// FEMS stations: <https://fems.fs2c.usda.gov>
+/// queries (graphql): <https://wildfireweb-prod-media-bucket.s3.us-gov-west-1.amazonaws.com/s3fs-public/2025-09/FEMS%20Climatology%20API%20External%20User%20Guide.pdf>
 
 #[derive(Deserialize,Debug)]
 #[public_struct]
@@ -641,7 +641,7 @@ impl TryFrom<RawStationMetaData> for FemsStationMetaData {
 }
 
 /// this is from the FEMS API documentation on
-/// https://wildfireweb-prod-media-bucket.s3.us-gov-west-1.amazonaws.com/s3fs-public/2025-09/FEMS%20Climatology%20API%20External%20User%20Guide.pdf
+/// <https://wildfireweb-prod-media-bucket.s3.us-gov-west-1.amazonaws.com/s3fs-public/2025-09/FEMS%20Climatology%20API%20External%20User%20Guide.pdf>
 /// note that the database is quite uneven - not all stations have the same set of values (we have to account for a lot of 'null' values)
 #[derive(Deserialize,Debug,FieldNamesAsArray)]
 struct RawStationMetaData {
@@ -857,7 +857,7 @@ impl TryFrom<RawWeatherObs> for FemsWeatherObs {
  */
 
 /// as we get it from the JSON response
-/// according to https://wildfireweb-prod-media-bucket.s3.us-gov-west-1.amazonaws.com/s3fs-public/2025-09/FEMS Climatology API%20External User Guide.pdf
+/// according to <https://wildfireweb-prod-media-bucket.s3.us-gov-west-1.amazonaws.com/s3fs-public/2025-09/FEMS%20Climatology%20API%20External%20User%20Guide.pdf>
 #[derive(Deserialize,Debug,FieldNamesAsArray)]
 struct RawWeatherObs {
     station_id: u32,
@@ -963,7 +963,7 @@ pub fn obs_timeframe (base_time: DateTime<Utc>, forecast_hours: u32)->(DateTime<
     (start, end)
 }
 
-/// see https://www.fs.usda.gov/rm/pubs_journals/2024/rmrs_2024_jolly_m001.pdf
+/// see <https://www.fs.usda.gov/rm/pubs_journals/2024/rmrs_2024_jolly_m001.pdf>
 #[derive(AsRefStr, EnumString, Debug, Clone)]
 pub enum NfdrsFuelModel {
     V, // grass
@@ -1066,7 +1066,7 @@ impl TryFrom<RawNfdrsObs> for FemsNfdrsObs {
 }
 
 /// National Fire Danger Rating System data as we get it from the JSON response
-/// according to https://wildfireweb-prod-media-bucket.s3.us-gov-west-1.amazonaws.com/s3fs-public/2025-09/FEMS Climatology API%20External User Guide.pdf
+/// according to <https://wildfireweb-prod-media-bucket.s3.us-gov-west-1.amazonaws.com/s3fs-public/2025-09/FEMS%20Climatology%20API%20External%20User%20Guide.pdf>
 #[derive(Deserialize,Debug,FieldNamesAsArray)]
 struct RawNfdrsObs {
     station_id: u32,

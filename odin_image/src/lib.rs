@@ -553,7 +553,7 @@ pub fn blackout_below (img: &mut DynamicImage, y_cut: u32)->Result<()> {
 /* #region focus *******************************************************************************************/
 
 /// average horizontal Brenner focus of a sub image (computed from Luma channel)
-/// see https://cs.uwaterloo.ca/~vanbeek/Publications/spie2014.pdf
+/// see <https://cs.uwaterloo.ca/~vanbeek/Publications/spie2014.pdf>
 pub fn avg_horizontal_brenner_focus (img: &SubImage<&mut DynamicImage>)->f32 {
     let (w,h) = img.dimensions();
 
@@ -579,7 +579,7 @@ pub fn avg_horizontal_brenner_focus (img: &SubImage<&mut DynamicImage>)->f32 {
 
 /// this implements estimation of a fractal dimension metric according to "Smoke detection in images through fractal dimension-based binary classification"
 /// Javier Del-Pozo-Velázquez et al, Digital Signal Processing Vol 166 (Nov 2025)
-/// https://www.sciencedirect.com/science/article/pii/S1051200425003689
+/// <https://www.sciencedirect.com/science/article/pii/S1051200425003689>
 /// While it does show enough sensitivity to smoke against ground for differential analysis it does not handle sky well (the oauthors just cropped sky)
 /// hence this should be used with a horizon line that removes the sky
 /// Note this requires a regular ImageBuffer and does not work with SubImages since we need a contiguous data array for compression efficiency.

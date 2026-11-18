@@ -251,7 +251,7 @@ pub struct WmsLayerConfig {
 pub enum WmsStyleConfig {
     /// categorical (8 or 16 bit integer) data with a color map file that is read by a data source specific CmapReader
     Cmap(EnvPathBuf),
-    /// continuous data mapped to the alpha channel of a single color. The value range [min,max] can be overridden by
+    /// continuous data mapped to the alpha channel of a single color. The value range \[min,max\] can be overridden by
     /// the vendor specific VRANGE=min,max GetMap parameter, the color is set with the vendor specific COLOR=RRGGBB parameter
     Alpha { min: f64, max: f64 },
 }
@@ -733,7 +733,7 @@ impl WmsService {
         }
     }
 
-    /// handler for JSON color map legend requests of layers with cmap styles ("<layer>" or "<layer>.json")
+    /// handler for JSON color map legend requests of layers with cmap styles (`<layer>` or `<layer>.json`)
     pub fn handle_legend (&self, layer_name: &str)->Response {
         let layer_name = layer_name.strip_suffix(".json").unwrap_or( layer_name);
         if let Some(layer) = self.layer( layer_name) && let Some(json) = layer.json_legend() {

@@ -597,7 +597,7 @@ pub fn get_grid_point_values<T,U> (ds: &Dataset, band_index: usize, sub_no_data:
     Ok(result)
 }
 
-/// retrieve the whole data of a Rasterband as a contiguous Vec<T>
+/// retrieve the whole data of a Rasterband as a contiguous `Vec<T>`
 pub fn get_rasterband_as_vec<T> (ds: &Dataset, band_index: usize)->Result<Vec<T>> where T: GdalValueType {
     let band = ds.rasterband(band_index)?;
     let size = band.size();
@@ -620,7 +620,7 @@ pub fn read_rasterband_into_slice<T> (ds: &Dataset, band_index: usize, vs: &mut 
     Ok(())
 }
 
-/// set the whole Rasterband data from a contiguous Vec<T>
+/// set the whole Rasterband data from a contiguous `Vec<T>`
 /// Note it is the callers responsibility to ensure the right order (row major) in vec
 pub fn set_rasterband_from_vec<T> (ds: &mut Dataset, band_index: usize, vs: Vec<T>) ->Result<()> where T: GdalValueType {
     let mut band = ds.rasterband( band_index)?;
@@ -1326,7 +1326,7 @@ pub fn set_band_meta (ds: &mut Dataset, band_no: usize, kvs: &[(&str,&str,&str)]
     Ok(())
 }
 
-/// find the index of the rasterband that has all the specified (domain,key,Option<val>) meta infos
+/// find the index of the rasterband that has all the specified `(domain,key,Option<val>)` meta infos
 pub fn find_rasterband_index (ds: &Dataset, item_specs: &[(&str,&str,Option<&str>)]) -> Option<u32> {
     for i in 0..ds.raster_count() {
         let band_index = i + 1;

@@ -692,7 +692,7 @@ impl GeoPolygon {
         self.0.exterior().is_convex()
     }
 
-    /// test if poygon vertices are ordered clockwise (see https://en.wikipedia.org/wiki/Curve_orientation)
+    /// test if poygon vertices are ordered clockwise (see <https://en.wikipedia.org/wiki/Curve_orientation>)
     pub fn is_clockwise (&self)->bool {
         let ps = self.0.exterior();
         let imax = self.0.exterior().coords_count()-1;

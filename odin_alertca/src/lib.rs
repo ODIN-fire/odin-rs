@@ -109,7 +109,7 @@ impl Camera {
         })
     }
 
-    /// the (bearing,pitch) [deg] of the view ray through a relative image position. `x` and `y` are in [-1,1] with
+    /// the (bearing,pitch) \[deg\] of the view ray through a relative image position. `x` and `y` are in [-1,1] with
     /// (0,0) being the image center and y pointing up, `img_width` and `img_height` are the image dimensions (in pixels).
     /// Bearing is clockwise from true north, pitch is negative for downward rays and includes the configured
     /// `tilt_offset`. Returns `None` if the camera does not report its tilt.
@@ -124,8 +124,8 @@ impl Camera {
         Some( (bearing, pitch) )
     }
 
-    /// the (hit,near,far) `RayQuery` triple for a relative image position (see [`view_ray`]), with `pitch` and
-    /// `pitch ± pitch_uncertainty` [deg]. The ray origin is `height_above_ground` above the DEM terrain at the camera
+    /// the (hit,near,far) `RayQuery` triple for a relative image position (see [`Self::view_ray`]), with `pitch` and
+    /// `pitch ± pitch_uncertainty` \[deg\]. The ray origin is `height_above_ground` above the DEM terrain at the camera
     /// position, which is more consistent than the reported camera altitude (that is not necessarily based on the same
     /// elevation data). Returns `None` if the camera does not report its tilt
     pub fn view_ray_queries (&self, x: f64, y: f64, img_width: f64, img_height: f64, max_dist: f64, pitch_uncertainty: f64,
@@ -136,9 +136,9 @@ impl Camera {
         Some( (bearing, pitch, [ query(pitch), query(pitch - pitch_uncertainty), query(pitch + pitch_uncertainty) ]) )
     }
 
-    /// compute the terrain locations of relative image positions `points` (see [`view_ray`]) for images of the given
+    /// compute the terrain locations of relative image positions `points` (see [`Self::view_ray`]) for images of the given
     /// size. Since distances are very sensitive to pitch errors at grazing angles we also return the `near` and `far`
-    /// intersections for `pitch ± pitch_uncertainty` [deg]. All rays are computed in a single `DemSource` query, which
+    /// intersections for `pitch ± pitch_uncertainty` \[deg\]. All rays are computed in a single `DemSource` query, which
     /// is executed by the process that has the local DEM (i.e. this is a remote query for `DemSource::Server`).
     /// Returns an empty Vec if the camera does not report its tilt
     pub async fn locate_image_points (&self, dem: &DemSource, points: &[(f64,f64)], img_width: f64, img_height: f64,
@@ -160,7 +160,7 @@ impl Camera {
         }).collect())
     }
 
-    /// single point version of [`locate_image_points`]. Returns `Ok(None)` if the camera does not report its tilt
+    /// single point version of [`Self::locate_image_points`]. Returns `Ok(None)` if the camera does not report its tilt
     pub async fn locate_image_point (&self, dem: &DemSource, x: f64, y: f64, img_width: f64, img_height: f64,
                                      max_dist: f64, pitch_uncertainty: f64, curv_coeff: f64)->Result<Option<ImagePointLocation>> {
         let mut locs = self.locate_image_points( dem, &[(x,y)], img_width, img_height, max_dist, pitch_uncertainty, curv_coeff).await?;

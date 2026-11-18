@@ -475,8 +475,8 @@ struct CfgTemplate<'a> {
     nfdrs_path: &'a str,
 }
 
-/// as specified in https://github.com/firelab/NFDRS4/blob/master/doc/NFDRS4_cli_Configuration_File.pdf
-/// see also https://github.com/firelab/NFDRS4-TechDoc
+/// as specified in <https://github.com/firelab/NFDRS4/blob/master/doc/NFDRS4_cli_Configuration_File.pdf>
+/// see also <https://github.com/firelab/NFDRS4-TechDoc>
 fn create_nfdrs_cfg_file<P> (cfg_path: P, id: &str, fw21_path: P, init_path: P, output_path: P)->Result<()>
     where P: AsRef<Path>
 {
@@ -504,8 +504,8 @@ struct InitTemplate<'a> {
     max_sc: u32
 }
 
-/// as specified in https://github.com/firelab/NFDRS4/blob/master/doc/NFDRS4_Init_Configuration_File.pdf
-/// see also https://github.com/firelab/NFDRS4-TechDoc
+/// as specified in <https://github.com/firelab/NFDRS4/blob/master/doc/NFDRS4_Init_Configuration_File.pdf>
+/// see also <https://github.com/firelab/NFDRS4-TechDoc>
 pub fn create_nfdrs_init_file<P> (
     init_path: P,
     lat_degrees: f64,

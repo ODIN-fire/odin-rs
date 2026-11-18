@@ -215,7 +215,7 @@ pub fn ser_short_rfc3339_opt<S: Serializer> (opt_dt: &Option<DateTime<Utc>>, s: 
     }
 }
 
-/// deserializes a single YYYY-mm-ddTHH:MM string literal into a DateTime<Utc> value
+/// deserializes a single YYYY-mm-ddTHH:MM string literal into a `DateTime<Utc>` value
 pub fn date_from_ymd_hm <'a,D>(deserializer: D) -> Result<DateTime<Utc>,D::Error> where D: Deserializer<'a> {
     let s: String = String::deserialize(deserializer)?;
     let date: DateTime<Utc> = NaiveDateTime::parse_from_str( &s, "%Y-%m-%dT%H:%M")
@@ -225,7 +225,7 @@ pub fn date_from_ymd_hm <'a,D>(deserializer: D) -> Result<DateTime<Utc>,D::Error
     Ok( date )
 }
 
-/// deserializes a list of YYYY-mm-ddTHH:MM string literals into a Vec<DateTime<Utc>> values
+/// deserializes a list of YYYY-mm-ddTHH:MM string literals into `Vec<DateTime<Utc>>` values
 pub fn dates_from_ymd_hm <'a,D>(deserializer: D) -> Result<Vec<DateTime<Utc>>,D::Error> where D: Deserializer<'a> {
     let strings: Vec<String> = Vec::deserialize(deserializer)?;
     let dates: Vec<DateTime<Utc>> = strings
@@ -240,7 +240,7 @@ pub fn dates_from_ymd_hm <'a,D>(deserializer: D) -> Result<Vec<DateTime<Utc>>,D:
     Ok( dates )
 }
 
-/// deserializes a list of YYYY-mm-ddTHH:MM string literals into a Vec<DateTime<Utc>> values
+/// deserializes a list of YYYY-mm-ddTHH:MM string literals into `Vec<DateTime<Utc>>` values
 pub fn dates_from_ymd <'a,D>(deserializer: D) -> Result<Vec<DateTime<Utc>>,D::Error> where D: Deserializer<'a> {
     let strings: Vec<String> = Vec::deserialize(deserializer)?;
     let dates: Vec<DateTime<Utc>> = strings

@@ -167,7 +167,7 @@ pub const REF_RANGE_FOLDED: u8 = 1;
 pub const MIN_DBZ: f32 = -32.0;
 pub const MAX_DBZ: f32 = 94.5;
 
-/// 8 bit code for a valid reflectivity value (clamped to [MIN_DBZ,MAX_DBZ])
+/// 8 bit code for a valid reflectivity value (clamped to [`MIN_DBZ`]..[`MAX_DBZ`])
 pub fn dbz_to_code (dbz: f32)->u8 {
     (dbz * 2.0 + 66.0).round().clamp( 2.0, 255.0) as u8
 }
