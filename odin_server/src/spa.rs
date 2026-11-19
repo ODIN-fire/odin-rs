@@ -289,7 +289,7 @@ impl SpaServer {
     pub fn doc_url (&self)->String {
         let proto = if self.config.tls.is_some() {"https"} else {"http"};
         match &self.config.auth {
-            Some(auth) if auth.rp_id == "localhost" && self.config.sock_addr.ip().is_loopback() =>
+            Some(auth) if auth.rp_id == "localhost" && self.config.sock_addr.is_loopback() =>
                 format!("{proto}://localhost:{}/{}", self.config.sock_addr.port(), self.name),
             _ => format!("{}/{}", self.config.url(), self.name)
         }

@@ -19,7 +19,7 @@
 //! websocket messages (`snapshot` and `update`)
 
 use std::{any::type_name, collections::HashMap, net::SocketAddr, path::Path, sync::Arc};
-use axum::{http::{HeaderMap, Uri}, routing::get, extract::Query};
+use axum::{http::{HeaderMap, StatusCode, Uri}, response::{IntoResponse, Response}, routing::get, extract::{Path as AxumPath, Query}};
 use async_trait::async_trait;
 
 use odin_actor::prelude::*;
@@ -33,6 +33,7 @@ use crate::{
     actor::{ExecSnapshotAction, NexradActorMsg},
     product::reflectivity_cmap,
     store::{NexradStore, NexradUpdate},
+    mosaic::MosaicUpdate,
 };
 
 /* #region WMS layers *************************************************************************************************/
@@ -93,6 +94,11 @@ pub fn update_msg (update: &NexradUpdate)->String {
     ws_msg_from_json( NexradService::mod_path(), "update", &update.json_value().to_string())
 }
 
+/// a new mosaic of a product and the dates of the ones it replaced
+pub fn mosaic_msg (update: &MosaicUpdate)->String {
+    ws_msg_from_json( NexradService::mod_path(), "mosaic", &update.json_value().to_string())
+}
+
 /* #endregion websocket messages */
 
 /* #region service ****************************************************************************************************/
@@ -134,6 +140,11 @@ impl SpaService for NexradService {
             }))
         });
 
+        //--- overview mosaic GeoJSON files
+        spa.add_route( |router, spa_server_state| {
+            router.route( &format!("/{}/nexrad/mosaic/{{file}}", spa_server_state.name.as_str()), get( mosaic_handler))
+        });
+
         Ok(())
     }
 
@@ -166,6 +177,15 @@ impl SpaService for NexradService {
             self.hactor.send_msg( ExecSnapshotAction(action)).await?;
         }
         Ok(())
+    }
+}
+
+async fn mosaic_handler (AxumPath(file): AxumPath<String>)->Response {
+    // only plain mosaic file names (no paths)
+    if file.ends_with(".geojson") && !file.contains(['/', '\\']) && !file.starts_with('.') {
+        compressable_file_response( CACHE_DIR.join("mosaic"), &file, "mosaic not found")
+    } else {
+        (StatusCode::BAD_REQUEST, "invalid mosaic file name").into_response()
     }
 }
 

@@ -78,6 +78,7 @@ odin_fems = {  version = "*", path = "odin_fems" }
 odin_landfire = {  version = "*", path = "odin_landfire" }
 odin_elmfire = { version = "*", path = "odin_elmfire" }
 odin_nfdrs = { version = "*", path = "odin_nfdrs" }
+odin_nexrad = { version = "*", path = "odin_nexrad" }
 odin_scrub = { version = "*", path = "odin_scrub" }
 
 # external crates for which we have to ensure the same version

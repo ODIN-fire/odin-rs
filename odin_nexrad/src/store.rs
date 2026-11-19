@@ -21,7 +21,8 @@ use chrono::{DateTime, Utc};
 
 use crate::{
     NexradConfig, NexradEntry, NexradProduct, Station, entry_path, parse_date_tag,
-    product::{MAX_RANGE_KM, station_extent}
+    product::{MAX_RANGE_KM, station_extent},
+    mosaic::{NexradMosaic, MosaicUpdate},
 };
 
 /// the time steps of a product (oldest first)
@@ -96,6 +97,7 @@ impl NexradUpdate {
 pub struct NexradStore {
     pub max_entries: usize,
     pub stations: Vec<StationEntries>,
+    pub mosaics: Vec<NexradMosaic>, // the mosaics (overview time steps) of all products, oldest first (if configured)
 }
 
 impl NexradStore {
@@ -105,7 +107,7 @@ impl NexradStore {
             station,
             products: products.iter().map( |p| ProductEntries { product: *p, entries: VecDeque::new() }).collect()
         }).collect();
-        NexradStore { max_entries: max_entries.max(1), stations }
+        NexradStore { max_entries: max_entries.max(1), stations, mosaics: Vec::new() }
     }
 
     pub fn station (&self, id: &str)->Option<&StationEntries> {
@@ -150,12 +152,33 @@ impl NexradStore {
         update
     }
 
+    /// add a new mosaic (replacing one of the same product and date), dropping the oldest ones of the same product above
+    /// max_mosaics. Mosaics are added in date order
+    pub fn add_mosaic (&mut self, mosaic: NexradMosaic, max_mosaics: usize)->MosaicUpdate {
+        self.mosaics.retain( |m| !(m.product == mosaic.product && m.date == mosaic.date));
+        self.mosaics.push( mosaic.clone());
+
+        let n = self.mosaics.iter().filter( |m| m.product == mosaic.product).count();
+        let mut n_drop = n.saturating_sub( max_mosaics.max(1));
+        let mut removed = Vec::new();
+        self.mosaics.retain( |m| {
+            if n_drop > 0 && m.product == mosaic.product { n_drop -= 1; removed.push( m.clone()); false } else { true }
+        });
+        MosaicUpdate { added: mosaic, removed }
+    }
+
+    /// the mosaics of a product (oldest first)
+    pub fn product_mosaics (&self, product: NexradProduct)->impl Iterator<Item=&NexradMosaic> {
+        self.mosaics.iter().filter( move |m| m.product == product)
+    }
+
     pub fn json_value (&self)->serde_json::Value {
         let products: Vec<serde_json::Value> = self.stations.first().map( |s| s.products.iter().map( |p| {
             serde_json::json!({ "name": p.product.name(), "title": p.product.title() })
         }).collect()).unwrap_or_default();
         let stations: Vec<serde_json::Value> = self.stations.iter().map( |s| s.json_value()).collect();
-        serde_json::json!({ "products": products, "stations": stations })
+        let mosaics: Vec<serde_json::Value> = self.mosaics.iter().map( |m| m.json_value()).collect();
+        serde_json::json!({ "products": products, "stations": stations, "mosaics": mosaics })
     }
 }
 

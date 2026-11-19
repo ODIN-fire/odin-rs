@@ -1,7 +1,7 @@
 ServerConfig(
-    sock_addr: "127.0.0.1:9009",
+    sock_addr: "127.0.0.1:9009", // <host>:<port> with IP address, DNS or mDNS/bonjour name (e.g. "beast.local:9009")
     tls: None,
-    heartbeat_interval: Some( Duration( secs: 60, nanos: 0) ), // check connections every 2min
+    heartbeat_interval: Some( Duration( secs: 60, nanos: 0) ), // check connections every minute
 
     // optional user authentication/authorization - see odin_book "Authentication and Authorization" (odin_server/auth.md)
     // users are managed with the `auth_admin` tool. Without an `auth` section all resources are public

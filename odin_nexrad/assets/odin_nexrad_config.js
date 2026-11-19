@@ -20,7 +20,7 @@ export const config = {
     layer: {
         name: "/weather/nexrad",
         description: "NEXRAD Level II radar products",
-        show: true,
+        show: false,
     },
 
     // product tabs (names have to match the server products)
@@ -35,6 +35,17 @@ export const config = {
     showLatest: true,  // initially show (and follow) the latest time step of the shown stations
     maxAge: 15,        // [min] initial max age of displayed time steps at the time cursor (display panel)
     nearestOnTop: true, // initially put the station closest to the view center on top where stations overlap (display panel)
+    overview: true,    // initially show server mosaics of all stations instead of station layers (avoids loading all WMS layers)
+    overviewUrl: "nexrad/mosaic", // where we get the mosaic GeoJSON files from
+    // overview band fill colors as [dBZ, css-color] pairs (ascending). A band gets the color of the highest entry that is
+    // <= its lower bound (server mosaic `levels`), bands below the first entry use the server default (station layer) color
+    overviewColors: [
+        [10, "#87ceeb"],
+        [20, "#00ff00"],
+        [30, "#228b22"],
+        [40, "#eedc82"],
+        [50, "#ff3030"],
+    ],
 
     // station symbols
     station: {

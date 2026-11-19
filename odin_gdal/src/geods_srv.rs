@@ -40,7 +40,7 @@ use tracing::{info_span, Level, Span};
 use tracing_subscriber::{filter, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use odin_build::set_bin_context;
-use odin_common::{define_serde_struct, define_cli, fs::{self,EnvPathBuf}, BoundingBox, strings::{deserialize_arr4,parse_array}, if_let, datetime };
+use odin_common::{define_serde_struct, define_cli, fs::{self,EnvPathBuf}, net::ServerAddr, BoundingBox, strings::{deserialize_arr4,parse_array}, if_let, datetime };
 use odin_image::overlay_imgs;
 use odin_server::{spawn_server_task,ServerConfig, TlsConfig, server_error};
 
@@ -55,7 +55,7 @@ define_serde_struct! { pub GeoDsServerConfig: Debug =
     max_cache: u64       [default = "default_max_cache"],
 
     // the HTTP server settings - we don't use a separate config file here to keep things simple and centralized
-    sock_addr: SocketAddr,
+    sock_addr: ServerAddr,
     tls: Option<TlsConfig>,
     app_key_file: Option<EnvPathBuf> // if present requests are checked for valid x-app-key headers
 }
@@ -66,7 +66,7 @@ define_serde_struct! { pub WmsServerConfig: Debug =
     capabilities: EnvPathBuf,
     max_cache: u64      [default = "default_max_cache"],
 
-    sock_addr: SocketAddr,
+    sock_addr: ServerAddr,
     tls: Option<TlsConfig>,
     app_key_file: Option<EnvPathBuf> // if present requests are checked for valid x-app-key headers
 }

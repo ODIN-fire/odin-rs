@@ -3499,6 +3499,10 @@ export function setListItems(o, items) {
         // TODO - do we have to store/restore scrollLeft/scrollTop ?
         setSelectedItemElement(e, null);
 
+        // item elements are re-used, i.e. we have to rebuild the item map. Otherwise stale items would still map to
+        // (re-used) elements and updateListItems() would render them in place of the current items
+        if (e._uiItemMap) e._uiItemMap.clear();
+
         if (items && items.length > 0) {
             let i = 0;
             let ies = e.children; // the ui_list_item children
@@ -4185,6 +4189,7 @@ export function clearList(o) {
     if (e) {
         setSelectedItemElement(e, null);
         removeChildrenOf(e);
+        if (e._uiItemMap) e._uiItemMap.clear(); // otherwise updateListItems() would still render removed items
     }
 }
 

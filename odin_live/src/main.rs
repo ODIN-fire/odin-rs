@@ -38,6 +38,7 @@ use odin_fems::{self, FemsStore, FemsStation, actor::FemsActor,service::FemsServ
 use odin_landfire::{service::LandfireService,LandfireConfig};
 use odin_elmfire::{self,ElmfireRun, ElmfireService, actor::{ElmfireActor,ElmfireActorMsg}};
 use odin_nfdrs::{self, NfdrsActor, NfdrsService};
+use odin_nexrad::{self, NexradConfig, actor::NexradActor, service::{NexradService, NexradWms}};
 use odin_openmeteo::ids::ModelId;
 use odin_common::auth::{AuthConfig, AuthMethod};
 use odin_server::ServerConfig;
@@ -117,6 +118,18 @@ run_actor_system!( actor_system => {
             Ok( hwind.try_send_msg( data)? )
         })
     ).await? )?;
+
+    //--- spawn the NEXRAD weather radar importer (station WMS layers and overview mosaics)
+    let nexrad_id = "nexrad";
+    let nexrad_config: NexradConfig = odin_nexrad::load_config( "norcal_nexrad.ron")?;
+    let nexrad_wms = NexradWms::new( &nexrad_config); // shared between the actor actions and the service
+    let hnexrad = spawn_actor!( actor_system, nexrad_id, NexradActor::new(
+        nexrad_config,
+        odin_nexrad::actor::server_init_action( pre_server.to_actor_handle(), nexrad_id, nexrad_wms.clone()),
+        odin_nexrad::actor::server_update_action( pre_server.to_actor_handle(), nexrad_wms.clone()),
+        odin_nexrad::actor::server_mosaic_action( pre_server.to_actor_handle())
+    ))?;
+    let svc_list = svc_list.add( build_service!( let hnexrad = hnexrad.clone(), let wms = nexrad_wms.clone() => NexradService::new( hnexrad, wms)));
 
     //--- spawn the GOES-R actors
     let goesr_sat_configs = vec![ "goes_18.ron", "goes_19.ron" ];

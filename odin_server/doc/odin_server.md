@@ -343,6 +343,54 @@ run_actor_system!( actor_system => {
 });
 ```
 
+## Server Configuration
+
+The `SpaServer` (and other servers built with `odin_server::spawn_server_task(..)`) are configured with a
+`ServerConfig`, which is normally loaded from a `spa_server.ron` file with `odin_server::load_config("spa_server.ron")`.
+As with all [odin_build](../odin_build/odin_build.md) configs this file is either embedded into the executable or
+looked up in the `configs/odin_server/` directory of the ODIN root dir (`$ODIN_ROOT`, the parent of the workspace,
+`~/.odin`), with bin specific overrides in `configs/<bin-crate>/<bin-name>/odin_server/`. If there is no external
+config the default `odin_server/configs/spa_server.ron` of the repository is used:
+
+```rust,ignore
+ServerConfig(
+    sock_addr: "127.0.0.1:9009", // <host>:<port> with IP address, DNS or mDNS/bonjour name (e.g. "beast.local:9009")
+    tls: None,
+    heartbeat_interval: Some( Duration( secs: 60, nanos: 0) ),
+
+    // optional user authentication/authorization (all resources are public without it)
+    //auth: Some( AuthConfig(
+    //    roles: ["viewer", "editor", "admin"],
+    //    methods: [Passkey, Totp],
+    //    session_ttl: "12h",
+    //    service_roles: { "odin_sentinel::sentinel_service::SentinelService": ["editor","admin"] },
+    //)),
+)
+```
+
+| field | description |
+|-------|-------------|
+| `sock_addr` | address the server listens on (see [Server Address](#server-address)) |
+| `tls` | if set the server uses HTTPS: `Some( TlsConfig( cert_path: "..", key_path: ".."))` with paths to PEM encoded certificate and key files (paths can contain environment variables such as `$ODIN_ROOT`). Certificates have to match the host name used by clients, i.e. TLS servers should use a DNS name for `sock_addr` |
+| `heartbeat_interval` | optional interval for periodic connection checks, which send `__ping__` messages to all websocket clients (keeping connections alive through proxies and detecting closed connections) and - if authentication is enabled - close connections with expired or revoked sessions and update user roles. `None` disables the checks |
+| `auth` | optional user authentication/authorization (`AuthConfig`), see [Authentication and Authorization](#authentication-and-authorization). Fields include `methods`, `roles`, `rp_id` (passkey relying party, i.e. the DNS name clients use), `session_ttl`, `service_roles`, `route_roles`, `ws_msg_roles` and `allow_insecure` (authentication over plain HTTP on non-loopback addresses) - see [auth.md](auth.md) for the complete list |
+
+Applications can modify the loaded config before passing it to the `SpaServer` constructor (e.g. `odin_live` sets the
+enabled authentication methods based on build features).
+
+### Server Address
+
+The `sock_addr` of the `ServerConfig` (e.g. in `spa_server.ron`) is a `<host>:<port>` spec, with `<host>` being either
+an IP address (`"127.0.0.1:9009"`, `"[::1]:9009"`, `"0.0.0.0:9009"` for all interfaces), a DNS name
+(`"odin.example.com:443"`) or a local network (mDNS/bonjour) name such as `"beast.local:9009"`. Names are resolved
+when the config is loaded (`odin_common::net::ServerAddr`). If a name resolves to several addresses - the bonjour name
+of the local machine usually resolves to the loopback address and the addresses of all network interfaces - the server
+listens on all of them (except of IPv6 link-local addresses), since clients can get any of them from their resolver.
+Server URLs (e.g. as printed on startup) use the configured name, which is required for TLS certificates and passkeys.
+
+Note that resolution of `.local` names on Linux requires an mDNS resolver (e.g. avahi with nss-mdns), and that DHCP
+assigned addresses can change - names are only resolved when the server starts.
+
 ## Authentication and Authorization
 
 Servers can optionally authenticate users (with passkeys, authenticator apps or passwords) and authorize access based on

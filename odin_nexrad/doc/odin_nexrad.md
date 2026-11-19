@@ -69,6 +69,43 @@ volume at 250m takes about 0.9sec (release build, 5sec debug build). The GeoTIFF
 overviews and a color table with the reflectivity scale of `nexrad-render`. Reflectivity below `min_dbz` (default 5
 dBZ, rendered black by `nexrad-render`) is transparent.
 
+## overview mosaic
+
+If `mosaic` is configured the actor periodically (`interval`, only if there were updates since the last one) computes an
+overview mosaic of all stations for each product, which is distributed as GeoJSON polygons of reflectivity bands. This
+is meant for wide area / low resolution display - the station layers remain the source for high resolution display
+and value lookup. Inputs are the latest time steps of all stations that are not older than `max_age` relative to the
+newest one. The mosaic is computed in five steps (see `odin_nexrad::mosaic`):
+
+1. the station grids are reduced to about the mosaic resolution (`resolution_m`, default 1km) by averaging linear
+   reflectivity (Z = 10^(dBZ/10), the physical area mean, which is dominated by strong echoes). Cells that are mostly
+   range folded are missing data
+2. the reduced grids are blended onto the mosaic grid (which covers the max range of all configured stations),
+   preferring the station nearest to each cell. Stations that are less than `blend_m` (default 20km) farther away than
+   the nearest one contribute with linearly decreasing weights, and weights also taper off towards the max range of a
+   station. This avoids seams where the preferred station changes, which would otherwise show up as contour edges
+3. gaussian smoothing (`smooth_m` sigma, default 1.5km)
+4. GDAL contouring into polygons for each band between `levels` (default 10, 20, 30, 40, 50 dBZ - widespread
+   stratiform rain is mostly 10-25 dBZ, hence the low first level)
+5. polygon simplification (`simplify_m` tolerance, default 250m) and removal of polygons and holes smaller than
+   `min_area_km2` (default 4km²)
+
+Blending and smoothing are done in dBZ with "no echo" being 5 dBZ below the lowest level. Each band is a GeoJSON
+MultiPolygon feature with `lo`, `hi` (dBZ, `hi` is null for the top band) and `color` (reflectivity scale, clients can
+override it) properties. The FeatureCollection has an additional `stations` member with the used station time steps.
+
+Mosaics are the overview time steps. Each one is stored as `<cache>/mosaic/<product>_mosaic_<date>.geojson`, where
+`<date>` is the newest scan time of the used station time steps. A new mosaic with the same date as the previous one
+(e.g. because a delayed time step of another station came in) replaces it. The actor keeps the last `max_mosaics`
+(default 12) per product, removes the files of dropped ones and restores mosaics from these files on startup.
+
+For a widespread storm over all five configured stations (Nov 18 2026, ~8-10% of the 1326x1385km mosaic area above
+10 dBZ) a mosaic takes ~130-145ms per product on an M4 Max (release build): reading and reducing the station grids
+~50ms, blending ~4ms, smoothing ~3ms, contouring ~45ms and simplification ~30ms. The result has ~300-360 polygons
+with ~15-19k vertices (~50-60k without simplification), i.e. 300-375KB of GeoJSON (~250KB with `simplify_m: 500`).
+Reduced station grids are cached by the actor, so only new time steps have to be read. Use the `nexrad_mosaic` tool
+to tune parameters.
+
 ## operation
 
 The `NexradActor` initializes its store from the product files in the cache (removing files that are not needed
@@ -101,13 +138,13 @@ The "NEXRAD Radar" window has the following panels:
   De-selected stations keep their time step as a hidden layer. Stations are also shown on the map, selecting a station
   symbol selects the station in the list, double click in the list zooms to the station. Zooming in on a station
   shows an info label with its name, displayed time step and age, and latest scan time
-- **time cursor** - what is displayed is determined by a time cursor T (shown left of the "show latest of selected"
+- **time cursor** - what is displayed is determined by a time cursor T (shown left of the "latest showing"
   checkbox): each shown station displays its newest time step <= T of the active product, unless that is older than
-  T - max age (display panel). With "show latest of selected" T is the newest time step of the shown stations and
+  T - max age (display panel). With "latest showing" T is the newest time step of the shown stations and
   follows new imports
 - **time steps** - one tab per product ("base", "composite") with the time steps of all shown stations (newest on
   top), with station id and a "show" checkbox for each, i.e. the checked entries are what is displayed. The list
-  controls below the tabs step the time cursor through the time steps of the active tab (resetting "show latest"),
+  controls below the tabs step the time cursor through the time steps of the active tab (resetting "latest showing"),
   the clear button hides all time steps. Explicitly checking/unchecking a time step (manual mode) only changes the
   display of its station
 - **display** - "nearest station on top" (default on) re-stacks the displayed layers after each camera move so that
@@ -117,19 +154,31 @@ The "NEXRAD Radar" window has the following panels:
   all layers. Initial values are set in `odin_nexrad_config.js` (`nearestOnTop`, `maxAge`, `opacity`)
 - **value** - the value of all displayed time steps at a map position can be looked up with the "pick" button or
   shift+click (WMS GetFeatureInfo). The age column shows the age of the respective time step at the time cursor
+- **overview** - the "overview" checkbox (right of "latest showing") shows server mosaics of the active product
+  instead of the station layers (which are hidden but kept). Selecting it checks all stations as shown since mosaics
+  include all of them (unchecking a station turns the overview off). In overview mode the product tabs list the
+  mosaics ("ovw" entries, newest on top) instead of the station time steps, and "latest showing", the "show"
+  checkboxes and the list controls work on mosaics the same way as for station time steps. The time cursor shows the
+  date of the displayed mosaic, the station list and ages refer to the station time steps used in it. Without "latest
+  showing" switching between overview and station display keeps the time, i.e. the overview shows the newest mosaic
+  at or before the station time cursor and vice versa. GeoJSON files are only loaded when displayed. Pick shows the
+  reflectivity band at the position. `odin_nexrad_config.js` sets the initial state (`overview`, default on) and the band fill
+  colors (`overviewColors` - `[dBZ, color]` pairs, a band gets the color of the highest entry <= its lower bound)
 
 ## server routes and messages
 
 | route | description |
 |-------|-------------|
 | `<app>/nexrad/wms` | WMS (GetCapabilities, GetMap, GetFeatureInfo) for all product time steps |
+| `<app>/nexrad/mosaic/<file>` | overview mosaic GeoJSON files |
 
-Websocket messages are `snapshot` (products and all stations with positions, extents and time steps, sent to new
-connections) and `update` (added and removed time steps of a station).
+Websocket messages are `snapshot` (products, all stations with positions, extents and time steps and all stored
+mosaics, sent to new connections), `update` (added and removed time steps of a station) and `mosaic` (product, date,
+file and the used station time steps of a new mosaic plus the dates of mosaics it dropped).
 
 ## configuration
 
-`configs/nexrad.ron` (`NexradConfig`):
+`configs/norcal_nexrad.ron` (`NexradConfig` for Northern California stations):
 
 ```rust,ignore
 NexradConfig (
@@ -145,6 +194,8 @@ NexradConfig (
     retry_delay: "1m",   // retry interval if the volume is not available yet
     keep_volumes: false,
     stations_csv: Some("$ODIN_ROOT/data/odin_nexrad/Weather_Radar_Stations.csv"),
+    mosaic: Some(( interval: "2m", max_age: "15m", max_mosaics: 12, resolution_m: 1000.0, smooth_m: 1500.0, blend_m: 20000.0,
+                   simplify_m: 250.0, min_area_km2: 4.0, levels: [10.0, 20.0, 30.0, 40.0, 50.0] )), // None: no mosaic
     wms: ( title: "ODIN NEXRAD WMS", max_cache: 268435456, max_renders: 4, max_downsample: 64.0 ),
 )
 ```
@@ -169,7 +220,15 @@ nexrad_timing --decode KMUX
 nexrad_timing --all --ron station_timings.ron
 ```
 
-Both tools use `nexrad.ron` (bucket, region, stations, station CSV) if it is available.
+`nexrad_mosaic` computes the mosaics of the cached time steps and shows the time spent in each step and the size of
+the result. Options override the `mosaic` config values:
+
+```sh
+nexrad_mosaic --simplify 500 --levels 15,25,35,45 --out /tmp/mosaic
+```
+
+All tools use the NexradConfig given by `--config` (default `norcal_nexrad.ron`) for bucket, region, stations and
+station CSV if it is available.
 
 ## S3 access
 
@@ -180,19 +239,20 @@ directories of a date) and `get_s3_object_bytes`. The AWS access of the `nexrad-
 ## running
 
 ```sh
-cargo run --bin show_nexrad
+cargo run --bin show_nexrad [-- --config <nexrad-config>]
 ```
 
-starts a stand-alone server (`http://127.0.0.1:9009/nexrad` with the default `spa_server.ron`). Applications use the
-actor and service like this:
+starts a stand-alone server (`http://127.0.0.1:9009/nexrad` with the default `spa_server.ron`) for the given
+NexradConfig (default `norcal_nexrad.ron`). Applications such as `odin_live` use the actor and service like this:
 
 ```rust,ignore
-let config: NexradConfig = odin_nexrad::load_config("nexrad.ron")?;
+let config: NexradConfig = odin_nexrad::load_config("norcal_nexrad.ron")?;
 let wms = NexradWms::new( &config); // shared between the actor actions and the service
 let hnexrad = spawn_actor!( actor_system, "nexrad", NexradActor::new(
     config,
     server_init_action( hserver.clone(), "nexrad", wms.clone()),
-    server_update_action( hserver.clone(), wms.clone())
+    server_update_action( hserver.clone(), wms.clone()),
+    server_mosaic_action( hserver.clone())
 ))?;
 let svc_list = svc_list.add( build_service!( let hnexrad = hnexrad.clone(), let wms = wms.clone() => NexradService::new( hnexrad, wms)));
 ```
@@ -200,6 +260,7 @@ let svc_list = svc_list.add( build_service!( let hnexrad = hnexrad.clone(), let 
 ## tests
 
 `tests/test_nexrad.rs` covers config parsing, volume names, timing statistics, reflectivity encoding and palette,
-station lookup, product names, the store and cache rebuild. Decoding and product computation of a real volume are
+station lookup, product names, the store and cache rebuild. `tests/test_mosaic.rs` covers grid reduction, station
+blending (including seam continuity), smoothing, contouring, mosaic input selection, the mosaic history of the store and mosaic restore from files with synthetic data. Decoding and product computation of a real volume are
 tested if `ODIN_NEXRAD_SAMPLES` points to a directory with `KMUX20261116_235440_V06`, S3 listings are tested if
 `ODIN_NEXRAD_S3` is set.

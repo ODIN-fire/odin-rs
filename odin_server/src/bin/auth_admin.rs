@@ -120,7 +120,8 @@ fn base_url (config: &ServerConfig)->String {
     let proto = if config.tls.is_some() { "https" } else { "http" };
     let ip = config.sock_addr.ip();
     let rp_id = config.auth.as_ref().map( |a| a.rp_id.as_str()).unwrap_or("localhost");
-    let host = if ip.is_loopback() { "localhost".to_string() }
+    let host = if config.sock_addr.is_named() { config.sock_addr.url_host() } // explicitly configured name
+        else if config.sock_addr.is_loopback() { "localhost".to_string() }
         else if rp_id != "localhost" { rp_id.to_string() }
         else if ip.is_unspecified() { "<host>".to_string() } // bound to all interfaces - use --url
         else { ip.to_string() };

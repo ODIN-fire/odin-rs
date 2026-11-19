@@ -14,6 +14,7 @@ odin_macro = { workspace = true }
 odin_server = { workspace = true }
 odin_cesium = { workspace = true }
 odin_gdal = { workspace = true }
+gdal-sys = { workspace = true }
 
 nexrad = { workspace = true, features = ["data", "process", "render"] }
 tokio = { workspace = true }

@@ -22,11 +22,16 @@
 //!    + check_delay, see [`VolumeTiming`]), retrying every `retry_delay` until there is a new volume
 //!
 //! New volumes are downloaded, decoded and turned into product GeoTIFFs, which are sent to the actor. The actor
-//! updates its store, executes its update_action and then removes the files of dropped time steps
+//! updates its store, executes its update_action and then removes the files of dropped time steps.
+//!
+//! If configured, the actor also checks every `mosaic.interval` if there were updates since the last overview mosaic,
+//! in which case it computes new mosaics of all products (see [`crate::mosaic`]), adds them to the store (dropping the
+//! oldest ones above `mosaic.max_mosaics`), executes its mosaic_action and then removes the files of dropped mosaics.
+//! Mosaics are restored from the cache on startup
 
 use std::{path::{Path,PathBuf}, sync::Arc, time::Duration};
 use chrono::{DateTime, TimeDelta, Utc};
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 
 use odin_actor::prelude::*;
 use odin_actor::{error, warn, info, debug};
@@ -34,12 +39,13 @@ use odin_common::s3::S3Client;
 use odin_server::spa::{SpaServerMsg, DataAvailable, BroadcastWsMsg};
 
 use crate::{
-    CACHE_DIR, NexradConfig, NexradEntry, Station, VolumeInfo, VolumeTiming,
+    CACHE_DIR, NexradConfig, NexradEntry, NexradProduct, Station, VolumeInfo, VolumeTiming,
     configured_stations, create_s3_client, list_volumes, list_volumes_between, download_volume, decode_volume, volume_path,
     errors::{Result, op_failed},
     product::compute_products,
+    mosaic::{MosaicBuilder, MosaicUpdate, NexradMosaic, mosaic_inputs, load_cached_mosaics, remove_mosaic_files},
     store::{NexradStore, NexradUpdate, load_cached_store, remove_files},
-    service::{NexradWms, update_msg},
+    service::{NexradWms, update_msg, mosaic_msg},
 };
 
 /// defaults for the next volume estimate if a station does not have enough volumes for timing statistics
@@ -49,37 +55,62 @@ const DEFAULT_DELAY: Duration = Duration::from_secs(360);
 /// number of recent volumes we use for timing statistics
 const TIMING_WINDOW: usize = 10;
 
+/// timer id for mosaic checks
+const MOSAIC_TIMER: i64 = 1;
+
 //--- external messages
 #[derive(Debug)] pub struct ExecSnapshotAction( pub DynDataRefAction<NexradStore> );
 
 //--- internal messages (from our station tasks)
 #[derive(Debug)] pub struct ProductsComputed { pub(crate) station: String, pub(crate) entries: Vec<NexradEntry> }
+#[derive(Debug)] pub struct MosaicsComputed( pub(crate) Vec<NexradMosaic> );
 
-define_actor_msg_set! { pub NexradActorMsg = ExecSnapshotAction | ProductsComputed }
+define_actor_msg_set! { pub NexradActorMsg = ExecSnapshotAction | ProductsComputed | MosaicsComputed }
 
-pub struct NexradActor<I,U> where I: DataRefAction<NexradStore>, U: DataRefAction<NexradUpdate> {
+pub struct NexradActor<I,U,M> where I: DataRefAction<NexradStore>, U: DataRefAction<NexradUpdate>, M: DataRefAction<MosaicUpdate> {
     config: Arc<NexradConfig>,
     cache_dir: PathBuf,
     store: Option<NexradStore>, // initialized from our cache when we start
     tasks: Vec<JoinHandle<()>>, // one import task per station
 
+    mosaic_builder: Option<Arc<std::sync::Mutex<MosaicBuilder>>>, // if configured (keeps reduced station grids)
+    mosaic_timer: Option<AbortHandle>,
+    is_mosaic_outdated: bool, // there were updates since the last mosaic computation
+    is_mosaic_running: bool,
+
     init_action: I,   // executed once the store is initialized from the cache (before any import)
     update_action: U, // executed for each imported volume (and the time steps it replaces)
+    mosaic_action: M, // executed for each new mosaic and the ones it replaces (if configured)
 }
 
-impl<I,U> NexradActor<I,U> where I: DataRefAction<NexradStore>, U: DataRefAction<NexradUpdate> {
-    pub fn new (config: NexradConfig, init_action: I, update_action: U)->Self {
-        Self::with_cache_dir( config, CACHE_DIR.clone(), init_action, update_action)
+impl<I,U,M> NexradActor<I,U,M> where I: DataRefAction<NexradStore>, U: DataRefAction<NexradUpdate>, M: DataRefAction<MosaicUpdate> {
+    pub fn new (config: NexradConfig, init_action: I, update_action: U, mosaic_action: M)->Self {
+        Self::with_cache_dir( config, CACHE_DIR.clone(), init_action, update_action, mosaic_action)
     }
 
-    pub fn with_cache_dir (config: NexradConfig, cache_dir: PathBuf, init_action: I, update_action: U)->Self {
-        NexradActor { config: Arc::new(config), cache_dir, store: None, tasks: Vec::new(), init_action, update_action }
+    pub fn with_cache_dir (config: NexradConfig, cache_dir: PathBuf, init_action: I, update_action: U, mosaic_action: M)->Self {
+        NexradActor {
+            config: Arc::new(config), cache_dir, store: None, tasks: Vec::new(),
+            mosaic_builder: None, mosaic_timer: None, is_mosaic_outdated: true, is_mosaic_running: false,
+            init_action, update_action, mosaic_action
+        }
     }
 
     async fn start (&mut self, hself: ActorHandle<NexradActorMsg>)->Result<()> {
         let stations = configured_stations( &self.config);
-        let store = load_cached_store( stations.clone(), &self.config.products, self.config.max_downloads, &self.cache_dir);
+        let mut store = load_cached_store( stations.clone(), &self.config.products, self.config.max_downloads, &self.cache_dir);
         info!("initialized NEXRAD store with {} cached product time steps", store.entries().count());
+
+        if let Some(mc) = &self.config.mosaic {
+            match MosaicBuilder::new( mc.clone(), stations.clone(), self.config.min_dbz, &self.cache_dir) {
+                Ok(builder) => {
+                    store.mosaics = load_cached_mosaics( builder.dir(), &self.config.products, mc.max_mosaics);
+                    info!("restored {} cached NEXRAD mosaics", store.mosaics.len());
+                    self.mosaic_builder = Some( Arc::new( std::sync::Mutex::new( builder)));
+                }
+                Err(e) => warn!("NEXRAD mosaic disabled: {e}")
+            }
+        }
         self.init_action.execute( &store).await;
 
         let client = create_s3_client( &self.config).await?;
@@ -91,7 +122,53 @@ impl<I,U> NexradActor<I,U> where I: DataRefAction<NexradStore>, U: DataRefAction
         }
 
         self.store = Some(store);
+
+        if let (Some(mc), Some(_)) = (&self.config.mosaic, &self.mosaic_builder) {
+            self.mosaic_timer = Some( hself.start_repeat_timer( MOSAIC_TIMER, mc.interval, true)?);
+        }
         Ok(())
+    }
+
+    /// compute new mosaics of all products in a blocking task if there were updates since the last ones (and we
+    /// are not already computing). Results are sent back to us as MosaicsComputed messages
+    fn check_mosaics (&mut self, hself: ActorHandle<NexradActorMsg>) {
+        let (Some(builder), Some(store), Some(mc)) = (&self.mosaic_builder, &self.store, &self.config.mosaic) else { return };
+        if !self.is_mosaic_outdated || self.is_mosaic_running { return }
+
+        let inputs: Vec<(NexradProduct,Vec<NexradEntry>)> = self.config.products.iter().map( |p| {
+            let latest = store.stations.iter().filter_map( |s| s.product( *p).and_then( |pe| pe.latest()));
+            (*p, mosaic_inputs( latest, mc.max_age))
+        }).filter( |(_,es)| !es.is_empty()).collect();
+        if inputs.is_empty() { return }
+
+        self.is_mosaic_outdated = false;
+        self.is_mosaic_running = true;
+        let builder = builder.clone();
+        let res = spawn( "nexrad-mosaic", async move {
+            let mosaics = tokio::task::spawn_blocking( move || {
+                let mut builder = builder.lock().unwrap();
+                inputs.iter().filter_map( |(p,es)| match builder.build( *p, es) {
+                    Ok(m) => Some(m),
+                    Err(e) => { warn!("failed to compute {} mosaic: {e}", p.name()); None }
+                }).collect::<Vec<NexradMosaic>>()
+            }).await.unwrap_or_default();
+            let _ = hself.send_msg( MosaicsComputed( mosaics)).await;
+        });
+        if let Err(e) = res { warn!("failed to spawn mosaic task: {e}"); self.is_mosaic_running = false; }
+    }
+
+    async fn add_mosaics (&mut self, mosaics: Vec<NexradMosaic>) {
+        self.is_mosaic_running = false;
+        let max_mosaics = self.config.mosaic.as_ref().map( |mc| mc.max_mosaics).unwrap_or(1);
+        if let Some(store) = &mut self.store {
+            for m in mosaics {
+                info!("new {} mosaic {} ({} stations, {} polygons, {} vertices, {:?})", m.product.name(), m.date.format("%H:%M:%SZ"),
+                      m.stations.len(), m.n_polygons, m.n_vertices, m.compute_time);
+                let update = store.add_mosaic( m, max_mosaics);
+                self.mosaic_action.execute( &update).await;
+                remove_mosaic_files( &update.removed); // not referenced anymore
+            }
+        }
     }
 
     /// update the store and execute the update_action, then remove the files of dropped time steps (which are not
@@ -100,6 +177,7 @@ impl<I,U> NexradActor<I,U> where I: DataRefAction<NexradStore>, U: DataRefAction
         if let Some(store) = &mut self.store {
             let update = store.insert( &station, entries);
             if !update.is_empty() {
+                self.is_mosaic_outdated = true;
                 info!("new {} products (dropped {})", station, update.removed.len());
                 self.update_action.execute( &update).await;
                 remove_files( &update.removed);
@@ -116,8 +194,8 @@ impl<I,U> NexradActor<I,U> where I: DataRefAction<NexradStore>, U: DataRefAction
     }
 }
 
-impl_actor! { match msg for Actor<NexradActor<I,U>, NexradActorMsg>
-    where I: DataRefAction<NexradStore> + Send + Sync, U: DataRefAction<NexradUpdate> + Send + Sync
+impl_actor! { match msg for Actor<NexradActor<I,U,M>, NexradActorMsg>
+    where I: DataRefAction<NexradStore> + Send + Sync, U: DataRefAction<NexradUpdate> + Send + Sync, M: DataRefAction<MosaicUpdate> + Send + Sync
     as
 
     ExecSnapshotAction => cont! {
@@ -132,6 +210,17 @@ impl_actor! { match msg for Actor<NexradActor<I,U>, NexradActorMsg>
         self.add_products( msg.station, msg.entries).await;
     }
 
+    MosaicsComputed => cont! {
+        self.add_mosaics( msg.0).await;
+    }
+
+    _Timer_ => cont! {
+        if msg.id == MOSAIC_TIMER {
+            let hself = self.hself.clone();
+            self.check_mosaics( hself);
+        }
+    }
+
     _Start_ => cont! {
         let hself = self.hself.clone();
         if let Err(e) = self.start( hself).await { error!("failed to start NEXRAD import: {e}") }
@@ -139,6 +228,7 @@ impl_actor! { match msg for Actor<NexradActor<I,U>, NexradActorMsg>
 
     _Terminate_ => stop! {
         for task in &self.tasks { task.abort() }
+        if let Some(timer) = &self.mosaic_timer { timer.abort() }
     }
 }
 
@@ -283,6 +373,17 @@ pub fn server_update_action (hserver: ActorHandle<SpaServerMsg>, wms: Arc<Nexrad
         let hserver: ActorHandle<SpaServerMsg> = hserver => |update: &NexradUpdate| {
             wms.apply_update( update);
             let ws_msg = update_msg( update);
+            Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
+        }
+    )
+}
+
+/// mosaic_action for SpaServer integration: broadcasts the new mosaic (and the dropped ones) to all clients, which
+/// retrieve the GeoJSON through `nexrad/mosaic/<file>` if they display it
+pub fn server_mosaic_action (hserver: ActorHandle<SpaServerMsg>)->impl DataRefAction<MosaicUpdate> {
+    dataref_action!(
+        let hserver: ActorHandle<SpaServerMsg> = hserver => |update: &MosaicUpdate| {
+            let ws_msg = mosaic_msg( update);
             Ok( hserver.try_send_msg( BroadcastWsMsg{ws_msg})? )
         }
     )

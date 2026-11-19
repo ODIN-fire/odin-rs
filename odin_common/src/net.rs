@@ -349,3 +349,118 @@ pub async fn get_deserialized_cached_json_response<T,P> (url: &str, path: P)->Re
         Ok ( serde_json::from_str( &body).map_err(|e| OdinNetError::ParseError(e.to_string()))? )
     }
 }
+
+/* #region ServerAddr ***************************************************************************************************/
+
+/// a server (listen) address that is specified as `<host>:<port>`, with `<host>` being an IP address
+/// (`127.0.0.1:9009`, `[::1]:9009`), a DNS name (`odin.example.com:443`) or a local network (mDNS/bonjour) name
+/// (`beast.local:9009`). Names are resolved by the system resolver when the address is created (e.g. when a config is
+/// deserialized). Note that resolution of `.local` names on Linux requires an mDNS resolver (e.g. avahi with nss-mdns).
+///
+/// A name can resolve to several addresses - the name of the local machine (e.g. `beast.local` on macOS) typically
+/// resolves to the loopback address and the addresses of all network interfaces. Since clients can use any of them a
+/// server should listen on all [`bind_addrs`](Self::bind_addrs) (all resolved addresses except of IPv6 link-local ones,
+/// which would require interface scopes in URLs).
+///
+/// The primary socket address (the first non-loopback IPv4 address, if any) is accessible through `Deref`, i.e.
+/// `addr.ip()` and `addr.port()` work as with [`SocketAddr`]. The [`host`](Self::host) is kept for server URLs, which
+/// should use names if they were configured (e.g. for TLS certificates and passkeys). Serialization uses the original
+/// `<host>:<port>` spec.
+#[derive(Debug,Clone,PartialEq,Eq)]
+pub struct ServerAddr {
+    host: String,               // as specified (IPv6 addresses without brackets)
+    addr: SocketAddr,           // primary resolved address
+    bind_addrs: Vec<SocketAddr> // all addresses we listen on (includes addr)
+}
+
+impl ServerAddr {
+    /// parse and (if required) resolve a `<host>:<port>` spec
+    pub fn resolve (spec: &str)->Result<Self> {
+        use std::net::ToSocketAddrs;
+        let spec = spec.trim();
+
+        if let Ok(addr) = spec.parse::<SocketAddr>() { // plain IP address, no resolution required
+            return Ok( ServerAddr { host: addr.ip().to_string(), addr, bind_addrs: vec![addr] })
+        }
+
+        let (host, port) = spec.rsplit_once(':').ok_or_else( || OdinNetError::ParseError( format!("server address without port: '{spec}'")))?;
+        let host = host.trim_start_matches('[').trim_end_matches(']');
+        if host.is_empty() { return Err( OdinNetError::ParseError( format!("server address without host: '{spec}'"))) }
+        let port: u16 = port.parse().map_err( |_| OdinNetError::ParseError( format!("invalid server port in '{spec}'")))?;
+
+        let mut bind_addrs: Vec<SocketAddr> = Vec::new();
+        for a in (host, port).to_socket_addrs().map_err( |e| OdinNetError::NotFoundError( format!("failed to resolve server host '{host}': {e}")))? {
+            let is_link_local_v6 = match a.ip() { IpAddr::V6(ip) => ip.is_unicast_link_local(), _ => false };
+            if !is_link_local_v6 && !bind_addrs.contains( &a) { bind_addrs.push( a) }
+        }
+        let addr = bind_addrs.iter().find( |a| a.is_ipv4() && !a.ip().is_loopback())
+            .or_else( || bind_addrs.iter().find( |a| a.is_ipv4()))
+            .or( bind_addrs.first()).cloned()
+            .ok_or_else( || OdinNetError::NotFoundError( format!("no usable address for server host '{host}'")))?;
+
+        Ok( ServerAddr { host: host.to_string(), addr, bind_addrs })
+    }
+
+    /// the host as specified (name or IP address)
+    pub fn host (&self)->&str { &self.host }
+
+    /// the primary resolved socket address
+    pub fn socket_addr (&self)->SocketAddr { self.addr }
+
+    /// all resolved socket addresses a server should listen on
+    pub fn bind_addrs (&self)->&[SocketAddr] { &self.bind_addrs }
+
+    /// is this only reachable through loopback addresses
+    pub fn is_loopback (&self)->bool { self.bind_addrs.iter().all( |a| a.ip().is_loopback()) }
+
+    /// was the host specified as a name (as opposed to an IP address)
+    pub fn is_named (&self)->bool { self.host.parse::<IpAddr>().is_err() }
+
+    /// host part for URLs (IPv6 addresses in brackets)
+    pub fn url_host (&self)->String {
+        if self.host.contains(':') { format!("[{}]", self.host) } else { self.host.clone() }
+    }
+
+    /// `<host>:<port>` as used in URLs
+    pub fn authority (&self)->String { format!("{}:{}", self.url_host(), self.addr.port()) }
+}
+
+impl std::ops::Deref for ServerAddr {
+    type Target = SocketAddr;
+    fn deref (&self)->&SocketAddr { &self.addr }
+}
+
+impl From<SocketAddr> for ServerAddr {
+    fn from (addr: SocketAddr)->Self { ServerAddr { host: addr.ip().to_string(), addr, bind_addrs: vec![addr] } }
+}
+
+impl std::str::FromStr for ServerAddr {
+    type Err = OdinNetError;
+    fn from_str (s: &str)->Result<Self> { ServerAddr::resolve(s) }
+}
+
+impl std::fmt::Display for ServerAddr {
+    fn fmt (&self, f: &mut std::fmt::Formatter<'_>)->std::fmt::Result {
+        if self.is_named() {
+            let addrs: Vec<String> = self.bind_addrs.iter().map( |a| a.to_string()).collect();
+            write!( f, "{} ({})", self.authority(), addrs.join(", "))
+        } else {
+            write!( f, "{}", self.addr)
+        }
+    }
+}
+
+impl Serialize for ServerAddr {
+    fn serialize<S: serde::Serializer> (&self, serializer: S)->std::result::Result<S::Ok,S::Error> {
+        serializer.serialize_str( &self.authority())
+    }
+}
+
+impl<'de> Deserialize<'de> for ServerAddr {
+    fn deserialize<D: serde::Deserializer<'de>> (deserializer: D)->std::result::Result<Self,D::Error> {
+        let spec = String::deserialize( deserializer)?;
+        ServerAddr::resolve( &spec).map_err( serde::de::Error::custom)
+    }
+}
+
+/* #endregion ServerAddr */

@@ -41,6 +41,7 @@ pub mod errors;
 use errors::{Result, op_failed};
 
 pub mod product;
+pub mod mosaic;
 pub mod store;
 pub mod actor;
 pub mod service;
@@ -114,6 +115,11 @@ pub struct NexradConfig {
     #[serde(default)]
     pub stations_csv: Option<EnvPathBuf>,
 
+    /// optional overview mosaic of all stations, which is periodically computed and distributed as GeoJSON contour
+    /// polygons (see [`mosaic`])
+    #[serde(default)]
+    pub mosaic: Option<mosaic::MosaicConfig>,
+
     /// static WMS settings (title, cache, render limits) - layers are added dynamically for each product time step
     pub wms: WmsConfig,
 }
@@ -156,8 +162,7 @@ impl NexradProduct {
 
 // product GeoTIFFs store reflectivity as 8 bit codes with 0.5 dBZ resolution, using the same encoding as Level II
 // reflectivity data (WSR-88D ICD: scale 2.0, offset 66.0), i.e. this does not lose any precision of the source data
-// (in radar speak a "gate" is the time window in which to process the returned signal, which effectively is defining
-// the max supported range)
+// (in radar speak a "range gate" is a distance interval along the beam)
 
 /// code for gates with signal below the detection threshold (rendered transparent)
 pub const REF_BELOW_THRESHOLD: u8 = 0;

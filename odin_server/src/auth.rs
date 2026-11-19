@@ -87,9 +87,9 @@ mod imp {
         /// create the auth context for a server. This fails if authentication would be done over plain HTTP on a
         /// non-loopback address (unless `allow_insecure` is set) or if the auth config is inconsistent
         pub async fn new (server_config: &ServerConfig, auth_config: &AuthConfig)->OdinServerResult<Self> {
-            let sock_addr = server_config.sock_addr;
+            let sock_addr = &server_config.sock_addr;
             let is_tls = server_config.tls.is_some();
-            if !is_tls && !sock_addr.ip().is_loopback() && !auth_config.allow_insecure {
+            if !is_tls && !sock_addr.is_loopback() && !auth_config.allow_insecure {
                 return Err( op_failed( format!("authentication over plain HTTP on non-loopback address {sock_addr} requires TLS or 'allow_insecure: true'")))
             }
             let origins = server_origins( server_config, auth_config);

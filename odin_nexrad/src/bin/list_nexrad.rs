@@ -40,18 +40,22 @@ struct Args {
     #[arg(long)]
     hours: Option<u32>,
 
-    /// S3 bucket (default from nexrad.ron or unidata-nexrad-level2)
+    /// NexradConfig file (bucket, region, default stations, station CSV)
+    #[arg(long, default_value="norcal_nexrad.ron")]
+    config: String,
+
+    /// S3 bucket (default from config or unidata-nexrad-level2)
     #[arg(long)]
     bucket: Option<String>,
 
-    /// station ids (default: stations of nexrad.ron)
+    /// station ids (default: stations of config)
     station_ids: Vec<String>,
 }
 
 #[tokio::main]
 async fn main ()->Result<()> {
     let args = Args::parse();
-    let config: Option<NexradConfig> = load_config("nexrad.ron").ok();
+    let config: Option<NexradConfig> = load_config( &args.config).ok();
     let bucket = args.bucket.clone().or( config.as_ref().map( |c| c.bucket.clone())).unwrap_or( DEFAULT_BUCKET.to_string());
     let region = config.as_ref().map( |c| c.region.clone()).unwrap_or( DEFAULT_REGION.to_string());
     let csv_stations: Vec<Station> = config.as_ref().and_then( |c| c.stations_csv.as_ref())
@@ -73,7 +77,7 @@ async fn main ()->Result<()> {
     }
 
     let ids = if !args.station_ids.is_empty() { args.station_ids.clone() } else {
-        config.as_ref().map( |c| c.stations.clone()).ok_or( anyhow!("no station ids given and no nexrad.ron config"))?
+        config.as_ref().map( |c| c.stations.clone()).ok_or( anyhow!("no station ids given and no {} config", args.config))?
     };
 
     for id in &ids {

@@ -5,7 +5,7 @@ NexradConfig (
     region: "us-east-1",
 
     // ICAO ids of imported stations (see `list_nexrad --stations` and `nexrad_timing --all`)
-    stations: [ "KMUX", "KDAX", "KBBX", "KHNX", "KBHX" ],
+    stations: [ "KMUX", "KDAX", "KBBX", "KHNX", "KBHX", "KRGX", "KMAX", "KVBX" ],
 
     products: [ BaseReflectivity, CompositeReflectivity ],
     resolution_m: 250.0, // product grid cell size [m] (Level II gate interval). Grid extents are computed from max sweep ranges
@@ -20,6 +20,19 @@ NexradConfig (
 
     keep_volumes: false, // keep downloaded Level II volumes (for analysis of polar data)
     stations_csv: Some("$ODIN_ROOT/data/odin_nexrad/Weather_Radar_Stations.csv"), // fallback station positions
+
+    // overview mosaic of all stations (latest time steps), distributed as GeoJSON reflectivity band polygons
+    mosaic: Some((
+        interval: "2m",        // check for updates since the last mosaic
+        max_age: "15m",        // max age of used station time steps relative to the newest one
+        max_mosaics: 12,       // mosaics (overview time steps) we keep per product
+        resolution_m: 1000.0,  // mosaic cell size [m]
+        smooth_m: 1500.0,      // gaussian smoothing sigma [m]
+        blend_m: 20000.0,      // transition zone between stations and towards the max range of stations [m]
+        simplify_m: 250.0,     // polygon simplification tolerance [m]
+        min_area_km2: 4.0,     // drop smaller polygons and holes
+        levels: [ 10.0, 20.0, 30.0, 40.0, 50.0 ], // lower band bounds [dBZ]
+    )),
 
     wms: (
         title: "ODIN NEXRAD WMS",

@@ -30,6 +30,7 @@ use tokio::task::JoinHandle;
 
 use odin_build::prelude::*;
 use odin_common::{fs::{self, get_filename_extension}, if_let, net, strings};
+pub use odin_common::net::ServerAddr;
 
 pub mod prelude;
 pub mod spa;
@@ -51,7 +52,9 @@ type Result<T> = OdinServerResult<T>;
 
 #[derive(Deserialize,Serialize,Debug)]
 pub struct ServerConfig {
-    pub sock_addr: SocketAddr,
+    /// the address the server listens on as `<host>:<port>`, with host being an IP address, a DNS name or a local
+    /// network (mDNS/bonjour) name such as `beast.local` (see [`ServerAddr`])
+    pub sock_addr: ServerAddr,
     pub tls: Option<TlsConfig>, // if set use TLS (https)
     pub heartbeat_interval: Option<Duration>,
 
@@ -61,9 +64,10 @@ pub struct ServerConfig {
 }
 
 impl ServerConfig {
+    /// the server URL. This uses the configured host name (if any) instead of the resolved IP address
     pub fn url(&self) -> String {
         let proto = if self.tls.is_some() {"https"} else {"http"};
-        format!("{}://{}", proto, self.sock_addr)
+        format!("{}://{}", proto, self.sock_addr.authority())
     }
 }
 
@@ -92,23 +96,47 @@ fn build_ok_response (content_type: &str, encoding: Option<&str>, bytes: Bytes)-
     builder.body( Body::from(bytes)).unwrap()
 }
 
+/// spawn the server task. If the configured host name resolves to several addresses (e.g. the mDNS/bonjour name of
+/// the local machine) the server listens on all of them (see [`ServerAddr::bind_addrs`]). Addresses that cannot be bound
+/// are reported but only fail the server if none of them can be bound
 pub fn spawn_server_task (config: &ServerConfig, router: Router) -> JoinHandle<()> {
-    let sock_addr = config.sock_addr.clone();
-    let router_svc = router.into_make_service_with_connect_info::<SocketAddr>();
+    let bind_addrs = config.sock_addr.bind_addrs().to_vec();
+    let tls = config.tls.clone();
 
-    if let Some(tls) = &config.tls {
-        let cert_path = strings::env_expand( &tls.cert_path);
-        let key_path = strings::env_expand( &tls.key_path);
-        tokio::spawn( async move {
-            let tls_config = RustlsConfig::from_pem_file(PathBuf::from(cert_path), PathBuf::from(key_path)).await.unwrap();
-            axum_server::bind_rustls( sock_addr, tls_config).serve( router_svc).await.unwrap();
-        })
-    } else {
-        tokio::spawn( async move {
-            let listener = tokio::net::TcpListener::bind(sock_addr).await.unwrap();
-            axum::serve( listener, router_svc).await.unwrap();
-        })
-    }
+    tokio::spawn( async move {
+        let tls_config = if let Some(tls) = &tls {
+            let cert_path = strings::env_expand( &tls.cert_path);
+            let key_path = strings::env_expand( &tls.key_path);
+            Some( RustlsConfig::from_pem_file(PathBuf::from(cert_path), PathBuf::from(key_path)).await.unwrap())
+        } else {
+            None
+        };
+
+        let mut servers = tokio::task::JoinSet::new();
+        for addr in bind_addrs {
+            let router_svc = router.clone().into_make_service_with_connect_info::<SocketAddr>();
+            match std::net::TcpListener::bind( addr) {
+                Ok(listener) => {
+                    listener.set_nonblocking(true).unwrap();
+                    if let Some(tls_config) = &tls_config {
+                        let tls_config = tls_config.clone();
+                        servers.spawn( async move {
+                            axum_server::from_tcp_rustls( listener, tls_config).unwrap().serve( router_svc).await.unwrap();
+                        });
+                    } else {
+                        servers.spawn( async move {
+                            let listener = tokio::net::TcpListener::from_std( listener).unwrap();
+                            axum::serve( listener, router_svc).await.unwrap();
+                        });
+                    }
+                }
+                Err(e) => eprintln!("failed to bind server address {addr}: {e}")
+            }
+        }
+
+        if servers.is_empty() { panic!("server could not bind any address") }
+        servers.join_all().await;
+    })
 }
 
 //--- handler utility functions

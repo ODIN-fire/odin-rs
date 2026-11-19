@@ -34,7 +34,7 @@ fn volume (h: u32, m: u32, s: u32, delay_secs: i64)->VolumeInfo {
 
 #[test]
 fn test_config () {
-    let cfg: NexradConfig = ron::from_str( include_str!("../configs/nexrad.ron")).unwrap();
+    let cfg: NexradConfig = ron::from_str( include_str!("../configs/norcal_nexrad.ron")).unwrap();
     assert_eq!( cfg.bucket, DEFAULT_BUCKET);
     assert_eq!( cfg.products, vec![ NexradProduct::BaseReflectivity, NexradProduct::CompositeReflectivity ]);
     assert_eq!( cfg.check_delay, Duration::from_secs(30));
@@ -271,7 +271,7 @@ fn test_compute_products () {
     }
 
     // WMS layer with value lookup
-    let cfg: NexradConfig = ron::from_str( include_str!("../configs/nexrad.ron")).unwrap();
+    let cfg: NexradConfig = ron::from_str( include_str!("../configs/norcal_nexrad.ron")).unwrap();
     let wms = service::NexradWms::new( &cfg);
     wms.add_entry( &entries[0]).unwrap();
     let layer = wms.wms.layer( &entries[0].layer_name()).unwrap();

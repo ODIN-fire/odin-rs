@@ -18,7 +18,7 @@
 // a WMS layer of our server. Stations are shown on the map and listed in the window, the "show" checkbox of a station
 // determines if it contributes to the display. The product tabs list the time steps of all shown stations (newest first)
 // and each station displays at most one time step at a time. What is displayed is determined by a time cursor:
-//  - "show latest of selected": the cursor is the newest time step of the shown stations (following new imports)
+//  - "latest showing": the cursor is the newest time step of the shown stations (following new imports)
 //  - stepping (list controls): the cursor is the selected time step
 // For a cursor T each station displays its newest time step <= T that is not older than T - maxAge (display panel).
 // Where stations overlap the layer of the station that is closest to the view center can be put on top (display panel),
@@ -26,6 +26,12 @@
 // Explicitly checking/unchecking a time step (manual mode) only changes the respective station.
 // Ages (station and value lists, station info labels) are relative to the time cursor (or the newest displayed time
 // step in manual mode)
+// Alternatively the "overview" checkbox shows server computed mosaics of all stations (odin_nexrad::mosaic) as smoothed
+// reflectivity band polygons instead of the station layers. Selecting it enables all stations. Mosaics are computed
+// periodically from the latest time steps of all stations and have their own time steps (the newest scan time of their
+// inputs), which replace the station time steps in the product tabs while in overview mode. "latest showing" and the
+// list controls work the same way for mosaics. Station views and ages refer to the station time steps of the displayed
+// mosaic. Switching between modes keeps the time (if "latest showing" is not set)
 
 import { config } from "./odin_nexrad_config.js";
 
@@ -60,11 +66,19 @@ var maxAge = config.maxAge; // [min] stations don't display time steps that are 
 var isNearestOnTop = config.nearestOnTop; // order layers of overlapping stations by distance to view center
 var isLayerVisible = config.layer.show; // layer panel visibility
 
+// product name -> [ mosaic,.. ] (newest first) with mosaic: { isMosaic: true, product, date, file, stations: [{id,date},..] }
+var mosaics = {};
+var isOverview = config.overview;
+var overviewShown = undefined; // the displayed mosaic (of the active product)
+var overviewDs = undefined;    // Cesium.GeoJsonDataSource of the displayed mosaic
+var overviewFile = undefined;  // file of the displayed (or loading) mosaic
+
 var stationView = undefined;
 var entryViews = {}; // product name -> list
 var valueView = undefined;
 var cursorText = undefined;
 var showLatestCb = undefined;
+var overviewCb = undefined;
 var pickBtn = undefined;
 var isPicking = false;
 var nexradWindow = undefined;
@@ -106,7 +120,9 @@ function createWindow() {
             (stationView = ui.List(WID + ".stations", 6, selectStation, null, null, zoomToStation)),
             ui.RowContainer()(
                 (cursorText = ui.VarText( null, WID + ".cursor", "12rem")),
-                (showLatestCb = ui.CheckBox("show latest of selected", toggleShowLatest, WID + ".showLatest", config.showLatest))
+                (showLatestCb = ui.CheckBox("latest showing", toggleShowLatest, WID + ".showLatest", config.showLatest)),
+                ui.HorizontalSpacer(1),
+                (overviewCb = ui.CheckBox("overview", toggleOverview, WID + ".overview", isOverview))
             ),
             ui.RowContainer("start")(
                 ui.ColumnContainer("align_right")(
@@ -159,8 +175,8 @@ function initValueView() {
 
 function initEntryView (productName) {
     ui.setListItemDisplayColumns( entryViews[productName], ["fit", "header"], [
-        { name: "show", tip: "show time step (resets 'show latest')", width: "2.5rem", attrs: [], map: e => ui.createCheckBox( isShown(e), toggleShowEntry) },
-        { name: "id", width: "3.5rem", attrs: [], map: e => e.station },
+        { name: "show", tip: "show time step (resets 'latest showing')", width: "2.5rem", attrs: [], map: e => ui.createCheckBox( isShown(e), toggleShowEntry) },
+        { name: "id", tip: "station (or 'ovw' for overview mosaics)", width: "3.5rem", attrs: [], map: e => e.isMosaic ? "ovw" : e.station },
         ui.listItemSpacerColumn(0.5),
         { name: "scan time", width: "9rem", attrs: ["fixed", "alignRight"], map: e => util.toLocalMDHMSString( e.date) }
     ]);
@@ -231,9 +247,9 @@ function createStationInfoEntity (s) {
 
 function stationInfoText (s) {
     let lines = [];
-    let v = shown.get( s.id);
+    let v = isOverview ? overviewStationEntry( s) : shown.get( s.id);
     if (v) {
-        let product = productLabel(v.product);
+        let product = productLabel(v.product) + (isOverview ? " (overview)" : "");
         lines.push(product);
         lines.push(util.toLocalHMTimeString(v.entry.date));
         let age = ageString(v.entry);
@@ -291,16 +307,25 @@ function isStationEnabled (s) {
     return !disabledStations.has( s.id);
 }
 
-// a station has a visible time step (shown and enabled)
+// a station has a visible time step (shown and enabled, or used in the displayed mosaic)
 function isDisplayed (s) {
-    return shown.has( s.id) && isStationEnabled( s);
+    return isOverview ? overviewStationEntry( s) !== undefined : shown.has( s.id) && isStationEnabled( s);
+}
+
+// visibility of the station layer (if shown)
+function isStationLayerVisible (id) {
+    return isLayerVisible && !isOverview && !disabledStations.has( id);
 }
 
 function toggleStationEnabled (event) {
     let cb = ui.getCheckBox( event.target);
     if (cb) {
         let s = ui.getListItemOfElement( cb);
-        if (s) setStationEnabled( s, ui.isCheckBoxSelected( cb));
+        if (s) {
+            let isEnabled = ui.isCheckBoxSelected( cb);
+            if (!isEnabled && isOverview) setOverview( false); // mosaics always include all stations
+            setStationEnabled( s, isEnabled);
+        }
     }
 }
 
@@ -310,7 +335,7 @@ function setStationEnabled (s, isEnabled) {
     if (isEnabled) disabledStations.delete( s.id); else disabledStations.add( s.id);
 
     let v = shown.get( s.id);
-    if (v) v.layer.show = isLayerVisible && isEnabled;
+    if (v) v.layer.show = isStationLayerVisible( s.id);
 
     updateEntryViews();
     if (isShowLatest()) showLatestOfAll(); // the newest time step of the shown stations might have changed
@@ -320,12 +345,13 @@ function setStationEnabled (s, isEnabled) {
     odinCesium.requestRender();
 }
 
-// the entry views list the time steps of all shown stations (newest first). This preserves the selection
+// the entry views list the time steps of all shown stations or (in overview mode) the mosaics (newest first). This
+// preserves the selection
 function updateEntryViews() {
     config.products.forEach( p => {
         let list = entryViews[p.name];
         let sel = ui.getSelectedListItem( list);
-        ui.setListItems( list, mergedEntries( p.name));
+        ui.setListItems( list, isOverview ? (mosaics[p.name] || []) : mergedEntries( p.name));
         if (sel && ui.getElementOfListItem( list, sel)) ui.setSelectedListItem( list, sel);
     });
 }
@@ -343,7 +369,12 @@ function mergedEntries (productName) {
 /* #region time step display ****************************************************************************************/
 
 function selectProductTab (productName) {
+    let t = overviewShown ? overviewShown.date : undefined;
     activeProduct = productName;
+    if (isOverview) {
+        if (isShowLatest()) showLatestMosaic();
+        else if (t !== undefined) showMosaic( mosaicAt( activeProduct, t));
+    }
     if (isShowLatest()) showLatestOfAll();
     else if (cursorTime !== undefined) showTimeSlice( cursorTime);
 }
@@ -352,13 +383,16 @@ function isShowLatest() {
     return ui.isCheckBoxSelected( showLatestCb);
 }
 
+// this applies to both station time steps and mosaics (the mode we don't display keeps up to date)
 function toggleShowLatest (event) {
     if (isShowLatest()) {
         Object.values( entryViews).forEach( list => ui.clearSelectedListItem( list));
         showLatestOfAll();
+        if (isOverview) showLatestMosaic();
     } else {
         cursorTime = undefined;
         hideAll();
+        if (isOverview) showMosaic( undefined);
         updateCursor();
     }
 }
@@ -387,6 +421,7 @@ function entryAt (s, productName, t) {
 }
 
 function isShown (e) {
+    if (e.isMosaic) return e === overviewShown;
     let v = shown.get( e.station);
     return v ? v.entry === e : false;
 }
@@ -395,6 +430,11 @@ function isShown (e) {
 function toggleShowEntry (event) {
     let cb = ui.getCheckBox( event.target);
     let e = cb ? ui.getListItemOfElement( cb) : null;
+    if (e && e.isMosaic) {
+        ui.setCheckBox( showLatestCb, false);
+        showMosaic( ui.isCheckBoxSelected(cb) ? e : undefined);
+        return;
+    }
     let s = e ? stations.get( e.station) : null;
     if (s) {
         ui.setCheckBox( showLatestCb, false); // explicit selection resets "show latest" (other stations keep their time steps)
@@ -410,17 +450,18 @@ function stepEntry (selectFn) {
     let list = entryViews[activeProduct];
     if (!list) return;
 
-    // if nothing is selected yet start from the current time cursor (if any)
-    if (!ui.getSelectedListItem( list) && cursorTime !== undefined) {
-        let e = mergedEntries( activeProduct).find( e => e.date <= cursorTime);
+    // if nothing is selected yet start from the current time cursor or displayed mosaic (if any)
+    if (!ui.getSelectedListItem( list)) {
+        let e = isOverview ? overviewShown
+                : (cursorTime !== undefined) ? mergedEntries( activeProduct).find( e => e.date <= cursorTime) : undefined;
         if (e) ui.setSelectedListItem( list, e);
     }
 
     selectFn( list);
     let e = ui.getSelectedListItem( list);
     if (e) {
-        ui.setCheckBox( showLatestCb, false); // explicit selection resets "show latest"
-        showTimeSlice( e.date);
+        ui.setCheckBox( showLatestCb, false); // explicit selection resets "latest showing"
+        if (e.isMosaic) showMosaic( e); else showTimeSlice( e.date);
     }
 }
 
@@ -430,12 +471,14 @@ function clearEntry() {
     ui.setCheckBox( showLatestCb, false);
     cursorTime = undefined;
     hideAll();
+    if (isOverview) showMosaic( undefined);
     clearValues();
     updateCursor();
 }
 
 // the reference time for ages: the time cursor, or the newest displayed time step in manual mode
 function referenceTime() {
+    if (isOverview) return overviewShown ? overviewShown.date : undefined;
     if (cursorTime !== undefined) return cursorTime;
     let dates = [...shown.values()].map( v => v.entry.date);
     return dates.length > 0 ? Math.max( ...dates) : undefined;
@@ -444,6 +487,7 @@ function referenceTime() {
 // the entry of a station for which we report the age: the displayed one, or the one that would be displayed at the
 // time cursor (if the station is not shown)
 function stationAgeEntry (s) {
+    if (isOverview) { let v = overviewStationEntry( s); return v ? v.entry : undefined; }
     let v = shown.get( s.id);
     if (v) return v.entry;
     return (cursorTime !== undefined) ? (s.products[activeProduct] || []).find( e => e.date <= cursorTime) : undefined;
@@ -456,7 +500,10 @@ function ageString (e) {
 
 function updateCursor() {
     let text;
-    if (cursorTime !== undefined) {
+    if (isOverview) {
+        text = overviewShown ? util.toLocalMDHMSString( overviewShown.date) + " (overview)"
+                             : ((mosaics[activeProduct] || []).length > 0 ? "-" : "no overview");
+    } else if (cursorTime !== undefined) {
         text = util.toLocalMDHMSString( cursorTime) + (isShowLatest() ? " (latest)" : "");
     } else {
         text = (shown.size > 0) ? "manual" : "-";
@@ -476,7 +523,7 @@ async function show (s, productName, e) {
         minificationFilter: Cesium.TextureMinificationFilter.NEAREST
     });
     layer.alpha = opacity;
-    layer.show = isLayerVisible && isStationEnabled( s);
+    layer.show = isStationLayerVisible( s.id);
     viewer.imageryLayers.add( layer);
 
     prev = shown.get( s.id); // might have changed while waiting
@@ -571,24 +618,155 @@ function viewCenter (viewer) {
 function opacityChanged (event) {
     opacity = ui.getSliderValue( event.target);
     for (let v of shown.values()) v.layer.alpha = opacity;
+    if (overviewDs) setOverviewColors( overviewDs);
     odinCesium.requestRender();
 }
 
 function showNexrad (cond) { // layer panel
     isLayerVisible = cond;
     stationDataSource.show = cond;
-    for (let [id,v] of shown.entries()) v.layer.show = cond && !disabledStations.has( id);
+    for (let [id,v] of shown.entries()) v.layer.show = isStationLayerVisible( id);
+    if (overviewDs) overviewDs.show = cond;
     odinCesium.requestRender();
 }
 
 /* #endregion time step display */
+
+/* #region overview *************************************************************************************************/
+
+function toggleOverview (event) {
+    setOverview( ui.isCheckBoxSelected( overviewCb));
+}
+
+// switch between station layers and server mosaics of the active product. Station layers are kept (hidden). Turning
+// the overview on enables all stations (mosaics include them) and shows the latest mosaic (if "latest showing" is set)
+// or the one at the current time. Turning it off shows the station time steps at the time of the displayed mosaic
+// (if "latest showing" is not set)
+function setOverview (cond) {
+    if (cond === isOverview) return;
+    let t = isShowLatest() ? undefined : referenceTime();
+    isOverview = cond;
+    ui.setCheckBox( overviewCb, cond);
+    Object.values( entryViews).forEach( list => ui.clearSelectedListItem( list));
+
+    if (cond) {
+        for (let id of [...disabledStations]) { let s = stations.get( id); if (s) setStationEnabled( s, true); }
+        if (isShowLatest()) showLatestMosaic(); else showMosaic( t !== undefined ? mosaicAt( activeProduct, t) : undefined);
+    } else {
+        if (!isShowLatest() && t !== undefined) showTimeSlice( t);
+        showMosaic( undefined);
+    }
+    for (let [id,v] of shown.entries()) v.layer.show = isStationLayerVisible( id);
+
+    updateEntryViews();
+    exitPickMode();
+    clearValues();
+    updateCursor();
+    odinCesium.requestRender();
+}
+
+// the newest mosaic of a product with a date <= t (undefined if none)
+function mosaicAt (productName, t) {
+    return (mosaics[productName] || []).find( m => m.date <= t);
+}
+
+function showLatestMosaic() {
+    showMosaic( (mosaics[activeProduct] || [])[0]);
+}
+
+// set the displayed mosaic (undefined hides the overview)
+function showMosaic (m) {
+    overviewShown = m;
+    if (m && isOverview) loadOverview( m); else hideOverview();
+    clearValues();
+    updateCursor();
+}
+
+// the station time step that is used in the displayed mosaic: { product, entry }
+function overviewStationEntry (s) {
+    let m = overviewShown;
+    let ms = (m && s) ? m.stations.find( x => x.id === s.id) : undefined;
+    if (!ms) return undefined;
+    let e = (s.products[m.product] || []).find( e => e.date === ms.date);
+    return { product: m.product, entry: e || { station: s.id, product: m.product, date: ms.date } };
+}
+
+// load the GeoJSON of a mosaic if it is not displayed (or loading) yet. The previous data source is only removed once
+// the new one is loaded (no flicker)
+async function loadOverview (m) {
+    if (m.file === overviewFile) return;
+
+    overviewFile = m.file;
+    try {
+        // mosaics can be replaced by ones with the same date (and file), i.e. we always revalidate
+        let response = await fetch( `${config.overviewUrl}/${m.file}`, { cache: "no-cache" });
+        if (!response.ok) throw new Error( response.statusText);
+        let data = await response.json();
+        let ds = await Cesium.GeoJsonDataSource.load( data, { clampToGround: true });
+        if (!isOverview || overviewFile !== m.file) return; // superseded while loading
+
+        setOverviewColors( ds);
+        ds.show = isLayerVisible;
+        let prev = overviewDs;
+        overviewDs = ds;
+        await odinCesium.addDataSource( ds);
+        if (prev) odinCesium.removeDataSource( prev);
+        console.log("NEXRAD overview", m.file, ":", ds.entities.values.length, "polygons");
+    } catch (err) {
+        console.log("failed to load NEXRAD overview", m.file, err);
+        if (overviewFile === m.file) overviewFile = undefined;
+    }
+    updateViews();
+    odinCesium.requestRender();
+}
+
+function hideOverview() {
+    if (overviewDs) odinCesium.removeDataSource( overviewDs);
+    overviewDs = undefined;
+    overviewFile = undefined;
+    odinCesium.requestRender();
+}
+
+// fill color of a band: the configured color with the highest dBZ <= the lower band bound, or the server default color
+function bandColor (e) {
+    let lo = e.properties && e.properties.lo ? e.properties.lo.getValue() : undefined;
+    let cc = (lo !== undefined) ? (config.overviewColors || []).filter( c => c[0] <= lo).pop() : undefined;
+    if (cc) return cc[1];
+    return e.properties && e.properties.color ? e.properties.color.getValue() : "#00ff00";
+}
+
+// band polygons are clamped to ground (no height)
+function setOverviewColors (ds) {
+    for (let e of ds.entities.values) {
+        if (e.polygon) {
+            e.polygon.material = new Cesium.ColorMaterialProperty( Cesium.Color.fromCssColorString( bandColor( e)).withAlpha( opacity));
+            e.polygon.outline = false;
+        }
+    }
+}
+
+// value lookup in overview mode: the reflectivity band at the screen position
+function lookupOverviewAt (x, y) {
+    let viewer = odinCesium.viewer;
+    let picked = viewer.scene.drillPick( new Cesium.Cartesian2(x, y));
+    let e = picked.map( p => p.id).find( e => e && overviewDs && overviewDs.entities.contains( e));
+    let value = "-";
+    if (e && e.properties) {
+        let lo = e.properties.lo.getValue();
+        let hi = e.properties.hi ? e.properties.hi.getValue() : null;
+        value = (hi !== null && hi !== undefined) ? `${lo}-${hi}` : `>${lo}`;
+    }
+    ui.setListItems( valueView, [{ id: "ovw", entry: overviewShown, value }]);
+}
+
+/* #endregion overview */
 
 /* #region value lookup *********************************************************************************************/
 
 function togglePickMode() {
     if (isPicking) {
         exitPickMode();
-    } else if (displayedLayers().size > 0) {
+    } else if (isOverview ? overviewDs !== undefined : displayedLayers().size > 0) {
         isPicking = true;
         ui.setElementColors( pickBtn, ui.getRootVar("--selected-data-color"), ui.getRootVar("--selection-background"));
         odinCesium.setCursor("crosshair");
@@ -617,7 +795,7 @@ function handleKeyDown (event) {
 function handleMouseClick (event) {
     if (isPicking || (event.shiftKey && ui.isTopWindow( nexradWindow))) {
         exitPickMode(); // picks are single shot
-        lookupAt( event.clientX, event.clientY);
+        if (isOverview) lookupOverviewAt( event.clientX, event.clientY); else lookupAt( event.clientX, event.clientY);
     }
 }
 
@@ -668,6 +846,7 @@ function handleWsMessages (msgType, msg) {
     switch (msgType) {
         case "snapshot": handleSnapshot( msg); break;
         case "update": handleUpdate( msg); break;
+        case "mosaic": handleMosaic( msg); break;
     }
 }
 
@@ -689,6 +868,10 @@ function handleSnapshot (msg) {
         stations.set( s.id, s);
     });
 
+    let shownMosaic = overviewShown;
+    mosaics = {};
+    (msg.mosaics || []).forEach( m => addMosaic( m));
+
     selectedStation = undefined;
     ui.setListItems( stationView, [...stations.values()]);
     updateEntryViews();
@@ -698,6 +881,10 @@ function handleSnapshot (msg) {
     if (isShowLatest()) showLatestOfAll();
     else if (cursorTime !== undefined) showTimeSlice( cursorTime);
     else updateCursor();
+    if (isOverview) {
+        if (isShowLatest()) showLatestMosaic();
+        else showMosaic( shownMosaic ? (mosaics[activeProduct] || []).find( m => m.date === shownMosaic.date) : undefined);
+    }
     odinCesium.requestRender();
 }
 
@@ -723,6 +910,39 @@ function handleUpdate (msg) {
 
     updateViews();
     odinCesium.requestRender();
+}
+
+// { product, date, file, stations: [{id,date},..], removed: [date,..] } - a new server mosaic and the dates of the ones
+// it replaced. A mosaic with the same date as a previous one replaces it (and its file). We only load the GeoJSON if it
+// is displayed
+function handleMosaic (msg) {
+    let shownDate = overviewShown ? overviewShown.date : undefined;
+    let m = addMosaic( msg);
+
+    if (isOverview && m.product === activeProduct) {
+        if (isShowLatest()) {
+            if (shownDate === m.date) overviewFile = undefined; // force reload of replaced file
+            showLatestMosaic();
+        } else if (shownDate === m.date) {
+            overviewFile = undefined;
+            showMosaic( m);
+        } else if (shownDate !== undefined && msg.removed.includes( shownDate)) {
+            showMosaic( undefined);
+        }
+    }
+    updateEntryViews();
+    updateViews();
+}
+
+// add a server mosaic to the (newest first) list of its product, replacing one with the same date and dropping removed ones
+function addMosaic (msg) {
+    let m = { isMosaic: true, product: msg.product, date: msg.date, file: msg.file, stations: msg.stations };
+    let removed = msg.removed || [];
+    let list = (mosaics[m.product] || []).filter( x => x.date !== m.date && !removed.includes( x.date));
+    list.push( m);
+    list.sort( (a,b) => b.date - a.date);
+    mosaics[m.product] = list;
+    return m;
 }
 
 /* #endregion websocket messages */
